@@ -17,6 +17,7 @@ internal static class Program
         Globals.AddTo(root);
         foreach (var c in ProjectCommands.All()) root.Subcommands.Add(c);
         root.Subcommands.Add(LibraryCommands.Create());
+        root.Subcommands.Add(WorkspaceCommands.Create());
         root.Subcommands.Add(TargetCommands.Target());
         root.Subcommands.Add(TargetCommands.Ads());
         root.Subcommands.Add(DoctorCommand.Create());

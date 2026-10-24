@@ -13,7 +13,7 @@ internal static class LibraryCommands
     public static Command Create()
     {
         var lib = new Command("lib", "PLC libraries: save, list, update references, install");
-        foreach (var c in new[] { Save(), List(), Info(), Update(), Outdated(), Installed(), Install(), Uninstall() })
+        foreach (var c in new[] { Save(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), Uninstall() })
             lib.Subcommands.Add(c);
         return lib;
     }
@@ -208,6 +208,42 @@ internal static class LibraryCommands
                 .ToList();
             foreach (var i in all) ctx.Log.Info($"  {i.Name,-30} {i.Version,-12} {i.Vendor}");
             return Outcome.Ok(all);
+        });
+        return cmd;
+    }
+
+    // ------------------------------------------------------------------ restore
+
+    private static Command Restore()
+    {
+        var paths = PathsArg("Projects whose pinned libraries to restore");
+        var sources = new Option<string[]>("--source", "-s") { Description = "Folder with <Name>_<Version>.library files (repeatable)" };
+        var repo = new Option<string?>("--repository") { Description = "Library repository folder (default: TwinCAT's Managed Libraries)" };
+        var dryRun = new Option<bool>("--dry-run") { Description = "Only show what is missing" };
+        var profile = ProfileOption();
+        var cmd = new Command("restore", "Install the library versions pinned in the .plcproj files that are missing locally (CI, fresh PCs)") { paths, sources, repo, dryRun, profile };
+        Action(cmd, ctx =>
+        {
+            var projects = LoadProjects(ctx.Get(paths));
+            var installed = LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)));
+            var missing = Core.Projects.Restore.Plan(projects, installed, ctx.Get(sources) ?? []);
+            foreach (var m in missing)
+                ctx.Log.Info($"  {m.Name,-28} {m.Version,-12} {(m.Source is null ? "✖ not found in sources" : Path.GetFileName(m.Source))}   ({string.Join(", ", m.Projects)})");
+            if (missing.Count == 0) { ctx.Log.Success("All pinned libraries are installed"); return Outcome.Ok(new { missing }); }
+            var unresolved = missing.Where(m => m.Source is null).ToList();
+            if (ctx.Get(dryRun)) return new Outcome(unresolved.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { missing });
+            if (!OperatingSystem.IsWindows())
+                throw new IECodeException(ExitCodes.NotSupportedPlatform, "Installing libraries needs Windows with TwinCAT (RepTool).", "Use --dry-run to check on any OS.");
+            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            foreach (var m in missing.Where(m => m.Source is not null))
+            {
+                var code = tool.Install(m.Source!, overwrite: false, ctx.Log);
+                if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"Installing {m.Name} {m.Version} failed (RepTool exit {code}).");
+                ctx.Log.Success($"Installed {m.Name} {m.Version}");
+            }
+            if (unresolved.Count > 0)
+                throw new IECodeException(ExitCodes.NotFound, $"{unresolved.Count} library version(s) not found in the sources.", "Add a folder with --source, or install them manually.");
+            return Outcome.Ok(new { missing });
         });
         return cmd;
     }

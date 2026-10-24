@@ -47,7 +47,7 @@ internal static class DoctorCommand
             }
             var ok = checks.Where(c => !c.Name.StartsWith("Shell ", StringComparison.Ordinal)).All(c => c.Ok) && shells > 0;
             if (!OperatingSystem.IsWindows())
-                ctx.Log.Info("On this OS only the file-based commands work: info, lib list/info/update/outdated, clean --artifacts.");
+                ctx.Log.Info("On this OS only the file-based commands work: info, lib list/info/update/outdated/installed, lib restore --dry-run, ws list/graph/build --dry-run/release --no-save, clean --artifacts.");
             return new Outcome(ok ? ExitCodes.Ok : ExitCodes.Failed, checks);
         });
         return cmd;
