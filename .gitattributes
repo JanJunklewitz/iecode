@@ -1,0 +1,8 @@
+# TwinCAT files keep their CRLF line endings byte for byte (round-trip tests depend on it)
+*.TcPOU -text
+*.TcDUT -text
+*.TcGVL -text
+*.TcIO  -text
+*.TcTTO -text
+*.plcproj -text
+*.tsproj -text

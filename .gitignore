@@ -1,0 +1,43 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Node / VS Code extension
+node_modules/
+out/
+*.vsix
+.vscode-test/
+
+# .NET (tcx CLI)
+bin/
+obj/
+*.user
+.vs/
+publish/
+TestResults/
+
+# Release output
+dist/
+*.nupkg
+
+# Never commit Beckhoff / Microsoft binaries or interop assemblies
+*Interop*.dll
+TCatSysManagerLib*.dll
+EnvDTE*.dll
+TwinCAT.Ads*.dll
+
+# TwinCAT build output in samples / fixtures
+_Boot/
+_CompileInfo/
+_Libraries/
+*.~u
+*.tmc
+*.tpy
+*.compiled-library
+*.library
+
+# Secrets
+.env
+*.pfx
+*.snk

@@ -1,0 +1,10 @@
+{
+  "scopeName": "text.xml.twincat-cdata",
+  "injectionSelector": "L:text.xml -comment",
+  "patterns": [
+    { "begin": "(<!\\[CDATA\\[)", "end": "(\\]\\]>)", "contentName": "meta.embedded.block.twincat-st",
+      "beginCaptures": { "1": { "name": "punctuation.definition.string.begin.xml" } },
+      "endCaptures": { "1": { "name": "punctuation.definition.string.end.xml" } },
+      "patterns": [{ "include": "source.twincat-st" }] }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "scopeName": "source.twincat-st",
+  "patterns": [
+    { "name": "markup.heading.section.twincat-st", "match": "^//==== (METHOD|PROPERTY|GET|SET|ACTION|TRANSITION) (\\w+) ====\\s*$",
+      "captures": { "1": { "name": "keyword.control.section.twincat-st" }, "2": { "name": "entity.name.function.twincat-st" } } },
+    { "name": "markup.heading.implementation.twincat-st", "match": "^//---- IMPLEMENTATION.*----\\s*$" },
+    { "name": "comment.line.double-slash.twincat-st", "match": "//.*$" },
+    { "name": "comment.block.twincat-st", "begin": "\\(\\*", "end": "\\*\\)" },
+    { "name": "meta.pragma.twincat-st", "begin": "\\{", "end": "\\}" },
+    { "name": "string.quoted.single.twincat-st", "begin": "'", "end": "'", "patterns": [{ "name": "constant.character.escape.twincat-st", "match": "\\$." }] },
+    { "name": "string.quoted.double.twincat-st", "begin": "\"", "end": "\"", "patterns": [{ "name": "constant.character.escape.twincat-st", "match": "\\$." }] },
+    { "name": "storage.type.pou.twincat-st", "match": "(?i)\\b(FUNCTION_BLOCK|END_FUNCTION_BLOCK|PROGRAM|END_PROGRAM|FUNCTION|END_FUNCTION|METHOD|END_METHOD|PROPERTY|END_PROPERTY|INTERFACE|END_INTERFACE|TYPE|END_TYPE|STRUCT|END_STRUCT|UNION|END_UNION|ACTION|END_ACTION|EXTENDS|IMPLEMENTS|ABSTRACT|FINAL|PUBLIC|PRIVATE|PROTECTED|INTERNAL)\\b" },
+    { "name": "storage.modifier.var.twincat-st", "match": "(?i)\\b(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_STAT|VAR_INST|VAR_EXTERNAL|VAR_CONFIG|VAR|END_VAR|CONSTANT|RETAIN|PERSISTENT|AT|REFERENCE\\s+TO|POINTER\\s+TO|ARRAY|OF)\\b" },
+    { "name": "keyword.control.twincat-st", "match": "(?i)\\b(IF|THEN|ELSIF|ELSE|END_IF|CASE|END_CASE|FOR|TO|BY|DO|END_FOR|WHILE|END_WHILE|REPEAT|UNTIL|END_REPEAT|EXIT|CONTINUE|RETURN|JMP)\\b" },
+    { "name": "keyword.operator.word.twincat-st", "match": "(?i)\\b(AND_THEN|OR_ELSE|AND|OR|XOR|NOT|MOD|THIS|SUPER|__NEW|__DELETE|__QUERYINTERFACE|__ISVALIDREF|SIZEOF|ADR|REF)\\b" },
+    { "name": "support.type.twincat-st", "match": "(?i)\\b(BOOL|BYTE|WORD|DWORD|LWORD|SINT|USINT|INT|UINT|DINT|UDINT|LINT|ULINT|REAL|LREAL|TIME|LTIME|DATE|TOD|DT|TIME_OF_DAY|DATE_AND_TIME|STRING|WSTRING|ANY|__XWORD|__UXINT|__XINT|PVOID|BIT)\\b" },
+    { "name": "constant.language.twincat-st", "match": "(?i)\\b(TRUE|FALSE)\\b" },
+    { "name": "constant.numeric.twincat-st", "match": "(?i)\\b(?:(?:L?T|TIME|LTIME)#[\\w.]+|(?:2|8|16)#[0-9A-F_]+|\\d[\\d_]*(?:\\.\\d+)?(?:E[+-]?\\d+)?)\\b" },
+    { "name": "keyword.operator.twincat-st", "match": ":=|=>|<>|<=|>=|[+\\-*/<>=^]" }
+  ]
+}

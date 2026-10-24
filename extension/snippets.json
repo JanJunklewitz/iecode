@@ -1,0 +1,5 @@
+{
+  "Method section": { "prefix": "//method", "body": ["//==== METHOD ${1:Name} ====", "METHOD ${2:PUBLIC} ${1:Name} : ${3:BOOL}", "VAR_INPUT", "\t$4", "END_VAR", "", "//---- IMPLEMENTATION ----", "$0"] },
+  "Property section": { "prefix": "//property", "body": ["//==== PROPERTY ${1:Name} ====", "PROPERTY ${2:PUBLIC} ${1:Name} : ${3:LREAL}", "//==== GET ${1:Name} ====", "VAR", "END_VAR", "", "//---- IMPLEMENTATION ----", "${1:Name} := $0;", "//==== SET ${1:Name} ====", "VAR", "END_VAR", "", "//---- IMPLEMENTATION ----", ""] },
+  "Action section": { "prefix": "//action", "body": ["//==== ACTION ${1:Name} ====", "//---- IMPLEMENTATION ----", "$0"] }
+}

@@ -1,0 +1,67 @@
+{
+  "name": "iecode",
+  "displayName": "IECode – Structured Text for TwinCAT",
+  "description": "Edit TwinCAT .TcPOU/.TcDUT/.TcGVL/.TcIO files as plain Structured Text. The XML file stays the source of truth.",
+  "version": "0.0.1",
+  "publisher": "iecode",
+  "author": "Jan Junklewitz",
+  "repository": { "type": "git", "url": "https://github.com/JanJunklewitz/iecode.git", "directory": "extension" },
+  "homepage": "https://github.com/JanJunklewitz/iecode#readme",
+  "bugs": { "url": "https://github.com/JanJunklewitz/iecode/issues" },
+  "keywords": ["twincat", "structured text", "iec 61131-3", "plc"],
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Programming Languages"],
+  "main": "./out/src/extension.js",
+  "bin": { "iecode-st": "./out/src/cli.js" },
+  "activationEvents": [
+    "onFileSystem:iecode",
+    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO}"
+  ],
+  "contributes": {
+    "languages": [
+      { "id": "twincat-st", "aliases": ["TwinCAT Structured Text"], "configuration": "./language-configuration.json" },
+      { "id": "xml", "extensions": [".TcPOU", ".TcDUT", ".TcGVL", ".TcIO", ".TcTTO"] }
+    ],
+    "grammars": [
+      { "language": "twincat-st", "scopeName": "source.twincat-st", "path": "./syntaxes/twincat-st.tmLanguage.json" },
+      { "scopeName": "text.xml.twincat-cdata", "path": "./syntaxes/cdata-injection.tmLanguage.json",
+        "injectTo": ["text.xml"], "embeddedLanguages": { "meta.embedded.block.twincat-st": "twincat-st" } }
+    ],
+    "snippets": [{ "language": "twincat-st", "path": "./snippets.json" }],
+    "commands": [
+      { "command": "iecode.openAsST", "title": "Open as Structured Text", "category": "IECode" },
+      { "command": "iecode.openAsXml", "title": "Open as XML", "category": "IECode" },
+      { "command": "iecode.build", "title": "Build PLC project", "category": "IECode" }
+    ],
+    "menus": {
+      "explorer/context": [
+        { "command": "iecode.openAsST", "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i", "group": "navigation" },
+        { "command": "iecode.openAsXml", "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i", "group": "navigation" }
+      ],
+      "editor/title": [
+        { "command": "iecode.openAsST", "when": "resourceScheme == file && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i" },
+        { "command": "iecode.openAsXml", "when": "resourceScheme == iecode" }
+      ]
+    },
+    "keybindings": [{ "command": "iecode.build", "key": "ctrl+shift+b", "when": "resourceScheme == iecode" }],
+    "configuration": {
+      "title": "IECode",
+      "properties": {
+        "iecode.openAsST": { "type": "boolean", "default": true, "description": "Open TwinCAT object files as Structured Text instead of XML." },
+        "iecode.buildCommand": { "type": "string", "default": "", "markdownDescription": "Shell command that compiles the project, e.g. your Automation Interface CLI. `${solution}` = first .sln in the workspace, `${file}` = active TwinCAT file." },
+        "iecode.problemMatcher": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Problem matcher names applied to the build output." }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "tsc -p . && node --test out/test/*.test.js",
+    "package": "npx @vscode/vsce@3.2.1 package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@types/vscode": "1.90.0",
+    "typescript": "5.6.3"
+  }
+}

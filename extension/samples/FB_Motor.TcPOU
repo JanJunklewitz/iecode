@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_Motor" Id="{3f2b8c1e-0a4d-4c55-9e0f-7b1a2c3d4e5f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Motor
+VAR_INPUT
+    bEnable : BOOL;
+    fSetSpeed : LREAL;
+END_VAR
+VAR_OUTPUT
+    bRunning : BOOL;
+END_VAR
+VAR
+    _fSpeed : LREAL;
+    sInfo : STRING := 'a]]]]><![CDATA[>b';
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF bEnable THEN
+    _fSpeed := fSetSpeed;
+    bRunning := TRUE;
+ELSE
+    Reset();
+END_IF]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{11111111-2222-3333-4444-555555555555}" />
+    <Method Name="Start" Id="{a1b2c3d4-0000-0000-0000-000000000001}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD PUBLIC Start : BOOL
+VAR_INPUT
+    fSpeed : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fSetSpeed := fSpeed;
+bEnable := TRUE;
+Start := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Speed" Id="{a1b2c3d4-0000-0000-0000-000000000002}">
+      <Declaration><![CDATA[PROPERTY Speed : LREAL]]></Declaration>
+      <Get Name="Get" Id="{a1b2c3d4-0000-0000-0000-000000000003}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Speed := _fSpeed;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Action Name="Reset" Id="{a1b2c3d4-0000-0000-0000-000000000004}">
+      <Implementation>
+        <ST><![CDATA[_fSpeed := 0;
+bRunning := FALSE;]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="Diagram" Id="{a1b2c3d4-0000-0000-0000-000000000005}">
+      <Declaration><![CDATA[METHOD Diagram]]></Declaration>
+      <Implementation>
+        <CFC>
+          <XmlArchive>...</XmlArchive>
+        </CFC>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_Motor">
+      <LineId Id="9" Count="5" />
+    </LineIds>
+    <LineIds Name="FB_Motor.Start">
+      <LineId Id="2" Count="2" />
+    </LineIds>
+    <LineIds Name="FB_Motor.Speed.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_Motor.Reset">
+      <LineId Id="2" Count="1" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

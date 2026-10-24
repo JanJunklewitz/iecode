@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IECode Mockup</title>
+<style>
+:root{
+  --bg:#f6f7f9; --fg:#1d2330; --muted:#5d6678; --card:#fff; --line:#dde1e8; --accent:#2f6fdd; --warn:#b26a00; --ok:#2e8b57;
+  --vs-bg:#1e1e1e; --vs-side:#252526; --vs-act:#333333; --vs-fg:#d4d4d4; --vs-dim:#8a8a8a; --vs-sel:#04395e; --vs-line:#3c3c3c; --vs-blue:#007acc;
+  --kw:#569cd6; --ty:#4ec9b0; --cm:#6a9955; --st:#ce9178; --nu:#b5cea8; --fn:#dcdcaa; --sec:#c586c0;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#121418; --fg:#e4e7ee; --muted:#9aa3b5; --card:#1b1e24; --line:#2c313a; --accent:#6b9cff; }
+}
+:root[data-theme="dark"]{ --bg:#121418; --fg:#e4e7ee; --muted:#9aa3b5; --card:#1b1e24; --line:#2c313a; --accent:#6b9cff; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:26px;margin:0 0 4px} h2{font-size:19px;margin:28px 0 8px} h3{font-size:15px;margin:16px 0 6px}
+p.lead{color:var(--muted);margin:0 0 18px}
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:18px}
+nav.tabs button{border:0;background:none;color:var(--muted);padding:9px 12px;font:inherit;cursor:pointer;border-bottom:2px solid transparent}
+nav.tabs button.on{color:var(--fg);border-color:var(--accent);font-weight:600}
+section{display:none} section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+.note{border-left:3px solid var(--accent);padding:6px 12px;color:var(--muted);margin:10px 0}
+.tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:9px;border:1px solid var(--line);color:var(--muted);margin-right:4px}
+.tag.new{color:var(--accent);border-color:var(--accent)} .tag.have{color:var(--ok);border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;font-size:14px} td,th{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top} th{color:var(--muted);font-weight:600}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.scroll{overflow-x:auto}
+
+/* VS Code mock */
+.vs{background:var(--vs-bg);color:var(--vs-fg);border-radius:10px;overflow:hidden;border:1px solid #000;font:13px/1.45 "Segoe UI",sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.vs .title{background:#3c3c3c;color:#ccc;font-size:12px;text-align:center;padding:5px}
+.vs .body{display:grid;grid-template-columns:44px 270px 1fr;min-height:560px}
+.vs .act{background:var(--vs-act);display:flex;flex-direction:column;align-items:center;gap:16px;padding-top:12px;color:var(--vs-dim);font-size:18px}
+.vs .act .on{color:#fff;border-left:2px solid #fff;width:100%;text-align:center}
+.vs .side{background:var(--vs-side);border-right:1px solid var(--vs-line);font-size:13px;overflow:hidden}
+.vs .side h4{margin:0;padding:8px 12px;font-size:11px;letter-spacing:.06em;color:#bbb;font-weight:600;display:flex;justify-content:space-between}
+.vs .side h4 span{letter-spacing:0;font-size:13px;color:#ccc}
+.tree div{padding:2px 0 2px calc(var(--d,0)*14px + 10px);white-space:nowrap;cursor:default}
+.tree div:hover{background:#2a2d2e} .tree .sel{background:var(--vs-sel)}
+.ic{display:inline-block;width:16px;text-align:center;margin-right:4px;font-size:11px;font-weight:700}
+.i-fb{color:#e8ab53}.i-m{color:#b180d7}.i-p{color:#75beff}.i-i{color:#4ec9b0}.i-d{color:#ce9178}.i-g{color:#dcdcaa}.i-f{color:#ccc}.i-a{color:#89d185}
+.vs .edit{display:flex;flex-direction:column;min-width:0;position:relative}
+.vs .tabsbar{display:flex;background:#252526;font-size:13px}
+.vs .tabsbar div{padding:7px 14px;color:#969696;border-right:1px solid #1e1e1e}
+.vs .tabsbar .on{background:var(--vs-bg);color:#fff;border-top:1px solid var(--vs-blue)}
+.vs .crumbs{font-size:12px;color:#a0a0a0;padding:3px 14px;border-bottom:1px solid #2b2b2b;display:flex;justify-content:space-between}
+.vs .crumbs b{color:#ccc;font-weight:400}
+.vs .toggle{border:1px solid #555;border-radius:4px;padding:0 6px;color:#ccc}
+.vs pre{margin:0;padding:8px 0;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;overflow:auto;flex:1}
+.ln{display:inline-block;width:38px;text-align:right;color:#6e7681;margin-right:14px;user-select:none}
+.k{color:var(--kw)}.t{color:var(--ty)}.c{color:var(--cm)}.s{color:var(--st)}.n{color:var(--nu)}.f{color:var(--fn)}
+.secln{color:var(--sec);background:rgba(197,134,192,.08);display:inline-block;width:calc(100% - 52px)}
+.ro{color:#888;font-style:italic}
+.vs .panel{border-top:1px solid var(--vs-line);height:150px;display:flex;flex-direction:column}
+.vs .panel .ph{font-size:11px;color:#bbb;padding:5px 14px;display:flex;gap:18px;letter-spacing:.04em}
+.vs .panel .ph .on{color:#fff;border-bottom:1px solid #fff}
+.vs .panel pre{font-size:12px;padding:4px 14px}
+.vs .status{background:var(--vs-blue);color:#fff;font-size:12px;display:flex;gap:16px;padding:3px 10px;flex-wrap:wrap}
+.vs .status .r{margin-left:auto}
+.ctx{position:absolute;left:170px;top:178px;background:#252526;border:1px solid #454545;border-radius:5px;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:13px;padding:4px 0;min-width:190px;z-index:2}
+.ctx div{padding:3px 22px 3px 14px;display:flex;justify-content:space-between;gap:20px}
+.ctx .h{background:var(--vs-sel)} .ctx hr{border:0;border-top:1px solid #454545;margin:4px 0}
+.ctx .h{position:relative}
+.ctx .sub{display:block;position:absolute;left:188px;top:-5px;background:#252526;border:1px solid #454545;border-radius:5px;padding:4px 0;min-width:200px}
+.qp{position:absolute;left:50%;transform:translateX(-50%);top:8px;width:min(560px,94%);background:#252526;border:1px solid #454545;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.6);z-index:3;font-size:13px}
+.qp .in{margin:6px;border:1px solid var(--vs-blue);background:#3c3c3c;padding:5px 8px;color:#fff}
+.qp .hint{padding:0 10px 6px;color:#aaa;font-size:12px}
+.qp .it{padding:4px 12px;display:flex;justify-content:space-between} .qp .it.h{background:var(--vs-sel)} .qp .it span{color:#999}
+.dim{opacity:.35}
+
+/* terminal */
+.term{background:#0d1117;color:#c9d1d9;border-radius:10px;padding:14px 16px;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;overflow-x:auto;white-space:pre;border:1px solid #000}
+.term .p{color:#7ee787}.term .d{color:#8b949e}.term .e{color:#ff7b72}.term .w{color:#d29922}.term .o{color:#58a6ff}
+
+/* package manager */
+.pm{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);min-height:520px}
+.pm .top{grid-column:1/-1;display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--vs-line);flex-wrap:wrap}
+.pm .ptabs{display:flex;gap:16px;font-size:12px;letter-spacing:.04em}
+.pm .ptabs span{padding-bottom:3px;color:#aaa} .pm .ptabs .on{color:#fff;border-bottom:1px solid #fff}
+.pm .badge{background:var(--vs-blue);color:#fff;border-radius:8px;padding:0 6px;font-size:11px;margin-left:3px}
+.pm .search{flex:1;min-width:160px;background:#3c3c3c;border:1px solid var(--vs-blue);padding:4px 8px;color:#fff}
+.pm select,.pm .sel2{background:#3c3c3c;color:#ddd;border:1px solid #555;padding:3px 6px;font:inherit;font-size:12px}
+.pm .chk{font-size:12px;color:#ccc}
+.pm .list{border-right:1px solid var(--vs-line);overflow:auto}
+.pm .row{display:grid;grid-template-columns:36px 1fr auto;gap:10px;padding:9px 14px;border-bottom:1px solid #2a2a2a}
+.pm .row.h{background:var(--vs-sel)}
+.pm .logo{width:32px;height:32px;border-radius:6px;display:grid;place-items:center;font-weight:700;font-size:12px;color:#fff}
+.pm .nm{color:#fff;font-weight:600} .pm .by{color:#999;font-size:12px;font-weight:400}
+.pm .ds{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm .ver{text-align:right;font-size:12px;color:#ccc;white-space:nowrap}
+.pm .up{color:#3794ff} .pm .vok{color:#89d185} .pm .vwarn{color:#cca700}
+.pm .det{padding:14px 16px;overflow:auto;font-size:13px}
+.pm .det h5{margin:0;font-size:17px;color:#fff;font-weight:600}
+.pm .det .meta{color:#999;font-size:12px;margin:2px 0 10px}
+.pm .btn{display:inline-block;background:#0e639c;color:#fff;padding:4px 12px;border-radius:2px;font-size:12px}
+.pm .btn.sec{background:#3a3d41}
+.pm .prj{width:100%;font-size:12px;margin:8px 0;border-collapse:collapse}
+.pm .prj td,.pm .prj th{border-bottom:1px solid #333;padding:4px 6px;color:#ccc}
+.pm .prj th{color:#999;font-weight:400}
+.pm .kv{display:grid;grid-template-columns:110px 1fr;gap:3px 10px;font-size:12px;color:#ccc;margin-top:10px}
+.pm .kv span:nth-child(odd){color:#999}
+.pm .depl{font-size:12px;color:#ccc;margin:4px 0 0 0;padding-left:16px}
+@media (max-width:860px){ .pm{grid-template-columns:1fr} .pm .list{border-right:0;border-bottom:1px solid var(--vs-line)} }
+
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:860px){ .vs .body{grid-template-columns:44px 1fr} .vs .side{display:none} .arch{grid-template-columns:1fr} .ctx{left:20px} }
+ol li,ul li{margin:4px 0}
+.q{font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>IECode – Structured Text for TwinCAT</h1>
+<p class="lead">Mockup to agree on scope before building. Two products: a <b>VS Code extension</b> (cross-platform, works on XML files directly) and a <b>Windows CLI</b> (<code>iecode</code>) that drives the TwinCAT Automation Interface. The existing <code>extension/</code> PoC (plain-ST view, round-trip-safe save) is the starting point for the extension.</p>
+
+<nav class="tabs" id="tabs">
+  <button data-t="ext" class="on">1 · Extension</button>
+  <button data-t="ws">2 · Workspace</button>
+  <button data-t="add">3 · Add objects</button>
+  <button data-t="pkg">4 · Library manager</button>
+  <button data-t="cli">5 · CLI</button>
+  <button data-t="inst">6 · Install</button>
+  <button data-t="arch">7 · Architecture</button>
+  <button data-t="scope">8 · Scope &amp; open questions</button>
+</nav>
+
+<!-- ===================== 1 EXTENSION ===================== -->
+<section id="ext" class="on">
+<div class="vs">
+  <div class="title">FB_Motor.TcPOU — MachineX — Visual Studio Code</div>
+  <div class="body">
+    <div class="act"><div>⎘</div><div>⌕</div><div>⑂</div><div class="on" title="TwinCAT">⚙</div></div>
+    <div class="side">
+      <h4>IECODE: PROJECTS <span>＋ ⟳ ▶</span></h4>
+      <div class="tree">
+        <div>▾ <span class="ic i-f">◫</span>MachineX.sln</div>
+        <div style="--d:1">▾ <span class="ic i-f">◧</span>MachineX <span style="color:#888">(TwinCAT)</span></div>
+        <div style="--d:2">▸ <span class="ic i-f">⚙</span>SYSTEM · I/O · MOTION</div>
+        <div style="--d:2">▾ <span class="ic i-f">▣</span>PLC1 <span style="color:#888">· PLC1.plcproj</span></div>
+        <div style="--d:3">▸ <span class="ic i-f">📚</span>References <span style="color:#888">(7)</span> <span style="color:#3794ff">↑3</span></div>
+        <div style="--d:3">▸ <span class="ic i-d">T</span>DUTs</div>
+        <div style="--d:3">▸ <span class="ic i-g">G</span>GVLs</div>
+        <div style="--d:3">▾ <span class="ic i-f">▸</span>POUs</div>
+        <div style="--d:4">▾ <span class="ic i-f">▸</span>Motion</div>
+        <div style="--d:5" class="sel">▾ <span class="ic i-fb">FB</span>FB_Motor <span style="color:#888">: I_Motor</span></div>
+        <div style="--d:6"><span class="ic i-m">M</span>Start : BOOL</div>
+        <div style="--d:6"><span class="ic i-m">M</span>Stop</div>
+        <div style="--d:6">▸ <span class="ic i-p">P</span>Speed : LREAL</div>
+        <div style="--d:6"><span class="ic i-a">A</span>Reset</div>
+        <div style="--d:5"><span class="ic i-fb">FB</span>FB_Axis</div>
+        <div style="--d:4"><span class="ic i-g">PRG</span>MAIN</div>
+        <div style="--d:3">▾ <span class="ic i-i">I</span>Interfaces</div>
+        <div style="--d:4"><span class="ic i-i">I</span>I_Motor</div>
+        <div style="--d:3"><span class="ic i-f">⏱</span>PlcTask</div>
+        <div style="--d:1">▸ <span class="ic i-f">◧</span>Tc3_MotorLib <span style="color:#888">(library)</span></div>
+      </div>
+    </div>
+    <div class="edit">
+      <div class="tabsbar"><div class="on">FB_Motor <span style="color:#888">(ST)</span> ×</div><div>MAIN (ST)</div><div>I_Motor (ST)</div></div>
+      <div class="crumbs"><span>PLC1 › POUs › Motion › FB_Motor › <b>METHOD Start</b></span><span class="toggle">ST ⇄ XML</span></div>
+<pre><span class="ln">1</span><span class="k">FUNCTION_BLOCK</span> <span class="t">FB_Motor</span> <span class="k">IMPLEMENTS</span> <span class="t">I_Motor</span>
+<span class="ln">2</span><span class="k">VAR_INPUT</span>
+<span class="ln">3</span>    bEnable   : <span class="t">BOOL</span>;
+<span class="ln">4</span>    fSetSpeed : <span class="t">LREAL</span>;
+<span class="ln">5</span><span class="k">END_VAR</span>
+<span class="ln">6</span><span class="k">VAR</span>
+<span class="ln">7</span>    _fSpeed : <span class="t">LREAL</span>;
+<span class="ln">8</span><span class="k">END_VAR</span>
+<span class="ln">9</span><span class="secln">//---- IMPLEMENTATION ----</span>
+<span class="ln">10</span><span class="k">IF</span> bEnable <span class="k">THEN</span>
+<span class="ln">11</span>    _fSpeed := fSetSpeed;
+<span class="ln">12</span><span class="k">ELSE</span>
+<span class="ln">13</span>    <span class="f">Reset</span>();
+<span class="ln">14</span><span class="k">END_IF</span>
+<span class="ln">15</span><span class="secln">//==== METHOD Start ====</span>
+<span class="ln">16</span><span class="k">METHOD PUBLIC</span> <span class="f">Start</span> : <span class="t">BOOL</span>
+<span class="ln">17</span><span class="k">VAR_INPUT</span> fSpeed : <span class="t">LREAL</span>; <span class="k">END_VAR</span>
+<span class="ln">18</span><span class="secln">//---- IMPLEMENTATION ----</span>
+<span class="ln">19</span>fSetSpeed := fSpeed;  <span class="c">// ⚠ C0077: unknown type 'fSped'  ← mapped from build</span>
+<span class="ln">20</span>Start := <span class="k">TRUE</span>;
+<span class="ln">21</span><span class="secln">//==== PROPERTY Speed ====</span>
+<span class="ln">22</span><span class="k">PROPERTY</span> Speed : <span class="t">LREAL</span>
+<span class="ln">23</span><span class="secln">//==== GET Speed ====</span>
+<span class="ln">24</span>Speed := _fSpeed;
+<span class="ln">25</span><span class="secln">//==== ACTION Reset ====</span>
+<span class="ln">26</span>_fSpeed := <span class="n">0</span>;
+<span class="ln">27</span><span class="secln">//==== METHOD Diagram ====</span>
+<span class="ln">28</span><span class="ro">(CFC body – read-only, edit in TwinCAT XAE)</span></pre>
+      <div class="ctx" style="display:none" id="ctxmenu"></div>
+      <div class="panel">
+        <div class="ph"><span>PROBLEMS 1</span><span class="on">OUTPUT · TwinCAT</span><span>TERMINAL</span></div>
+<pre><span style="color:#888">&gt; iecode build MachineX.sln --plc PLC1 --json</span>
+[XAE] Attached to TcXaeShell 4026.12 (hidden) · loading solution… 6.2 s
+[PLC1] Build started … 214 objects
+<span style="color:#f48771">[PLC1] error C0077 FB_Motor.Start (line 2): Unknown type: 'fSped'</span>
+[PLC1] Build finished: 1 error, 0 warnings · 18.4 s</pre>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⚙ TwinCAT 3.1.4026.12</span><span>◉ Target: CX-4F2A11 (5.80.201.232.1.1)</span><span>PLC1 · Release · TwinCAT RT (x64)</span><span class="r">▶ Build &nbsp; ⚡ Activate &nbsp; ⇪ Lib</span></div>
+</div>
+
+<h2>What you see</h2>
+<div class="card">
+<ul>
+  <li><b>TwinCAT Projects view</b> <span class="tag new">new</span> – tree built by parsing <code>.sln → .tsproj → .plcproj</code>; mirrors XAE's folder structure (<code>FolderPath</code>), shows methods/properties/actions as children. Click jumps to the section.</li>
+  <li><b>Plain-ST editor</b> <span class="tag have">PoC exists</span> – one document per POU, sections for members; save splices only changed CDATA; XML stays the source of truth. <code>ST ⇄ XML</code> toggle in breadcrumbs.</li>
+  <li><b>Build / Activate / Library</b> buttons in the status bar &amp; command palette → call <code>iecode</code> with <code>--json</code>; errors land in <b>Problems</b>, mapped back to view lines <span class="tag new">new</span>.</li>
+  <li><b>Context menu</b> on folders/POUs: Add ▸ FB / Function / Program / Method / Property / Action / Interface / DUT / GVL … (see tab 2).</li>
+  <li>Later: outline, go-to-definition, find references, rename across files (needs an ST language model — see scope).</li>
+</ul>
+</div>
+</section>
+
+<!-- ===================== 2 WORKSPACE ===================== -->
+<section id="ws">
+<p>One VS Code workspace holds <b>several libraries and PLC applications</b> side by side: either one folder with many solutions (monorepo), or a multi-root <code>.code-workspace</code> that pulls in several repos. The extension finds every <code>.sln</code>, <code>.tsproj</code> and standalone <code>.plcproj</code>, works out which projects are libraries, and links library references to library projects in the same workspace.</p>
+
+<div class="scroll"><div class="vs" style="min-width:760px">
+  <div class="title">plc-workspace (Workspace) — Visual Studio Code</div>
+  <div class="body" style="grid-template-columns:44px 330px 1fr;min-height:520px">
+    <div class="act"><div>⎘</div><div>⌕</div><div>⑂</div><div class="on">⚙</div></div>
+    <div class="side">
+      <h4>IECODE: WORKSPACE <span>＋ ⟳ ▶▶ ⧉</span></h4>
+      <div class="tree">
+        <div style="color:#bbb;font-size:11px;padding-top:6px">&nbsp; LIBRARIES</div>
+        <div>▾ <span class="ic i-i">L</span>Tc3_MotorLib <span style="color:#888">1.4.0-dev</span> <span style="color:#cca700">● changed</span></div>
+        <div style="--d:1">▸ <span class="ic i-f">▸</span>POUs · Interfaces · DUTs</div>
+        <div style="--d:1">▸ <span class="ic i-f">📚</span>References</div>
+        <div style="--d:1" class="sel"><span class="ic i-f">⤴</span><span style="color:#aaa">Used by: MachineX/PLC1, MachineY/Plc</span></div>
+        <div>▸ <span class="ic i-i">L</span>Tc3_Logging <span style="color:#888">1.0.0</span></div>
+        <div>▸ <span class="ic i-i">L</span>Tc3_Common <span style="color:#888">2.1.0</span> <span style="color:#888">· repo: plc-common</span></div>
+        <div style="color:#bbb;font-size:11px;padding-top:8px">&nbsp; APPLICATIONS</div>
+        <div>▾ <span class="ic i-f">◧</span>MachineX <span style="color:#888">(TwinCAT · CX-4F2A11)</span></div>
+        <div style="--d:1">▾ <span class="ic i-f">▣</span>PLC1</div>
+        <div style="--d:2">▾ <span class="ic i-f">📚</span>References</div>
+        <div style="--d:3"><span class="ic i-i">L</span>Tc3_MotorLib <span style="color:#3794ff">⇄ workspace</span></div>
+        <div style="--d:3"><span class="ic i-i">L</span>Tc3_Logging 1.0.0 <span style="color:#888">repo</span></div>
+        <div style="--d:3"><span class="ic i-f">L</span>Tc3_MC2 3.3.62.0 <span style="color:#3794ff">↑</span></div>
+        <div style="--d:2">▸ <span class="ic i-f">▸</span>POUs</div>
+        <div>▸ <span class="ic i-f">◧</span>MachineY <span style="color:#888">(TwinCAT · 2 PLCs)</span></div>
+        <div style="color:#bbb;font-size:11px;padding-top:8px">&nbsp; STANDALONE PLC</div>
+        <div>▸ <span class="ic i-f">▣</span>TestRunner <span style="color:#888">(.plcproj only, TcUnit)</span></div>
+      </div>
+    </div>
+    <div class="edit">
+      <div class="tabsbar"><div class="on">Dependency graph ×</div><div>FB_Motor (ST)</div></div>
+<pre style="padding:16px 18px;line-height:1.7">
+   <span class="t">Tc3_Common 2.1.0</span>
+        │
+        ├──────────────┐
+        ▼              ▼
+   <span class="t">Tc3_Logging 1.0.0</span>   <span class="f">Tc3_MotorLib 1.4.0-dev</span>  <span style="color:#cca700">● changed</span>
+        │              │
+        ├──────────────┼─────────────────┐
+        ▼              ▼                 ▼
+   <span class="k">MachineX/PLC1</span>   <span class="k">MachineY/Plc</span>     <span class="k">TestRunner</span>
+     <span class="c">⇄ workspace</span>       <span class="c">pinned 1.3.0</span>     <span class="c">⇄ workspace</span>
+
+<span style="color:#888">Build order: Tc3_Common → Tc3_Logging → Tc3_MotorLib → MachineX/PLC1, TestRunner</span>
+<span style="color:#888">Affected by changes in Tc3_MotorLib: MachineX/PLC1, TestRunner (MachineY is pinned)</span>
+</pre>
+      <div class="panel" style="height:118px">
+        <div class="ph"><span class="on">OUTPUT · TwinCAT</span><span>PROBLEMS</span></div>
+<pre><span style="color:#888">&gt; iecode ws build --affected</span>
+[1/3] Tc3_MotorLib   save as library 1.4.0-dev · install … ok   9.8 s
+[2/3] MachineX/PLC1  build … ok                              14.2 s
+[3/3] TestRunner     build … ok · 42 tests passed             11.0 s</pre>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⚙ TwinCAT 3.1.4026.12</span><span>⧉ Workspace: 3 libraries · 2 apps · 1 standalone</span><span>Active: MachineX/PLC1</span><span class="r">▶ Build &nbsp; ▶▶ Build affected &nbsp; ⚡ Activate</span></div>
+</div></div>
+
+<h3>Workspace features</h3>
+<table>
+<tr><th>Feature</th><th>What it does</th></tr>
+<tr><td><b>Discovery</b></td><td>Scans all workspace folders for <code>.sln</code> / <code>.tsproj</code> / <code>.plcproj</code>. Libraries are detected from the project's library metadata (company, title, version) or marked in the workspace config. Grouped into Libraries / Applications / Standalone PLC.</td></tr>
+<tr><td><b>Workspace links</b> <span class="tag new">key</span></td><td>A reference to <code>Tc3_MotorLib</code> in an application can point to the library project in the workspace (<span style="color:var(--accent)">⇄ workspace</span>) instead of an installed version. On build, <code>iecode</code> saves and installs the library as a <code>-dev</code> version first, then builds the app against it. Like <code>npm link</code> / project references in .NET.</td></tr>
+<tr><td><b>Cross-project navigation</b></td><td>Go to definition from <code>MachineX</code> into <code>Tc3_MotorLib</code>'s source; "Find usages" of <code>I_Motor.Start</code> across all apps in the workspace.</td></tr>
+<tr><td><b>Dependency graph</b></td><td>Which project uses which library and version; build order; which projects are affected by an uncommitted change.</td></tr>
+<tr><td><b>Build affected / Build all</b></td><td>Builds changed libraries and their dependents in order. Same command in CI: <code>iecode ws build --affected --since origin/main</code>.</td></tr>
+<tr><td><b>Release a library</b></td><td><i>TwinCAT: Release library…</i> → bump version (patch / minor / major), save as <code>.library</code>, publish to a feed, and offer to update all dependents in the workspace (pinned ones are listed but not touched).</td></tr>
+<tr><td><b>Active project</b></td><td>Status bar picks which application Build / Activate / target apply to; each application keeps its own target NetId.</td></tr>
+<tr><td><b>One TwinCAT shell</b></td><td><code>iecode</code> keeps one XAE shell alive for a whole workspace build instead of starting one per solution (saves ~5–10 s per project).</td></tr>
+</table>
+
+<h3>Workspace config</h3>
+<div class="arch">
+<div class="card"><b>Multi-root:</b> <code>plc.code-workspace</code>
+<pre class="term" style="margin-top:8px">{
+  "folders": [
+    { "path": "libs/Tc3_MotorLib" },
+    { "path": "libs/Tc3_Logging" },
+    { "path": "../plc-common" },
+    { "path": "apps/MachineX" },
+    { "path": "apps/MachineY" },
+    { "path": "tests/TestRunner" }
+  ],
+  "settings": {
+    "twincat.workspace.links": "auto",
+    "twincat.version": "4024.66"
+  }
+}</pre></div>
+<div class="card"><b>Optional:</b> <code>twincat-workspace.json</code> at the root (also read by <code>iecode</code> in CI)
+<pre class="term" style="margin-top:8px">{
+  "libraries": ["libs/*", "../plc-common"],
+  "applications": ["apps/*"],
+  "standalone": ["tests/*"],
+  "links": {
+    "Tc3_MotorLib": "workspace",
+    "Tc3_Common": "workspace"
+  },
+  "pinned": { "apps/MachineY": { "Tc3_MotorLib": "1.3.0" } }
+}</pre>
+<p style="font-size:13px;color:var(--muted);margin:6px 0 0">Without this file everything is detected automatically; the file only overrides.</p></div>
+</div>
+</section>
+
+<!-- ===================== 3 ADD ===================== -->
+<section id="add">
+<p>Adding objects is done <b>by the extension itself</b> (writes the <code>.TcPOU</code>/<code>.TcIO</code>/<code>.TcDUT</code> XML with fresh GUIDs and inserts <code>&lt;Compile Include&gt;</code> into the <code>.plcproj</code>). No TwinCAT installation needed, so it also works on macOS/Linux.</p>
+
+<h3>Step 1 · Right-click in the TwinCAT Projects tree</h3>
+<div class="vs" style="position:relative">
+  <div class="body" style="min-height:280px;grid-template-columns:270px 1fr">
+    <div class="side" style="position:relative;overflow:visible">
+      <h4>IECODE: PROJECTS</h4>
+      <div class="tree">
+        <div style="--d:0">▾ <span class="ic i-f">▣</span>PLC1</div>
+        <div style="--d:1">▾ <span class="ic i-f">▸</span>POUs</div>
+        <div style="--d:2">▾ <span class="ic i-f">▸</span>Motion</div>
+        <div style="--d:3" class="sel">▾ <span class="ic i-fb">FB</span>FB_Motor</div>
+        <div style="--d:4"><span class="ic i-m">M</span>Start : BOOL</div>
+        <div style="--d:4"><span class="ic i-p">P</span>Speed : LREAL</div>
+      </div>
+      <div class="ctx" style="left:120px;top:96px">
+        <div class="h">Add <span>▸</span>
+          <div class="sub">
+            <div class="h">Method… <span>M</span></div>
+            <div>Property… <span>P</span></div>
+            <div>Action…</div>
+            <div>Transition…</div>
+            <hr>
+            <div>Implement interface…</div>
+            <div>Override base method…</div>
+          </div>
+        </div>
+        <div>Open as ST</div>
+        <div>Open as XML</div>
+        <hr>
+        <div>Rename… <span>F2</span></div>
+        <div>Move to folder…</div>
+        <div>Delete</div>
+      </div>
+    </div>
+    <div></div>
+  </div>
+</div>
+<p class="note">On a <b>folder</b> the Add submenu shows: Function Block, Program, Function, Interface, Struct, Enum, Union, Alias, GVL, Folder.</p>
+
+<h3>Step 2 · Quick-pick wizard (Method example)</h3>
+<div class="scroll"><div class="vs" style="position:relative;min-width:600px">
+  <div style="min-height:290px;position:relative">
+    <div class="qp">
+      <div class="in">Start</div>
+      <div class="hint">Add Method to FB_Motor (1/3) · Name</div>
+    </div>
+    <div class="qp" style="top:84px">
+      <div class="in">BOOL</div>
+      <div class="hint">(2/3) Return type – empty for none · suggestions from project + libraries</div>
+      <div class="it h">BOOL <span>built-in</span></div><div class="it">HRESULT <span>Tc2_System</span></div><div class="it">E_MotorState <span>DUTs/E_MotorState</span></div>
+    </div>
+    <div class="qp" style="top:210px">
+      <div class="hint" style="padding-top:6px">(3/3) Access</div>
+      <div class="it h">PUBLIC</div><div class="it">PRIVATE</div><div class="it">PROTECTED</div><div class="it">INTERNAL</div>
+    </div>
+  </div>
+</div></div>
+
+<h3>Result</h3>
+<div class="arch">
+<div class="card"><b>In the ST view</b> – new section appended, cursor placed in body:
+<pre class="term" style="margin-top:8px"><span class="d">//==== METHOD Start ====</span>
+METHOD PUBLIC Start : BOOL
+VAR_INPUT
+END_VAR
+<span class="d">//---- IMPLEMENTATION ----</span>
+█</pre></div>
+<div class="card"><b>On disk</b> – TwinCAT-compatible XML:
+<pre class="term" style="margin-top:8px"><span class="o">&lt;Method</span> Name="Start" Id="{8c1e…f02}"<span class="o">&gt;</span>
+  <span class="o">&lt;Declaration&gt;</span>&lt;![CDATA[METHOD PUBLIC Start : BOOL
+VAR_INPUT
+END_VAR]]&gt;<span class="o">&lt;/Declaration&gt;</span>
+  <span class="o">&lt;Implementation&gt;&lt;ST&gt;</span>&lt;![CDATA[]]&gt;…
+<span class="o">&lt;/Method&gt;</span></pre></div>
+</div>
+
+<h3>Other wizards</h3>
+<table>
+<tr><th>Object</th><th>Prompts</th><th>Files touched</th></tr>
+<tr><td>Function Block</td><td>name · EXTENDS (pick FB) · IMPLEMENTS (multi-pick interfaces → stubs all methods/properties) · ABSTRACT/FINAL · folder</td><td>new <code>.TcPOU</code>, <code>.plcproj</code></td></tr>
+<tr><td>Interface</td><td>name · EXTENDS (multi) · folder</td><td>new <code>.TcIO</code>, <code>.plcproj</code></td></tr>
+<tr><td>Method / Property</td><td>name · type · access · (property: GET / SET / both)</td><td>existing <code>.TcPOU</code>/<code>.TcIO</code></td></tr>
+<tr><td>Struct / Enum / Union / Alias</td><td>name · (enum: base type, values) · folder</td><td>new <code>.TcDUT</code>, <code>.plcproj</code></td></tr>
+<tr><td>GVL</td><td>name · <code>{attribute 'qualified_only'}</code> on/off</td><td>new <code>.TcGVL</code>, <code>.plcproj</code></td></tr>
+<tr><td>Program / Function</td><td>name · return type (function) · folder</td><td>new <code>.TcPOU</code>, <code>.plcproj</code></td></tr>
+</table>
+</section>
+
+<!-- ===================== 3 PACKAGE MANAGER ===================== -->
+<section id="pkg">
+<p>A NuGet-style manager for PLC libraries, opened from the <b>References</b> node, the status bar (<code>⇪ Lib</code>) or <i>TwinCAT: Manage Libraries</i>. Browsing and editing references runs in the extension (reads the <code>.plcproj</code> and library feeds). Installing a <code>.library</code> into the TwinCAT repository goes through <code>iecode</code>.</p>
+
+<div class="scroll"><div class="vs" style="min-width:760px">
+  <div class="title">IECode: Libraries — MachineX.sln</div>
+  <div class="pm">
+    <div class="top">
+      <div class="ptabs"><span>BROWSE</span><span class="on">INSTALLED</span><span>UPDATES<span class="badge">3</span></span><span>CONSOLIDATE<span class="badge">1</span></span></div>
+      <div class="search">tc3_</div>
+      <label class="chk">☐ Include prerelease</label>
+      <span class="sel2">Source: All ▾</span>
+      <span class="sel2">⚙</span>
+    </div>
+    <div class="list">
+      <div class="row">
+        <div class="logo" style="background:#c0392b">BK</div>
+        <div><div class="nm">Tc2_Standard <span class="by">Beckhoff</span></div><div class="ds">Standard IEC 61131-3 timers, counters, triggers</div></div>
+        <div class="ver"><span class="vok">3.4.5.0</span><br><span style="color:#888">* (newest)</span></div>
+      </div>
+      <div class="row">
+        <div class="logo" style="background:#c0392b">BK</div>
+        <div><div class="nm">Tc3_MC2 <span class="by">Beckhoff</span></div><div class="ds">PLCopen motion control function blocks</div></div>
+        <div class="ver">3.3.62.0<br><span class="up">↑ 3.3.66.0</span></div>
+      </div>
+      <div class="row h">
+        <div class="logo" style="background:#2f6fdd">MX</div>
+        <div><div class="nm">Tc3_MotorLib <span class="by">MachineX GmbH</span></div><div class="ds">Motor and drive abstraction, I_Motor, FB_Motor…</div></div>
+        <div class="ver">1.2.0<br><span class="up">↑ 1.3.0</span></div>
+      </div>
+      <div class="row">
+        <div class="logo" style="background:#2f6fdd">MX</div>
+        <div><div class="nm">Tc3_Logging <span class="by">MachineX GmbH</span></div><div class="ds">Structured logging to ADS logger / file</div></div>
+        <div class="ver"><span class="vwarn">0.9.1 · 1.0.0</span><br><span style="color:#888">2 versions in use</span></div>
+      </div>
+      <div class="row">
+        <div class="logo" style="background:#27ae60">OS</div>
+        <div><div class="nm">TcUnit <span class="by">tcunit.org</span></div><div class="ds">Unit-testing framework for TwinCAT 3</div></div>
+        <div class="ver">1.3.1<br><span class="up">↑ 1.4.0-rc1</span></div>
+      </div>
+      <div class="row">
+        <div class="logo" style="background:#c0392b">BK</div>
+        <div><div class="nm">Tc2_System <span class="by">Beckhoff</span></div><div class="ds">System functions (ADS, file, string)</div></div>
+        <div class="ver"><span class="vok">3.6.4.0</span><br><span style="color:#888">* (newest)</span></div>
+      </div>
+    </div>
+    <div class="det">
+      <h5>Tc3_MotorLib</h5>
+      <div class="meta">MachineX GmbH · source: <b>company-feed</b> · placeholder <code>MotorLib</code> · <span class="up">also in workspace: libs/Tc3_MotorLib (1.4.0-dev)</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:12px;color:#aaa">Version</span>
+        <span class="sel2">1.3.0 (latest stable) ▾ &nbsp;|&nbsp; ⇄ workspace</span>
+        <span class="sel2">Resolution: fixed ▾</span>
+        <span class="btn">Update</span>
+      </div>
+      <table class="prj">
+        <tr><th></th><th>Project</th><th>Installed</th><th>Resolution</th></tr>
+        <tr><td>☑</td><td>PLC1</td><td>1.2.0</td><td>fixed</td></tr>
+        <tr><td>☑</td><td>PLC2</td><td>1.2.0</td><td>fixed</td></tr>
+        <tr><td>☐</td><td>PLC_Test</td><td>—</td><td></td></tr>
+      </table>
+      <div style="display:flex;gap:8px"><span class="btn sec">Install to PLC_Test</span><span class="btn sec">Uninstall</span><span class="btn sec">Open source</span></div>
+      <div class="kv">
+        <span>Released</span><span>2026-10-12</span>
+        <span>Requires</span><span>TwinCAT ≥ 3.1.4024.47</span>
+        <span>Format</span><span>.library (source) · .compiled-library</span>
+        <span>Changelog</span><span><span class="up">1.3.0</span> – adds <code>I_Motor.Brake()</code>; <span class="vwarn">breaking:</span> <code>FB_Motor.Start</code> returns <code>HRESULT</code></span>
+        <span>Installed in repo</span><span>1.0.0, 1.1.0, 1.2.0 &nbsp;<span class="up">clean up…</span></span>
+      </div>
+      <div style="font-size:12px;color:#999;margin-top:10px">Dependencies</div>
+      <ul class="depl"><li>Tc2_Standard ≥ 3.3</li><li>Tc3_MC2 ≥ 3.3.60</li><li>Tc3_Logging ≥ 1.0.0 <span class="vwarn">(PLC1 has 0.9.1)</span></li></ul>
+    </div>
+  </div>
+</div></div>
+
+<h3>Tabs</h3>
+<table>
+<tr><th>Tab</th><th>Shows</th><th>Actions</th></tr>
+<tr><td>Browse</td><td>All libraries from the configured sources, with search, publisher filter and prerelease toggle</td><td>Install into selected projects (adds the reference; downloads and installs the <code>.library</code> into the local repository first if needed)</td></tr>
+<tr><td>Installed</td><td>References of every PLC project in the solution, with version and resolution (<code>*</code> newest / fixed)</td><td>Change version or resolution, uninstall, open the library source, jump to the reference</td></tr>
+<tr><td>Updates</td><td>References with a newer version on a source; changelog and breaking-change notes</td><td>Update selected / Update all, optional <i>build after update</i></td></tr>
+<tr><td>Consolidate</td><td>Same library in different versions across projects in the solution</td><td>Align to one version</td></tr>
+</table>
+
+<h3>Sources (Settings ⚙)</h3>
+<div class="scroll"><div class="vs" style="min-width:560px;padding:12px 16px;font-size:13px">
+  <div style="color:#fff;font-weight:600;margin-bottom:8px">Library sources</div>
+  <div style="display:grid;grid-template-columns:24px 170px 1fr 120px;gap:6px 10px;align-items:center">
+    <span>☑</span><span>Workspace</span><span style="color:#aaa">Library projects open in this VS Code workspace (links, -dev versions)</span><span style="color:#888">built-in</span>
+    <span>☑</span><span>Local repository</span><span style="color:#aaa">C:\TwinCAT\3.1\Components\Plc\Managed Libraries</span><span style="color:#888">built-in</span>
+    <span>☑</span><span>Beckhoff (tcpkg)</span><span style="color:#aaa">TwinCAT Package Manager feed · 4026 only</span><span style="color:#888">read via iecode</span>
+    <span>☑</span><span>company-feed</span><span style="color:#aaa">https://pkgs.machinex.local/twincat/v3/index.json</span><span style="color:#888">NuGet v3 · token</span>
+    <span>☑</span><span>shared-drive</span><span style="color:#aaa">\\fileserver\plc\libraries\*.library</span><span style="color:#888">folder</span>
+    <span>☐</span><span>github-releases</span><span style="color:#aaa">github.com/MachineX/tc3-libs (release assets)</span><span style="color:#888">GitHub</span>
+  </div>
+  <div style="margin-top:10px;color:#888;font-size:12px">Stored in <code>.vscode/settings.json</code> (team) or user settings. Credentials go into VS Code SecretStorage, not settings.</div>
+</div></div>
+
+<h3>Reproducible builds: the <code>.plcproj</code> is the single source of truth <span class="tag have">decided</span></h3>
+<div class="arch">
+<div class="card"><b>Pinned references</b> in <code>PLC1.plcproj</code> (written by the manager):
+<pre class="term" style="margin-top:8px">&lt;PlaceholderReference Include="Tc3_MotorLib"&gt;
+  &lt;DefaultResolution&gt;Tc3_MotorLib, 1.3.0 (MachineX GmbH)&lt;/DefaultResolution&gt;
+&lt;/PlaceholderReference&gt;
+&lt;PlaceholderResolution Include="Tc3_MotorLib"&gt;
+  &lt;Resolution&gt;Tc3_MotorLib, 1.3.0 (MachineX GmbH)&lt;/Resolution&gt;
+&lt;/PlaceholderResolution&gt;</pre></div>
+<div class="card"><b>How it works</b>
+<ul>
+  <li>No extra manifest file. Pinning a version in the manager writes a fixed resolution into the <code>.plcproj</code>.</li>
+  <li><code>iecode lib restore</code> reads the pinned versions from the <code>.plcproj</code> files and installs missing ones from the configured sources before building (CI / fresh machine).</li>
+  <li>References set to <code>*</code> (newest) are reported as a warning in CI, because they aren't reproducible.</li>
+  <li>Library changes show up as a diff of the <code>.plcproj</code> in pull requests.</li>
+</ul></div>
+</div>
+</section>
+
+<!-- ===================== 4 CLI ===================== -->
+<section id="cli">
+<p><code>iecode</code> – single self-contained Windows exe (C#/.NET 8, COM interop to <code>EnvDTE</code> + <code>TCatSysManagerLib</code>). Human-readable output by default, <code>--json</code> for the extension and CI. Non-zero exit code on any error.</p>
+<div class="term"><span class="p">PS&gt;</span> iecode --help
+<b>iecode</b> 0.1.0 – TwinCAT Automation Interface from the command line
+
+<span class="o">USAGE</span>  iecode &lt;command&gt; [solution.sln] [options]
+
+<span class="o">PROJECT</span>
+  build              Build solution or a single PLC project; errors as file:line
+  check              "Check all objects" without full build
+  activate           Activate configuration on target (optionally restart TwinCAT)
+  info               List PLC projects, references, target, TwinCAT version
+  doctor             Check TwinCAT / XAE shell / ADS route / iecode version
+  self-update        Update iecode (GitHub install only; tcpkg installs use tcpkg)
+
+<span class="o">LIBRARIES</span>
+  lib save           Save PLC project as .library or .compiled-library
+  lib search         Search configured sources (feeds, folders, tcpkg)
+  lib add / remove   Add or remove a library reference in a PLC project
+  lib install        Install a .library into the local repository
+  lib update         Update library references in one or many projects
+  lib outdated       List references with newer versions available
+  lib restore        Install the versions pinned in the .plcproj files
+  lib publish        Push a .library to a company feed
+  lib list           Show references + resolved versions
+
+<span class="o">WORKSPACE</span>          (reads twincat-workspace.json or scans the folder)
+  ws list            Libraries, applications, standalone PLC projects
+  ws graph           Dependency graph + build order (text, JSON, Mermaid)
+  ws build           Build all, or --affected [--since &lt;git-ref&gt;], in order
+  ws release &lt;lib&gt;   Bump version, save, publish, update dependents
+
+<span class="o">PROTECTION</span>
+  encrypt            Compiled library, or encrypt a project with a user DB
+
+<span class="o">GLOBAL OPTIONS</span>
+  --tc &lt;version&gt;     TwinCAT to use: 4024 | 4026 | exact build, e.g. 4024.66 | auto
+                     (default: auto = version stored in the .tsproj, else newest installed)
+  --visible          Show the XAE shell window (debugging)
+  --json             Machine-readable output
+  --timeout &lt;s&gt;      Abort after s seconds (default 900)
+</div>
+
+<h3>Build</h3>
+<div class="term"><span class="p">PS&gt;</span> iecode build .\MachineX.sln --plc PLC1 --config Release
+<span class="d">● Starting TcXaeShell 4026.12 (hidden)…           4.1 s
+● Opening MachineX.sln…                           6.2 s
+● Building PLC1                                  </span>
+<span class="e">  ✖ C0077  POUs\Motion\FB_Motor.TcPOU  Start  (2,13)  Unknown type: 'fSped'</span>
+<span class="w">  ⚠ C0371  POUs\MAIN.TcPOU             (14,5)  Access to VAR_IN_OUT 'stAxis' …</span>
+<span class="e">✖ Build failed · 1 error · 1 warning · 18.4 s</span>   <span class="d">(exit 1)</span></div>
+
+<h3>Activate</h3>
+<div class="term"><span class="p">PS&gt;</span> iecode activate .\MachineX.sln --target 5.80.201.232.1.1 --restart --boot-project
+<span class="d">● Building… ok
+● Target 5.80.201.232.1.1 (CX-4F2A11) · TwinCAT 3.1.4026.12 · Config mode</span>
+<span class="w">? This will restart TwinCAT on CX-4F2A11. Continue? (y/N) — skip with --yes</span>
+<span class="p">✔ Configuration activated · PLC1 boot project created · TwinCAT in RUN mode</span></div>
+
+<h3>Library: save &amp; update</h3>
+<div class="term"><span class="p">PS&gt;</span> iecode lib save .\Tc3_MotorLib.sln --plc MotorLib --version 1.3.0 --out .\dist --install
+<span class="p">✔ dist\Tc3_MotorLib_1.3.0.library  (installed to C:\TwinCAT\3.1\Components\Plc\Managed Libraries)</span>
+
+<span class="p">PS&gt;</span> iecode lib update .\MachineX.sln --lib Tc3_MotorLib --to 1.3.0
+<span class="d">  PLC1   Tc3_MotorLib  1.2.0 → 1.3.0   (placeholder resolution)
+  PLC2   Tc3_MotorLib  *     → *       (always newest — unchanged)</span>
+<span class="p">✔ 1 project updated · rebuilding… ok</span>
+
+<span class="p">PS&gt;</span> iecode lib update "C:\repos\**\*.sln" --lib Tc3_MotorLib --to latest --dry-run   <span class="d"># many repos</span>
+
+<span class="p">PS&gt;</span> iecode lib outdated .\MachineX.sln
+<span class="d">  Project  Library        Installed  Latest     Source</span>
+  PLC1     Tc3_MC2        3.3.62.0   <span class="o">3.3.66.0</span>   tcpkg
+  PLC1     Tc3_MotorLib   1.2.0      <span class="o">1.3.0</span>      company-feed  <span class="w">⚠ breaking</span>
+  PLC1     TcUnit         1.3.1      <span class="o">1.4.0-rc1</span>  github-releases
+
+<span class="p">PS&gt;</span> iecode lib restore .\MachineX.sln     <span class="d"># CI: install exact versions pinned in the .plcproj files</span>
+<span class="p">✔ 6 libraries resolved · 2 downloaded · 2 installed · 4 already present</span>
+
+<span class="p">PS&gt;</span> iecode lib publish .\dist\Tc3_MotorLib_1.3.0.library --source company-feed
+<span class="p">✔ Tc3_MotorLib 1.3.0 pushed to company-feed</span></div>
+
+<h3>Workspace</h3>
+<div class="term"><span class="p">PS&gt;</span> iecode ws build --affected --since origin/main
+<span class="d">● Changed: libs/Tc3_MotorLib (3 files)
+● Affected: MachineX/PLC1, TestRunner   (MachineY pinned to 1.3.0 — skipped)
+● One TcXaeShell 4026.12 for all projects</span>
+  [1/3] Tc3_MotorLib    save 1.4.0-dev · install            ok   9.8 s
+  [2/3] MachineX/PLC1   build                               ok  14.2 s
+  [3/3] TestRunner      build · run TcUnit (42 tests)       ok  11.0 s
+<span class="p">✔ Workspace build ok · 35.0 s</span>
+
+<span class="p">PS&gt;</span> iecode ws release Tc3_MotorLib --bump minor --publish company-feed --update-dependents
+<span class="p">✔ Tc3_MotorLib 1.4.0 saved · published · MachineX/PLC1, TestRunner now reference 1.4.0</span></div>
+
+<h3>TwinCAT version selection</h3>
+<div class="term"><span class="p">PS&gt;</span> iecode info --installed
+<span class="d">  Version          Shell                 ProgID</span>
+  3.1.4024.62      TcXaeShell (VS2017)   TcXaeShell.DTE.15.0
+  3.1.4024.66      TcXaeShell (VS2017)   TcXaeShell.DTE.15.0   <span class="d">(remote manager)</span>
+  3.1.4026.12      TcXaeShell64          TcXaeShell.DTE.17.0
+
+<span class="p">PS&gt;</span> iecode build .\MachineX.sln --tc 4024.66
+<span class="d">● Pinning TwinCAT 3.1.4024.66 via Remote Manager · TcXaeShell.DTE.15.0</span>
+<span class="p">✔ Build ok · 17.9 s</span>
+
+<span class="p">PS&gt;</span> iecode build .\MachineX.sln --tc 4024.70
+<span class="e">✖ TwinCAT 3.1.4024.70 is not installed. Installed: 4024.62, 4024.66, 4026.12</span>   <span class="d">(exit 3)</span></div>
+<p class="note">In the extension, the status bar shows the version (<code>⚙ TwinCAT 3.1.4026.12</code>); clicking it lets you pick one of the installed versions per project. The choice is passed as <code>--tc</code>. 4024 builds are selected through the TwinCAT Remote Manager; 4026 uses the matching shell.</p>
+
+<h3>Encrypt</h3>
+<div class="term"><span class="d"># (a) ship a library without source</span>
+<span class="p">PS&gt;</span> iecode encrypt .\Tc3_MotorLib.sln --plc MotorLib --mode compiled-library --out .\dist
+<span class="p">✔ dist\Tc3_MotorLib_1.3.0.compiled-library  (source not included)</span>
+
+<span class="d"># (b) encrypt an existing project and connect it to a user database (TwinCAT 3 Security Management)</span>
+<span class="p">PS&gt;</span> iecode encrypt .\MachineX.sln --plc PLC1 --mode project --userdb "MachineX-OEM" --protect write,view
+<span class="d">● User DB "MachineX-OEM" found in local Security Management (3 users, 2 groups)
+● Linking PLC1 to user DB · enabling project file encryption
+● Rights: Developers = full · Service = view · others = none</span>
+<span class="w">? Only users of "MachineX-OEM" will be able to open PLC1 afterwards. Keep a backup. Continue? (y/N)</span>
+<span class="p">✔ PLC1 encrypted (.TcPOU files now unreadable without login) · backup: .\PLC1.backup-20261024.zip</span>
+
+<span class="p">PS&gt;</span> iecode encrypt .\MachineX.sln --plc PLC1 --status
+<span class="d">  PLC1   encrypted · user DB MachineX-OEM · rights: Developers=full, Service=view</span></div>
+<p class="note"><b>Consequence for the extension:</b> encrypted project files can't be shown as plain ST. The tree shows them with a 🔒 and opens nothing; build / activate still work through <code>iecode</code> after login. Whether the Automation Interface exposes all user-DB / encryption settings needs to be verified against TwinCAT 4024 and 4026 (fallback: drive the project settings XML + Security Management API).</p>
+
+<h3>JSON contract used by the extension</h3>
+<div class="term">{ "command":"build", "ok":false, "durationMs":18412, "twincat":"3.1.4026.12",
+  "diagnostics":[ { "severity":"error", "code":"C0077",
+    "file":"PLC1/POUs/Motion/FB_Motor.TcPOU", "object":"FB_Motor.Start",
+    "line":2, "column":13, "message":"Unknown type: 'fSped'" } ] }</div>
+</section>
+
+<!-- ===================== 6 INSTALL ===================== -->
+<section id="inst">
+<p>Open source on GitHub. Every release builds the same version for three channels: the <b>VS Code extension</b> (Marketplace + Open VSX), <b>GitHub Releases</b> (<code>.vsix</code>, <code>iecode</code> zip, install script), and a <b>TwinCAT Package Manager</b> package so <code>iecode</code> can be installed with <code>tcpkg</code> next to TwinCAT itself.</p>
+
+<h3>Channel 1 · VS Code Marketplace / Open VSX</h3>
+<div class="scroll"><div class="vs" style="min-width:760px">
+  <div class="body" style="grid-template-columns:44px 340px 1fr;min-height:430px">
+    <div class="act"><div>⎘</div><div>⌕</div><div>⑂</div><div class="on">⊞</div></div>
+    <div class="side">
+      <h4>EXTENSIONS: MARKETPLACE</h4>
+      <div style="margin:0 10px 8px;background:#3c3c3c;border:1px solid var(--vs-blue);padding:3px 6px">twincat</div>
+      <div class="pm" style="display:block;min-height:0">
+        <div class="row h"><div class="logo" style="background:#2f6fdd">IE</div><div><div class="nm">IECode</div><div class="ds">ST view, workspace, libraries, build…</div></div><div class="ver"><span class="btn" style="padding:1px 6px">Install</span></div></div>
+        <div class="row"><div class="logo" style="background:#555">ST</div><div><div class="nm">Structured Text</div><div class="ds">IEC 61131-3 syntax highlighting</div></div><div class="ver"></div></div>
+      </div>
+    </div>
+    <div class="edit" style="padding:16px 20px">
+      <div style="display:flex;gap:14px;align-items:center">
+        <div class="logo" style="background:#2f6fdd;width:64px;height:64px;border-radius:10px;display:grid;place-items:center;font-weight:700;font-size:22px;color:#fff">IE</div>
+        <div><div style="font-size:20px;color:#fff">IECode</div>
+        <div style="color:#aaa;font-size:12px">iecode · ⤓ 1.2k · ★★★★★ · MIT · github.com/JanJunklewitz/iecode</div>
+        <div style="margin-top:6px"><span class="btn" style="background:#0e639c;color:#fff;padding:3px 12px;font-size:12px">Install</span> <span style="font-size:12px;color:#aaa">&nbsp;Also on Open VSX (VSCodium, Cursor)</span></div></div>
+      </div>
+      <div style="margin-top:16px;color:#fff;font-weight:600">Get started with IECode</div>
+      <div style="margin-top:8px;font-size:13px;display:grid;gap:8px">
+        <div>✔ <b>Open a TwinCAT folder or workspace</b> <span style="color:#888">— 3 libraries, 2 apps found</span></div>
+        <div>✔ <b>Plain-ST view</b> <span style="color:#888">— works now, no TwinCAT needed</span></div>
+        <div style="background:#2a2d2e;padding:8px 10px;border-left:2px solid var(--vs-blue)">● <b>Install the iecode CLI</b> <span style="color:#888">(needed for build, activate, libraries)</span>
+          <div style="margin:8px 0 2px;display:grid;gap:5px;font-size:12px">
+            <div><span class="btn" style="padding:1px 8px">Install via tcpkg</span> <span style="color:#aaa">TwinCAT 4026 · recommended</span></div>
+            <div><span class="btn sec" style="padding:1px 8px;background:#3a3d41">Download from GitHub</span> <span style="color:#aaa">4024 / no tcpkg · per-user, no admin</span></div>
+            <div><span class="btn sec" style="padding:1px 8px;background:#3a3d41">Locate existing iecode.exe…</span></div>
+          </div>
+        </div>
+        <div>○ <b>Pick a target system</b> <span style="color:#888">— ADS route / NetId</span></div>
+        <div>○ <b>Add library sources</b></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⚙ iecode 0.4.0 ✔ matches extension 0.4.0</span><span class="r">⇪ iecode 0.4.1 available — Update</span></div>
+</div></div>
+<p class="note">The extension itself is platform-independent. On first use of a command that needs <code>iecode</code>, it opens this walkthrough instead of failing. It checks the <code>iecode</code> version on start and offers an update when they don't match (JSON contract version).</p>
+
+<h3>Channel 2 · GitHub (open source)</h3>
+<div class="term"><span class="d"># Release assets (github.com/JanJunklewitz/iecode/releases/tag/v0.4.0)</span>
+  iecode-0.4.0.vsix              <span class="d">VS Code extension (offline / air-gapped installs)</span>
+  iecode-0.4.0-win-x64.zip                 <span class="d">self-contained, signed iecode.exe</span>
+  IECode.Cli.0.4.0.nupkg               <span class="d">tcpkg package (same as feed)</span>
+  install.ps1 · SHA256SUMS · SBOM.spdx.json
+
+<span class="p">PS&gt;</span> irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex
+<span class="d">● Downloading iecode 0.4.0 (win-x64)… verifying SHA256… ok
+● Installed to %LOCALAPPDATA%\iecode · added to PATH (user)
+● Found TwinCAT 3.1.4026.12 · TcXaeShell64 ok</span>
+<span class="p">✔ iecode 0.4.0 ready — run 'iecode doctor' to check your setup</span>
+
+<span class="p">PS&gt;</span> code --install-extension .\iecode-0.4.0.vsix     <span class="d"># offline install</span></div>
+
+<div class="card"><b>CI:</b> GitHub Action to set up <code>iecode</code> on a self-hosted Windows runner with TwinCAT:
+<pre class="term" style="margin-top:8px">- uses: JanJunklewitz/iecode/setup-iecode@v0
+  with: { version: 0.4.x }
+- run: iecode lib restore MachineX.sln
+- run: iecode ws build --affected --since origin/main --json</pre></div>
+
+<h3>Channel 3 · TwinCAT Package Manager (tcpkg)</h3>
+<div class="term"><span class="d"># one-time: add the feed (GitHub Packages NuGet feed of the project, or your own mirror)</span>
+<span class="p">PS&gt;</span> tcpkg source add -n iecode -s https://nuget.pkg.github.com/JanJunklewitz/index.json
+
+<span class="p">PS&gt;</span> tcpkg install IECode.Cli
+<span class="d">● Resolving IECode.Cli 0.4.0 (requires TwinCAT.XAE.Base ≥ 3.1.4024)
+● Installing to C:\Program Files\Beckhoff\IECode\ · adding to PATH</span>
+<span class="p">✔ IECode.Cli 0.4.0 installed</span>
+
+<span class="p">PS&gt;</span> tcpkg install IECode.VSCode      <span class="d"># optional: installs the .vsix into VS Code for all users</span>
+<span class="p">PS&gt;</span> tcpkg upgrade IECode.Cli         <span class="d"># updates together with TwinCAT</span></div>
+<p class="note">Command syntax and package metadata (dependencies on TwinCAT workloads, install scripts) need to be checked against the tcpkg docs. Beckhoff's own feed only hosts Beckhoff packages; third-party packages come from an extra feed the user adds.</p>
+
+<h3>Channel overview</h3>
+<table>
+<tr><th>Channel</th><th>Delivers</th><th>Best for</th><th>Updates</th></tr>
+<tr><td>VS Code Marketplace / Open VSX</td><td>Extension</td><td>Everyone, any OS</td><td>Auto (VS Code)</td></tr>
+<tr><td>GitHub Releases</td><td><code>.vsix</code>, <code>iecode</code> zip, install script, <code>.nupkg</code></td><td>4024 machines, offline / air-gapped, contributors</td><td><code>iecode self-update</code> or re-run script</td></tr>
+<tr><td>tcpkg feed</td><td><code>iecode</code> (+ optional extension)</td><td>4026 engineering PCs and build agents managed with tcpkg</td><td><code>tcpkg upgrade</code></td></tr>
+<tr><td>GitHub Action</td><td><code>setup-iecode</code></td><td>CI on self-hosted Windows runners</td><td>Pinned version</td></tr>
+</table>
+
+<h3>Release pipeline (one tag → all channels)</h3>
+<div class="term">git tag v0.4.0 → GitHub Actions
+   ├─ test        npm test · dotnet test · e2e on windows runner (TwinCAT)
+   ├─ build       iecode-0.4.0.vsix · iecode-0.4.0-win-x64.zip (self-contained, code-signed)
+   ├─ package     IECode.Cli.0.4.0.nupkg · IECode.VSCode.0.4.0.nupkg
+   └─ publish     ├─ VS Code Marketplace (vsce)   ├─ Open VSX (ovsx)
+                  ├─ GitHub Release + SHA256SUMS  └─ GitHub Packages NuGet feed (tcpkg)</div>
+</section>
+
+<!-- ===================== 7 ARCH ===================== -->
+<section id="arch">
+<div class="arch">
+  <div class="card">
+    <h3 style="margin-top:0">VS Code extension (TypeScript) <span class="tag">any OS</span></h3>
+    <ul>
+      <li><b>xml/model</b> – parse/splice TcPOU/TcIO/TcDUT/TcGVL (from PoC)</li>
+      <li><b>project</b> – read .sln/.tsproj/.plcproj, build tree, add/remove <code>Compile Include</code></li>
+      <li><b>generators</b> – templates for every object type (fresh GUIDs, CRLF, BOM like XAE)</li>
+      <li><b>views</b> – tree, <code>iecode:</code> file system, outline, status bar</li>
+      <li><b>iecode bridge</b> – spawn <code>iecode --json</code> locally on Windows; map diagnostics. On macOS / Linux the iecode commands are hidden and the extension is an editor only.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">iecode CLI (C# / .NET 8) <span class="tag">Windows + TwinCAT XAE</span></h3>
+    <ul>
+      <li><b>Shell host</b> – create <code>TcXaeShell.DTE.17.0</code> / <code>VisualStudio.DTE.17.0</code>, COM <code>IMessageFilter</code> for retry, always quit the shell</li>
+      <li><b>Build</b> – <code>SolutionBuild.Build</code>, read ErrorList</li>
+      <li><b>Activate</b> – <code>ITcSysManager.SetTargetNetId / ActivateConfiguration / StartRestartTwinCAT</code></li>
+      <li><b>Library</b> – <code>ITcPlcIECProject.SaveAsLibrary</code>, <code>ITcPlcLibraryManager</code> (Install, Add/Remove reference, SetEffectiveResolution)</li>
+      <li><b>Encrypt</b> – <code>SaveAsLibrary</code> as <code>.compiled-library</code>; project encryption + user DB link via TwinCAT 3 Security Management (AI coverage to verify)</li>
+      <li><b>Version select</b> – <code>--tc 4024 | 4026 | 4024.66</code>: Remote Manager for 4024 builds, matching shell ProgID for 4026</li>
+    </ul>
+  </div>
+</div>
+<div class="term" style="margin-top:12px">  ┌──────────────────────── Windows engineering PC / CI build agent ────────────────────────┐
+  │ VS Code + extension ──spawn──► iecode.exe ──COM──► TcXaeShell / VS ──► TwinCAT AI          │
+  │  • read/write XML directly        (--json)                          └──► ADS ► PLC      │
+  │  • build/activate/lib via iecode                same exe used in CI (GitHub Actions / ...) │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+  ┌──────── macOS / Linux ────────┐
+  │ VS Code + extension (editor   │   ST view, tree, add objects, workspace, library manager
+  │ only, no iecode)                 │   on the .plcproj; build/activate/encrypt are hidden
+  └───────────────────────────────┘</div>
+<div class="card"><h3 style="margin-top:0">Vendor adapters (prepared for CODESYS and Siemens later)</h3>
+<p style="margin:0 0 8px">Everything vendor-specific sits behind one interface. The tree, workspace, library manager, language features and CLI commands only talk to the interface. TwinCAT is the first and, for now, only adapter.</p>
+<table>
+<tr><th>Adapter</th><th>Project files</th><th>Build / deploy</th><th>Status</th></tr>
+<tr><td>TwinCAT 3</td><td>XML (<code>.TcPOU</code>, <code>.plcproj</code>), edited directly</td><td>Automation Interface (COM)</td><td><span class="tag have">v1</span></td></tr>
+<tr><td>CODESYS</td><td>Binary <code>.project</code>; ST via export/import (CODESYS scripting / PLCopen XML)</td><td>CODESYS scripting (Python)</td><td><span class="tag">later</span></td></tr>
+<tr><td>Siemens TIA Portal</td><td>Binary project; SCL via export/import</td><td>TIA Openness (.NET)</td><td><span class="tag">later</span></td></tr>
+</table>
+<pre class="term" style="margin-top:8px">interface PlcAdapter {
+  detect(folder): ProjectRef[]            // find projects of this vendor
+  readObjects(project): PlcObject[]       // POUs, DUTs, GVLs, interfaces + members
+  readSource(obj) / writeSource(obj, st)  // plain-ST view round trip
+  createObject(kind, name, folder)        // Add FB / Method / Property …
+  references(project) / setReference(…)   // libraries
+  cli: "iecode &lt;cmd&gt; --vendor twincat"     // build, activate, lib, encrypt
+}</pre>
+</div>
+<p class="note">The extension keeps a <b>workspace model</b> (all projects, library metadata, references, links) shared by the tree, the library manager and navigation. <code>iecode ws …</code> builds the same model from <code>twincat-workspace.json</code> so CI and the editor agree on build order.</p>
+<p class="note">Repo layout proposal: <code>iecode/extension</code> (ST view PoC), <code>iecode/cli</code> (iecode), <code>iecode/samples</code> (your sample repo / fixtures), <code>iecode/packaging</code> (nuspec for tcpkg, install.ps1), <code>iecode/setup-iecode</code> (GitHub Action), <code>.github/workflows/release.yml</code>, shared JSON schema for the CLI output.</p>
+</section>
+
+<!-- ===================== 5 SCOPE ===================== -->
+<section id="scope">
+<h3>Proposed milestones</h3>
+<table>
+<tr><th>#</th><th>Milestone</th><th>Contents</th></tr>
+<tr><td>M1</td><td>CLI core</td><td><code>build</code>, <code>check</code>, <code>info</code>, JSON output, tested against your sample repo</td></tr>
+<tr><td>M2</td><td>Extension tree + add objects</td><td>TwinCAT Projects view, all Add wizards, rename/delete, <code>.plcproj</code> edits</td></tr>
+<tr><td>M3</td><td>Build integration</td><td>status bar, Problems mapping into ST view lines</td></tr>
+<tr><td>M4</td><td>Deploy &amp; libraries</td><td><code>activate</code>, <code>lib save/install/update</code>, multi-repo update</td></tr>
+<tr><td>M2b</td><td>Workspace</td><td>Discovery of libraries / apps / standalone PLC, grouped tree, dependency graph; then workspace links, <code>ws build --affected</code>, <code>ws release</code>, cross-project go-to-definition</td></tr>
+<tr><td>M4b</td><td>Library manager</td><td>Installed / Updates / Consolidate on <code>.plcproj</code>, folder + local repo sources; then feeds, Browse, <code>restore</code>, <code>publish</code></td></tr>
+<tr><td>M4c</td><td>Distribution</td><td>Release pipeline, Marketplace + Open VSX, GitHub Releases + install script, tcpkg package on GitHub Packages, <code>setup-iecode</code> action, first-run walkthrough. (Start early: a <code>.vsix</code> + zip on GitHub from M1 on.)</td></tr>
+<tr><td>M5</td><td>Protection</td><td><code>encrypt --mode compiled-library</code>; <code>encrypt --mode project --userdb</code> (TwinCAT 3 Security Management); 🔒 handling in the extension</td></tr>
+<tr><td>M6</td><td>Language features <span class="tag have">in scope</span></td><td>ST parser, outline++, go-to-definition (incl. into workspace libraries), find references, rename, diagnostics without build. Parser work starts alongside M2.</td></tr>
+<tr><td>M7</td><td>More vendors <span class="tag">later</span></td><td>CODESYS adapter, then Siemens TIA Portal adapter (export/import based ST view, vendor-specific build)</td></tr>
+</table>
+
+<h3>Decided</h3>
+<div class="card"><table>
+<tr><th>Topic</th><th>Decision</th></tr>
+<tr><td>Where iecode runs</td><td>Windows only (engineering PC, CI agent). No SSH / remote mode. On macOS / Linux the extension is an editor only.</td></tr>
+<tr><td>TwinCAT versions</td><td>4024 and 4026, plus exact builds via <code>--tc 4024.66</code> and a version picker in the status bar.</td></tr>
+<tr><td>Encrypt</td><td>(a) <code>.compiled-library</code> and (b) encrypt an existing project and link it to a user DB (TwinCAT 3 Security Management).</td></tr>
+<tr><td>Library manifest</td><td>None. The <code>.plcproj</code> with pinned versions is the source of truth; <code>lib restore</code> reads it.</td></tr>
+<tr><td>Language features</td><td>In scope for v1.</td></tr>
+<tr><td>License</td><td>Apache-2.0 with DCO sign-off.</td></tr>
+</table></div>
+
+<h3>Open questions</h3>
+<div class="card"><ol>
+<li><span class="q">Library update scope:</span> only projects in the same solution, or scan many repos? Pin a version or set to "always newest (*)"? Should it also commit / open PRs?</li>
+<li><span class="q">Library sources:</span> where do your libraries live today: shared drive, Git repos, an existing NuGet/Artifactory/Azure Artifacts feed, or only the local TwinCAT repository? On 4026, should we reuse Beckhoff's TwinCAT Package Manager (<code>tcpkg</code>) or keep it separate?</li>
+<li><span class="q">Workspace layout:</span> one repo with <code>libs/</code> + <code>apps/</code> (monorepo), or several repos combined in a <code>.code-workspace</code>? Is <code>TestRunner</code>-style standalone PLC (4026, <code>.plcproj</code> without <code>.tsproj</code>) something you use?</li>
+<li><span class="q">Workspace links:</span> should an app use the library project from the workspace by default (always build against the latest code), or only when you switch it on per reference?</li>
+<li><span class="q">ST view:</span> keep one document per POU with <code>//==== METHOD ====</code> sections (current PoC), or one editor tab per method/property?</li>
+<li><span class="q">Add objects:</span> OK to do this in the extension by writing XML (works without TwinCAT)? Also expose it as <code>iecode add …</code> for scripts?</li>
+<li><span class="q">Open source setup:</span> GitHub org/user name? Copyright holder for NOTICE (currently "The iecode authors")? Marketplace publisher ID? Do you have a code-signing certificate for <code>iecode.exe</code> (unsigned exes trigger SmartScreen warnings)?</li>
+<li><span class="q">tcpkg feed:</span> host the package on GitHub Packages (needs a GitHub token even for public packages) or a public feed / your own server? Should the tcpkg package also install the VS Code extension?</li>
+<li><span class="q">Name:</span> <code>iecode</code> OK for the CLI? Extension display name <i>without</i> "TwinCAT" as the product name (trademark), e.g. "PLC Workbench for TwinCAT"?</li>
+<li><span class="q">Security Management:</span> which user DB setup do you use (local DB per PC, shared DB file in the repo, central server)? Should <code>iecode</code> also create user DBs, or only link existing ones?</li>
+</ol></div>
+</section>
+</main>
+<script>
+document.getElementById('tabs').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <Itf Name="I_Motor" Id="{cccccccc-0000-0000-0000-000000000001}">
+    <Declaration><![CDATA[INTERFACE I_Motor
+]]></Declaration>
+    <Method Name="Start" Id="{cccccccc-0000-0000-0000-000000000002}">
+      <Declaration><![CDATA[METHOD Start : BOOL
+VAR_INPUT
+    fSpeed : LREAL;
+END_VAR
+]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

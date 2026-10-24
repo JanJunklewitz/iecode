@@ -1,0 +1,25 @@
+IECode
+Copyright 2026 Jan Junklewitz and the IECode contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Trademarks
+----------
+TwinCAT®, TwinCAT/BSD®, Beckhoff® and EtherCAT® are registered trademarks of
+Beckhoff Automation GmbH. Visual Studio® and Visual Studio Code are trademarks
+of Microsoft Corporation. All other trademarks are the property of their
+respective owners.
+
+This project is not affiliated with, endorsed by, or supported by Beckhoff
+Automation GmbH or Microsoft Corporation. The names are used only to describe
+compatibility.
+
+Third-party components
+----------------------
+This repository does not contain or redistribute Beckhoff or Microsoft software
+(for example TwinCAT XAE, TcXaeShell, the TwinCAT Automation Interface type
+libraries, EnvDTE or ADS assemblies). The iecode CLI uses the copies installed and
+licensed on the user's machine.
+
+Notices for third-party open-source dependencies bundled into release artifacts
+are generated during the release build and shipped with those artifacts.
