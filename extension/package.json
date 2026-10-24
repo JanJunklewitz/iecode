@@ -1,58 +1,313 @@
 {
   "name": "iecode",
   "displayName": "IECode – Structured Text for TwinCAT",
-  "description": "Edit TwinCAT .TcPOU/.TcDUT/.TcGVL/.TcIO files as plain Structured Text. The XML file stays the source of truth.",
+  "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, build and deploy with the iecode CLI.",
   "version": "0.0.1",
   "publisher": "iecode",
   "author": "Jan Junklewitz",
-  "repository": { "type": "git", "url": "https://github.com/JanJunklewitz/iecode.git", "directory": "extension" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JanJunklewitz/iecode.git",
+    "directory": "extension"
+  },
   "homepage": "https://github.com/JanJunklewitz/iecode#readme",
-  "bugs": { "url": "https://github.com/JanJunklewitz/iecode/issues" },
-  "keywords": ["twincat", "structured text", "iec 61131-3", "plc"],
+  "bugs": {
+    "url": "https://github.com/JanJunklewitz/iecode/issues"
+  },
+  "keywords": [
+    "twincat",
+    "structured text",
+    "iec 61131-3",
+    "plc"
+  ],
   "license": "Apache-2.0",
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Programming Languages"],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
   "main": "./out/src/extension.js",
-  "bin": { "iecode-st": "./out/src/cli.js" },
+  "bin": {
+    "iecode-st": "./out/src/cli.js"
+  },
   "activationEvents": [
     "onFileSystem:iecode",
-    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO}"
+    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
     "languages": [
-      { "id": "twincat-st", "aliases": ["TwinCAT Structured Text"], "configuration": "./language-configuration.json" },
-      { "id": "xml", "extensions": [".TcPOU", ".TcDUT", ".TcGVL", ".TcIO", ".TcTTO"] }
+      {
+        "id": "twincat-st",
+        "aliases": [
+          "TwinCAT Structured Text"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "xml",
+        "extensions": [
+          ".TcPOU",
+          ".TcDUT",
+          ".TcGVL",
+          ".TcIO",
+          ".TcTTO"
+        ]
+      }
     ],
     "grammars": [
-      { "language": "twincat-st", "scopeName": "source.twincat-st", "path": "./syntaxes/twincat-st.tmLanguage.json" },
-      { "scopeName": "text.xml.twincat-cdata", "path": "./syntaxes/cdata-injection.tmLanguage.json",
-        "injectTo": ["text.xml"], "embeddedLanguages": { "meta.embedded.block.twincat-st": "twincat-st" } }
+      {
+        "language": "twincat-st",
+        "scopeName": "source.twincat-st",
+        "path": "./syntaxes/twincat-st.tmLanguage.json"
+      },
+      {
+        "scopeName": "text.xml.twincat-cdata",
+        "path": "./syntaxes/cdata-injection.tmLanguage.json",
+        "injectTo": [
+          "text.xml"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.twincat-st": "twincat-st"
+        }
+      }
     ],
-    "snippets": [{ "language": "twincat-st", "path": "./snippets.json" }],
+    "snippets": [
+      {
+        "language": "twincat-st",
+        "path": "./snippets.json"
+      }
+    ],
     "commands": [
-      { "command": "iecode.openAsST", "title": "Open as Structured Text", "category": "IECode" },
-      { "command": "iecode.openAsXml", "title": "Open as XML", "category": "IECode" },
-      { "command": "iecode.build", "title": "Build PLC project", "category": "IECode" }
+      {
+        "command": "iecode.openAsST",
+        "title": "Open as Structured Text",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.openAsXml",
+        "title": "Open as XML",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.build",
+        "title": "Build",
+        "category": "IECode",
+        "icon": "$(play)"
+      },
+      {
+        "command": "iecode.refresh",
+        "title": "Refresh",
+        "category": "IECode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "iecode.addObject",
+        "title": "Add Object…",
+        "category": "IECode",
+        "icon": "$(add)"
+      },
+      {
+        "command": "iecode.addMember",
+        "title": "Add Method / Property / Action…",
+        "category": "IECode",
+        "icon": "$(add)"
+      },
+      {
+        "command": "iecode.addFolder",
+        "title": "New Folder…",
+        "category": "IECode",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "iecode.rename",
+        "title": "Rename…",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.delete",
+        "title": "Delete",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.revealMember",
+        "title": "Go to Member",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.showGraph",
+        "title": "Show Dependency Graph",
+        "category": "IECode",
+        "icon": "$(type-hierarchy)"
+      }
     ],
     "menus": {
       "explorer/context": [
-        { "command": "iecode.openAsST", "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i", "group": "navigation" },
-        { "command": "iecode.openAsXml", "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i", "group": "navigation" }
+        {
+          "command": "iecode.openAsST",
+          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "navigation"
+        }
       ],
       "editor/title": [
-        { "command": "iecode.openAsST", "when": "resourceScheme == file && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i" },
-        { "command": "iecode.openAsXml", "when": "resourceScheme == iecode" }
+        {
+          "command": "iecode.openAsST",
+          "when": "resourceScheme == file && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "resourceScheme == iecode"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "iecode.addObject",
+          "when": "view == iecode.projects",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iecode.showGraph",
+          "when": "view == iecode.projects",
+          "group": "navigation@2"
+        },
+        {
+          "command": "iecode.refresh",
+          "when": "view == iecode.projects",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "iecode.addObject",
+          "when": "view == iecode.projects && viewItem =~ /^(unit|folder)/",
+          "group": "inline"
+        },
+        {
+          "command": "iecode.addObject",
+          "when": "view == iecode.projects && viewItem =~ /^(unit|folder)/",
+          "group": "1_add@1"
+        },
+        {
+          "command": "iecode.addFolder",
+          "when": "view == iecode.projects && viewItem =~ /^(unit|folder)/",
+          "group": "1_add@2"
+        },
+        {
+          "command": "iecode.addMember",
+          "when": "view == iecode.projects && viewItem =~ /^object\\.(FUNCTION_BLOCK|PROGRAM|INTERFACE)$/",
+          "group": "inline"
+        },
+        {
+          "command": "iecode.addMember",
+          "when": "view == iecode.projects && viewItem =~ /^object\\.(FUNCTION_BLOCK|PROGRAM|INTERFACE)$/",
+          "group": "1_add@1"
+        },
+        {
+          "command": "iecode.openAsST",
+          "when": "view == iecode.projects && viewItem =~ /^object/",
+          "group": "2_open@1"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "view == iecode.projects && viewItem =~ /^object/",
+          "group": "2_open@2"
+        },
+        {
+          "command": "iecode.rename",
+          "when": "view == iecode.projects && viewItem =~ /^(object|folder|member)/",
+          "group": "3_edit@1"
+        },
+        {
+          "command": "iecode.delete",
+          "when": "view == iecode.projects && viewItem =~ /^(object|folder|member)/",
+          "group": "3_edit@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "iecode.addMember",
+          "when": "false"
+        },
+        {
+          "command": "iecode.rename",
+          "when": "false"
+        },
+        {
+          "command": "iecode.delete",
+          "when": "false"
+        },
+        {
+          "command": "iecode.addFolder",
+          "when": "false"
+        },
+        {
+          "command": "iecode.revealMember",
+          "when": "false"
+        }
       ]
     },
-    "keybindings": [{ "command": "iecode.build", "key": "ctrl+shift+b", "when": "resourceScheme == iecode" }],
+    "keybindings": [
+      {
+        "command": "iecode.build",
+        "key": "ctrl+shift+b",
+        "when": "resourceScheme == iecode"
+      }
+    ],
     "configuration": {
       "title": "IECode",
       "properties": {
-        "iecode.openAsST": { "type": "boolean", "default": true, "description": "Open TwinCAT object files as Structured Text instead of XML." },
-        "iecode.buildCommand": { "type": "string", "default": "", "markdownDescription": "Shell command that compiles the project, e.g. your Automation Interface CLI. `${solution}` = first .sln in the workspace, `${file}` = active TwinCAT file." },
-        "iecode.problemMatcher": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Problem matcher names applied to the build output." }
+        "iecode.openAsST": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open TwinCAT object files as Structured Text instead of XML."
+        },
+        "iecode.buildCommand": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Shell command that compiles the project, e.g. your Automation Interface CLI. `${solution}` = first .sln in the workspace, `${file}` = active TwinCAT file."
+        },
+        "iecode.problemMatcher": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Problem matcher names applied to the build output."
+        }
       }
-    }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "iecode",
+          "title": "IECode",
+          "icon": "resources/iecode.svg"
+        }
+      ]
+    },
+    "views": {
+      "iecode": [
+        {
+          "id": "iecode.projects",
+          "name": "Projects",
+          "icon": "resources/iecode.svg",
+          "contextualTitle": "IECode"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "iecode.projects",
+        "contents": "No TwinCAT projects found in this workspace.\nOpen a folder with a .sln, .tsproj or .plcproj, or add one to the workspace.\n[Open Folder](command:vscode.openFolder)",
+        "when": "!iecode.hasProjects"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p .",

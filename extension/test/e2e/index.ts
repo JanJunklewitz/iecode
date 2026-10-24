@@ -40,5 +40,10 @@ export async function run(): Promise<void> {
   await fs.writeFile(path, after.replace('bEnable := TRUE;', 'bEnable := FALSE;'));
   await new Promise(r => setTimeout(r, 2500));
   assert.ok(vscode.window.activeTextEditor!.document.getText().includes('bEnable := FALSE;'), 'reloaded after external change');
+  // project tree: the workspace model finds the fixture solutions and loose library project
+  const model = await vscode.commands.executeCommand<{ units: { id: string; group: string }[] }>('iecode.refresh');
+  assert.deepEqual(model.units.map(u => `${u.group}:${u.id}`).sort(),
+    ['application:MachineX/PLC1', 'library:Logging', 'library:Tc3_MotorLib/MotorLib'], 'workspace model');
+
   console.log('E2E OK');
 }

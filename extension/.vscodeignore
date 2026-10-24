@@ -1,5 +1,5 @@
-src/*.ts
-test/*.ts
+src/**
+test/**
 out/test/**
 **/*.map
 tsconfig.json

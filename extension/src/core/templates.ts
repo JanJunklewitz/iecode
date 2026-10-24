@@ -79,7 +79,7 @@ export function newObjectXml(kind: NewObjectKind, name: string, o: NewObjectOpti
     body = `  <DUT Name="${n}" Id="${id}">\n    <Declaration>${decl}</Declaration>\n  </DUT>`;
   }
   const xml = `<?xml version="1.0" encoding="utf-8"?>\n<TcPlcObject Version="1.1.0.1" ProductVersion="${o.productVersion ?? '3.1.4024.12'}">\n${body}\n</TcPlcObject>`;
-  return '﻿' + xml.replace(/\r?\n/g, '\r\n');
+  return '\ufeff' + xml.replace(/\r?\n/g, '\r\n');
 }
 
 export type Access = 'PUBLIC' | 'PRIVATE' | 'PROTECTED' | 'INTERNAL';
@@ -103,7 +103,7 @@ export const actionSection = (name: string) => `//==== ACTION ${name} ====\n//--
 
 /** Adds member sections to an object file, returns the new XML (new GUIDs; nothing else touched). */
 export function addSections(xml: string, sections: string): string {
-  const bom = xml.charCodeAt(0) === 0xfeff ? '﻿' : '';
+  const bom = xml.charCodeAt(0) === 0xfeff ? '\ufeff' : '';
   const src = bom ? xml.slice(1) : xml;
   const view = decode(src);
   const existing = new Set(parseView(view).map(s => `${s.kind}:${s.name}`.toLowerCase()));

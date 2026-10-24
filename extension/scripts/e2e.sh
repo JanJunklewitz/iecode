@@ -5,5 +5,6 @@ cd "$(dirname "$0")/.."
 CODE="${CODE:-/Applications/Visual Studio Code.app/Contents/MacOS/Code}"
 TMP="$(mktemp -d)"
 cp samples/* "$TMP/"
+cp -R test/fixtures/ws "$TMP/ws"
 "$CODE" --user-data-dir "$TMP/.ud" --extensions-dir "$TMP/.ext" --disable-workspace-trust --skip-welcome --new-window \
   --extensionDevelopmentPath="$PWD" --extensionTestsPath="$PWD/out/test/e2e/index.js" "$TMP"

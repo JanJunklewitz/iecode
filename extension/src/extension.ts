@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
 import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError } from './model';
+import { WorkspaceState } from './state';
+import { ProjectTree } from './views/tree';
+import { showGraph } from './views/graph';
+import * as objects from './commands/objects';
 
 const SCHEME = 'iecode';
 const LANG = 'twincat-st';
@@ -39,7 +43,7 @@ class TcStFileSystem implements vscode.FileSystemProvider {
   async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
     const path = toFile(uri).fsPath;
     const raw = await fs.readFile(path, 'utf8');
-    const bom = raw.startsWith('﻿') ? '﻿' : '';
+    const bom = raw.startsWith('\ufeff') ? '\ufeff' : '';
     let out: string;
     try {
       out = encode(stripBom(raw), Buffer.from(content).toString('utf8'));
@@ -62,6 +66,18 @@ export function activate(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     vscode.workspace.registerFileSystemProvider(SCHEME, new TcStFileSystem(ctx), { isCaseSensitive: true }),
   );
+
+  // Workspace model, project tree and object commands.
+  const state = new WorkspaceState();
+  const tree = new ProjectTree(state);
+  ctx.subscriptions.push(
+    state,
+    vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true }),
+    vscode.commands.registerCommand('iecode.refresh', () => state.reload()),
+    vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
+  );
+  objects.register(ctx, state);
+  void state.reload();
 
   // Give every iecode: document the ST language (also restored tabs after reload).
   const setLang = (d: vscode.TextDocument) => {
