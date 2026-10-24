@@ -1,6 +1,9 @@
-# IECode – Structured Text for TwinCAT (VS Code extension, proof of concept)
+# IECode – Structured Text for TwinCAT
 
-Edit TwinCAT 3 `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files as plain Structured Text in VS Code.
+Edit TwinCAT 3 `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files as plain Structured Text in VS Code, browse and extend
+PLC projects, work with several libraries and applications in one workspace, and build / deploy through the
+[`iecode` CLI](../cli/README.md).
+
 **No export/import, no `.st` files on disk.** The TwinCAT XML file stays the only source of truth;
 VS Code shows a live text view of it and saving writes your text back into the XML file.
 
@@ -15,6 +18,36 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
   <LineIds …>                                METHOD PUBLIC Start : BOOL …
 ```
 
+## Features
+
+| | Any OS | Windows + TwinCAT XAE + `iecode` CLI |
+|---|---|---|
+| **Plain-ST editor** for POUs, DUTs, GVLs, interfaces; outline, folding, highlighting, snippets | ✔ | ✔ |
+| **IECode view** in the activity bar: Libraries / Applications / Standalone PLC, references, folders, objects, members | ✔ | ✔ |
+| **Add** Function Block (EXTENDS, IMPLEMENTS with stubs), Program, Function, Interface, Struct, Enum, Union, Alias, GVL, folder; **add** Method, Property, Action, implement interface; **rename**, **delete** | ✔ | ✔ |
+| **Language features**: go to definition, find references, rename symbol, hover, completion after `.`, workspace symbols (Ctrl+T), live checks (unclosed IF/FOR/…, END_VAR, duplicate variables) | ✔ | ✔ |
+| **Workspace**: several solutions and loose `.plcproj` files, library links (⇄ workspace / pinned), dependency graph and build order | ✔ | ✔ |
+| **Library manager** (Installed / Updates / Consolidate / Browse) on the `.plcproj` files; sources: workspace, TwinCAT library repository, folders | ✔ | ✔ |
+| **Build / Check / Clean**, compiler messages in Problems on the ST view lines | – | ✔ |
+| **Activate** on local or remote targets, **Save as library** (.library / .compiled-library, install), **Encrypt / protect** with a user DB | – | ✔ |
+| **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
+| Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
+
+## Settings
+
+| Setting | Default | |
+|---|---|---|
+| `iecode.openAsST` | `true` | Open TwinCAT object files as Structured Text instead of XML |
+| `iecode.cliPath` | `""` | Path to `iecode`; empty: from PATH. Install with **IECode: Install CLI** |
+| `iecode.tcVersion` | `auto` | TwinCAT version for build / activate: `auto`, `4024`, `4026`, `4024.66` |
+| `iecode.platforms` | `[]` | Target platforms to build, e.g. `TwinCAT RT (x64)` |
+| `iecode.targets` | `[]` | AMS NetIds offered when activating |
+| `iecode.restartAfterActivate` | `true` | Restart TwinCAT in run mode after activating |
+| `iecode.libraryOutput` | `dist` | Folder (relative to the solution) for saved libraries |
+| `iecode.libraryRepository` | `""` | Library repository; empty: `%TWINCAT3DIR%\Components\Plc\Managed Libraries` |
+| `iecode.librarySources` | `[]` | Extra folders with `<Name>_<Version>.library` files |
+| `iecode.showXae` | `false` | Show the XAE window while the CLI works |
+
 ## How it works
 
 - A `FileSystemProvider` for the `iecode:` scheme. `readFile` decodes the XML into one ST document,
@@ -27,36 +60,32 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
   and the file isn't touched.
 - When TwinCAT XAE changes the file on disk, the view reloads.
 
-Features: auto-redirect when you open a `.TcPOU` (setting `iecode.openAsST`), **Open as XML** / **Open as Structured Text**
-commands, outline/breadcrumbs per method/property/action, folding per section, ST syntax highlighting, snippets
-(`//method`, `//property`, `//action`), ST highlighting *inside* CDATA when you open the raw XML, and
-**IECode: Build PLC project** (`Ctrl+Shift+B`), which runs your own CLI from `iecode.buildCommand`
-(`${solution}`, `${file}` placeholders).
 
-The core is also a small Node CLI, `iecode-st decode <file>` / `iecode-st encode <file> <view.st>`. It also works as a git textconv for readable diffs:
+The ST view is also available on the command line, `iecode-st decode <file>` / `iecode-st encode <file> <view.st>`,
+for example as a git textconv for readable diffs:
 
 ```
 git config diff.iecode-st.textconv "node /path/to/out/src/cli.js decode"
 echo "*.TcPOU diff=iecode-st" >> .gitattributes
 ```
 
-## Try it
+## Develop
 
 ```
-npm install && npm test          # unit tests (round-trip, edits, add/remove, validation)
+npm install && npm test          # unit tests (view round trip, project model, templates, workspace, language, libraries)
 ./scripts/e2e.sh                 # end-to-end in real VS Code (throwaway profile)
-code --install-extension iecode-0.0.1.vsix
+npm run package                  # iecode-<version>.vsix
 ```
 
-Or open this folder in VS Code and press F5. That opens `samples/` in an Extension Development Host.
+Or open this folder in VS Code and press F5.
 
-## Known limits (PoC)
+## Known limits
 
-- Section order in the text doesn't reorder XML elements. A renamed section header counts as delete + add, so the object gets a new GUID.
-- Only objects inside existing files. Creating new POU files and adding them to `.plcproj` isn't done yet; the build CLI / Automation Interface could handle that.
-- Not tested yet against real TwinCAT 4024/4026 projects with folders, SFC transitions, `.TcTTO` tasks or `.TcVis`.
-- There's no ST language server. Install an ST LSP and point it at the `twincat-st` language, or add one later.
-- Compiler errors from the build CLI aren't mapped to view lines yet (needs object name + line → view offset).
+- Section order in the text doesn't reorder XML elements. A renamed section header counts as delete + add, so the member gets a new GUID.
+- Renaming an object in the tree renames the file, its declaration and the `.plcproj` entry, but not references to it in other objects (use **Rename Symbol** for variables and members).
+- Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace; symbols from installed libraries (e.g. Tc2_Standard) are not known yet.
+- Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
+- The CLI-driven features have not been tested against a real TwinCAT installation yet.
 
 ## Market check (Oct 2026)
 

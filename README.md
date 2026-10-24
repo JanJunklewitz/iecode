@@ -7,7 +7,16 @@ Open source, built to support other IEC 61131-3 platforms (CODESYS, Siemens) lat
 |---|---|---|
 | [`extension/`](extension/) | VS Code extension: edit `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` files as plain Structured Text | any OS |
 | [`cli/`](cli/) | `iecode` CLI: build, check, activate, libraries, protection, ADS ([commands](cli/README.md)) | Windows with TwinCAT XAE (4024 / 4026); file-based commands on any OS |
-| [`mockup/`](mockup/index.html) | Clickable mockup of the planned features | browser |
+| [`packaging/`](packaging/) | `install.ps1` (per-user install from GitHub Releases), NuGet / tcpkg package spec | Windows |
+| [`setup-iecode/`](setup-iecode/action.yml) | GitHub Action: `uses: JanJunklewitz/iecode/setup-iecode@v0` | Windows runners |
+| [`mockup/`](mockup/index.html) | Clickable mockup of the features | browser |
+
+## Install
+
+- **VS Code extension:** VS Code Marketplace / Open VSX ("IECode"), or the `.vsix` from [GitHub Releases](https://github.com/JanJunklewitz/iecode/releases).
+- **CLI (Windows):** `irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex`,
+  or the `IECode.Cli` NuGet package from the GitHub Packages feed (also usable as a TwinCAT Package Manager source),
+  or **IECode: Install CLI** in VS Code.
 
 ## Requirements
 

@@ -4,7 +4,8 @@ TwinCAT 3 engineering from the command line: build, check, activate, save and up
 protect projects, talk to targets over ADS. Made for developer machines and CI.
 
 - **Windows + TwinCAT XAE (4024 / 4026)** for everything that drives the XAE shell or ADS.
-- **Any OS** for the file-based commands: `info`, `lib list | info | update | outdated | installed`, `clean --artifacts`.
+- **Any OS** for the file-based commands: `info`, `lib list | info | update | outdated | installed | restore --dry-run`,
+  `ws list | graph | build --dry-run | release --no-save`, `clean --artifacts`.
 - Every command supports `--json` (one JSON document on stdout) and returns [stable exit codes](#exit-codes).
 
 ## Commands
@@ -26,8 +27,13 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `lib update [paths…] --lib <name> (--to <ver>\|--to latest\|--from-project <plcproj>) [--vendor] [--dry-run]` | Set a library version in every `.plcproj` below the paths. Edits text in place: formatting, BOM and CRLF stay | files |
 | `lib outdated [paths…] [--repository <dir>]` | Pinned references with a newer version in the library repository | files |
 | `lib installed [--lib <name>] [--repository <dir>]` | Libraries in the local library repository | files |
+| `lib restore [paths…] -s <folder>… [--dry-run]` | Install the library versions pinned in the `.plcproj` files that are missing locally (CI, fresh PCs) | TwinCAT (`--dry-run`: files) |
 | `lib install <file\|folder> [--overwrite] [--profile]` | Install libraries (RepTool) | TwinCAT |
 | `lib uninstall <name>… --vendor <vendor> [--version all]` | Remove libraries (RepTool) | TwinCAT |
+| `ws list [folder]` | Libraries, applications and standalone PLC projects in a workspace folder | files |
+| `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |
+| `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run]` | Build in dependency order with one XAE shell; workspace libraries are saved + installed before their users | XAE (`--dry-run`: files) |
+| `ws release <library> [--bump major\|minor\|patch\|<ver>] [--update-dependents] [--include-pinned] [--no-save]` | Bump the library version, save + install it, set the new version in the projects that use it | XAE (`--no-save`: files) |
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
