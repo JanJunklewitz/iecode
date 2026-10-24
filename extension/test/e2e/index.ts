@@ -45,5 +45,10 @@ export async function run(): Promise<void> {
   assert.deepEqual(model.units.map(u => `${u.group}:${u.id}`).sort(),
     ['application:MachineX/PLC1', 'library:Logging', 'library:Tc3_MotorLib/MotorLib'], 'workspace model');
 
+  // library manager and graph open without errors
+  await vscode.commands.executeCommand('iecode.libraries');
+  await vscode.commands.executeCommand('iecode.showGraph');
+  await new Promise(r => setTimeout(r, 1000));
+
   console.log('E2E OK');
 }

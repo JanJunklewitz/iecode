@@ -4,6 +4,8 @@ import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError } from './model'
 import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
+import { showLibraryManager } from './views/libraryManager';
+import type { Node } from './views/tree';
 import * as objects from './commands/objects';
 import * as engineering from './commands/engineering';
 import { isEncrypted } from './core/projects';
@@ -78,6 +80,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true }),
     vscode.commands.registerCommand('iecode.refresh', () => state.reload()),
     vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
+    vscode.commands.registerCommand('iecode.libraries', (n?: Node) =>
+      showLibraryManager(ctx, state, n?.kind === 'reference' ? n.ref.effective.name : undefined)),
   );
   objects.register(ctx, state);
   engineering.register(ctx, state);

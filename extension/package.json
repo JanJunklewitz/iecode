@@ -191,6 +191,12 @@
         "command": "iecode.selectTcVersion",
         "title": "Select TwinCAT Version…",
         "category": "IECode"
+      },
+      {
+        "command": "iecode.libraries",
+        "title": "Manage Libraries",
+        "category": "IECode",
+        "icon": "$(library)"
       }
     ],
     "menus": {
@@ -221,6 +227,11 @@
           "command": "iecode.addObject",
           "when": "view == iecode.projects",
           "group": "navigation@1"
+        },
+        {
+          "command": "iecode.libraries",
+          "when": "view == iecode.projects",
+          "group": "navigation@2"
         },
         {
           "command": "iecode.showGraph",
@@ -328,6 +339,16 @@
           "command": "iecode.encrypt",
           "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\..*\\.sln$/",
           "group": "0_build@6"
+        },
+        {
+          "command": "iecode.libraries",
+          "when": "view == iecode.projects && viewItem =~ /^reference/",
+          "group": "inline"
+        },
+        {
+          "command": "iecode.libraries",
+          "when": "view == iecode.projects && viewItem =~ /^(reference|references)/",
+          "group": "1_add@1"
         }
       ],
       "commandPalette": [
@@ -440,6 +461,19 @@
           "type": "boolean",
           "default": false,
           "description": "Show the TwinCAT XAE window while the CLI works (debugging)."
+        },
+        "iecode.libraryRepository": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "TwinCAT library repository folder (`<vendor>/<library>/<version>`). Empty: `%TWINCAT3DIR%\\Components\\Plc\\Managed Libraries`."
+        },
+        "iecode.librarySources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra folders with library files named `<Name>_<Version>.library` (e.g. a shared drive)."
         }
       }
     },
