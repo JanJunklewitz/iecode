@@ -8,6 +8,7 @@ import { showLibraryManager } from './views/libraryManager';
 import type { Node } from './views/tree';
 import * as objects from './commands/objects';
 import * as engineering from './commands/engineering';
+import * as language from './lang/providers';
 import { isEncrypted } from './core/projects';
 
 const SCHEME = 'iecode';
@@ -85,6 +86,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   );
   objects.register(ctx, state);
   engineering.register(ctx, state);
+  language.register(ctx, state);
   void state.reload();
 
   // Give every iecode: document the ST language (also restored tabs after reload).

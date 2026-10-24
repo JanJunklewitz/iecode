@@ -45,6 +45,18 @@ export async function run(): Promise<void> {
   assert.deepEqual(model.units.map(u => `${u.group}:${u.id}`).sort(),
     ['application:MachineX/PLC1', 'library:Logging', 'library:Tc3_MotorLib/MotorLib'], 'workspace model');
 
+  // language features on the ST view: definition of a method call, hover, completion after '.'
+  const main = vscode.Uri.file(join(ws, 'ws/apps/MachineX/MachineX/PLC1/POUs/MAIN.TcPOU')).with({ scheme: 'iecode' });
+  const mainDoc = await vscode.workspace.openTextDocument(main);
+  await vscode.window.showTextDocument(mainDoc);
+  await new Promise(r => setTimeout(r, 1500));
+  const callAt = mainDoc.positionAt(mainDoc.getText().indexOf('fbMotor(') + 2);
+  const defs = await vscode.commands.executeCommand<vscode.Location[]>('vscode.executeDefinitionProvider', main, callAt);
+  assert.equal(defs.length, 1, 'definition found');
+  assert.equal(mainDoc.lineAt(defs[0].range.start.line).text.trim(), 'fbMotor : FB_Motor;');
+  const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', main, callAt);
+  assert.match(String((hovers[0].contents[0] as vscode.MarkdownString).value), /fbMotor : FB_Motor/);
+
   // library manager and graph open without errors
   await vscode.commands.executeCommand('iecode.libraries');
   await vscode.commands.executeCommand('iecode.showGraph');
