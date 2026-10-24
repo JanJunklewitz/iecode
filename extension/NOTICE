@@ -16,10 +16,16 @@ compatibility.
 
 Third-party components
 ----------------------
-This repository does not contain or redistribute Beckhoff or Microsoft software
-(for example TwinCAT XAE, TcXaeShell, the TwinCAT Automation Interface type
-libraries, EnvDTE or ADS assemblies). The iecode CLI uses the copies installed and
-licensed on the user's machine.
+This repository does not contain Beckhoff or Microsoft software. The iecode CLI
+drives TwinCAT XAE, TcXaeShell, EnvDTE and the TwinCAT Automation Interface through
+COM late binding and uses the copies installed and licensed on the user's machine;
+no interop assemblies are shipped.
+
+The iecode CLI depends on these NuGet packages, which are bundled into its release
+artifacts:
+- Beckhoff.TwinCAT.Ads (MIT License, Copyright (c) 2024 Beckhoff Automation GmbH & Co. KG)
+  and its dependencies
+- System.CommandLine (MIT License, Copyright (c) .NET Foundation and Contributors)
 
 Notices for third-party open-source dependencies bundled into release artifacts
 are generated during the release build and shipped with those artifacts.

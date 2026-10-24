@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Name>MotorLib</Name>
+    <Title>Tc3_MotorLib</Title>
+    <Company>Example Machines Ltd</Company>
+    <ProjectVersion>1.3.0</ProjectVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PlaceholderReference Include="Tc3_Logging">
+      <DefaultResolution>Tc3_Logging, 1.0.0 (Example Machines Ltd)</DefaultResolution>
+      <Namespace>Tc3_Logging</Namespace>
+    </PlaceholderReference>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Drives TwinCAT XAE through COM late binding (Windows only at runtime, guarded by [SupportedOSPlatform]). No Beckhoff or Microsoft interop assemblies are referenced or shipped. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\IECode.Core\IECode.Core.csproj" />
+    <PackageReference Include="Beckhoff.TwinCAT.Ads" Version="7.0.348" />
+  </ItemGroup>
+</Project>

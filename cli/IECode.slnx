@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/IECode.Automation/IECode.Automation.csproj" />
+    <Project Path="src/IECode.Cli/IECode.Cli.csproj" />
+    <Project Path="src/IECode.Core/IECode.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/IECode.Core.Tests/IECode.Core.Tests.csproj" />
+  </Folder>
+</Solution>

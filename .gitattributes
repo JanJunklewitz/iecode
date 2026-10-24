@@ -6,3 +6,5 @@
 *.TcTTO -text
 *.plcproj -text
 *.tsproj -text
+*.tspproj -text
+*.sln -text

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>iecode</AssemblyName>
+    <RootNamespace>IECode.Cli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Windows-only commands are gated at runtime (Runner windowsOnly + OperatingSystem.IsWindows());
+         the analyzer can't follow that into the shell callbacks. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\IECode.Core\IECode.Core.csproj" />
+    <ProjectReference Include="..\IECode.Automation\IECode.Automation.csproj" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
+  </ItemGroup>
+</Project>

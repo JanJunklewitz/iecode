@@ -6,7 +6,7 @@ Open source, built to support other IEC 61131-3 platforms (CODESYS, Siemens) lat
 | Folder | What it is | Runs on |
 |---|---|---|
 | [`extension/`](extension/) | VS Code extension: edit `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` files as plain Structured Text | any OS |
-| `cli/` (planned) | `iecode` CLI: build, activate, save/update/encrypt libraries via the TwinCAT Automation Interface | Windows with TwinCAT XAE (4024 / 4026) |
+| [`cli/`](cli/) | `iecode` CLI: build, check, activate, libraries, protection, ADS ([commands](cli/README.md)) | Windows with TwinCAT XAE (4024 / 4026); file-based commands on any OS |
 | [`mockup/`](mockup/index.html) | Clickable mockup of the planned features | browser |
 
 ## Requirements
