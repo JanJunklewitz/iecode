@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MAIN" Id="{55555555-0000-0000-0000-000000000001}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+    fbMotor : FB_Motor;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fbMotor(bEnable := TRUE);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
