@@ -140,6 +140,57 @@
         "title": "Show Dependency Graph",
         "category": "IECode",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "iecode.check",
+        "title": "Check All Objects",
+        "category": "IECode",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "iecode.clean",
+        "title": "Clean",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.activate",
+        "title": "Activate Configuration…",
+        "category": "IECode",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "iecode.libSave",
+        "title": "Save as Library…",
+        "category": "IECode",
+        "icon": "$(package)"
+      },
+      {
+        "command": "iecode.encrypt",
+        "title": "Encrypt / Protect…",
+        "category": "IECode",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "iecode.buildWorkspace",
+        "title": "Build Workspace",
+        "category": "IECode",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "iecode.buildAffected",
+        "title": "Build Affected Projects",
+        "category": "IECode",
+        "icon": "$(run-errors)"
+      },
+      {
+        "command": "iecode.selectProject",
+        "title": "Select Active Project…",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.selectTcVersion",
+        "title": "Select TwinCAT Version…",
+        "category": "IECode"
       }
     ],
     "menus": {
@@ -180,6 +231,26 @@
           "command": "iecode.refresh",
           "when": "view == iecode.projects",
           "group": "navigation@3"
+        },
+        {
+          "command": "iecode.buildWorkspace",
+          "when": "isWindows && view == iecode.projects",
+          "group": "1_build@1"
+        },
+        {
+          "command": "iecode.buildAffected",
+          "when": "isWindows && view == iecode.projects",
+          "group": "1_build@2"
+        },
+        {
+          "command": "iecode.selectProject",
+          "when": "view == iecode.projects",
+          "group": "2_settings@1"
+        },
+        {
+          "command": "iecode.selectTcVersion",
+          "when": "view == iecode.projects",
+          "group": "2_settings@2"
         }
       ],
       "view/item/context": [
@@ -227,6 +298,36 @@
           "command": "iecode.delete",
           "when": "view == iecode.projects && viewItem =~ /^(object|folder|member)/",
           "group": "3_edit@2"
+        },
+        {
+          "command": "iecode.build",
+          "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\..*\\.sln$/",
+          "group": "0_build@1"
+        },
+        {
+          "command": "iecode.check",
+          "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\..*\\.sln$/",
+          "group": "0_build@2"
+        },
+        {
+          "command": "iecode.clean",
+          "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\..*\\.sln$/",
+          "group": "0_build@3"
+        },
+        {
+          "command": "iecode.activate",
+          "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\.application\\.sln$/",
+          "group": "0_build@4"
+        },
+        {
+          "command": "iecode.libSave",
+          "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\.library\\.sln$/",
+          "group": "0_build@5"
+        },
+        {
+          "command": "iecode.encrypt",
+          "when": "isWindows && view == iecode.projects && viewItem =~ /^unit\\..*\\.sln$/",
+          "group": "0_build@6"
         }
       ],
       "commandPalette": [
@@ -249,6 +350,38 @@
         {
           "command": "iecode.revealMember",
           "when": "false"
+        },
+        {
+          "command": "iecode.build",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.check",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.clean",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.activate",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.libSave",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.encrypt",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.buildWorkspace",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.buildAffected",
+          "when": "isWindows"
         }
       ]
     },
@@ -267,18 +400,46 @@
           "default": true,
           "description": "Open TwinCAT object files as Structured Text instead of XML."
         },
-        "iecode.buildCommand": {
+        "iecode.cliPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Shell command that compiles the project, e.g. your Automation Interface CLI. `${solution}` = first .sln in the workspace, `${file}` = active TwinCAT file."
+          "markdownDescription": "Path to the `iecode` CLI. Empty: `iecode` from PATH."
         },
-        "iecode.problemMatcher": {
+        "iecode.tcVersion": {
+          "type": "string",
+          "default": "auto",
+          "markdownDescription": "TwinCAT version for build and activate: `auto`, `4024`, `4026` or an exact build like `4024.66`."
+        },
+        "iecode.platforms": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
-          "description": "Problem matcher names applied to the build output."
+          "markdownDescription": "Target platforms to build, e.g. `TwinCAT RT (x64)`. Empty: the active platform."
+        },
+        "iecode.targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "AMS NetIds offered when activating."
+        },
+        "iecode.restartAfterActivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restart TwinCAT in run mode after activating."
+        },
+        "iecode.libraryOutput": {
+          "type": "string",
+          "default": "dist",
+          "description": "Folder (relative to the solution) for saved libraries."
+        },
+        "iecode.showXae": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the TwinCAT XAE window while the CLI works (debugging)."
         }
       }
     },

@@ -121,14 +121,15 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       }
       case 'object': {
         const o = n.obj;
-        const it = new vscode.TreeItem(o.name, hasMembers(o.type) ? C.Collapsed : C.None);
+        const it = new vscode.TreeItem(o.name, hasMembers(o.type) && !o.encrypted ? C.Collapsed : C.None);
         it.description = [TYPE_SHORT[o.type], o.extends && `: ${o.extends}`, o.implements?.length && `⊢ ${o.implements.join(', ')}`].filter(Boolean).join(' ');
-        it.iconPath = new vscode.ThemeIcon(TYPE_ICON[o.type]);
+        it.iconPath = new vscode.ThemeIcon(o.encrypted ? 'lock' : TYPE_ICON[o.type]);
+        if (o.encrypted) it.description = 'encrypted';
         it.resourceUri = vscode.Uri.file(o.file);
         it.tooltip = o.file;
-        it.contextValue = `object.${o.type}`;
+        it.contextValue = o.encrypted ? 'object.encrypted' : `object.${o.type}`;
         it.id = `obj:${o.file}`;
-        it.command = { command: 'iecode.openAsST', title: 'Open', arguments: [vscode.Uri.file(o.file)] };
+        if (!o.encrypted) it.command = { command: 'iecode.openAsST', title: 'Open', arguments: [vscode.Uri.file(o.file)] };
         return it;
       }
       case 'member': {

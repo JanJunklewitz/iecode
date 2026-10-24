@@ -15,6 +15,8 @@ export interface PlcObject {
   file: string;
   name: string;
   type: ObjectType;
+  /** Encrypted by TwinCAT (object protection); content can't be shown. */
+  encrypted?: boolean;
   /** EXTENDS / IMPLEMENTS from the declaration, for display. */
   extends?: string;
   implements?: string[];
@@ -138,6 +140,9 @@ export async function loadPlcProject(file: string): Promise<PlcProject> {
   };
 }
 
+/** TwinCAT writes protected object files as binary starting with this marker. */
+export const isEncrypted = (text: string) => text.startsWith('TcEncryptedFile');
+
 export function parseLibraryId(s: string | undefined): LibraryId | undefined {
   const m = s && /^\s*([^,]+?)\s*,\s*(\S+)\s*\(([^)]+)\)\s*$/.exec(s);
   return m ? { name: m[1], version: m[2], vendor: m[3].trim() } : undefined;
@@ -153,6 +158,7 @@ export async function describeObject(abs: string, rel: string): Promise<PlcObjec
   const base: PlcObject = { rel, file: abs, name: path.basename(abs, path.extname(abs)), type: EXT_TYPE[ext] ?? 'OTHER' };
   let text: string;
   try { text = await read(abs); } catch { return base; }
+  if (isEncrypted(text)) return { ...base, encrypted: true };
   const nameAttr = /<(?:POU|DUT|GVL|Itf|Task)\s+Name="([^"]+)"/.exec(text);
   if (nameAttr) base.name = nameAttr[1];
   const decl = /<Declaration><!\[CDATA\[([\s\S]*?)\]\]>/.exec(text)?.[1] ?? '';

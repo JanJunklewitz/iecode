@@ -5,6 +5,8 @@ import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
 import * as objects from './commands/objects';
+import * as engineering from './commands/engineering';
+import { isEncrypted } from './core/projects';
 
 const SCHEME = 'iecode';
 const LANG = 'twincat-st';
@@ -33,6 +35,7 @@ class TcStFileSystem implements vscode.FileSystemProvider {
 
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     const xml = await fs.readFile(toFile(uri).fsPath, 'utf8').catch(() => { throw vscode.FileSystemError.FileNotFound(uri); });
+    if (isEncrypted(xml)) throw vscode.FileSystemError.NoPermissions('This object is encrypted (TwinCAT object protection). Open it in TwinCAT XAE with a user that has access.');
     try {
       return Buffer.from(decode(stripBom(xml)), 'utf8');
     } catch (e) {
@@ -77,6 +80,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
   );
   objects.register(ctx, state);
+  engineering.register(ctx, state);
   void state.reload();
 
   // Give every iecode: document the ST language (also restored tabs after reload).
@@ -105,7 +109,6 @@ export function activate(ctx: vscode.ExtensionContext) {
       xmlExempt.add(file.toString());
       await vscode.window.showTextDocument(file, { preview: false });
     }),
-    vscode.commands.registerCommand('iecode.build', () => runBuild()),
   );
 
   // Auto-redirect: opening a .TcPOU from the explorer shows the ST view instead of the XML.
@@ -162,26 +165,6 @@ export function activate(ctx: vscode.ExtensionContext) {
       return ranges;
     },
   }));
-}
-
-/** Runs the user's own compile tool (e.g. an Automation Interface CLI) as a VS Code task. */
-async function runBuild() {
-  const cfg = vscode.workspace.getConfiguration('iecode');
-  const cmd = cfg.get<string>('buildCommand', '').trim();
-  if (!cmd) {
-    const pick = await vscode.window.showWarningMessage('Set "iecode.buildCommand" to your TwinCAT build CLI.', 'Open Settings');
-    if (pick) vscode.commands.executeCommand('workbench.action.openSettings', 'iecode.buildCommand');
-    return;
-  }
-  const active = vscode.window.activeTextEditor?.document.uri;
-  const file = active ? (active.scheme === SCHEME ? toFile(active) : active).fsPath : '';
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  const sln = (await vscode.workspace.findFiles('**/*.sln', '**/node_modules/**', 1))[0]?.fsPath ?? '';
-  const line = cmd.replace(/\$\{file\}/g, file).replace(/\$\{solution\}/g, sln);
-  const task = new vscode.Task({ type: 'iecode' }, folder ?? vscode.TaskScope.Workspace, 'build', 'iecode',
-    new vscode.ShellExecution(line), cfg.get<string[]>('problemMatcher', []));
-  task.group = vscode.TaskGroup.Build;
-  await vscode.tasks.executeTask(task);
 }
 
 export function deactivate() {}

@@ -17,6 +17,9 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     private readonly List<string> _messages = [];
     private bool _color = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null;
 
+    // IECODE_PROGRESS=1: in JSON mode also echo progress lines to stderr (used by the VS Code extension).
+    private readonly bool _progress = Environment.GetEnvironmentVariable("IECODE_PROGRESS") == "1";
+
     public bool Json { get; } = json;
     public bool Verbose { get; } = verbose;
     public string? TwinCatVersion { get; set; }
@@ -99,6 +102,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
         if (Json)
         {
             _messages.Add(text);
+            if (_progress) _err.WriteLine(text);
             return;
         }
         ClearStatus();
