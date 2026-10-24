@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write     # GitHub Release
+  packages: write     # GitHub Packages NuGet feed (tcpkg)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+      # Optional secrets; the steps that need them are skipped when they're not set.
+      SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
+      SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: cli/global.json
+
+      - name: Version
+        shell: bash
+        run: echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Test
+        shell: bash
+        run: |
+          (cd extension && npm ci && npm test)
+          (cd cli && dotnet test --solution IECode.slnx -c Release)
+
+      - name: VS Code extension
+        shell: bash
+        working-directory: extension
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run package
+          mkdir -p ../dist && mv *.vsix "../dist/iecode-$VERSION.vsix"
+
+      - name: CLI (self-contained win-x64)
+        shell: bash
+        working-directory: cli
+        run: |
+          dotnet publish src/IECode.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true \
+            -p:Version="$VERSION" -p:DebugType=none -o publish/win-x64
+          cp ../LICENSE ../NOTICE publish/win-x64/
+
+      - name: Sign iecode.exe
+        if: env.SIGN_CERT_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_CERT_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          & $signtool.FullName sign /f $pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 cli/publish/win-x64/iecode.exe
+          Remove-Item $pfx
+
+      - name: Zip, NuGet package, checksums
+        shell: pwsh
+        run: |
+          $v = $env:VERSION
+          Compress-Archive -Path cli/publish/win-x64/* -DestinationPath "dist/iecode-$v-win-x64.zip"
+          nuget pack packaging/IECode.Cli.nuspec -Version $v -BasePath . -OutputDirectory dist -NoPackageAnalysis
+          Copy-Item packaging/install.ps1 dist/
+          Get-ChildItem dist -File | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } |
+            Set-Content -Encoding ascii dist/SHA256SUMS
+
+      - name: GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --title "IECode $VERSION" --generate-notes
+
+      - name: Publish to GitHub Packages (tcpkg / NuGet feed)
+        shell: bash
+        run: |
+          dotnet nuget push "dist/IECode.Cli.$VERSION.nupkg" \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --api-key "${{ github.token }}"
+
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        shell: bash
+        run: npx --yes @vscode/vsce@3.2.1 publish --packagePath "dist/iecode-$VERSION.vsix"
+
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        shell: bash
+        run: npx --yes ovsx@0.10.1 publish "dist/iecode-$VERSION.vsix" -p "$OVSX_PAT"

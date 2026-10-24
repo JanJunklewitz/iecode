@@ -260,6 +260,19 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     vscode.window.showInformationMessage(`IECode: workspace build ok (${order.length} project(s)).`);
   }
 
+  reg('iecode.installCli', async () => {
+    const docs = 'https://github.com/JanJunklewitz/iecode/tree/main/cli#readme';
+    if (!cliAvailable()) return void vscode.env.openExternal(vscode.Uri.parse(docs));
+    const pick = await vscode.window.showInformationMessage(
+      'Install the iecode CLI for your user from the latest GitHub release (downloads, checks SHA256, adds it to PATH)?',
+      { modal: true }, 'Install', 'Open instructions');
+    if (pick === 'Open instructions') return void vscode.env.openExternal(vscode.Uri.parse(docs));
+    if (pick !== 'Install') return;
+    const term = vscode.window.createTerminal({ name: 'IECode: install CLI', shellPath: 'powershell.exe' });
+    term.show();
+    term.sendText('irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex');
+  });
+
   reg('iecode.buildWorkspace', () => buildMany(undefined, 'all'));
   reg('iecode.buildAffected', () => {
     if (!changed.size) return vscode.window.showInformationMessage('IECode: no saved changes since the last build.');

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: extension/*.vsix
+
+  cli:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: cli/global.json
+      - run: dotnet build IECode.slnx -c Release
+      - run: dotnet test --solution IECode.slnx -c Release --no-build
+      - name: Smoke test (file-based commands)
+        run: dotnet run --project src/IECode.Cli -c Release --no-build -- lib list tests/IECode.Core.Tests/Fixtures/Machine --json
+
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Signed-off-by on every commit
+        run: |
+          missing=$(git log --format='%H %(trailers:key=Signed-off-by,valueonly,separator=;)' \
+            ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} | awk 'NF<2 {print $1}')
+          if [ -n "$missing" ]; then echo "Commits without Signed-off-by (git commit -s):"; echo "$missing"; exit 1; fi

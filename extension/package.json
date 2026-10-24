@@ -197,6 +197,11 @@
         "title": "Manage Libraries",
         "category": "IECode",
         "icon": "$(library)"
+      },
+      {
+        "command": "iecode.installCli",
+        "title": "Install CLI…",
+        "category": "IECode"
       }
     ],
     "menus": {

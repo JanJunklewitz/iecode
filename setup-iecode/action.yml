@@ -1,0 +1,24 @@
+name: Set up iecode
+description: Installs the iecode CLI (TwinCAT engineering from the command line) on a Windows runner and adds it to PATH. The runner needs TwinCAT XAE for build / activate.
+branding:
+  icon: cpu
+  color: blue
+inputs:
+  version:
+    description: Release to install, e.g. 0.4.0 (default latest)
+    default: latest
+outputs:
+  path:
+    description: Folder that contains iecode.exe
+    value: ${{ steps.install.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: pwsh
+      run: |
+        if ($env:RUNNER_OS -ne 'Windows') { throw 'setup-iecode needs a Windows runner (TwinCAT XAE is Windows only).' }
+        $dir = Join-Path $env:RUNNER_TOOL_CACHE "iecode/${{ inputs.version }}"
+        & "$env:GITHUB_ACTION_PATH/../packaging/install.ps1" -Version '${{ inputs.version }}' -InstallDir $dir
+        Add-Content $env:GITHUB_PATH $dir
+        "path=$dir" | Add-Content $env:GITHUB_OUTPUT

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NuGet package of the iecode CLI for NuGet feeds and the TwinCAT Package Manager (tcpkg).
+     tools/ contains the self-contained iecode.exe. Built by .github/workflows/release.yml. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>IECode.Cli</id>
+    <version>0.0.0</version>
+    <title>IECode CLI</title>
+    <authors>Jan Junklewitz and the IECode contributors</authors>
+    <license type="expression">Apache-2.0</license>
+    <projectUrl>https://github.com/JanJunklewitz/iecode</projectUrl>
+    <description>iecode: TwinCAT 3 engineering from the command line (build, activate, libraries, protection, ADS). Needs TwinCAT XAE 4024 or 4026. Not affiliated with Beckhoff Automation GmbH.</description>
+    <tags>twincat plc iec61131-3 structured-text cli automation</tags>
+    <readme>README.md</readme>
+  </metadata>
+  <files>
+    <file src="cli\publish\win-x64\**" target="tools" />
+    <file src="cli\README.md" target="README.md" />
+    <file src="packaging\tools\**" target="tools" />
+  </files>
+</package>
