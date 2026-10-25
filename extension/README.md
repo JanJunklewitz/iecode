@@ -99,7 +99,7 @@ Or open this folder in VS Code and press F5.
 - Renaming an object in the tree renames the file, its declaration and the `.plcproj` entry, but not references to it in other objects (use **Rename Symbol** for variables and members).
 - Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace; symbols from installed libraries (e.g. Tc2_Standard) are not known yet.
 - Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
-- The ADS interface from source code has no sizes, ignores conditional pragmas and doesn't expand types from libraries; the build output (`.tmc`) is exact.
+- The ADS interface from source code has no sizes and ignores conditional pragmas. It doesn't know types from libraries: library GVLs (e.g. each library's `Global_Version`) and members inherited from library function blocks are missing. The build output (`.tmc`) is exact.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
 
 ## Market check (Oct 2026)

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { diffInterfaces, diffSymbols, fromBuild, fromSource, fromSourceAt, fromTmc, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
+import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromSource, fromSourceAt, fromTmc, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
 import { loadPlcProject } from '../src/core/projects';
 
 const fixtures = join(__dirname, '..', '..', 'test', 'fixtures', 'ws');
@@ -11,16 +11,20 @@ const fixtures = join(__dirname, '..', '..', 'test', 'fixtures', 'ws');
 const TMC = (main = '', motor = '') => `<?xml version="1.0"?>
 <TcModuleClass>
   <DataTypes>
+    <DataType><Name Namespace="OtherLib">ST_Status</Name><BitSize>8</BitSize>
+      <SubItem><Name>bWrong</Name><Type>BOOL</Type><BitSize>8</BitSize></SubItem>
+    </DataType>
     <DataType><Name>FB_Base</Name><BitSize>64</BitSize>
       <SubItem><Name>nState</Name><Type>INT</Type><BitSize>16</BitSize></SubItem>
     </DataType>
     <DataType><Name GUID="{1}">FB_Motor</Name><BitSize>192</BitSize><ExtendsType>FB_Base</ExtendsType>
       <SubItem><Name>bEnable</Name><Type>BOOL</Type><Comment><![CDATA[ Enable the drive ]]></Comment><BitSize>8</BitSize></SubItem>
-      <SubItem><Name>stStatus</Name><Type>ST_Status</Type><BitSize>64</BitSize></SubItem>
+      <SubItem><Name>stStatus</Name><Type Namespace="Machine">ST_Status</Type><BitSize>64</BitSize></SubItem>
+      <PropertyItem><Name>fActualSpeed</Name><Type>LREAL</Type><BitSize>64</BitSize></PropertyItem>
       <SubItem><Name>pNext</Name><Type PointerTo="1">FB_Motor</Type><BitSize>64</BitSize></SubItem>
       ${motor}
     </DataType>
-    <DataType><Name>ST_Status</Name><BitSize>64</BitSize>
+    <DataType><Name Namespace="Machine">ST_Status</Name><BitSize>64</BitSize>
       <SubItem><Name>fSpeed</Name><Type>REAL</Type><BitSize>32</BitSize></SubItem>
     </DataType>
     <DataType><Name Namespace="Tc2_Standard">TON</Name><BitSize>256</BitSize>
@@ -51,7 +55,7 @@ test('ADS interface: top-level symbols from the build output (.tmc)', () => {
 test('ADS interface: members expanded with EXTENDS and library types, not pointers', () => {
   const s = fromTmc(TMC(), true);
   assert.deepEqual(s.filter(x => x.name.startsWith('MAIN.')).map(x => x.name), [
-    'MAIN.bStart', 'MAIN.fbMotor', 'MAIN.fbMotor.bEnable', 'MAIN.fbMotor.nState', 'MAIN.fbMotor.pNext',
+    'MAIN.bStart', 'MAIN.fbMotor', 'MAIN.fbMotor.bEnable', 'MAIN.fbMotor.fActualSpeed', 'MAIN.fbMotor.nState', 'MAIN.fbMotor.pNext',
     'MAIN.fbMotor.stStatus', 'MAIN.fbMotor.stStatus.fSpeed', 'MAIN.tDelay', 'MAIN.tDelay.Q',
   ]);
   assert.equal(s.find(x => x.name === 'MAIN.fbMotor.pNext')!.type, 'POINTER TO FB_Motor');
@@ -65,6 +69,9 @@ test('ADS interface: diff of two builds, case-insensitive names', () => {
   assert.deepEqual(changes.map(c => `${c.kind} ${c.name}`), ['removed MAIN.bOld', 'added MAIN.fbMotor.bReset', 'changed main.nCount']);
   assert.equal(changes[2].details, 'INT → DINT, 2 B → 4 B');
   assert.deepEqual(diffSymbols(before, before), []);
+  assert.deepEqual(diffSymbols([{ name: 'GVL.sName', type: 'Tc2_System.T_MaxString' }], [{ name: 'GVL.sName', type: 'T_MAXSTRING' }]), []);
+  assert.deepEqual(diffSymbols([{ name: 'GVL.s', type: 'STRING(80)' }], [{ name: 'GVL.s', type: 'STRING' }]), []);
+  assert.equal(diffSymbols([{ name: 'GVL.a', type: 'ARRAY [0..9] OF INT' }], [{ name: 'GVL.a', type: 'ARRAY[0..8] OF INT' }]).length, 1);
 });
 
 const GVL = `{attribute 'qualified_only'}
@@ -76,6 +83,7 @@ VAR_GLOBAL
 END_VAR
 VAR_GLOBAL CONSTANT
     MAX_AXES : INT := 4;
+    NAME_LEN : INT := 16#20 + MAX_AXES * 2;
 END_VAR
 `;
 const MAIN = `PROGRAM MAIN
@@ -86,7 +94,17 @@ VAR
     // the conveyor drive
     fbMotor : FB_Motor;
     tDelay : TON;
+    fbAux : FB_Motor(bEnable := TRUE);
     pMotor : POINTER TO FB_Motor;
+    aAxes : ARRAY[1..GVL.MAX_AXES] OF FB_Motor;
+    aGrid : ARRAY[0..1] OF ARRAY[1..MAX_AXES] OF INT;
+    fbIdle : FB_Motor();
+    sName : STRING[GVL.NAME_LEN];
+    sUnknown : STRING(UNKNOWN_LEN);
+    refMotor : REFERENCE TO FB_Motor REF= fbMotor;
+END_VAR
+VAR_IN_OUT
+    stShared : ST_Status;
 END_VAR
 VAR_TEMP
     i : INT;
@@ -112,6 +130,11 @@ VAR
     pNext : POINTER TO FB_Motor;
 END_VAR
 //---- IMPLEMENTATION ----
+//==== PROPERTY fActualSpeed ====
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC fActualSpeed : LREAL
+//==== PROPERTY fHidden ====
+PROPERTY PUBLIC fHidden : LREAL
 //==== METHOD Start ====
 METHOD Start : BOOL
 VAR_INPUT
@@ -130,10 +153,12 @@ const sources = [
   { file: 'FB_Motor.TcPOU', view: FB_MOTOR }, { file: 'ST_Status.TcDUT', view: ST_STATUS },
 ];
 
-test('ADS interface from source: GVL and program variables, no constants, temporaries or hidden ones', () => {
+test('ADS interface from source: GVL variables and constants, program variables; no temporaries or hidden ones', () => {
   const r = fromSource(sources);
   assert.deepEqual(r.symbols.map(s => `${s.name}:${s.type}`), [
-    'GVL.aValues:ARRAY[0..9] OF INT', 'GVL.nCount:INT', 'MAIN.bStart:BOOL', 'MAIN.fbMotor:FB_Motor', 'MAIN.pMotor:POINTER TO FB_Motor', 'MAIN.tDelay:TON',
+    'GVL.aValues:ARRAY[0..9] OF INT', 'GVL.MAX_AXES:INT', 'GVL.NAME_LEN:INT', 'GVL.nCount:INT', 'MAIN.aAxes:ARRAY[1..4] OF FB_Motor', 'MAIN.aGrid:ARRAY[0..1, 1..4] OF INT', 'MAIN.bStart:BOOL',
+    'MAIN.fbAux:FB_Motor', 'MAIN.fbIdle:FB_Motor', 'MAIN.fbMotor:FB_Motor', 'MAIN.pMotor:POINTER TO FB_Motor', 'MAIN.refMotor:REFERENCE TO FB_Motor', 'MAIN.sName:STRING(40)',
+    'MAIN.stShared:REFERENCE TO ST_Status', 'MAIN.sUnknown:STRING(UNKNOWN_LEN)', 'MAIN.tDelay:TON',
   ]);
   assert.deepEqual(r.roots!.sort(), ['GVL', 'MAIN']);
   const byName = Object.fromEntries(r.symbols.map(s => [s.name, s]));
@@ -143,9 +168,17 @@ test('ADS interface from source: GVL and program variables, no constants, tempor
   assert.equal(byName['GVL.nCount'].area, 'VAR_GLOBAL');
 });
 
-test('ADS interface from source: members of the project types, statics and methods left out', () => {
+test('constant expressions for array bounds and string lengths', () => {
+  const c = new Map([['N', 4]]);
+  assert.equal(evaluate('16#10 + N * (2 - 1) - 1', c), 19);
+  assert.equal(evaluate('N / 0', c), undefined);
+  assert.equal(evaluate('M + 1', c), undefined);
+  assert.equal(evaluate('1.5', c), undefined);
+});
+
+test('ADS interface from source: members of the project types, monitored properties; statics and methods left out', () => {
   const names = fromSource(sources, true).symbols.map(s => s.name).filter(n => n.startsWith('MAIN.fbMotor'));
-  assert.deepEqual(names, ['MAIN.fbMotor', 'MAIN.fbMotor.bEnable', 'MAIN.fbMotor.nState', 'MAIN.fbMotor.pNext', 'MAIN.fbMotor.stStatus', 'MAIN.fbMotor.stStatus.fSpeed']);
+  assert.deepEqual(names, ['MAIN.fbMotor', 'MAIN.fbMotor.bEnable', 'MAIN.fbMotor.fActualSpeed', 'MAIN.fbMotor.nState', 'MAIN.fbMotor.pNext', 'MAIN.fbMotor.stStatus', 'MAIN.fbMotor.stStatus.fSpeed']);
   assert.equal(fromSource(sources, true).symbols.find(s => s.name === 'MAIN.fbMotor.bEnable')!.comment, 'Enable the drive');
 });
 
@@ -155,9 +188,11 @@ test('ADS interface: build output compared with source only covers what the sour
   // the system symbols and the library FB's members (MAIN.tDelay.Q) are not reported; pMotor is new in the source
   // ARRAY [0..9] OF INT (build) and ARRAY[0..9] OF INT (source) are the same type
   const changes = diffInterfaces(build, source);
-  assert.deepEqual(changes.map(c => `${c.kind} ${c.name}`), ['added GVL.nCount', 'changed MAIN.bStart', 'added MAIN.pMotor']);
-  assert.equal(changes[1].details, 'BIT → BOOL');
-  assert.deepEqual(diffInterfaces(source, build).map(c => c.kind), ['removed', 'changed', 'removed']);
+  const fb = (n: string) => ['', '.bEnable', '.fActualSpeed', '.nState', '.pNext', '.stStatus', '.stStatus.fSpeed'].map(m => `added MAIN.${n}${m}`);
+  assert.deepEqual(changes.map(c => `${c.kind} ${c.name}`), ['added GVL.MAX_AXES', 'added GVL.NAME_LEN', 'added GVL.nCount', 'added MAIN.aAxes', 'added MAIN.aGrid',
+    'changed MAIN.bStart', ...fb('fbAux'), ...fb('fbIdle'), 'added MAIN.pMotor', 'added MAIN.refMotor', 'added MAIN.sName', 'added MAIN.stShared', 'added MAIN.sUnknown']);
+  assert.equal(changes[5].details, 'BIT → BOOL');
+  assert.deepEqual(diffInterfaces(source, build).map(c => c.kind), changes.map(c => (c.kind === 'added' ? 'removed' : c.kind)));
 });
 
 test('ADS interface: fixture project from source, build output, stale check, CSV and snapshot', async () => {

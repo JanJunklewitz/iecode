@@ -12,6 +12,11 @@ public sealed class AdsInterfaceTests : IDisposable
         <TcModuleClass xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
           <DataTypes>
             <DataType>
+              <Name Namespace="OtherLib">ST_Status</Name>
+              <BitSize>8</BitSize>
+              <SubItem><Name>bWrong</Name><Type>BOOL</Type><BitSize>8</BitSize></SubItem>
+            </DataType>
+            <DataType>
               <Name GUID="{"{00000000-0000-0000-0000-000000000001}"}">FB_Base</Name>
               <BitSize>64</BitSize>
               <SubItem><Name>nState</Name><Type>INT</Type><BitSize>16</BitSize><BitOffs>32</BitOffs></SubItem>
@@ -21,12 +26,13 @@ public sealed class AdsInterfaceTests : IDisposable
               <BitSize>192</BitSize>
               <ExtendsType>FB_Base</ExtendsType>
               <SubItem><Name>bEnable</Name><Type>BOOL</Type><Comment><![CDATA[ Enable the drive ]]></Comment><BitSize>8</BitSize><BitOffs>64</BitOffs></SubItem>
-              <SubItem><Name>stStatus</Name><Type>ST_Status</Type><BitSize>64</BitSize><BitOffs>128</BitOffs></SubItem>
+              <SubItem><Name>stStatus</Name><Type Namespace="Machine">ST_Status</Type><BitSize>64</BitSize><BitOffs>128</BitOffs></SubItem>
+              <PropertyItem><Name>fActualSpeed</Name><Type>LREAL</Type><BitSize>64</BitSize></PropertyItem>
               <SubItem><Name>pNext</Name><Type PointerTo="1">FB_Motor</Type><BitSize>64</BitSize><BitOffs>192</BitOffs></SubItem>
         {motorItems}
             </DataType>
             <DataType>
-              <Name GUID="{"{00000000-0000-0000-0000-000000000003}"}">ST_Status</Name>
+              <Name GUID="{"{00000000-0000-0000-0000-000000000003}"}" Namespace="Machine">ST_Status</Name>
               <BitSize>64</BitSize>
               <SubItem><Name>fSpeed</Name><Type>REAL</Type><BitSize>32</BitSize><BitOffs>0</BitOffs></SubItem>
             </DataType>
@@ -76,7 +82,7 @@ public sealed class AdsInterfaceTests : IDisposable
     {
         var names = AdsInterface.FromTmc(Tmc(), members: true).Select(s => s.Name).ToList();
         Assert.Equal([
-            "GVL.aValues", "MAIN.bStart", "MAIN.fbMotor", "MAIN.fbMotor.bEnable", "MAIN.fbMotor.nState", "MAIN.fbMotor.pNext",
+            "GVL.aValues", "MAIN.bStart", "MAIN.fbMotor", "MAIN.fbMotor.bEnable", "MAIN.fbMotor.fActualSpeed", "MAIN.fbMotor.nState", "MAIN.fbMotor.pNext",
             "MAIN.fbMotor.stStatus", "MAIN.fbMotor.stStatus.fSpeed", "MAIN.tDelay", "MAIN.tDelay.Q",
         ], names);
         var symbols = AdsInterface.FromTmc(Tmc(), members: true);
@@ -98,6 +104,9 @@ public sealed class AdsInterfaceTests : IDisposable
         Assert.Equal(["Removed MAIN.bOld", "Added MAIN.fbMotor.bReset", "Changed main.nCount"], changes.Select(c => $"{c.Kind} {c.Name}"));
         Assert.Equal("INT → DINT, 2 B → 4 B", changes[2].Details);
         Assert.Empty(AdsInterface.Diff(before, before));
+        Assert.Empty(AdsInterface.Diff([new AdsSymbol("GVL.sName", "Tc2_System.T_MaxString")], [new AdsSymbol("GVL.sName", "T_MAXSTRING")]));
+        Assert.Empty(AdsInterface.Diff([new AdsSymbol("GVL.s", "STRING(80)")], [new AdsSymbol("GVL.s", "STRING")]));
+        Assert.Single(AdsInterface.Diff([new AdsSymbol("GVL.a", "ARRAY [0..9] OF INT")], [new AdsSymbol("GVL.a", "ARRAY[0..8] OF INT")]));
         Assert.StartsWith("Change;Name;Before;After;Details\n", AdsInterface.ToCsv(changes));
     }
 

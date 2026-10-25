@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
@@ -26,14 +27,21 @@ public sealed record AdsInterfaceInfo(string Project, string Source, IReadOnlyLi
 /// The ADS interface (symbol table) of a PLC project without a running PLC: read from the TwinCAT Module Class
 /// file (<c>&lt;PLC&gt;.tmc</c>) that every build writes next to the <c>.plcproj</c>.
 /// <c>&lt;DataArea&gt;&lt;Symbol&gt;</c> are the top-level symbols (MAIN.x, GVL.y), <c>&lt;DataType&gt;&lt;SubItem&gt;</c>
-/// the members used to expand them. Same rules as the VS Code extension.
+/// and <c>&lt;PropertyItem&gt;</c> (properties with <c>{attribute 'monitoring'}</c>) the members used to expand them.
+/// A .tsproj keeps a copy of the PLC's module description from the last build in <c>&lt;TmcDesc&gt;</c>, same format. Same rules as the VS Code extension.
 /// </summary>
-public static class AdsInterface
+public static partial class AdsInterface
 {
+    [GeneratedRegex(@"\b[A-Za-z_]\w*\.(?=[A-Za-z_])")]
+    private static partial Regex QualifierRx();
+    [GeneratedRegex(@"\b(W?STRING)(?!\()")]
+    private static partial Regex DefaultStringRx();
+
     public const string SnapshotFormat = "iecode-ads-interface/1";
     private const int MaxDepth = 8;
 
-    private sealed record Member(string Name, string Type, int? BitSize, string? Comment);
+    /// <param name="TypeKey">Data type to expand (namespace-qualified); null for arrays and pointers.</param>
+    private sealed record Member(string Name, string Type, int? BitSize, string? Comment, string? TypeKey);
     private sealed record DataType(string Type, IReadOnlyList<Member> Members, string? Extends, string? Alias);
 
     private static XElement? Child(XElement e, string name) => e.Elements().FirstOrDefault(x => x.Name.LocalName == name);
@@ -68,8 +76,12 @@ public static class AdsInterface
         {
             var name = Child(dt, "Name");
             if (name is null) continue;
-            var items = dt.Elements().Where(x => x.Name.LocalName == "SubItem" && Text(x, "Name") is not null)
-                .Select(s => new Member(Text(s, "Name")!, TypeOf(s, "Type"), Int(s, "BitSize"), Text(s, "Comment"))).ToList();
+            var items = dt.Elements().Where(x => x.Name.LocalName is "SubItem" or "PropertyItem" && Text(x, "Name") is not null)
+                .Select(s =>
+                {
+                    var type = TypeOf(s, "Type");
+                    return new Member(Text(s, "Name")!, type, Int(s, "BitSize"), Text(s, "Comment"), type == Child(s, "Type")?.Value.Trim() ? Key(Child(s, "Type")) : null);
+                }).ToList();
             var alias = Child(dt, "ArrayInfo") is null && items.Count == 0 ? Key(Child(dt, "BaseType")) : null;
             var type = new DataType(name.Value.Trim(), items, Key(Child(dt, "ExtendsType")) is { Length: > 0 } x ? x : null, alias is "" ? null : alias);
             types.TryAdd(Key(name), type);
@@ -98,14 +110,17 @@ public static class AdsInterface
                 var name = $"{parent}.{m.Name}";
                 if (!seen.Add(name)) continue;
                 result.Add(new AdsSymbol(name, m.Type, m.BitSize, m.Comment, area));
-                if (types.ContainsKey(m.Type)) Expand(name, m.Type, area, depth + 1);
+                if (m.TypeKey is not null && Find(m.TypeKey) is not null) Expand(name, m.TypeKey, area, depth + 1);
             }
         }
+
+        // "Lib.T" is defined as plain "T" when the type doesn't come from a library namespace
+        DataType? Find(string key) => types.GetValueOrDefault(key) ?? (key.LastIndexOf('.') is var i and > 0 ? types.GetValueOrDefault(key[(i + 1)..]) : null);
 
         // own members after the inherited ones (EXTENDS), aliases resolved
         IEnumerable<Member> MembersOf(string typeKey, HashSet<string> visited)
         {
-            if (!types.TryGetValue(typeKey, out var t) || !visited.Add(t.Type)) return [];
+            if (Find(typeKey) is not { } t || !visited.Add(t.Type)) return [];
             if (t.Alias is not null) return MembersOf(t.Alias, visited);
             return (t.Extends is null ? [] : MembersOf(t.Extends, visited)).Concat(t.Members);
         }
@@ -116,7 +131,10 @@ public static class AdsInterface
     {
         static Dictionary<string, AdsSymbol> ByName(IEnumerable<AdsSymbol> s) =>
             s.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        static string Norm(string type) => string.Concat(type.Where(c => !char.IsWhiteSpace(c))).ToUpperInvariant();
+        // Tc2_System.T_MaxString and T_MaxString are the same type: the build qualifies library types, the source often doesn't.
+        // STRING is STRING(80).
+        static string Norm(string type) =>
+            DefaultStringRx().Replace(QualifierRx().Replace(string.Concat(type.Where(c => !char.IsWhiteSpace(c))), "").ToUpperInvariant(), "$1(80)");
         static string Describe(AdsSymbol s) => s.BitSize is null ? s.Type : $"{s.Type} ({s.SizeText})";
         var a = ByName(before);
         var b = ByName(after);

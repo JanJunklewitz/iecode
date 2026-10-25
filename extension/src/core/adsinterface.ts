@@ -1,7 +1,8 @@
 // ADS interface (symbol table) of a PLC project without a running PLC, from two sources:
 //
-// - Build output: the TwinCAT Module Class file <PLC>.tmc that every build writes next to the .plcproj.
-//   Exact (library types, sizes, data areas):
+// - Build output: the TwinCAT Module Class file <PLC>.tmc that every build writes next to the .plcproj
+//   (a .tsproj keeps a copy of it from the last build in <TmcDesc>). Exact (library types, sizes, data areas);
+//   <PropertyItem> are properties with {attribute 'monitoring'}, also accessible over ADS:
 //     <DataTypes><DataType><Name>FB_Motor</Name><SubItem><Name>bEnable</Name><Type>BOOL</Type>…
 //     <Modules><Module><DataAreas><DataArea><Name>PlcTask Internal</Name>
 //       <Symbol><Name>MAIN.fbMotor</Name><BitSize>192</BitSize><BaseType>FB_Motor</BaseType>…
@@ -88,7 +89,8 @@ function typeOf(n: XNode, typeElement: string, src: string): string {
   return dims.length ? `ARRAY [${dims.join(', ')}] OF ${type}` : type;
 }
 
-interface TmcMember { name: string; type: string; bitSize?: number; comment?: string }
+/** `key`: data type to expand (namespace-qualified), undefined for arrays and pointers. */
+interface TmcMember { name: string; type: string; bitSize?: number; comment?: string; key?: string }
 interface TmcType { name: string; members: TmcMember[]; extends?: string; alias?: string }
 
 /** Symbols of a .tmc file; `members` expands structs and function blocks (not arrays and pointers). */
@@ -100,15 +102,20 @@ export function fromTmc(xml: string, members = false): AdsSymbol[] {
     if (dt.name !== 'DataType' || dt.parent?.name !== 'DataTypes') continue;
     const name = kid(dt, 'Name');
     if (!name) continue;
-    const items = kids(dt, 'SubItem').filter(s => textOf(kid(s, 'Name'), src))
-      .map(s => ({ name: textOf(kid(s, 'Name'), src)!, type: typeOf(s, 'Type', src), bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src) }));
+    const items = dt.children.filter(s => (s.name === 'SubItem' || s.name === 'PropertyItem') && textOf(kid(s, 'Name'), src)).map(s => {
+      const type = typeOf(s, 'Type', src);
+      return { name: textOf(kid(s, 'Name'), src)!, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src),
+        key: type === (textOf(kid(s, 'Type'), src) ?? '') ? keyOf(kid(s, 'Type'), src) : undefined };
+    });
     const alias = !kid(dt, 'ArrayInfo') && !items.length ? keyOf(kid(dt, 'BaseType'), src) || undefined : undefined;
     const type: TmcType = { name: textOf(name, src) ?? '', members: items, extends: keyOf(kid(dt, 'ExtendsType'), src) || undefined, alias };
     for (const k of [keyOf(name, src), type.name]) if (!types.has(U(k))) types.set(U(k), type);
   }
 
+  // "Lib.T" is defined as plain "T" when the type doesn't come from a library namespace
+  const find = (key: string) => types.get(U(key)) ?? (key.lastIndexOf('.') > 0 ? types.get(U(key.slice(key.lastIndexOf('.') + 1))) : undefined);
   const membersOf = (key: string, visited: Set<string>): TmcMember[] => {
-    const t = types.get(U(key));
+    const t = find(key);
     if (!t || visited.has(U(t.name))) return [];
     visited.add(U(t.name));
     if (t.alias) return membersOf(t.alias, visited);
@@ -122,7 +129,7 @@ export function fromTmc(xml: string, members = false): AdsSymbol[] {
     if (depth > MAX_DEPTH) return;
     for (const m of membersOf(typeKey, new Set())) {
       const name = `${parent}.${m.name}`;
-      if (add({ name, type: m.type, bitSize: m.bitSize, comment: m.comment, area }) && types.has(U(m.type))) expand(name, m.type, area, depth + 1);
+      if (add({ name, type: m.type, bitSize: m.bitSize, comment: m.comment, area }) && m.key && find(m.key)) expand(name, m.key, area, depth + 1);
     }
   };
 
@@ -142,14 +149,98 @@ const byName = (s: AdsSymbol[]) => s.sort((a, b) => U(a.name) < U(b.name) ? -1 :
 
 // ---- source code ----
 
+// the same types are visited once per instance: split each view only once
+const viewLines = new WeakMap<IndexedObject, string[]>();
+function linesOf(obj: IndexedObject): string[] {
+  let l = viewLines.get(obj);
+  if (!l) viewLines.set(obj, l = obj.view.split('\n'));
+  return l;
+}
+
+/** Integer value of a constant expression (16#FF, NAME, GVL.NAME, + - * / and parentheses), if it has one. */
+export function evaluate(expr: string, constants: Map<string, number>): number | undefined {
+  const toks = expr.match(/\d+#[\dA-Fa-f_]+|\d[\d_]*(?:\.\d+)?|[A-Za-z_][\w.]*|[-+*/()]|\S/g) ?? [];
+  let i = 0;
+  const atom = (): number | undefined => {
+    const t = toks[i++];
+    if (t === undefined) return undefined;
+    if (t === '(') { const v = sum(); return toks[i++] === ')' ? v : undefined; }
+    if (t === '-') { const v = atom(); return v === undefined ? undefined : -v; }
+    const based = /^(\d+)#([\dA-Fa-f_]+)$/.exec(t);
+    if (based) return parseInt(based[2].replace(/_/g, ''), Number(based[1]));
+    if (/^\d[\d_]*$/.test(t)) return Number(t.replace(/_/g, ''));
+    return constants.get(U(t));
+  };
+  const product = (): number | undefined => {
+    let v = atom();
+    while (v !== undefined && (toks[i] === '*' || toks[i] === '/')) {
+      const op = toks[i++], r = atom();
+      v = r === undefined || (op === '/' && r === 0) ? undefined : op === '*' ? v * r : Math.trunc(v / r);
+    }
+    return v;
+  };
+  const sum = (): number | undefined => {
+    let v = product();
+    while (v !== undefined && (toks[i] === '+' || toks[i] === '-')) {
+      const op = toks[i++], r = product();
+      v = r === undefined ? undefined : op === '+' ? v + r : v - r;
+    }
+    return v;
+  };
+  const v = sum();
+  return i === toks.length ? v : undefined;
+}
+
+/** Integer GVL constants by NAME and GVL.NAME, for array bounds and string lengths. */
+function constantsOf(index: SymbolIndex): Map<string, number> {
+  const raw = new Map<string, string>();
+  for (const obj of index.objects()) {
+    if (obj.root?.kind !== 'GVL') continue;
+    for (const v of obj.root.children) {
+      const init = v.modifiers?.includes('CONSTANT') ? /:=\s*([^;]+);/.exec(v.detail)?.[1] : undefined;
+      if (init) { raw.set(U(v.name), init); raw.set(U(`${obj.root.name}.${v.name}`), init); }
+    }
+  }
+  const values = new Map<string, number>();
+  for (let pass = 0, found = true; found && pass < 8; pass++) {
+    found = false;
+    for (const [k, e] of raw) {
+      if (values.has(k)) continue;
+      const n = evaluate(e, values);
+      if (n !== undefined) { values.set(k, n); found = true; }
+    }
+  }
+  return values;
+}
+
+/**
+ * Type as the build output writes it: without an instance's initial values (FB_X(sName := 'a'), FB_X()) or REF= target,
+ * VAR_IN_OUT as REFERENCE TO, STRING[n] as STRING(n), constants in array bounds and string lengths evaluated,
+ * ARRAY[a] OF ARRAY[b] OF T as ARRAY[a, b] OF T.
+ */
+function adsType(v: PlcSymbol, constants: Map<string, number>): string {
+  let t = (v.type ?? '').replace(/\s*\((?=[^()]*:=|\s*\))[\s\S]*\)\s*$/, '').replace(/\s+REF\s*=[\s\S]*$/i, '');
+  const num = (e: string) => { const n = evaluate(e, constants); return n === undefined ? e.trim() : String(n); };
+  t = t.replace(/\b(W?STRING)\s*[[(]([^\])]+)[\])]/gi, (_, s: string, len: string) => `${s}(${num(len)})`);
+  t = t.replace(/\bARRAY\s*\[([^\]]+)\]/gi, (_, dims: string) =>
+    `ARRAY[${dims.split(',').map(d => d.split('..').map(num).join('..')).join(', ')}]`);
+  while (/\]\s+OF\s+ARRAY\s*\[/i.test(t)) t = t.replace(/\]\s+OF\s+ARRAY\s*\[/i, ', ');
+  return v.scope === 'VAR_IN_OUT' ? `REFERENCE TO ${t}` : t;
+}
+
 const HIDDEN = new Set(['VAR_TEMP', 'VAR_STAT', 'VAR_INST', 'VAR_EXTERNAL', 'VAR_CONFIG']);
 
-/** Whether a declared variable becomes an ADS symbol: no temporaries, statics, constants or {attribute 'hide'}. */
+/**
+ * Whether a declaration becomes an ADS symbol: variables except temporaries, statics and {attribute 'hide'};
+ * constants only in GVLs (instances of function blocks don't hold them); properties only with {attribute 'monitoring'}.
+ */
 function visible(v: PlcSymbol, obj: IndexedObject): boolean {
+  if (v.kind === 'PROPERTY')
+    return !!v.type && linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'/i.test(l));
   if (v.kind !== 'VARIABLE' && v.kind !== 'FIELD') return false;
   if (v.scope && HIDDEN.has(v.scope)) return false;
-  if (v.modifiers?.includes('CONSTANT')) return false;
-  const lines = obj.view.split('\n');
+  if (v.modifiers?.includes('CONSTANT') && obj.root?.kind !== 'GVL') return false;
+  const lines = linesOf(obj);
   const hide = /\{\s*attribute\s+'hide'\s*\}/i;
   if (hide.test(lines[v.range.line]?.slice(0, v.range.col) ?? '')) return false;
   for (let l = v.range.line - 1; l >= 0; l--) {
@@ -162,7 +253,7 @@ function visible(v: PlcSymbol, obj: IndexedObject): boolean {
 
 /** Comment of a declaration: after it on the same line, or // lines directly above. */
 function commentOf(v: PlcSymbol, obj: IndexedObject): string | undefined {
-  const lines = obj.view.split('\n');
+  const lines = linesOf(obj);
   const after = /;\s*(?:\/\/(.*)|\(\*([\s\S]*?)\*\))\s*$/.exec(lines[v.range.line] ?? '');
   if (after) return (after[1] ?? after[2]).trim() || undefined;
   const above: string[] = [];
@@ -181,15 +272,16 @@ const plainType = (t?: string) => !!t && !/^(POINTER|REFERENCE)\s+TO\b|^ARRAY\b/
 export function fromSource(objects: { file: string; view: string }[], members = false): AdsInterface {
   const index = new SymbolIndex();
   for (const o of objects) index.update(o.file, o.view);
+  const constants = constantsOf(index);
   const out: AdsSymbol[] = [];
   const roots: string[] = [];
   const expand = (parent: string, type: string | undefined, path: Set<string>, depth: number) => {
     if (depth > MAX_DEPTH || !plainType(type) || path.has(U(type!))) return;
     for (const { sym, obj } of index.membersOf(type)) {
       if (!visible(sym, obj)) continue;
-      const name = `${parent}.${sym.name}`;
-      out.push({ name, type: sym.type ?? '', comment: commentOf(sym, obj), area: areaOf(sym) });
-      expand(name, sym.type, new Set([...path, U(type!)]), depth + 1);
+      const name = `${parent}.${sym.name}`, t = adsType(sym, constants);
+      out.push({ name, type: t, comment: commentOf(sym, obj), area: areaOf(sym) });
+      expand(name, t, new Set([...path, U(type!)]), depth + 1);
     }
   };
   for (const obj of index.objects()) {
@@ -198,9 +290,9 @@ export function fromSource(objects: { file: string; view: string }[], members = 
     roots.push(root.name);
     for (const v of root.children) {
       if (!visible(v, obj)) continue;
-      const name = `${root.name}.${v.name}`;
-      out.push({ name, type: v.type ?? '', comment: commentOf(v, obj), area: areaOf(v) });
-      if (members) expand(name, v.type, new Set(), 1);
+      const name = `${root.name}.${v.name}`, t = adsType(v, constants);
+      out.push({ name, type: t, comment: commentOf(v, obj), area: areaOf(v) });
+      if (members) expand(name, t, new Set(), 1);
     }
   }
   return { origin: 'source', symbols: byName(out), roots };
@@ -247,7 +339,9 @@ export async function fromSourceAt(plc: PlcProject, ref: string | undefined, mem
 
 // ---- comparing ----
 
-const norm = (t: string) => U(t.replace(/\s+/g, ''));
+// Tc2_System.T_MaxString and T_MaxString are the same type: the build qualifies library types, the source often doesn't.
+// STRING is STRING(80).
+const norm = (t: string) => U(t.replace(/\s+/g, '').replace(/\b[A-Za-z_]\w*\.(?=[A-Za-z_])/g, '')).replace(/\b(W?STRING)(?!\()/g, '$1(80)');
 const describe = (s: AdsSymbol) => (s.bitSize === undefined ? s.type : `${s.type} (${sizeText(s.bitSize)})`);
 
 /** Compares two symbol lists by name (case-insensitive, like the PLC): added, removed, changed (type or size). */
