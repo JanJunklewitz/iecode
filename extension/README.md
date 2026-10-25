@@ -102,20 +102,6 @@ Or open this folder in VS Code and press F5.
 - The ADS interface from source code has no sizes and ignores conditional pragmas. It doesn't know types from libraries: library GVLs (e.g. each library's `Global_Version`) and members inherited from library function blocks are missing. The build output (`.tmc`) is exact.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
 
-## Market check (Oct 2026)
-
-| Project | What it does | Why it isn't enough |
-|---|---|---|
-| [Zeugwerk/Plaincat](https://github.com/Zeugwerk/Plaincat) | Converts the XML to `.st` files and back (CLI + Windows-only VS Code ext.) | Archived Sept 2026 and called a proof of concept by its own maintainers. Regenerates GUIDs, drops non-ST objects |
-| [Apollo3zehn/vscode-twincat-st](https://codeberg.org/Apollo3zehn/vscode-twincat-st) | Highlighting, diagnostics and navigation for ST | Explicitly no editing of TcPOU XML; you have to convert to `.st` first |
-| [Serhioromano/vscode-st](https://github.com/Serhioromano/vscode-st) | Highlighting and formatting, recognises `.TcPOU` | You still see and edit raw XML |
-| truST, ControlForge | ST language servers, runtime, linting | Generic IEC 61131-3 / CODESYS, no TcPOU round trip |
-| [Zeugwerk PlcSense](https://socket.dev/npm/package/@zeugwerk/plcsense) | Commercial MCP server (symbols, validation) | Read-only, for AI agents, not an editor |
-| [TwinCAT.ProductivityTools](https://github.com/philippleidig/TwinCAT.ProductivityTools) | "Open in VS Code" from XAE | Opens the raw XML |
-| **Beckhoff [TwinCAT PLC++](https://control.com/news/beckhoff-redesigns-programmable-logic-with-new-plc-platform/)** | Next-gen PLC: code stored as plain text, standalone CLI compiler | This is Beckhoff's own long-term answer. Projects on TC3 4024/4026 XML still need a bridge like this one |
-
-Nothing on the market currently edits TcPOU XML **in place** as plain text without a conversion step.
-
 ## License and trademarks
 
 Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).

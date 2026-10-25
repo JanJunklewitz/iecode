@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write     # GitHub Release
   packages: write     # GitHub Packages NuGet feed (tcpkg)
+  id-token: write     # VS Code Marketplace trusted publishing (OIDC)
 
 jobs:
   build:
@@ -17,6 +18,8 @@ jobs:
       SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
       SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      # Repository variable; set to 'true' once the trusted publishing policy exists on the Marketplace
+      VSCE_OIDC: ${{ vars.VSCE_OIDC }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +50,7 @@ jobs:
         working-directory: extension
         run: |
           npm version "$VERSION" --no-git-tag-version --allow-same-version
-          npx @vscode/vsce@3.2.1 package --no-dependencies $PRE_RELEASE
+          npx @vscode/vsce@4.0.0 package --no-dependencies $PRE_RELEASE
           mkdir -p ../dist && mv *.vsix "../dist/iecode-$VERSION.vsix"
 
       - name: CLI (self-contained win-x64)
@@ -91,9 +94,12 @@ jobs:
             --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --api-key "${{ github.token }}"
 
       - name: Publish to VS Code Marketplace
-        if: env.VSCE_PAT != ''
+        if: env.VSCE_OIDC == 'true' || env.VSCE_PAT != ''
         shell: bash
-        run: npx --yes @vscode/vsce@3.2.1 publish $PRE_RELEASE --packagePath "dist/iecode-$VERSION.vsix"
+        run: |
+          # trusted publishing (no stored token) wins; the PAT is the fallback until global PATs retire on 2026-12-01
+          if [ "$VSCE_OIDC" = "true" ]; then auth=--oidc; else auth=; fi
+          npx --yes @vscode/vsce@4.0.0 publish $auth $PRE_RELEASE --packagePath "dist/iecode-$VERSION.vsix"
 
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
