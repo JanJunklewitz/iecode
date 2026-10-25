@@ -5,4 +5,12 @@
 			<Project GUID="{22222222-0000-0000-0000-000000000002}" Name="PLC1" PrjFilePath="PLC1\PLC1.plcproj" AmsPort="851"/>
 		</Plc>
 	</Project>
+	<Mappings>
+		<OwnerA Name="TIPC^PLC1^PLC1 Instance">
+			<OwnerB Name="TIID^Device 1 (EtherCAT)^Term 1 (EK1100)^Term 2 (EL1008)">
+				<Link VarA="PlcTask Inputs^MAIN.bStart" VarB="Channel 1^Input"/>
+				<Link VarA="PlcTask Inputs^MAIN.bStop" VarB="Channel 2^Input"/>
+			</OwnerB>
+		</OwnerA>
+	</Mappings>
 </TcSmProject>

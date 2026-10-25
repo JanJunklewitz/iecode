@@ -57,6 +57,19 @@ export async function run(): Promise<void> {
   const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', main, callAt);
   assert.match(String((hovers[0].contents[0] as vscode.MarkdownString).value), /fbMotor : FB_Motor/);
 
+  // compare as ST: the HEAD version (before the edit above) is shown without XML
+  const rev = await vscode.workspace.openTextDocument(vscode.Uri.file(path).with({ scheme: 'iecode-rev', query: 'ref=HEAD&label=HEAD' }));
+  assert.ok(rev.getText().includes('Start := TRUE;') && !rev.getText().includes('CDATA'), 'HEAD shown as ST');
+  await vscode.commands.executeCommand('iecode.compareWithHead', vscode.Uri.file(path));
+
+  // IO links of the fixture project
+  const { linksAt } = await import('../../src/core/iohistory');
+  const links = await linksAt(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj'), undefined);
+  assert.equal(links.length, 2);
+  const changes = (await import('../../src/core/iolinks')).diffLinks(await linksAt(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj'), 'HEAD'), links);
+  assert.equal(changes.length, 0, 'no IO link changes since HEAD');
+  await vscode.commands.executeCommand('iecode.ioLinks');
+
   // library manager and graph open without errors
   await vscode.commands.executeCommand('iecode.libraries');
   await vscode.commands.executeCommand('iecode.showGraph');

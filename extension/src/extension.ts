@@ -9,6 +9,8 @@ import type { Node } from './views/tree';
 import * as objects from './commands/objects';
 import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
+import * as compare from './commands/compare';
+import { showIoLinks } from './views/ioLinks';
 import { isEncrypted } from './core/projects';
 
 const SCHEME = 'iecode';
@@ -87,11 +89,17 @@ export function activate(ctx: vscode.ExtensionContext) {
   objects.register(ctx, state);
   engineering.register(ctx, state);
   language.register(ctx, state);
+  compare.register(ctx);
+  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', (n?: Node) => {
+    const sln = n && 'unit' in n ? n.unit.solution : undefined;
+    const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => n && 'unit' in n && x.file === n.unit.plc.file))?.file;
+    showIoLinks(ctx, state, tsproj);
+  }));
   void state.reload();
 
   // Give every iecode: document the ST language (also restored tabs after reload).
   const setLang = (d: vscode.TextDocument) => {
-    if (d.uri.scheme === SCHEME && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
+    if ((d.uri.scheme === SCHEME || d.uri.scheme === 'iecode-rev') && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
   };
   vscode.workspace.textDocuments.forEach(setLang);
   ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(setLang));

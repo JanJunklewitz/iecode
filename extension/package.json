@@ -202,6 +202,43 @@
         "command": "iecode.installCli",
         "title": "Install CLI…",
         "category": "IECode"
+      },
+      {
+        "command": "iecode.compareWithHead",
+        "title": "Compare with HEAD (ST)",
+        "category": "IECode",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "iecode.compareWithCommit",
+        "title": "Compare with Commit… (ST)",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.compareCommits",
+        "title": "Compare Two Commits… (ST)",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.selectForCompare",
+        "title": "Select for Compare (ST)",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.compareWithSelected",
+        "title": "Compare with Selected (ST)",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.setupGitDiff",
+        "title": "Show ST in git diff (set up textconv)…",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.ioLinks",
+        "title": "IO Links…",
+        "category": "IECode",
+        "icon": "$(plug)"
       }
     ],
     "menus": {
@@ -215,6 +252,11 @@
           "command": "iecode.openAsXml",
           "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "navigation"
+        },
+        {
+          "submenu": "iecode.compare",
+          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "3_compare"
         }
       ],
       "editor/title": [
@@ -225,6 +267,11 @@
         {
           "command": "iecode.openAsXml",
           "when": "resourceScheme == iecode"
+        },
+        {
+          "command": "iecode.compareWithHead",
+          "when": "resourceScheme == iecode",
+          "group": "navigation@9"
         }
       ],
       "view/title": [
@@ -267,6 +314,16 @@
           "command": "iecode.selectTcVersion",
           "when": "view == iecode.projects",
           "group": "2_settings@2"
+        },
+        {
+          "command": "iecode.ioLinks",
+          "when": "view == iecode.projects",
+          "group": "2_settings@3"
+        },
+        {
+          "command": "iecode.setupGitDiff",
+          "when": "view == iecode.projects",
+          "group": "2_settings@4"
         }
       ],
       "view/item/context": [
@@ -354,6 +411,16 @@
           "command": "iecode.libraries",
           "when": "view == iecode.projects && viewItem =~ /^(reference|references)/",
           "group": "1_add@1"
+        },
+        {
+          "submenu": "iecode.compare",
+          "when": "view == iecode.projects && viewItem =~ /^object\\.(?!encrypted)/",
+          "group": "2_open@3"
+        },
+        {
+          "command": "iecode.ioLinks",
+          "when": "view == iecode.projects && viewItem =~ /^unit\\.(application|library)\\.sln$/",
+          "group": "0_build@7"
         }
       ],
       "commandPalette": [
@@ -408,6 +475,38 @@
         {
           "command": "iecode.buildAffected",
           "when": "isWindows"
+        },
+        {
+          "command": "iecode.selectForCompare",
+          "when": "false"
+        }
+      ],
+      "iecode.compare": [
+        {
+          "command": "iecode.compareWithHead",
+          "group": "1@1"
+        },
+        {
+          "command": "iecode.compareWithCommit",
+          "group": "1@2"
+        },
+        {
+          "command": "iecode.compareCommits",
+          "group": "1@3"
+        },
+        {
+          "command": "iecode.selectForCompare",
+          "group": "2@1"
+        },
+        {
+          "command": "iecode.compareWithSelected",
+          "group": "2@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "submenu": "iecode.compare",
+          "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"
         }
       ]
     },
@@ -506,6 +605,12 @@
         "view": "iecode.projects",
         "contents": "No TwinCAT projects found in this workspace.\nOpen a folder with a .sln, .tsproj or .plcproj, or add one to the workspace.\n[Open Folder](command:vscode.openFolder)",
         "when": "!iecode.hasProjects"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "iecode.compare",
+        "label": "IECode: Compare as ST"
       }
     ]
   },
