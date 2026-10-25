@@ -31,6 +31,8 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Build / Check / Clean**, compiler messages in Problems on the ST view lines | – | ✔ |
 | **Activate** on local or remote targets, **Save as library** (.library / .compiled-library, install), **Encrypt / protect** with a user DB | – | ✔ |
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
+| **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; **Show ST in git diff** (textconv) | ✔ | ✔ |
+| **IO Links**: variable ↔ channel mappings of a TwinCAT project, compared between working copy, HEAD and any commit (added / removed / moved / changed), CSV export | ✔ | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
 ## Settings
@@ -61,12 +63,21 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 - When TwinCAT XAE changes the file on disk, the view reloads.
 
 
-The ST view is also available on the command line, `iecode-st decode <file>` / `iecode-st encode <file> <view.st>`,
-for example as a git textconv for readable diffs:
+The ST view is also available on the command line (`node out/src/cli.js`, installed as `iecode-st`):
 
 ```
-git config diff.iecode-st.textconv "node /path/to/out/src/cli.js decode"
-echo "*.TcPOU diff=iecode-st" >> .gitattributes
+iecode-st decode <file>                                  # ST view
+iecode-st diff <a.TcPOU> <b.TcPOU>                       # unified diff of the ST views
+iecode-st diff --rev HEAD~3 [--to <ref>] <file>          # ST diff against git history
+iecode-st links <x.tsproj> [--csv]                       # IO links
+iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> # IO link changes
+```
+
+As a git textconv for readable diffs (or use **IECode: Show ST in git diff**):
+
+```
+git config diff.iecode.textconv "node /path/to/out/src/cli.js decode"
+echo "*.TcPOU diff=iecode" >> .gitattributes
 ```
 
 ## Develop

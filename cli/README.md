@@ -4,7 +4,7 @@ TwinCAT 3 engineering from the command line: build, check, activate, save and up
 protect projects, talk to targets over ADS. Made for developer machines and CI.
 
 - **Windows + TwinCAT XAE (4024 / 4026)** for everything that drives the XAE shell or ADS.
-- **Any OS** for the file-based commands: `info`, `lib list | info | update | outdated | installed | restore --dry-run`,
+- **Any OS** for the file-based commands: `info`, `io links | diff`, `lib list | info | update | outdated | installed | restore --dry-run`,
   `ws list | graph | build --dry-run | release --no-save`, `clean --artifacts`.
 - Every command supports `--json` (one JSON document on stdout) and returns [stable exit codes](#exit-codes).
 
@@ -34,6 +34,8 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |
 | `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run]` | Build in dependency order with one XAE shell; workspace libraries are saved + installed before their users | XAE (`--dry-run`: files) |
 | `ws release <library> [--bump major\|minor\|patch\|<ver>] [--update-dependents] [--include-pinned] [--no-save]` | Bump the library version, save + install it, set the new version in the projects that use it | XAE (`--no-save`: files) |
+| `io links [tsproj\|sln\|folder] [--at <ref>] [--csv <file>] [--full]` | IO links (variable ↔ channel) of TwinCAT projects, from the `.tsproj` and all `.xti` files; working copy or any git commit | files + git |
+| `io diff [path] --from <ref> [--to <ref>] [--csv <file>] [--fail-on-change]` | Compare IO links between two versions: added, removed, moved (other channel), changed (size / offsets). `--fail-on-change` exits with 18 for CI checks | files + git |
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
@@ -92,6 +94,7 @@ iecode ads write MAIN.bStart true -t local
 | 15 | Requested TwinCAT version not installed |
 | 16 | Target / ADS error |
 | 17 | Timeout |
+| 18 | IO links changed (`io diff --fail-on-change`) |
 | 20 | Command needs Windows with TwinCAT |
 | 99 | Unexpected error |
 | 130 | Cancelled / confirmation needed (`--yes`) |
