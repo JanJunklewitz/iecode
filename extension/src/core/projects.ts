@@ -89,7 +89,8 @@ export async function loadTwinCatProject(file: string): Promise<TwinCatProject> 
   const tcVersion = [...walk(root)].find(n => n.attrs.TcVersion)?.attrs.TcVersion;
   const plcs: PlcProject[] = [];
   for (const n of walk(root)) {
-    if (n.name !== 'Project' || !n.attrs.PrjFilePath) continue;
+    // PLC projects only: a TwinSAFE project (.splcproj) is also a <Project PrjFilePath=…>
+    if (n.name !== 'Project' || !/\.plcproj$/i.test(n.attrs.PrjFilePath ?? '')) continue;
     const p = path.resolve(dir, toPosix(n.attrs.PrjFilePath));
     if (await exists(p)) plcs.push({ ...(await loadPlcProject(p)), tcVersion });
   }
@@ -204,8 +205,9 @@ export function listMembers(xml: string): Member[] {
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'bin', 'obj', 'out', '.vs']);
 
-/** Finds files with the given extensions below a folder, skipping TwinCAT output (_*) and tool folders. */
-export async function findFiles(root: string, exts: string[], maxDepth = 6): Promise<string[]> {
+/** Finds files with the given extensions below a folder, skipping TwinCAT output (_*) and tool folders.
+ *  `underscore` also visits _* folders (e.g. _Config, where TwinCAT keeps independent IO files). */
+export async function findFiles(root: string, exts: string[], maxDepth = 6, underscore = false): Promise<string[]> {
   const out: string[] = [];
   const want = exts.map(e => e.toLowerCase());
   async function visit(dir: string, depth: number) {
@@ -214,7 +216,7 @@ export async function findFiles(root: string, exts: string[], maxDepth = 6): Pro
     for (const e of entries) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) {
-        if (depth < maxDepth && !e.name.startsWith('_') && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name)) await visit(p, depth + 1);
+        if (depth < maxDepth && (underscore || !e.name.startsWith('_')) && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name)) await visit(p, depth + 1);
       } else if (want.includes(path.extname(e.name).toLowerCase())) out.push(p);
     }
   }

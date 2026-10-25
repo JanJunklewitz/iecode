@@ -38,3 +38,26 @@ test('detects cycles', () => {
   assert.throws(() => buildOrder({ units: [u('a'), u('b')], edges: [
     { from: 'a', to: 'b', link: 'workspace', ref: {} as never }, { from: 'b', to: 'a', link: 'workspace', ref: {} as never }] }), /cycle/);
 });
+
+test('ignores TwinSAFE projects and keeps unit ids unique across copies of a solution', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const root = mkdtempSync(join(tmpdir(), 'iecode-ws-'));
+  try {
+    for (const dir of [root, join(root, 'Backup')]) {
+      mkdirSync(join(dir, 'Sys', 'PLC1'), { recursive: true });
+      mkdirSync(join(dir, 'Sys', 'Safety'), { recursive: true });
+      writeFileSync(join(dir, 'Sys.sln'), 'Project("{B1E792BE-AA5F-4E3C-8C82-674BF9C0715B}") = "Sys", "Sys\\Sys.tsproj", "{1}"\r\nEndProject\r\n');
+      writeFileSync(join(dir, 'Sys', 'Sys.tsproj'), '<TcSmProject TcVersion="3.1.4024.66"><Project><Plc>'
+        + '<Project Name="PLC1" PrjFilePath="PLC1\\PLC1.plcproj"/></Plc>'
+        + '<Project Name="Safety" PrjFilePath="Safety\\Safety.splcproj"/></Project></TcSmProject>');
+      writeFileSync(join(dir, 'Sys', 'PLC1', 'PLC1.plcproj'), '<Project><PropertyGroup><Name>PLC1</Name></PropertyGroup></Project>');
+      writeFileSync(join(dir, 'Sys', 'Safety', 'Safety.splcproj'), '<Project><PropertyGroup><Name>Safety</Name></PropertyGroup></Project>');
+    }
+    const m = await discover([root]);
+    assert.deepEqual(m.units.map(u => u.id).sort(), ['Sys/PLC1', 'Sys/PLC1#2']);
+    assert.equal(buildOrder(m).length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

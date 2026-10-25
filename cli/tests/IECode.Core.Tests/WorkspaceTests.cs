@@ -21,6 +21,24 @@ public sealed class WorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void IgnoresTwinSafeProjectsAndKeepsIdsUniqueAcrossSolutionCopies()
+    {
+        // a TwinSAFE project next to the PLC, and a backup copy of the whole solution in a subfolder
+        var tsproj = _ws["Machine/Machine/Machine.tsproj"];
+        File.WriteAllText(tsproj, File.ReadAllText(tsproj).Replace("</TcSmProject>",
+            "<Project Name=\"Safety\" PrjFilePath=\"Safety\\Safety.splcproj\"/></TcSmProject>"));
+        File.WriteAllText(_ws.Touch("Machine/Machine/Safety/Safety.splcproj"), "<Project><PropertyGroup><Name>Safety</Name></PropertyGroup></Project>");
+        foreach (var f in Directory.GetFiles(_ws["Machine"], "*", SearchOption.AllDirectories))
+        {
+            var to = _ws["Backup/Machine/" + Path.GetRelativePath(_ws["Machine"], f).Replace('\\', '/')];
+            Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+            File.Copy(f, to);
+        }
+        var w = Load();
+        Assert.Equal(["Machine/MotorLib", "Machine/MotorLib#2", "Machine/PLC1", "Machine/PLC1#2"], w.Units.Select(u => u.Id).Order());
+    }
+
+    [Fact]
     public void LooseProjectsAreStandaloneAndLinked()
     {
         _ws.Touch("Tools/Runner/Runner.plcproj", 0);

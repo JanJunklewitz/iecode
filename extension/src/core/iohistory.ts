@@ -12,7 +12,8 @@ export async function linksAt(tsproj: string, ref: string | undefined): Promise<
   const relName = (f: string) => path.relative(dir, f).split(path.sep).join('/');
   const links: IoLink[] = [];
   if (!ref) {
-    const files = [tsproj, ...(await findFiles(dir, ['.xti'], 8)).filter(f => f !== tsproj)];
+    // same set as at a commit: every .xti below the project, at any depth (IO trees nest one folder per box)
+    const files = [tsproj, ...(await findFiles(dir, ['.xti'], 64, true)).filter(f => f !== tsproj)];
     for (const f of files) links.push(...extractLinks(await fs.readFile(f, 'utf8'), relName(f)));
     return links;
   }

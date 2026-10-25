@@ -37,18 +37,24 @@ public sealed partial class Workspace
             foreach (var p in s.PlcProjects)
             {
                 seen.Add(p.Path);
-                units.Add(new Unit($"{s.Name}/{p.Name}", lib ? UnitGroup.Library : UnitGroup.Application, p, s));
+                units.Add(new Unit(UniqueId(units, $"{s.Name}/{p.Name}"), lib ? UnitGroup.Library : UnitGroup.Application, p, s));
             }
         }
         foreach (var f in Directory.EnumerateFiles(root, "*.plcproj", Deep).Where(f => !Skip(root, f)).Order(StringComparer.OrdinalIgnoreCase))
         {
             if (!seen.Add(Path.GetFullPath(f))) continue;
             var p = PlcProjectFile.Load(f);
-            var id = p.Name;
-            for (var i = 2; units.Any(u => u.Id == id); i++) id = $"{p.Name}#{i}";
-            units.Add(new Unit(id, p.IsLibrary ? UnitGroup.Library : UnitGroup.Standalone, p, null));
+            units.Add(new Unit(UniqueId(units, p.Name), p.IsLibrary ? UnitGroup.Library : UnitGroup.Standalone, p, null));
         }
         return new Workspace { Root = root, Units = units, Links = LinksOf(units) };
+    }
+
+    /// <summary>"name", or "name#2", "name#3" … when another unit (e.g. in a copy of the solution) already has it.</summary>
+    private static string UniqueId(List<Unit> units, string name)
+    {
+        var id = name;
+        for (var i = 2; units.Any(u => u.Id == id); i++) id = $"{name}#{i}";
+        return id;
     }
 
     private static bool Skip(string root, string file) =>

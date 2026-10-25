@@ -106,7 +106,9 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   const openView = async (file?: vscode.Uri) => {
     file ??= vscode.window.activeTextEditor?.document.uri;
-    if (!file || !EXT_RE.test(file.path)) return;
+    if (!file) return;
+    // visualizations, text lists, tasks …: no ST view, open the file itself (e.g. from the project tree)
+    if (!EXT_RE.test(file.path)) { if (file.scheme === 'file') await vscode.commands.executeCommand('vscode.open', file); return; }
     const doc = await vscode.workspace.openTextDocument(toView(file.scheme === SCHEME ? toFile(file) : file));
     await vscode.window.showTextDocument(doc, { preview: false });
   };

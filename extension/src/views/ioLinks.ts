@@ -20,6 +20,12 @@ const WORKING = '';               // ref value for the working copy
 
 let panel: vscode.WebviewPanel | undefined;
 
+/** Project name, with its workspace-relative path when another project has the same name (e.g. a copy of the solution). */
+function projectLabel(file: string, all: string[]): string {
+  const name = path.basename(file, '.tsproj');
+  return all.filter(f => path.basename(f, '.tsproj') === name).length > 1 ? `${name} (${vscode.workspace.asRelativePath(file)})` : name;
+}
+
 /** TwinCAT system projects (.tsproj) in the workspace. */
 function projects(state: WorkspaceState): string[] {
   return [...new Set(state.current.solutions.flatMap(s => s.projects.filter(p => !p.plcOnly).map(p => p.file)))].sort();
@@ -51,7 +57,7 @@ export function showIoLinks(ctx: vscode.ExtensionContext, state: WorkspaceState,
       if (m.type === 'ready') {
         const list = projects(state);
         const first = tsproj && list.includes(tsproj) ? tsproj : list[0];
-        post({ type: 'projects', projects: list.map(f => ({ file: f, name: path.basename(f, '.tsproj') })), selected: first });
+        post({ type: 'projects', projects: list.map(f => ({ file: f, name: projectLabel(f, list) })), selected: first });
         if (first) post({ type: 'versions', tsproj: first, versions: await versions(first) });
       } else if (m.type === 'project') {
         post({ type: 'versions', tsproj: m.tsproj, versions: await versions(m.tsproj) });

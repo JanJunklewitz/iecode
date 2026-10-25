@@ -8,7 +8,7 @@ export type Group = 'library' | 'application' | 'standalone';
 
 /** One PLC project in the workspace, with where it comes from. */
 export interface Unit {
-  id: string;              // stable key: "<solution>/<plc>" or "<plc>" for standalone
+  id: string;              // stable key: "<solution>/<plc>" or "<plc>" for standalone; "#2", "#3" … on clashes
   group: Group;
   plc: PlcProject;
   solution?: Solution;
@@ -52,7 +52,7 @@ export async function discover(roots: string[]): Promise<WorkspaceModel> {
     const lib = s.projects.some(p => p.plcs.some(plc => plc.isLibrary));
     for (const p of s.projects)
       for (const plc of p.plcs)
-        units.push({ id: `${s.name}/${plc.name}`, group: lib ? 'library' : 'application', plc, solution: s });
+        units.push({ id: uniqueId(units, `${s.name}/${plc.name}`), group: lib ? 'library' : 'application', plc, solution: s });
   }
   for (const root of roots) {
     for (const file of await findFiles(root, ['.plcproj'])) {

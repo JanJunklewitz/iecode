@@ -72,7 +72,9 @@ public sealed class TwinCatProjectFile
         var dir = System.IO.Path.GetDirectoryName(path)!;
         var doc = XDocument.Load(path);
         var plc = doc.Descendants()
-            .Where(e => e.Name.LocalName == "Project" && e.Attribute("PrjFilePath") is not null)
+            // PLC projects only: a TwinSAFE project (.splcproj) is also a <Project PrjFilePath=…>
+            .Where(e => e.Name.LocalName == "Project"
+                && e.Attribute("PrjFilePath")?.Value.EndsWith(".plcproj", StringComparison.OrdinalIgnoreCase) == true)
             .Select(e => System.IO.Path.GetFullPath(System.IO.Path.Combine(dir,
                 e.Attribute("PrjFilePath")!.Value.Replace('\\', System.IO.Path.DirectorySeparatorChar))))
             .Where(File.Exists)
