@@ -79,6 +79,9 @@ public sealed partial class XaeShell : IDisposable
         return shell;
     }
 
+    /// <summary>Name of the Automation Interface settings object (DTE.GetObject), assembled from its parts.</summary>
+    private static readonly string SettingsObject = string.Concat("Tc", "Automation", "Settings");
+
     private dynamic Dte => _dte ?? throw new ObjectDisposedException(nameof(XaeShell));
 
     private dynamic Solution => _solution ?? throw new InvalidOperationException("No solution is open.");
@@ -92,8 +95,9 @@ public sealed partial class XaeShell : IDisposable
         });
         if (!_options.Visible)
         {
-            // TwinCAT's own dialogs (not covered by SuppressUI) are switched off by silent mode.
-            try { ComCall.Retry(() => { Dte.GetObject(string.Concat("Tc", "Automation", "Settings")).SilentMode = true; }); }
+            // TwinCAT's own dialogs (not covered by SuppressUI) are switched off by the silent mode of the
+            // Automation Interface settings object.
+            try { ComCall.Retry(() => { Dte.GetObject(SettingsObject).SilentMode = true; }); }
             catch (Exception e) { _log.Detail($"Silent mode not available: {e.Message}"); }
         }
     }

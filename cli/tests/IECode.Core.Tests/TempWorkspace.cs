@@ -30,6 +30,10 @@ public sealed class TempWorkspace : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(Root, recursive: true); } catch (IOException) { }
+        if (!Directory.Exists(Root)) return;
+        // git writes read-only object files; Windows refuses to delete those
+        foreach (var f in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(f, FileAttributes.Normal);
+        try { Directory.Delete(Root, recursive: true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 }
