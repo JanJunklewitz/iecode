@@ -2,8 +2,14 @@
   "name": "iecode",
   "displayName": "IECode – Structured Text for TwinCAT",
   "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, build and deploy with the iecode CLI.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "iecode",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e3a8a",
+    "theme": "dark"
+  },
+  "pricing": "Free",
   "author": "Jan Junklewitz",
   "repository": {
     "type": "git",
@@ -18,7 +24,10 @@
     "twincat",
     "structured text",
     "iec 61131-3",
-    "plc"
+    "plc",
+    "st",
+    "automation",
+    "tcpou"
   ],
   "license": "Apache-2.0",
   "engines": {

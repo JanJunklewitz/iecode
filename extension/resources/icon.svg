@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="url(#bg)"/>
+  <!-- PLC module outline -->
+  <rect x="44" y="52" width="168" height="152" rx="14" fill="none" stroke="#ffffff" stroke-opacity=".28" stroke-width="6"/>
+  <g fill="#93c5fd">
+    <rect x="58" y="68" width="10" height="10" rx="2"/><rect x="58" y="86" width="10" height="10" rx="2"/><rect x="58" y="104" width="10" height="10" rx="2"/>
+  </g>
+  <text x="140" y="140" text-anchor="middle" font-family="Helvetica Neue, Arial, sans-serif" font-weight="800" font-size="84" fill="#ffffff" letter-spacing="2">IE</text>
+  <text x="140" y="182" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-weight="600" font-size="30" fill="#bfdbfe">:= code</text>
+</svg>

@@ -6,3 +6,4 @@ tsconfig.json
 .vscode/**
 scripts/**
 samples/**
+resources/icon.svg

@@ -29,7 +29,12 @@ jobs:
 
       - name: Version
         shell: bash
-        run: echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+        run: |
+          v="${VERSION#v}"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          # odd minor version (0.1.x, 0.3.x …) = pre-release on the Marketplace / Open VSX
+          minor=$(echo "$v" | cut -d. -f2)
+          if [ $((minor % 2)) -eq 1 ]; then echo "PRE_RELEASE=--pre-release" >> "$GITHUB_ENV"; else echo "PRE_RELEASE=" >> "$GITHUB_ENV"; fi
 
       - name: Test
         shell: bash
@@ -42,7 +47,7 @@ jobs:
         working-directory: extension
         run: |
           npm version "$VERSION" --no-git-tag-version --allow-same-version
-          npm run package
+          npx @vscode/vsce@3.2.1 package --no-dependencies $PRE_RELEASE
           mkdir -p ../dist && mv *.vsix "../dist/iecode-$VERSION.vsix"
 
       - name: CLI (self-contained win-x64)
@@ -77,7 +82,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --title "IECode $VERSION" --generate-notes
+        run: gh release create "${{ github.ref_name }}" dist/* --title "IECode $VERSION" --generate-notes ${PRE_RELEASE:+--prerelease}
 
       - name: Publish to GitHub Packages (tcpkg / NuGet feed)
         shell: bash
@@ -88,9 +93,9 @@ jobs:
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
         shell: bash
-        run: npx --yes @vscode/vsce@3.2.1 publish --packagePath "dist/iecode-$VERSION.vsix"
+        run: npx --yes @vscode/vsce@3.2.1 publish $PRE_RELEASE --packagePath "dist/iecode-$VERSION.vsix"
 
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
         shell: bash
-        run: npx --yes ovsx@0.10.1 publish "dist/iecode-$VERSION.vsix" -p "$OVSX_PAT"
+        run: npx --yes ovsx@0.10.1 publish "dist/iecode-$VERSION.vsix" $PRE_RELEASE -p "$OVSX_PAT"
