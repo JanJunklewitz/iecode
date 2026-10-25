@@ -1,0 +1,25 @@
+{
+  // F5: starts a second VS Code window ("Extension Development Host") with this extension loaded.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run IECode (test workspace)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}/test/fixtures/ws"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "npm: compile"
+    },
+    {
+      "name": "Run IECode (pick a folder)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${input:folder}"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "npm: compile"
+    }
+  ],
+  "inputs": [
+    { "id": "folder", "type": "promptString", "description": "Folder with your TwinCAT project(s)" }
+  ]
+}
