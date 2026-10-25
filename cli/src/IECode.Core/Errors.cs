@@ -16,6 +16,7 @@ public static class ExitCodes
     public const int TargetFailed = 16;
     public const int Timeout = 17;
     public const int IoLinksChanged = 18;
+    public const int AdsInterfaceChanged = 19;
     public const int NotSupportedPlatform = 20;
     public const int Cancelled = 130;
     public const int Unexpected = 99;

@@ -33,6 +33,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
 | **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; **Show ST in git diff** (textconv) | ✔ | ✔ |
 | **IO Links**: variable ↔ channel mappings of a TwinCAT project, compared between working copy, HEAD and any commit (added / removed / moved / changed), CSV export | ✔ | ✔ |
+| **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
 ## Settings
@@ -71,6 +72,8 @@ iecode-st diff <a.TcPOU> <b.TcPOU>                       # unified diff of the S
 iecode-st diff --rev HEAD~3 [--to <ref>] <file>          # ST diff against git history
 iecode-st links <x.tsproj> [--csv]                       # IO links
 iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> # IO link changes
+iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members]  # ADS interface from source / build output
+iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj>     # ADS interface changes in the source
 ```
 
 As a git textconv for readable diffs (or use **IECode: Show ST in git diff**):
@@ -96,6 +99,7 @@ Or open this folder in VS Code and press F5.
 - Renaming an object in the tree renames the file, its declaration and the `.plcproj` entry, but not references to it in other objects (use **Rename Symbol** for variables and members).
 - Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace; symbols from installed libraries (e.g. Tc2_Standard) are not known yet.
 - Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
+- The ADS interface from source code has no sizes, ignores conditional pragmas and doesn't expand types from libraries; the build output (`.tmc`) is exact.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
 
 ## Market check (Oct 2026)

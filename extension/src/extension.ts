@@ -11,6 +11,7 @@ import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
 import * as compare from './commands/compare';
 import { showIoLinks } from './views/ioLinks';
+import { showAdsInterface } from './views/adsInterface';
 import { isEncrypted } from './core/projects';
 
 const SCHEME = 'iecode';
@@ -95,6 +96,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => n && 'unit' in n && x.file === n.unit.plc.file))?.file;
     showIoLinks(ctx, state, tsproj);
   }));
+  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsInterface', (n?: Node) =>
+    showAdsInterface(ctx, state, n && 'unit' in n ? n.unit.plc.file : undefined)));
   void state.reload();
 
   // Give every iecode: document the ST language (also restored tabs after reload).

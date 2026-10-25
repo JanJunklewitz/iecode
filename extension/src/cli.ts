@@ -5,6 +5,8 @@
 // iecode-st diff --rev <ref> [--to <ref>] <file>      -> ST diff against a git commit (default: working copy)
 // iecode-st links <x.tsproj> [--csv]                  -> IO links of a TwinCAT project
 // iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv] -> IO link changes since a commit
+// iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv] -> ADS interface from source (.plcproj) or build output (.tmc)
+// iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv] -> ADS interface changes in the source since a commit
 import { readFileSync, writeFileSync } from 'fs';
 import * as path from 'path';
 import { decode, encode } from './model';
@@ -13,6 +15,8 @@ import { unifiedDiff } from './core/textdiff';
 import { repoRoot, show } from './core/git';
 import { changesToCsv, diffLinks, linksToCsv, shortPath } from './core/iolinks';
 import { linksAt } from './core/iohistory';
+import { loadPlcProject } from './core/projects';
+import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
 const toView = (xml: string) => (isEncrypted(xml) ? '(* encrypted object *)\n' : decode(xml.replace(/^﻿/, '')));
 
@@ -75,6 +79,26 @@ async function main(argv: string[]): Promise<number> {
       process.stdout.write(`${c.kind.padEnd(8)} ${c.variable}  ${c.before ? shortPath(c.before) : ''}${c.before && c.after ? ' -> ' : ''}${c.after && c.after !== c.before ? shortPath(c.after) : ''}${c.details ? '  ' + c.details : ''}\n`);
     return changes.length ? 1 : 0;
   }
+  if (cmd === 'ads' || cmd === 'ads-diff') {
+    const rev = opt(args, '--rev'), to = opt(args, '--to');
+    const flag = (f: string) => { const i = args.indexOf(f); if (i >= 0) args.splice(i, 1); return i >= 0; };
+    const csv = flag('--csv'), members = flag('--members');
+    const [file] = args;
+    if (!file || (cmd === 'ads-diff' && !rev)) return usage();
+    const at = async (ref: string | undefined): Promise<AdsSymbol[]> => /\.tmc$/i.test(file)
+      ? fromTmc(readFileSync(file, 'utf8'), members)
+      : (await fromSourceAt(await loadPlcProject(path.resolve(file)), ref, members)).symbols;
+    if (cmd === 'ads') {
+      const symbols = await at(rev);
+      if (csv) process.stdout.write(symbolsToCsv(symbols));
+      else for (const s of symbols) process.stdout.write(`${s.name}  : ${s.type}${s.bitSize !== undefined ? '  (' + sizeText(s.bitSize) + ')' : ''}\n`);
+      return 0;
+    }
+    const changes = diffSymbols(await at(rev), await at(to));
+    if (csv) process.stdout.write(adsChangesToCsv(changes));
+    else for (const c of changes) process.stdout.write(`${c.kind.padEnd(8)} ${c.name}  ${c.kind === 'changed' ? c.details : c.after ?? c.before}\n`);
+    return changes.length ? 1 : 0;
+  }
   return usage();
 }
 
@@ -85,6 +109,8 @@ function usage(): number {
     '       iecode-st diff <a> <b> | diff --rev <ref> [--to <ref>] <file>',
     '       iecode-st links <x.tsproj> [--csv]',
     '       iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv]',
+    '       iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv]',
+    '       iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv]',
   ].join('\n'));
   return 2;
 }

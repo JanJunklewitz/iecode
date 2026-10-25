@@ -248,6 +248,12 @@
         "title": "IO Links…",
         "category": "IECode",
         "icon": "$(plug)"
+      },
+      {
+        "command": "iecode.adsInterface",
+        "title": "ADS Interface…",
+        "category": "IECode",
+        "icon": "$(symbol-variable)"
       }
     ],
     "menus": {
@@ -330,9 +336,14 @@
           "group": "2_settings@3"
         },
         {
-          "command": "iecode.setupGitDiff",
+          "command": "iecode.adsInterface",
           "when": "view == iecode.projects",
           "group": "2_settings@4"
+        },
+        {
+          "command": "iecode.setupGitDiff",
+          "when": "view == iecode.projects",
+          "group": "2_settings@5"
         }
       ],
       "view/item/context": [
@@ -430,6 +441,11 @@
           "command": "iecode.ioLinks",
           "when": "view == iecode.projects && viewItem =~ /^unit\\.(application|library)\\.sln$/",
           "group": "0_build@7"
+        },
+        {
+          "command": "iecode.adsInterface",
+          "when": "view == iecode.projects && viewItem =~ /^unit\\./",
+          "group": "0_build@8"
         }
       ],
       "commandPalette": [

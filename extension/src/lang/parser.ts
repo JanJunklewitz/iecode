@@ -18,6 +18,8 @@ export interface PlcSymbol {
   type?: string;
   /** VAR_INPUT, VAR_OUTPUT, VAR, VAR_GLOBAL … for variables. */
   scope?: string;
+  /** CONSTANT, RETAIN, PERSISTENT of the variable's block. */
+  modifiers?: string[];
   extends?: string[];
   implements?: string[];
   /** Access modifier of members. */
@@ -80,7 +82,8 @@ function parseVarBlocks(toks: Token[], lines: string[], problems: Problem[]): Pl
     const scope = toks[i].upper;
     const open = toks[i];
     i++;
-    while (i < toks.length && toks[i].type === 'keyword' && ['CONSTANT', 'RETAIN', 'PERSISTENT'].includes(toks[i].upper)) i++;
+    const modifiers: string[] = [];
+    while (i < toks.length && toks[i].type === 'keyword' && ['CONSTANT', 'RETAIN', 'PERSISTENT'].includes(toks[i].upper)) modifiers.push(toks[i++].upper);
     let closed = false;
     while (i < toks.length) {
       const t = toks[i];
@@ -95,7 +98,7 @@ function parseVarBlocks(toks: Token[], lines: string[], problems: Problem[]): Pl
         if (toks[k]?.text === ':') {
           const [type, next] = parseType(toks, k + 1);
           for (const n of names)
-            vars.push({ name: n.text, kind: 'VARIABLE', type, scope, range: rangeOf(n), full: rangeOf(n), detail: lines[n.line]?.trim() ?? '', children: [] });
+            vars.push({ name: n.text, kind: 'VARIABLE', type, scope, ...(modifiers.length ? { modifiers } : {}), range: rangeOf(n), full: rangeOf(n), detail: lines[n.line]?.trim() ?? '', children: [] });
           k = next;
           let depth = 0;
           while (k < toks.length && !(depth === 0 && toks[k].text === ';')) {

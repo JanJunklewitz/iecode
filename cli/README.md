@@ -4,7 +4,7 @@ TwinCAT 3 engineering from the command line: build, check, activate, save and up
 protect projects, talk to targets over ADS. Made for developer machines and CI.
 
 - **Windows + TwinCAT XAE (4024 / 4026)** for everything that drives the XAE shell or ADS.
-- **Any OS** for the file-based commands: `info`, `io links | diff`, `lib list | info | update | outdated | installed | restore --dry-run`,
+- **Any OS** for the file-based commands: `info`, `io links | diff`, `ads symbols | diff`, `lib list | info | update | outdated | installed | restore --dry-run`,
   `ws list | graph | build --dry-run | release --no-save`, `clean --artifacts`.
 - Every command supports `--json` (one JSON document on stdout) and returns [stable exit codes](#exit-codes).
 
@@ -38,6 +38,8 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `io diff [path] --from <ref> [--to <ref>] [--csv <file>] [--fail-on-change]` | Compare IO links between two versions: added, removed, moved (other channel), changed (size / offsets). `--fail-on-change` exits with 18 for CI checks | files + git |
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |
+| `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
+| `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
 
 ### Global options
@@ -66,7 +68,24 @@ iecode lib update ../apps --lib Tc3_MotorLib --to latest --dry-run
 iecode encrypt MachineX.sln --userdb Security/MachineX.tcudb --credential machinex-oem \
   --protect "TIPC^PLC1^PLC1 Project^POUs,encrypted=true,signed=true,level=Service" --yes
 iecode ads write MAIN.bStart true -t local
+
+# ADS interface contract for HMI / ADS clients: snapshot once, check every CI build against it
+iecode build MachineX.sln
+iecode ads symbols MachineX.sln --plc PLC1 --members --save PLC1.ads-interface.json
+iecode ads diff MachineX.sln --plc PLC1 --against PLC1.ads-interface.json --fail-on-change
 ```
+
+### ADS interface without a running PLC
+
+Every build writes the TwinCAT Module Class file `<PLC>.tmc` next to the `.plcproj`. It holds the same symbol
+table the runtime serves over ADS: names, types, sizes, comments, data areas, and the data types used to expand
+structs and function blocks (`--members`). `iecode ads symbols` reads it, so the interface is available right after
+`iecode build` on any machine, with no activation and no target. `.tmc` files are usually git-ignored; commit a
+snapshot (`--save`) instead and compare builds against it with `ads diff`.
+
+Without any build, the VS Code extension shows the interface straight from the source code (GVL and program
+variables, expanded with the project's own function blocks and structs) and compares it between commits; on the
+command line that is `iecode-st ads <x.plcproj>` / `iecode-st ads-diff --rev <ref> <x.plcproj>`.
 
 ## JSON output
 
@@ -95,6 +114,7 @@ iecode ads write MAIN.bStart true -t local
 | 16 | Target / ADS error |
 | 17 | Timeout |
 | 18 | IO links changed (`io diff --fail-on-change`) |
+| 19 | ADS interface changed (`ads diff --fail-on-change`) |
 | 20 | Command needs Windows with TwinCAT |
 | 99 | Unexpected error |
 | 130 | Cancelled / confirmation needed (`--yes`) |

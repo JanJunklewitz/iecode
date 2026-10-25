@@ -30,7 +30,7 @@ internal static class Runner
         {
             if (windowsOnly && !OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, $"'iecode {name}' needs Windows with TwinCAT XAE.",
-                    "File-based commands (info, lib list/info/update/outdated/restore --dry-run, ws list/graph/release --no-save, clean --artifacts) work on any OS.");
+                    "File-based commands (info, lib list/info/update/outdated/restore --dry-run, ws list/graph/release --no-save, io links/diff, ads symbols/diff, clean --artifacts) work on any OS.");
             var outcome = body(new Context(parse, log));
             code = outcome.Code;
             log.Finish(name, code, outcome.Data);

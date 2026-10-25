@@ -70,6 +70,12 @@ export async function run(): Promise<void> {
   assert.equal(changes.length, 0, 'no IO link changes since HEAD');
   await vscode.commands.executeCommand('iecode.ioLinks');
 
+  // ADS interface from the source code (no build output in the fixture)
+  const ads = await import('../../src/core/adsinterface');
+  const plc = await (await import('../../src/core/projects')).loadPlcProject(join(ws, 'ws/apps/MachineX/MachineX/PLC1/PLC1.plcproj'));
+  assert.ok((await ads.fromSourceAt(plc, undefined)).symbols.some(s => s.name === 'MAIN.fbMotor'), 'MAIN.fbMotor from source');
+  await vscode.commands.executeCommand('iecode.adsInterface');
+
   // library manager and graph open without errors
   await vscode.commands.executeCommand('iecode.libraries');
   await vscode.commands.executeCommand('iecode.showGraph');
