@@ -32,6 +32,30 @@ export async function show(root: string, ref: string, file: string): Promise<str
   try { return await git(root, ['show', `${ref}:${rel(root, file)}`]); } catch { return undefined; }
 }
 
+/** Contents of many files at a commit with one git call; files missing at that commit are left out. */
+export async function showMany(root: string, ref: string, files: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!files.length) return out;
+  const data = await new Promise<Buffer>((resolve, reject) => {
+    const p = execFile('git', ['cat-file', '--batch'], { cwd: root, maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer' },
+      (err, stdout, stderr) => (err ? reject(new Error(stderr.toString().trim() || err.message)) : resolve(stdout)));
+    p.stdin!.end(files.map(f => `${ref}:${rel(root, f)}\n`).join(''));
+  });
+  let pos = 0;
+  for (const f of files) {
+    const nl = data.indexOf(10, pos);
+    if (nl < 0) break;
+    const header = data.subarray(pos, nl).toString('utf8');
+    pos = nl + 1;
+    const m = / blob (\d+)$/.exec(header);
+    if (!m) continue;                           // "<object> missing" (or not a file)
+    const size = Number(m[1]);
+    out.set(f, data.subarray(pos, pos + size).toString('utf8'));
+    pos += size + 1;
+  }
+  return out;
+}
+
 /** Commits that touched any of the paths (newest first). */
 export async function log(root: string, paths: string[], max = 50): Promise<Commit[]> {
   const sep = '\u001f';
@@ -45,12 +69,17 @@ export async function log(root: string, paths: string[], max = 50): Promise<Comm
 /** Files below a folder at a commit, filtered by extension. Paths are returned below `dir` as given by the caller. */
 export async function filesAt(root: string, ref: string, dir: string, exts: string[]): Promise<string[]> {
   const base = rel(root, dir);
-  const out = await git(root, ['ls-tree', '-r', '--name-only', ref, '--', base || '.']);
+  // -z: no C-quoting of non-ASCII paths (core.quotePath)
+  const out = await git(root, ['ls-tree', '-r', '-z', '--name-only', ref, '--', base || '.']);
   const want = exts.map(e => e.toLowerCase());
-  return out.split('\n')
+  return out.split('\0')
     .filter(f => want.includes(path.extname(f).toLowerCase()))
     .map(f => path.join(dir, ...path.posix.relative(base, f).split('/')));
 }
 
 /** Sets a git config value in the repository. */
 export const config = (root: string, key: string, value: string) => git(root, ['config', key, value]).then(() => undefined);
+
+/** Effective git config value in the repository (local, global or system), or undefined if unset. */
+export const getConfig = (root: string, key: string) =>
+  git(root, ['config', '--get', key]).then(v => v.trim() || undefined, () => undefined);

@@ -74,24 +74,3 @@ test('line diff reproduces both inputs for random cases', () => {
     assert.deepEqual(ops.filter(o => o.op !== '-').map(o => o.text), b);
   }
 });
-
-test('working-copy links include .xti files deep below _Config', async () => {
-  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs');
-  const { tmpdir } = await import('os');
-  const { join } = await import('path');
-  const { linksAt } = await import('../src/core/iohistory');
-  const dir = mkdtempSync(join(tmpdir(), 'iecode-io-'));
-  try {
-    writeFileSync(join(dir, 'Sys.tsproj'), OLD);
-    // TwinCAT nests one folder per box: _Config/IO/<device>/<box>/<box>/…/<term>.xti
-    const deep = join(dir, '_Config', 'IO', 'Device 1 (EtherCAT)', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7');
-    mkdirSync(deep, { recursive: true });
-    writeFileSync(join(deep, 'Term 9.xti'), `<TcSmItem><Mappings><OwnerA Name="TIPC^PLC1^PLC1 Instance"><OwnerB Name="TIID^Device 1 (EtherCAT)^Term 9">
-      <Link VarA="PlcTask Inputs^MAIN.bDeep" VarB="Channel 1^Input"/></OwnerB></OwnerA></Mappings></TcSmItem>`);
-    const links = await linksAt(join(dir, 'Sys.tsproj'), undefined);
-    assert.equal(links.length, 5);
-    assert.ok(links.some(l => l.variable.endsWith('MAIN.bDeep') && l.file.startsWith('_Config/IO/')));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});

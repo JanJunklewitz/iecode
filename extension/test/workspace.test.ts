@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'path';
-import { discover, buildOrder, affected, unitOfFile, toMermaid } from '../src/core/workspace';
+import { discover, buildOrder, affected, unitOfFile, toMermaid, systemProjects } from '../src/core/workspace';
 
 const fixtures = join(__dirname, '..', '..', 'test', 'fixtures', 'ws');
 
@@ -57,6 +57,23 @@ test('ignores TwinSAFE projects and keeps unit ids unique across copies of a sol
     const m = await discover([root]);
     assert.deepEqual(m.units.map(u => u.id).sort(), ['Sys/PLC1', 'Sys/PLC1#2']);
     assert.equal(buildOrder(m).length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('lists system projects without a PLC project (e.g. an IO-only *.Sys repo)', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const root = mkdtempSync(join(tmpdir(), 'iecode-sys-'));
+  try {
+    mkdirSync(join(root, 'TM'), { recursive: true });
+    writeFileSync(join(root, 'TM.Sys.sln'), 'Project("{B1E792BE-AA5F-4E3C-8C82-674BF9C0715B}") = "TM", "TM\\TM.tsproj", "{1}"\r\nEndProject\r\n');
+    writeFileSync(join(root, 'TM', 'TM.tsproj'), '<TcSmProject TcVersion="3.1.4024.66"><Project><Io/></Project></TcSmProject>');
+    const m = await discover([root]);
+    assert.deepEqual(m.units, []);
+    assert.deepEqual(systemProjects(m).map(s => `${s.solution.name}/${s.project.name}`), ['TM.Sys/TM']);
+    assert.deepEqual(systemProjects(await discover([fixtures])), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

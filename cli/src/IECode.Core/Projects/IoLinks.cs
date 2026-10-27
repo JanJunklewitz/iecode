@@ -1,5 +1,4 @@
 using System.Text;
-using System.Xml.Linq;
 
 namespace IECode.Core.Projects;
 
@@ -16,30 +15,25 @@ public sealed record IoChange(IoChangeKind Kind, string Variable, string? Before
 /// <summary>
 /// Reads IO links from .tsproj / .xti files:
 /// <c>&lt;Mappings&gt;&lt;OwnerA Name="TIPC^…"&gt;&lt;OwnerB Name="TIID^…"&gt;&lt;Link VarA="…" VarB="…"/&gt;</c>.
-/// The IO side (TIID^…) always ends up in <see cref="IoLink.Io"/>. Same rules as the VS Code extension.
+/// The IO side (TIID^…) always ends up in <see cref="IoLink.Io"/>. Same rules as the VS Code extension;
+/// reading and the hardware tree are in <see cref="IoTree"/>.
 /// </summary>
 public static class IoLinks
 {
-    public static IReadOnlyList<IoLink> Extract(string xml, string file)
+    /// <summary>Links of one .tsproj / .xti file (its active &lt;Mappings&gt;).</summary>
+    public static IReadOnlyList<IoLink> Extract(string xml, string file) => Sort(IoTree.LinksOfFile(xml, file).Select(ToIoLink));
+
+    /// <summary>Variable / IO view of a link: the IO side (TIID^…) goes into <see cref="IoLink.Io"/> unless both or neither side is IO.</summary>
+    public static IoLink ToIoLink(HwLink l)
     {
-        XDocument doc;
-        try { doc = XDocument.Parse(xml.TrimStart('﻿')); }
-        catch (Exception e) { throw new IECodeException(ExitCodes.Failed, $"Cannot read '{file}': {e.Message}", inner: e); }
-        var links = new List<IoLink>();
-        foreach (var a in doc.Descendants().Where(e => e.Name.LocalName == "OwnerA" && e.Attribute("Name") is not null))
-        foreach (var b in a.Elements().Where(e => e.Name.LocalName == "OwnerB" && e.Attribute("Name") is not null))
-        foreach (var l in b.Elements().Where(e => e.Name.LocalName == "Link"))
-        {
-            var sideA = $"{a.Attribute("Name")!.Value}^{l.Attribute("VarA")?.Value}";
-            var sideB = $"{b.Attribute("Name")!.Value}^{l.Attribute("VarB")?.Value}";
-            var attrs = l.Attributes().Where(x => x.Name.LocalName is not "VarA" and not "VarB").ToDictionary(x => x.Name.LocalName, x => x.Value);
-            var (variable, io) = IsIo(sideA) && !IsIo(sideB) ? (sideB, sideA) : (sideA, sideB);
-            links.Add(new IoLink(variable, io, attrs, file));
-        }
-        return links.OrderBy(l => l.Variable, StringComparer.Ordinal).ThenBy(l => l.Io, StringComparer.Ordinal).ToList();
+        var swap = IsIo(l.Left) && !IsIo(l.Right);
+        return new IoLink(swap ? l.Right : l.Left, swap ? l.Left : l.Right, l.Attributes, l.File);
     }
 
-    private static bool IsIo(string path) => path.StartsWith("TIID^", StringComparison.OrdinalIgnoreCase);
+    private static List<IoLink> Sort(IEnumerable<IoLink> links) =>
+        links.OrderBy(l => l.Variable, StringComparer.Ordinal).ThenBy(l => l.Io, StringComparer.Ordinal).ToList();
+
+    private static bool IsIo(string path) => path.StartsWith("TIID^", StringComparison.Ordinal);
 
     /// <summary>Compares two sets of links per variable: moved (other channel), added, removed, changed (same channel, other Size / offsets).</summary>
     public static IReadOnlyList<IoChange> Diff(IEnumerable<IoLink> before, IEnumerable<IoLink> after)
@@ -93,31 +87,10 @@ public static class IoLinks
     }
 
     /// <summary>
-    /// Links of a TwinCAT project (.tsproj plus all .xti files below its folder) in the working copy,
+    /// Links of a TwinCAT project (.tsproj plus the .xti files it references) in the working copy,
     /// or at a git commit when <paramref name="gitRef"/> is set.
     /// </summary>
-    public static IReadOnlyList<IoLink> Load(string tsproj, string? gitRef)
-    {
-        tsproj = Path.GetFullPath(tsproj);
-        var dir = Path.GetDirectoryName(tsproj)!;
-        string Rel(string f) => Path.GetRelativePath(dir, f).Replace('\\', '/');
-        var links = new List<IoLink>();
-        if (gitRef is null)
-        {
-            var xti = Directory.EnumerateFiles(dir, "*.xti", SearchOption.AllDirectories)
-                .Where(f => !Path.GetRelativePath(dir, f).Split(Path.DirectorySeparatorChar).Any(s => s.StartsWith('_') || s.StartsWith('.')));
-            foreach (var f in xti.Prepend(tsproj)) links.AddRange(Extract(File.ReadAllText(f), Rel(f)));
-            return links;
-        }
-        var git = Git.Open(dir);
-        foreach (var rel in git.FilesAt(gitRef, dir).Where(r => r.EndsWith(".xti", StringComparison.OrdinalIgnoreCase)
-                                                                 || r.Equals(Rel(tsproj), StringComparison.OrdinalIgnoreCase)))
-        {
-            var xml = git.Show(gitRef, Path.Combine(dir, rel));
-            if (xml is not null) links.AddRange(Extract(xml, rel));
-        }
-        return links;
-    }
+    public static IReadOnlyList<IoLink> Load(string tsproj, string? gitRef) => Sort(IoTree.Load(tsproj, gitRef).Links.Select(ToIoLink));
 
     /// <summary>The .tsproj files a user meant: a .tsproj, the system projects of a .sln, or all .tsproj below a folder.</summary>
     public static IReadOnlyList<string> FindProjects(string? pathOrFolder)

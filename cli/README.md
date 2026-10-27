@@ -34,7 +34,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |
 | `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run]` | Build in dependency order with one XAE shell; workspace libraries are saved + installed before their users | XAE (`--dry-run`: files) |
 | `ws release <library> [--bump major\|minor\|patch\|<ver>] [--update-dependents] [--include-pinned] [--no-save]` | Bump the library version, save + install it, set the new version in the projects that use it | XAE (`--no-save`: files) |
-| `io links [tsproj\|sln\|folder] [--at <ref>] [--csv <file>] [--full]` | IO links (variable ↔ channel) of TwinCAT projects, from the `.tsproj` and all `.xti` files; working copy or any git commit | files + git |
+| `io links [tsproj\|sln\|folder] [--at <ref>] [--csv <file>] [--full] [--yaml]` | IO links (variable ↔ channel) of TwinCAT projects, from the `.tsproj` and the `.xti` files it references; working copy or any git commit. `--yaml` shows them as a hardware tree (device › box › terminal › channel) as YAML | files + git |
 | `io diff [path] --from <ref> [--to <ref>] [--csv <file>] [--fail-on-change]` | Compare IO links between two versions: added, removed, moved (other channel), changed (size / offsets). `--fail-on-change` exits with 18 for CI checks | files + git |
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |

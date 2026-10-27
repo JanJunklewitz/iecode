@@ -16,7 +16,7 @@ Open source, built to support other IEC 61131-3 platforms (CODESYS, Siemens) lat
 - **VS Code extension:** VS Code Marketplace / Open VSX ("IECode"), or the `.vsix` from [GitHub Releases](https://github.com/JanJunklewitz/iecode/releases).
 - **CLI (Windows):** `irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex`,
   or the `IECode.Cli` NuGet package from the GitHub Packages feed (also usable as a TwinCAT Package Manager source),
-  or **IECode: Install CLI** in VS Code.
+  or **IECode: Set up this PC** in VS Code (installs the CLI and checks TwinCAT).
 
 ## Requirements
 

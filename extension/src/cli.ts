@@ -3,22 +3,49 @@
 // iecode-st encode <file.TcPOU> <view.st>             -> splice view back into the object file
 // iecode-st diff <a.TcPOU> <b.TcPOU>                  -> unified diff of the ST views
 // iecode-st diff --rev <ref> [--to <ref>] <file>      -> ST diff against a git commit (default: working copy)
-// iecode-st links <x.tsproj> [--csv]                  -> IO links of a TwinCAT project
+// iecode-st difftool <viewer> <a> <b>                 -> open the ST views in a graphical diff tool (git difftool cmd)
+// iecode-st links <x.tsproj> [--csv|--yaml]           -> IO links of a TwinCAT project (--yaml: as hardware tree)
 // iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv] -> IO link changes since a commit
 // iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv] -> ADS interface from source (.plcproj) or build output (.tmc)
 // iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv] -> ADS interface changes in the source since a commit
-import { readFileSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { spawnSync } from 'child_process';
+import * as os from 'os';
 import * as path from 'path';
 import { decode, encode } from './model';
 import { isEncrypted } from './core/projects';
 import { unifiedDiff } from './core/textdiff';
 import { repoRoot, show } from './core/git';
 import { changesToCsv, diffLinks, linksToCsv, shortPath } from './core/iolinks';
-import { linksAt } from './core/iohistory';
+import { linksAt, projectAt } from './core/iohistory';
+import { buildTree, treeToYaml } from './core/iotree';
 import { loadPlcProject } from './core/projects';
 import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
 const toView = (xml: string) => (isEncrypted(xml) ? '(* encrypted object *)\n' : decode(xml.replace(/^﻿/, '')));
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO)$/i;
+
+/** Writes the ST views of both files to a temp folder and runs the viewer on them; other files are passed as they are. */
+function difftool(viewer: string, a: string, b: string): number {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'iecode-difftool-'));
+  try {
+    const side = (file: string, sub: string) => {
+      if (!EXT_RE.test(file)) return file;
+      const out = path.join(dir, sub, path.basename(file) + '.st');
+      mkdirSync(path.dirname(out), { recursive: true });
+      writeFileSync(out, toView(readFileSync(file, 'utf8')), 'utf8');
+      return out;
+    };
+    // a .cmd / .bat viewer needs a shell on Windows (spawn fails with EINVAL otherwise)
+    const shell = /\.(cmd|bat)$/i.test(viewer);
+    const q = (s: string) => (shell ? `"${s}"` : s);
+    const r = spawnSync(q(viewer), [q(side(a, 'a')), q(side(b, 'b'))], { stdio: 'inherit', shell });
+    if (r.error) throw r.error;
+    return r.status ?? 1;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function opt(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -61,9 +88,19 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(d);
     return d ? 1 : 0;                      // like diff(1): 1 = differences
   }
+  if (cmd === 'difftool' && args.length === 3) return difftool(args[0], args[1], args[2]);
   if (cmd === 'links' && args[0]) {
-    const csv = args.includes('--csv');
-    const links = await linksAt(path.resolve(args.filter(a => a !== '--csv')[0]), undefined);
+    const csv = args.includes('--csv'), yaml = args.includes('--yaml');
+    if (csv && yaml) return usage();       // both would go to stdout
+    const file = path.resolve(args.filter(a => a !== '--csv' && a !== '--yaml')[0]);
+    if (yaml) {
+      const s = await projectAt(file, undefined);
+      s.warnings.forEach(w => process.stderr.write(`warning: ${w}\n`));
+      // same header as `iecode io links --yaml`
+      process.stdout.write(treeToYaml(buildTree(s.links, s.boxes), `# IO links of ${path.basename(file)} (working copy): ${s.links.length} link(s)`));
+      return 0;
+    }
+    const links = await linksAt(file, undefined);
     if (csv) process.stdout.write(linksToCsv(links));
     else for (const l of links) process.stdout.write(`${l.variable}  <->  ${l.io}\n`);
     return 0;
@@ -107,7 +144,8 @@ function usage(): number {
     'usage: iecode-st decode <file>',
     '       iecode-st encode <file> <view.st>',
     '       iecode-st diff <a> <b> | diff --rev <ref> [--to <ref>] <file>',
-    '       iecode-st links <x.tsproj> [--csv]',
+    '       iecode-st difftool <viewer> <a> <b>',
+    '       iecode-st links <x.tsproj> [--csv|--yaml]',
     '       iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv]',
     '       iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv]',
     '       iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv]',

@@ -27,13 +27,24 @@ internal static class IoCommands
         var at = new Option<string?>("--at") { Description = "Git commit / branch / tag to read (default: working copy)" };
         var csv = new Option<string?>("--csv") { Description = "Also write the list to a CSV file" };
         var full = FullOption();
-        var cmd = new Command("links", "List the IO links of TwinCAT projects") { path, at, csv, full };
+        var yaml = new Option<bool>("--yaml") { Description = "Show the links as a hardware tree (device › box › terminal › channel) as YAML" };
+        var cmd = new Command("links", "List the IO links of TwinCAT projects") { path, at, csv, full, yaml };
         Action(cmd, ctx =>
         {
             var result = new List<object>();
             var all = new List<IoLink>();
             foreach (var tsproj in IoLinks.FindProjects(ctx.Get(path)))
             {
+                if (ctx.Get(yaml))
+                {
+                    var snapshot = IoTree.Load(tsproj, ctx.Get(at));
+                    foreach (var w in snapshot.Warnings) ctx.Log.Warn(w);
+                    all.AddRange(snapshot.Links.Select(IoLinks.ToIoLink));
+                    var text = IoTree.ToYaml(snapshot, $"# IO links of {Path.GetFileName(tsproj)} ({ctx.Get(at) ?? "working copy"}): {snapshot.Links.Count} link(s)");
+                    foreach (var line in text.TrimEnd('\n').Split('\n')) ctx.Log.Info(line);
+                    result.Add(new { project = tsproj, yaml = text });
+                    continue;
+                }
                 var links = IoLinks.Load(tsproj, ctx.Get(at));
                 all.AddRange(links);
                 ctx.Log.Info($"{Path.GetFileNameWithoutExtension(tsproj)}  ({links.Count} link(s))");
@@ -43,7 +54,8 @@ internal static class IoCommands
             }
             if (ctx.Get(csv) is { } file)
             {
-                File.WriteAllText(file, IoLinks.ToCsv(all), new UTF8Encoding(true));
+                // --yaml collects the links in tree order; the CSV is sorted either way
+                File.WriteAllText(file, IoLinks.ToCsv(all.OrderBy(l => l.Variable, StringComparer.Ordinal).ThenBy(l => l.Io, StringComparer.Ordinal).ToList()), new UTF8Encoding(true));
                 ctx.Log.Success($"Written {Path.GetFullPath(file)}");
             }
             return Outcome.Ok(result);
