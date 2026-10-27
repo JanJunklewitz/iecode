@@ -1,6 +1,6 @@
 // ADS interface view: the symbols an ADS client (HMI, scripts, other PLCs) can access by name, without a
 // running PLC. Shown from the build output (.tmc) or straight from the source code (working copy or any
-// commit), and compared between any two of them. Reloads by itself when a build writes a new .tmc.
+// commit), and compared between any two of them or with a saved snapshot / another build's .tmc. Reloads by itself when a build writes a new .tmc.
 
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -8,17 +8,18 @@ import { promises as fs } from 'fs';
 import { randomBytes } from 'crypto';
 import { WorkspaceState } from '../state';
 import { PlcProject } from '../core/projects';
-import { AdsInterface, adsChangesToCsv, diffInterfaces, findTmc, fromBuild, fromSourceAt, symbolsToCsv, toSnapshot } from '../core/adsinterface';
+import { AdsInterface, adsChangesToCsv, diffInterfaces, findTmc, fromBuild, fromFile, fromSourceAt, symbolsToCsv, toSnapshot, topLevel } from '../core/adsinterface';
 import { log, repoRoot } from '../core/git';
 
 type Msg =
   | { type: 'ready' }
-  | { type: 'project'; plc: string }
+  | { type: 'project' | 'pick'; plc: string }
   | { type: 'load' | 'export' | 'snapshot'; plc: string; show: string; compare: string; members: boolean };
 
 const BUILD = 'build';
 const NONE = '';
 const SRC = 'src:';                // 'src:' working copy, 'src:<ref>' at a commit
+const FILE = 'file:';              // 'file:<path>' snapshot (.json) or .tmc picked by the user
 
 let panel: vscode.WebviewPanel | undefined;
 
@@ -55,8 +56,10 @@ export function showAdsInterface(ctx: vscode.ExtensionContext, state: WorkspaceS
     };
   };
 
-  const load = (plc: PlcProject, ref: string, members: boolean): Promise<AdsInterface> =>
-    ref === BUILD ? fromBuild(plc, members) : fromSourceAt(plc, ref.slice(SRC.length) || undefined, members);
+  const load = (plc: PlcProject, ref: string, members: boolean): Promise<AdsInterface & { members?: boolean }> =>
+    ref === BUILD ? fromBuild(plc, members)
+      : ref.startsWith(FILE) ? fromFile(ref.slice(FILE.length), members)
+        : fromSourceAt(plc, ref.slice(SRC.length) || undefined, members);
 
   const compute = async (m: { plc: string; show: string; compare: string; members: boolean }) => {
     const plc = find(m.plc);
@@ -65,7 +68,11 @@ export function showAdsInterface(ctx: vscode.ExtensionContext, state: WorkspaceS
     if (m.compare === NONE) return { mode: 'list' as const, plc, shown, ...info };
     // "compare A with B": changes from B (older / reference) to A (shown)
     const other = await load(plc, m.compare, m.members);
-    return { mode: 'diff' as const, plc, shown, changes: diffInterfaces(other, shown), before: other.symbols.length, after: shown.symbols.length, ...info, stale: shown.stale || other.stale };
+    // a snapshot saved without members: compare the top-level symbols only
+    const flat = m.members && other.members === false;
+    const now = flat ? { ...shown, symbols: topLevel(shown.symbols) } : shown;
+    const note = flat ? 'The snapshot has no members: top-level symbols only (save it with members to compare them).' : undefined;
+    return { mode: 'diff' as const, plc, shown, changes: diffInterfaces(other, now), before: other.symbols.length, after: now.symbols.length, ...info, stale: shown.stale || other.stale, note };
   };
 
   const save = async (plc: PlcProject, name: string, content: string, filter: string) => {
@@ -84,6 +91,13 @@ export function showAdsInterface(ctx: vscode.ExtensionContext, state: WorkspaceS
         if (first) post({ type: 'versions', plc: first.plc.file, ...(await versions(first.plc)) });
       } else if (m.type === 'project') {
         post({ type: 'versions', plc: m.plc, ...(await versions(find(m.plc))) });
+      } else if (m.type === 'pick') {
+        const picked = await vscode.window.showOpenDialog({
+          defaultUri: vscode.Uri.file(find(m.plc).dir), canSelectMany: false, openLabel: 'Compare',
+          filters: { 'ADS interface snapshot or build output': ['json', 'tmc'] },
+        });
+        const file = picked?.[0]?.fsPath;
+        post({ type: 'picked', ...(file ? { ref: FILE + file, label: `File: ${path.basename(file)}` } : {}) });
       } else if (m.type === 'load') {
         const r = await compute(m);
         post({ type: 'result', ...r, plc: undefined, shown: undefined, symbols: r.shown.symbols });
@@ -144,7 +158,8 @@ const vscode = acquireVsCodeApi();
 const $ = id => document.getElementById(id);
 const e = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const size = b => b === undefined || b === null ? '' : b % 8 === 0 ? (b / 8) + ' B' : b + ' bit';
-let R = null, plcDir = '';
+let R = null, plcDir = '', cmpWas = '';
+const PICK = '<option value="pick">Snapshot or .tmc file…</option>';
 function req(type) { const m = { type, plc: $('plc').value, show: $('show').value, compare: $('cmp').value, members: $('mem').checked }; if (m.plc) vscode.postMessage(m); }
 function render() {
   if (!R) return;
@@ -161,7 +176,7 @@ function render() {
   } else {
     const rows = R.changes.filter(c => hit(c.name, c.before, c.after));
     const n = k => R.changes.filter(c => c.kind === k).length;
-    $('sum').innerHTML = stale + R.before + ' → ' + R.after + ' symbol(s) · ' + n('added') + ' added · ' + n('removed') + ' removed · ' + n('changed') + ' changed';
+    $('sum').innerHTML = stale + R.before + ' → ' + R.after + ' symbol(s) · ' + n('added') + ' added · ' + n('removed') + ' removed · ' + n('changed') + ' changed' + (R.note ? ' <span class="warn">· ' + e(R.note) + '</span>' : '');
     $('out').innerHTML = rows.length ? '<table><tr><th></th><th>Name</th><th>Before</th><th>Now</th></tr>' + rows.map(c =>
       '<tr><td class="k ' + c.kind + '">' + c.kind + '</td><td class="n">' + e(c.name) + '</td><td>' + e(c.before) + '</td><td>' + e(c.kind === 'changed' ? c.details : c.after) + '</td></tr>').join('') + '</table>'
       : '<div class="empty">' + (R.changes.length ? 'No change matches the filter.' : 'No differences in the ADS interface.') + '</div>';
@@ -177,8 +192,8 @@ window.addEventListener('message', ev => {
   if (m.type === 'select') { $('plc').value = m.plc; vscode.postMessage({ type: 'project', plc: m.plc }); }
   if (m.type === 'versions') {
     const opts = m.versions.map(v => '<option value="' + e(v.ref) + '">' + e(v.label) + '</option>').join('');
-    $('show').innerHTML = opts; $('cmp').innerHTML = '<option value="">(nothing)</option>' + opts;
-    $('show').value = m.built ? 'build' : 'src:'; $('cmp').value = '';
+    $('show').innerHTML = opts; $('cmp').innerHTML = '<option value="">(nothing)</option>' + opts + PICK;
+    $('show').value = m.built ? 'build' : 'src:'; $('cmp').value = cmpWas = '';
     plcDir = m.plc.replace(/[\\\\/][^\\\\/]*$/, '');
     req('load');
   }
@@ -186,11 +201,18 @@ window.addEventListener('message', ev => {
     const o = $('show').querySelector('option[value="build"]'); if (o && /not built/.test(o.textContent)) vscode.postMessage({ type: 'project', plc: $('plc').value });
     else if ($('show').value === 'build' || $('cmp').value === 'build') req('load');
   }
+  if (m.type === 'picked') {
+    if (m.ref) {
+      if (![...$('cmp').options].some(o => o.value === m.ref)) $('cmp').querySelector('option[value="pick"]').insertAdjacentHTML('beforebegin', '<option value="' + e(m.ref) + '">' + e(m.label) + '</option>');
+      $('cmp').value = cmpWas = m.ref; req('load');
+    } else $('cmp').value = cmpWas;
+  }
   if (m.type === 'result') { R = m; render(); }
   if (m.type === 'error') { R = null; $('sum').textContent = ''; $('out').innerHTML = '<div class="err">' + e(m.message) + '</div>'; }
 });
 $('plc').onchange = () => vscode.postMessage({ type: 'project', plc: $('plc').value });
-$('show').onchange = $('cmp').onchange = $('mem').onchange = () => req('load');
+$('show').onchange = $('mem').onchange = () => req('load');
+$('cmp').onchange = () => { if ($('cmp').value === 'pick') vscode.postMessage({ type: 'pick', plc: $('plc').value }); else { cmpWas = $('cmp').value; req('load'); } };
 $('q').oninput = render;
 $('csv').onclick = () => req('export');
 $('snap').onclick = () => req('snapshot');

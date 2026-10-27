@@ -9,6 +9,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 - **IO-Link Explorer** (view title, clicking a master, or right-click a system project): the same structure as a collapsible tree on the left, with filter (port, device, variable) and keyboard navigation, and the details of the selected master, port or process data entry on the right: device data and IDs, linked share per port, the process data table with its links, and the save actions.
 - **Save as Independent Project File** (right-click or inline on a master) moves the master box into its own `.xti` next to its parent file, as TwinCAT XAE does: the parent keeps `<Box File=…>` with the port info, the new file gets the box with the images and data types it uses. **Save All Devices as Independent Project Files** (view title, or right-click a project) does this for every master still stored inline. Links stay where they are; an existing target file is never overwritten.
 
+### ADS interface
+- **ADS Interface**: compare with a saved JSON snapshot or another build's `.tmc` (e.g. of the released version): **Snapshot or .tmc file…** at the end of the "compared with" list, like `iecode ads diff --against`.
+
 ## 0.1.1 (pre-release)
 
 ### ADS interface
