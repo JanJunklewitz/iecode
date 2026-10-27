@@ -54,7 +54,8 @@ internal static class IoCommands
             }
             if (ctx.Get(csv) is { } file)
             {
-                File.WriteAllText(file, IoLinks.ToCsv(all), new UTF8Encoding(true));
+                // --yaml collects the links in tree order; the CSV is sorted either way
+                File.WriteAllText(file, IoLinks.ToCsv(all.OrderBy(l => l.Variable, StringComparer.Ordinal).ThenBy(l => l.Io, StringComparer.Ordinal).ToList()), new UTF8Encoding(true));
                 ctx.Log.Success($"Written {Path.GetFullPath(file)}");
             }
             return Outcome.Ok(result);

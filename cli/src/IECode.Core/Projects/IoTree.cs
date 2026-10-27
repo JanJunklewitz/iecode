@@ -85,7 +85,7 @@ public static partial class IoTree
     [GeneratedRegex("\\sRestoreInfo=\"[^\"]*\"")]
     private static partial Regex RestoreInfoAttr();
 
-    private static string? NameOf(XElement? e) => e?.Element("Name")?.Value;
+    private static string? NameOf(XElement? e) => e?.Element("Name")?.Value.Trim();   // trimmed like the extension
 
     /// <summary>TwinCAT writes characters that are invalid in file names as %_XX.</summary>
     private static string FromFileName(string file) =>

@@ -23,6 +23,8 @@ const WORKING = '';               // ref value for the working copy
 export const YAML_SCHEME = 'iecode-io';
 
 let panel: vscode.WebviewPanel | undefined;
+/** Tells VS Code to re-read an open YAML document (its URI is the same for every compare of that version). */
+const yamlChanged = new vscode.EventEmitter<vscode.Uri>();
 
 /** iecode-io:/<project> IO links (<label>).yaml?tsproj=…&ref=… shows the links of one version as YAML. */
 const yamlUri = (tsproj: string, ref: string, label: string) => vscode.Uri.from({
@@ -32,6 +34,8 @@ const yamlUri = (tsproj: string, ref: string, label: string) => vscode.Uri.from(
 
 async function openYamlDiff(tsproj: string, left: string, right: string, leftLabel: string, rightLabel: string) {
   const name = path.basename(tsproj, '.tsproj');
+  yamlChanged.fire(yamlUri(tsproj, left, leftLabel));
+  yamlChanged.fire(yamlUri(tsproj, right, rightLabel));
   if (left === right) {
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(yamlUri(tsproj, right, rightLabel)), { preview: false });
     return;
@@ -40,6 +44,10 @@ async function openYamlDiff(tsproj: string, left: string, right: string, leftLab
     `${name} IO links: ${leftLabel} ↔ ${rightLabel}`, { preview: false });
 }
 
+// fsPath has a lower-case drive letter, git rev-parse an upper-case one
+const samePath = (a: string, b: string) =>
+  process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
+
 /** The .tsproj a file belongs to: itself, or the nearest .tsproj in a folder above it (for an .xti). */
 export async function owningProject(file: string): Promise<string | undefined> {
   if (/\.tsproj$/i.test(file)) return file;
@@ -47,13 +55,14 @@ export async function owningProject(file: string): Promise<string | undefined> {
   for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
     const found = (await fs.readdir(dir).catch(() => [] as string[])).filter(f => /\.tsproj$/i.test(f)).sort();
     if (found.length) return path.join(dir, found[0]);
-    if (dir === stop || path.dirname(dir) === dir) return undefined;
+    if ((stop && samePath(dir, stop)) || path.dirname(dir) === dir) return undefined;
   }
 }
 
 /** YAML documents and the "Compare IO Links with HEAD" command of the explorer / editor / Source Control menus. */
 export function registerIoYaml(ctx: vscode.ExtensionContext) {
-  ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(YAML_SCHEME, {
+  ctx.subscriptions.push(yamlChanged, vscode.workspace.registerTextDocumentContentProvider(YAML_SCHEME, {
+    onDidChange: yamlChanged.event,
     async provideTextDocumentContent(uri) {
       const q = new URLSearchParams(uri.query);
       const tsproj = q.get('tsproj') ?? '', ref = q.get('ref') ?? '';

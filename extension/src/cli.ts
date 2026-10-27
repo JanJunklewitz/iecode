@@ -36,7 +36,10 @@ function difftool(viewer: string, a: string, b: string): number {
       writeFileSync(out, toView(readFileSync(file, 'utf8')), 'utf8');
       return out;
     };
-    const r = spawnSync(viewer, [side(a, 'a'), side(b, 'b')], { stdio: 'inherit' });
+    // a .cmd / .bat viewer needs a shell on Windows (spawn fails with EINVAL otherwise)
+    const shell = /\.(cmd|bat)$/i.test(viewer);
+    const q = (s: string) => (shell ? `"${s}"` : s);
+    const r = spawnSync(q(viewer), [q(side(a, 'a')), q(side(b, 'b'))], { stdio: 'inherit', shell });
     if (r.error) throw r.error;
     return r.status ?? 1;
   } finally {
@@ -88,11 +91,13 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'difftool' && args.length === 3) return difftool(args[0], args[1], args[2]);
   if (cmd === 'links' && args[0]) {
     const csv = args.includes('--csv'), yaml = args.includes('--yaml');
+    if (csv && yaml) return usage();       // both would go to stdout
     const file = path.resolve(args.filter(a => a !== '--csv' && a !== '--yaml')[0]);
     if (yaml) {
       const s = await projectAt(file, undefined);
       s.warnings.forEach(w => process.stderr.write(`warning: ${w}\n`));
-      process.stdout.write(treeToYaml(buildTree(s.links, s.boxes)));
+      // same header as `iecode io links --yaml`
+      process.stdout.write(treeToYaml(buildTree(s.links, s.boxes), `# IO links of ${path.basename(file)} (working copy): ${s.links.length} link(s)`));
       return 0;
     }
     const links = await linksAt(file, undefined);
