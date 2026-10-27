@@ -14,6 +14,7 @@ import * as compare from './commands/compare';
 import * as setup from './commands/setup';
 import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
 import { showAdsInterface } from './views/adsInterface';
+import { registerIoLinkView } from './views/ioLinkTree';
 import { isEncrypted } from './core/projects';
 import { registerVisuEditor } from './views/visuEditor';
 
@@ -108,6 +109,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   compare.register(ctx);
   setup.register(ctx);
   registerIoYaml(ctx);
+  registerIoLinkView(ctx, state);
   registerVisuEditor(ctx);
   // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {

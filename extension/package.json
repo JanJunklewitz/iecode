@@ -307,6 +307,36 @@
         "title": "ADS Interface…",
         "category": "IECode",
         "icon": "$(symbol-variable)"
+      },
+      {
+        "command": "iecode.ioLinkRefresh",
+        "title": "Refresh IO-Link",
+        "category": "IECode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "iecode.ioLinkSaveIndependent",
+        "title": "Save as Independent Project File",
+        "category": "IECode",
+        "icon": "$(save-as)"
+      },
+      {
+        "command": "iecode.ioLinkSaveAllIndependent",
+        "title": "Save All Devices as Independent Project Files",
+        "category": "IECode",
+        "icon": "$(save-all)"
+      },
+      {
+        "command": "iecode.ioLinkReveal",
+        "title": "Reveal in Project File",
+        "category": "IECode",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "iecode.ioLinkExplorer",
+        "title": "Open IO-Link Explorer",
+        "category": "IECode",
+        "icon": "$(preview)"
       }
     ],
     "menus": {
@@ -426,6 +456,21 @@
           "command": "iecode.setupGitDiff",
           "when": "view == iecode.projects",
           "group": "2_settings@5"
+        },
+        {
+          "command": "iecode.ioLinkExplorer",
+          "when": "view == iecode.ioLink",
+          "group": "navigation@0"
+        },
+        {
+          "command": "iecode.ioLinkSaveAllIndependent",
+          "when": "view == iecode.ioLink",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iecode.ioLinkRefresh",
+          "when": "view == iecode.ioLink",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -538,6 +583,36 @@
           "command": "iecode.adsInterface",
           "when": "view == iecode.projects && viewItem =~ /^unit\\./",
           "group": "0_build@8"
+        },
+        {
+          "command": "iecode.ioLinkSaveIndependent",
+          "when": "view == iecode.ioLink && viewItem == iolink.master",
+          "group": "inline"
+        },
+        {
+          "command": "iecode.ioLinkSaveIndependent",
+          "when": "view == iecode.ioLink && viewItem == iolink.master",
+          "group": "1_save@1"
+        },
+        {
+          "command": "iecode.ioLinkReveal",
+          "when": "view == iecode.ioLink && viewItem =~ /^iolink\\.master/",
+          "group": "2_open@1"
+        },
+        {
+          "command": "iecode.ioLinkSaveAllIndependent",
+          "when": "view == iecode.ioLink && viewItem == iolink.project",
+          "group": "1_save@1"
+        },
+        {
+          "command": "iecode.ioLinkExplorer",
+          "when": "view == iecode.ioLink && viewItem =~ /^iolink\\.master/",
+          "group": "2_open@0"
+        },
+        {
+          "command": "iecode.ioLinkExplorer",
+          "when": "view == iecode.projects && viewItem == system",
+          "group": "0_build@8"
         }
       ],
       "commandPalette": [
@@ -603,6 +678,14 @@
         },
         {
           "command": "iecode.scmCompareWithCommit",
+          "when": "false"
+        },
+        {
+          "command": "iecode.ioLinkSaveIndependent",
+          "when": "false"
+        },
+        {
+          "command": "iecode.ioLinkReveal",
           "when": "false"
         }
       ],
@@ -758,6 +841,13 @@
           "name": "Projects",
           "icon": "resources/iecode.svg",
           "contextualTitle": "IECode"
+        },
+        {
+          "id": "iecode.ioLink",
+          "name": "IO-Link",
+          "icon": "resources/iecode.svg",
+          "contextualTitle": "IECode",
+          "when": "iecode.hasProjects"
         }
       ]
     },
