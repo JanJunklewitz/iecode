@@ -41,7 +41,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | Setting | Default | |
 |---|---|---|
 | `iecode.openAsST` | `true` | Open TwinCAT object files as Structured Text instead of XML |
-| `iecode.cliPath` | `""` | Path to `iecode`; empty: from PATH. Install with **IECode: Install CLI** |
+| `iecode.cliPath` | `""` | Path to `iecode`; empty: from PATH. Install with **IECode: Set up this PC** (installs and checks TwinCAT) or **IECode: Install CLI** |
 | `iecode.tcVersion` | `auto` | TwinCAT version for build / activate: `auto`, `4024`, `4026`, `4024.66` |
 | `iecode.platforms` | `[]` | Target platforms to build, e.g. `TwinCAT RT (x64)` |
 | `iecode.targets` | `[]` | AMS NetIds offered when activating |

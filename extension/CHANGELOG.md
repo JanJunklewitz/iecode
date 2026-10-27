@@ -8,6 +8,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 - **Source Control diffs as ST**: clicking a changed `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` in the Source Control view shows both sides as Structured Text instead of XML (follows `iecode.openAsST`).
 - **Show ST in git diff** also sets up `git difftool -t iecode`, which opens the ST views in the configured graphical diff tool (e.g. KDiff3). The git config now points to a copy of the CLI outside the versioned extension folder, so it keeps working after extension updates; run the command again once in clones set up with 0.1.0.
+- **Set up this PCâ€¦** (Projects view menu, also offered once to new users when the CLI is missing): installs the iecode CLI and checks TwinCAT with `iecode doctor` in one step. **Install CLI** now installs in the background instead of a terminal, and a CLI installed while VS Code runs is found without a restart.
 
 ## 0.1.0 (pre-release)
 

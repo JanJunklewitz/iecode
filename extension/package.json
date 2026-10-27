@@ -208,6 +208,11 @@
         "icon": "$(library)"
       },
       {
+        "command": "iecode.setup",
+        "title": "Set up this PC…",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.installCli",
         "title": "Install CLI…",
         "category": "IECode"
@@ -319,6 +324,11 @@
           "command": "iecode.buildAffected",
           "when": "isWindows && view == iecode.projects",
           "group": "1_build@2"
+        },
+        {
+          "command": "iecode.setup",
+          "when": "isWindows && view == iecode.projects",
+          "group": "2_settings@0"
         },
         {
           "command": "iecode.selectProject",
