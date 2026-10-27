@@ -208,6 +208,37 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     } else await reportFailure(res, 'Save as library');
   });
 
+  reg('iecode.libSaveAll', async () => {
+    if (!cliAvailable()) return void vscode.window.showWarningMessage('IECode: saving libraries needs Windows with TwinCAT XAE and the iecode CLI.');
+    const units = state.current.units.filter(u => u.solution);
+    if (!units.length) return void vscode.window.showInformationMessage('IECode: no PLC project with a solution in this workspace.');
+    const scope = await vscode.window.showQuickPick([
+      { label: 'All PLC projects', description: `${units.length}`, librariesOnly: false },
+      { label: 'Library projects only', description: `${units.filter(u => u.plc.isLibrary).length} with Title, Company and Version`, librariesOnly: true },
+    ], { title: 'Save all as library: which projects?' });
+    if (!scope) return;
+    const mode = await vscode.window.showQuickPick([
+      { label: '.library', description: 'with source', compiled: false },
+      { label: '.compiled-library', description: 'without source', compiled: true },
+    ], { title: 'Save as' });
+    if (!mode) return;
+    const install = await vscode.window.showQuickPick(['Save and install', 'Save only'], { title: 'Install into the local library repository?' });
+    if (!install) return;
+    const roots = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath)
+      .filter(r => units.some(u => !path.relative(r, u.solution!.file).startsWith('..')));
+    const outName = vscode.workspace.getConfiguration('iecode').get<string>('libraryOutput', 'dist');
+    let saved = 0;
+    for (const root of roots) {
+      const res = await runCli<{ saved: number; failed: number }>(['lib', 'save-all', root,
+        ...(scope.librariesOnly ? ['--libraries-only'] : []), ...(mode.compiled ? ['--compiled'] : []),
+        ...(install === 'Save and install' ? ['--install'] : []), ...(outName === 'dist' ? [] : ['--dist', outName])],
+        `Saving all as ${mode.label}`);
+      saved += res.data?.saved ?? 0;
+      if (!res.ok) return reportFailure(res, `Save all as library (${saved} saved)`);
+    }
+    vscode.window.showInformationMessage(`IECode: saved ${saved} project(s) as ${mode.label}.`);
+  });
+
   reg('iecode.encrypt', async (n?: Node) => {
     const u = unitFrom(n);
     if (!need(u)) return;

@@ -90,4 +90,28 @@ public sealed class WorkspaceTests : IDisposable
         Assert.EndsWith("Tc3_MotorLib_1.2.0.library", missing.Single(m => m.Name == "Tc3_MotorLib").Source);
         Assert.Null(missing.First(m => m.Name == "Tc3_Logging").Source);
     }
+
+    [Fact]
+    public void LibraryExportPlansAllProjectsInBuildOrder()
+    {
+        var plan = LibraryExport.Plan(Load(), compiled: false, outDir: null, librariesOnly: false);
+        Assert.Equal(["Machine/MotorLib", "Machine/PLC1"], plan.Select(p => p.Unit.Id));
+        Assert.Equal([_ws["Machine/dist/Tc3_MotorLib_1.3.0.library"], _ws["Machine/dist/PLC1.library"]], plan.Select(p => p.File));
+
+        var libs = LibraryExport.Plan(Load(), compiled: true, outDir: _ws["Out"], librariesOnly: true);
+        Assert.Equal(_ws["Out/Tc3_MotorLib_1.3.0.compiled-library"], Assert.Single(libs).File);
+    }
+
+    [Fact]
+    public void LibraryExportKeepsFileNamesUniqueInOneFolder()
+    {
+        foreach (var f in Directory.GetFiles(_ws["Machine"], "*", SearchOption.AllDirectories))
+        {
+            var to = _ws["Copy/Machine/" + Path.GetRelativePath(_ws["Machine"], f).Replace('\\', '/')];
+            Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+            File.Copy(f, to);
+        }
+        var files = LibraryExport.Plan(Load(), compiled: false, outDir: _ws["Out"], librariesOnly: false).Select(p => Path.GetFileName(p.File));
+        Assert.Equal(["Machine_PLC1.library", "Machine_Tc3_MotorLib_1.3.0.library", "PLC1.library", "Tc3_MotorLib_1.3.0.library"], files.Order());
+    }
 }

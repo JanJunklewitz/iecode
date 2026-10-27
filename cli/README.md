@@ -22,6 +22,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `encrypt [sln] --compiled-library [--plc <name>] [--out <dir>]` | Ship a library without source | XAE |
 | `user status` | Active TwinCAT user (after `--userdb` / `--user` / `--credential`) | XAE |
 | `lib save [sln] [--compiled] [--install] [--plc <name>] [-o <dir>]` | Save a PLC project as `<Title>_<Version>.library` / `.compiled-library` | XAE |
+| `lib save-all [folder] [--compiled] [--install] [--libraries-only] [-o <dir>\|--dist <name>] [--fail-fast] [--dry-run]` | Save every PLC project of a workspace as `.library` / `.compiled-library` with one XAE shell, in build order (with `--install` libraries are installed before their users). Default output: `dist` next to each solution. Continues after a failure and exits with an error at the end unless `--fail-fast` | XAE (`--dry-run`: files) |
 | `lib list [paths…] [--csv <file>]` | Library references and the version that applies (pinned or `*`) | files |
 | `lib info [paths…]` | Title, company and version of library projects | files |
 | `lib update [paths…] --lib <name> (--to <ver>\|--to latest\|--from-project <plcproj>) [--vendor] [--dry-run]` | Set a library version in every `.plcproj` below the paths. Edits text in place: formatting, BOM and CRLF stay | files |

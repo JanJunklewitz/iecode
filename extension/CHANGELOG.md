@@ -4,6 +4,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 
 ## Unreleased
 
+### Libraries
+- **Save All PLC Projects as Libraries…** (Projects view title menu, Command Palette): saves every PLC project in the workspace, or only the library projects, as `.library` or `.compiled-library` with one TwinCAT XAE session, optionally installing them. Uses `iecode lib save-all` (new); files go to `iecode.libraryOutput` next to each solution.
+
 ### Visualizations
 - **Visualization editor** for `.TcVIS` (opens by default; **Reopen Editor With…** for XML): draws the elements with their positions, colors, fonts and texts, and the visualizations shown in frames and tab controls when they are in the workspace (click a tab to switch). Drag to move, drag the corner handle to resize, arrow keys nudge. The property panel edits position, texts, text / tooltip variables, plain colors, frame parameters and the variables of input actions; **All properties** lists every stored value.
 - **Simplified** view: one card per element with its text, variable, shown visualization, parameters and input actions, editable inline and filterable. **Wireframe** draws outlines, kinds and variables only; **Variables** shows `‹rSpeed›` instead of `%.2f`.
