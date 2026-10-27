@@ -72,7 +72,8 @@ export function register(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
     async provideTextDocumentContent(uri) {
       const src = vscode.Uri.parse(new URLSearchParams(uri.query).get('src') ?? '');
-      const xml = Buffer.from(await vscode.workspace.fs.readFile(src)).toString('utf8');
+      // not workspace.fs: some schemes only have a content provider (e.g. git-graph: from the Git Graph extension)
+      const xml = (await vscode.workspace.openTextDocument(src)).getText();
       // git: returns empty content for a side where the file doesn't exist (added / deleted)
       return xml.trim() === '' ? '' : toView(xml);
     },

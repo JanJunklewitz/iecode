@@ -43,6 +43,9 @@
   },
   "activationEvents": [
     "onFileSystem:iecode",
+    "onFileSystem:iecode-rev",
+    "onFileSystem:iecode-src",
+    "onFileSystem:iecode-io",
     "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
