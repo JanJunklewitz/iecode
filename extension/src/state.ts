@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { discover, WorkspaceModel } from './core/workspace';
+import { discover, systemProjects, WorkspaceModel } from './core/workspace';
 
 /** Holds the workspace model and reloads it (debounced) when project or object files change. */
 export class WorkspaceState implements vscode.Disposable {
@@ -26,7 +26,7 @@ export class WorkspaceState implements vscode.Disposable {
         const roots = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
         this.model = await discover(roots);
         for (const e of this.model.errors) console.warn(`IECode: ${e.file}: ${e.message}`);
-        vscode.commands.executeCommand('setContext', 'iecode.hasProjects', this.model.units.length > 0);
+        vscode.commands.executeCommand('setContext', 'iecode.hasProjects', this.model.units.length > 0 || systemProjects(this.model).length > 0);
         this.changed.fire(this.model);
         return this.model;
       } finally {

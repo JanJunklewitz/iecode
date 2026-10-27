@@ -11,7 +11,7 @@ import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
 import * as compare from './commands/compare';
 import * as setup from './commands/setup';
-import { registerIoYaml, showIoLinks } from './views/ioLinks';
+import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
 import { showAdsInterface } from './views/adsInterface';
 import { isEncrypted } from './core/projects';
 
@@ -94,9 +94,14 @@ export function activate(ctx: vscode.ExtensionContext) {
   compare.register(ctx);
   setup.register(ctx);
   registerIoYaml(ctx);
-  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', (n?: Node) => {
-    const sln = n && 'unit' in n ? n.unit.solution : undefined;
-    const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => n && 'unit' in n && x.file === n.unit.plc.file))?.file;
+  // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
+  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {
+    const uri = n instanceof vscode.Uri ? n : n && 'resourceUri' in n ? n.resourceUri : undefined;
+    if (uri) return showIoLinks(ctx, state, uri.scheme === 'file' ? await owningProject(uri.fsPath) : undefined);
+    const node = n as Node | undefined;
+    if (node?.kind === 'system') return showIoLinks(ctx, state, node.project.file);
+    const sln = node && 'unit' in node ? node.unit.solution : undefined;
+    const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => node && 'unit' in node && x.file === node.unit.plc.file))?.file;
     showIoLinks(ctx, state, tsproj);
   }));
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsInterface', (n?: Node) =>

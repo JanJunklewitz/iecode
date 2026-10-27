@@ -41,7 +41,7 @@ async function openYamlDiff(tsproj: string, left: string, right: string, leftLab
 }
 
 /** The .tsproj a file belongs to: itself, or the nearest .tsproj in a folder above it (for an .xti). */
-async function owningProject(file: string): Promise<string | undefined> {
+export async function owningProject(file: string): Promise<string | undefined> {
   if (/\.tsproj$/i.test(file)) return file;
   const stop = await repoRoot(path.dirname(file));
   for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
@@ -68,23 +68,35 @@ export function registerIoYaml(ctx: vscode.ExtensionContext) {
     },
   }));
 
-  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinksDiff', async (arg?: unknown) => {
-    // explorer / editor title: a Uri; Source Control: a resource state with resourceUri
-    const uri = arg instanceof vscode.Uri ? arg : (arg as { resourceUri?: vscode.Uri } | undefined)?.resourceUri
-      ?? vscode.window.activeTextEditor?.document.uri;
-    if (!uri || uri.scheme !== 'file' || !/\.(tsproj|xti)$/i.test(uri.fsPath)) {
-      vscode.window.showInformationMessage('IECode: select a .tsproj or .xti file to compare its IO links.');
-      return;
-    }
-    try {
-      const tsproj = await owningProject(uri.fsPath);
-      if (!tsproj) { vscode.window.showWarningMessage('IECode: no TwinCAT system project (.tsproj) found for this file.'); return; }
-      const root = await repoRoot(tsproj);
-      await openYamlDiff(tsproj, root ? 'HEAD' : WORKING, WORKING, root ? 'HEAD' : 'working copy', 'working copy');
-    } catch (e) {
-      vscode.window.showErrorMessage(`IECode: ${(e as Error).message}`);
-    }
-  }));
+  // explorer / editor title: a Uri; Source Control: a resource state with resourceUri
+  const yamlCommand = (id: string, fn: (tsproj: string, root: string | undefined) => Promise<unknown>) =>
+    ctx.subscriptions.push(vscode.commands.registerCommand(id, async (arg?: unknown) => {
+      const uri = arg instanceof vscode.Uri ? arg : (arg as { resourceUri?: vscode.Uri } | undefined)?.resourceUri
+        ?? vscode.window.activeTextEditor?.document.uri;
+      if (!uri || uri.scheme !== 'file' || !/\.(tsproj|xti)$/i.test(uri.fsPath)) {
+        vscode.window.showInformationMessage('IECode: select a .tsproj or .xti file to compare its IO links.');
+        return;
+      }
+      try {
+        const tsproj = await owningProject(uri.fsPath);
+        if (!tsproj) { vscode.window.showWarningMessage('IECode: no TwinCAT system project (.tsproj) found for this file.'); return; }
+        await fn(tsproj, await repoRoot(tsproj));
+      } catch (e) {
+        vscode.window.showErrorMessage(`IECode: ${(e as Error).message}`);
+      }
+    }));
+
+  yamlCommand('iecode.ioLinksDiff', (tsproj, root) =>
+    openYamlDiff(tsproj, root ? 'HEAD' : WORKING, WORKING, root ? 'HEAD' : 'working copy', 'working copy'));
+
+  yamlCommand('iecode.ioLinksDiffCommit', async (tsproj, root) => {
+    if (!root) { vscode.window.showWarningMessage('IECode: this project is not in a git repository.'); return; }
+    const commits = await log(root, [path.dirname(tsproj)], 100);
+    const pick = await vscode.window.showQuickPick(
+      commits.map(c => ({ label: `$(git-commit) ${c.short}  ${c.subject}`, description: `${c.date} · ${c.author}`, c })),
+      { title: `Compare the IO links of ${path.basename(tsproj)} with …`, matchOnDescription: true });
+    if (pick) await openYamlDiff(tsproj, pick.c.hash, WORKING, pick.c.short, 'working copy');
+  });
 }
 
 /** Project name, with its workspace-relative path when another project has the same name (e.g. a copy of the solution). */

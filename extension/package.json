@@ -279,6 +279,19 @@
         "icon": "$(plug)"
       },
       {
+        "command": "iecode.ioLinksDiffCommit",
+        "title": "Compare IO Links with Commit… (YAML)",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.scmCompareWithHead",
+        "title": "Compare with HEAD (ST / IO links)"
+      },
+      {
+        "command": "iecode.scmCompareWithCommit",
+        "title": "Compare with Commit… (ST / IO links)"
+      },
+      {
         "command": "iecode.adsInterface",
         "title": "ADS Interface…",
         "category": "IECode",
@@ -304,6 +317,11 @@
         },
         {
           "command": "iecode.ioLinksDiff",
+          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "group": "3_compare"
+        },
+        {
+          "command": "iecode.ioLinksDiffCommit",
           "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
           "group": "3_compare"
         }
@@ -482,6 +500,16 @@
           "group": "0_build@7"
         },
         {
+          "command": "iecode.ioLinks",
+          "when": "view == iecode.projects && viewItem == system",
+          "group": "0_build@7"
+        },
+        {
+          "command": "iecode.ioLinks",
+          "when": "view == iecode.projects && viewItem == system",
+          "group": "inline"
+        },
+        {
           "command": "iecode.adsInterface",
           "when": "view == iecode.projects && viewItem =~ /^unit\\./",
           "group": "0_build@8"
@@ -543,6 +571,14 @@
         {
           "command": "iecode.selectForCompare",
           "when": "false"
+        },
+        {
+          "command": "iecode.scmCompareWithHead",
+          "when": "false"
+        },
+        {
+          "command": "iecode.scmCompareWithCommit",
+          "when": "false"
         }
       ],
       "iecode.compare": [
@@ -576,13 +612,32 @@
           "command": "iecode.ioLinksDiff",
           "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.ioLinksDiffCommit",
+          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "group": "3_compare"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "iecode.ioLinksDiff",
+          "submenu": "iecode.scmCompare",
           "when": "scmProvider == git",
           "group": "navigation"
+        }
+      ],
+      "iecode.scmCompare": [
+        {
+          "command": "iecode.scmCompareWithHead",
+          "group": "1@1"
+        },
+        {
+          "command": "iecode.scmCompareWithCommit",
+          "group": "1@2"
+        },
+        {
+          "command": "iecode.ioLinks",
+          "group": "2@1"
         }
       ]
     },
@@ -687,6 +742,10 @@
       {
         "id": "iecode.compare",
         "label": "IECode: Compare as ST"
+      },
+      {
+        "id": "iecode.scmCompare",
+        "label": "IECode: Compare"
       }
     ]
   },

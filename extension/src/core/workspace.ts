@@ -2,7 +2,7 @@
 // grouped into libraries / applications / standalone, with library dependencies between them.
 
 import * as path from 'path';
-import { findFiles, loadPlcProject, loadSolution, LibraryRef, PlcProject, Solution } from './projects';
+import { findFiles, loadPlcProject, loadSolution, LibraryRef, PlcProject, Solution, TwinCatProject } from './projects';
 
 export type Group = 'library' | 'application' | 'standalone';
 
@@ -75,6 +75,14 @@ const uniqueId = (units: Unit[], name: string) => {
   while (units.some(u => u.id === id)) id = `${name}#${i++}`;
   return id;
 };
+
+/** TwinCAT system projects of the solutions without a PLC project of their own (e.g. a *.Sys repo
+ *  with only IO, motion and safety), which therefore have no unit. */
+export function systemProjects(model: Pick<WorkspaceModel, 'solutions'>): { solution: Solution; project: TwinCatProject }[] {
+  return model.solutions.flatMap(solution => solution.projects
+    .filter(p => !p.plcOnly && p.plcs.length === 0)
+    .map(project => ({ solution, project })));
+}
 
 /** Library projects in the workspace, by library title (case-insensitive). */
 export function librariesByTitle(units: Unit[]): Map<string, Unit> {

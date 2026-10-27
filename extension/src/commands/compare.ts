@@ -27,10 +27,14 @@ function toView(xml: string): string {
   return decode(xml.replace(/^﻿/, ''));
 }
 
-/** The file a command was invoked on: explorer / editor / tree node / active editor. */
+/** The Uri of an explorer / editor argument or a Source Control resource state. */
+const argUri = (arg: unknown) => (arg instanceof vscode.Uri ? arg : (arg as { resourceUri?: vscode.Uri } | undefined)?.resourceUri);
+
+/** The file a command was invoked on: explorer / editor / Source Control / tree node / active editor. */
 function targetFile(arg: unknown): string | undefined {
   const fromUri = (u: vscode.Uri) => (EXT_RE.test(u.path) ? u.fsPath : undefined);
-  if (arg instanceof vscode.Uri) return fromUri(arg);
+  const uri = argUri(arg);
+  if (uri) return fromUri(uri);
   const n = arg as { kind?: string; obj?: { file: string } } | undefined;
   if (n?.obj?.file) return n.obj.file;
   const u = vscode.window.activeTextEditor?.document.uri;
@@ -138,6 +142,17 @@ export function register(ctx: vscode.ExtensionContext) {
     const newer = await pickCommit(root, file, `Compare ${older.short} with: newer version`);
     if (newer) await vscode.commands.executeCommand('vscode.diff', revUri(file, older.hash, older.short), revUri(file, newer.hash, newer.short), title(file, older.short, newer.short));
   });
+
+  // Source Control submenu: VS Code can't filter that menu by file type (it is cached per resource state),
+  // so its entries pick the compare that fits the clicked file: ST for objects, IO links as YAML for .tsproj / .xti.
+  const scm = (id: string, st: string, io: string) => reg(id, async arg => {
+    const uri = argUri(arg) ?? vscode.window.activeTextEditor?.document.uri;
+    if (uri && EXT_RE.test(uri.path)) return vscode.commands.executeCommand(st, uri);
+    if (uri && /\.(tsproj|xti)$/i.test(uri.path)) return vscode.commands.executeCommand(io, uri);
+    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO) and system project files (.tsproj, .xti).');
+  });
+  scm('iecode.scmCompareWithHead', 'iecode.compareWithHead', 'iecode.ioLinksDiff');
+  scm('iecode.scmCompareWithCommit', 'iecode.compareWithCommit', 'iecode.ioLinksDiffCommit');
 
   let selected: string | undefined;
   reg('iecode.selectForCompare', async arg => {
