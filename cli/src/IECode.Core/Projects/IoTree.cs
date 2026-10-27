@@ -36,8 +36,11 @@ public static partial class IoTree
             .Where(f => f.EndsWith(".xti", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".tsproj", StringComparison.OrdinalIgnoreCase))
             .Select(f => Path.GetFullPath(Path.Combine(dir, f))).ToList();
         var contents = git.ShowMany(gitRef, files);
-        var byName = contents.ToDictionary(e => Path.GetFullPath(e.Key), e => e.Value, StringComparer.OrdinalIgnoreCase);
-        return Read(tsproj, f => byName.GetValueOrDefault(Path.GetFullPath(f)));
+        // exact name first; a case-only duplicate in the tree (e.g. committed on Linux) must not throw
+        var exact = contents.ToDictionary(e => Path.GetFullPath(e.Key), e => e.Value, StringComparer.Ordinal);
+        var anyCase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, text) in exact) anyCase[name] = text;
+        return Read(tsproj, f => exact.GetValueOrDefault(Path.GetFullPath(f)) ?? anyCase.GetValueOrDefault(Path.GetFullPath(f)));
     }
 
     /// <summary>All links of a system project (sorted, without duplicates); <paramref name="read"/> returns null for a missing file.</summary>

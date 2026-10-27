@@ -14,8 +14,10 @@ export async function projectAt(tsproj: string, ref: string | undefined): Promis
   // one git call for every candidate file below the project; TwinCAT's file names may differ in case
   const dir = path.dirname(path.resolve(tsproj));
   const files = await filesAt(root, ref, dir, ['.tsproj', '.xti']);
-  const byName = new Map([...(await showMany(root, ref, files))].map(([f, text]) => [path.resolve(f).toLowerCase(), text]));
-  return readProject(tsproj, async f => byName.get(path.resolve(f).toLowerCase()));
+  // exact name first, as in the CLI (a case-only duplicate in the tree, e.g. committed on Linux)
+  const exact = new Map([...(await showMany(root, ref, files))].map(([f, text]) => [path.resolve(f), text]));
+  const anyCase = new Map([...exact].map(([f, text]) => [f.toLowerCase(), text]));
+  return readProject(tsproj, async f => exact.get(path.resolve(f)) ?? anyCase.get(path.resolve(f).toLowerCase()));
 }
 
 /** Links of a .tsproj; `ref` undefined = working copy. Files are reported relative to the project folder. */

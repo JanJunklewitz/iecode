@@ -7,6 +7,8 @@ public sealed class Git
 {
     public string Root { get; }
 
+    private static readonly System.Text.Encoding Utf8 = new System.Text.UTF8Encoding(false);
+
     private Git(string root) => Root = root;
 
     /// <summary>Opens the repository that contains a folder.</summary>
@@ -43,7 +45,8 @@ public sealed class Git
     {
         var result = new Dictionary<string, string>();
         if (paths.Count == 0) return result;
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = Root, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        // paths go to git as UTF-8 without BOM, not in the console code page
+        var psi = new ProcessStartInfo("git") { WorkingDirectory = Root, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardInputEncoding = Utf8 };
         psi.ArgumentList.Add("cat-file");
         psi.ArgumentList.Add("--batch");
         using var p = Process.Start(psi)!;
@@ -79,16 +82,17 @@ public sealed class Git
     public IReadOnlyList<string> FilesAt(string gitRef, string folder)
     {
         var baseRel = Rel(folder);
-        var output = Run(Root, "ls-tree", "-r", "--name-only", gitRef, "--", baseRel is "" or "." ? "." : baseRel)
+        // -z: no C-quoting of non-ASCII paths (core.quotePath)
+        var output = Run(Root, "ls-tree", "-r", "-z", "--name-only", gitRef, "--", baseRel is "" or "." ? "." : baseRel)
             ?? throw new IECodeException(ExitCodes.NotFound, $"Git ref '{gitRef}' not found.");
-        return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        return output.Split('\0', StringSplitOptions.RemoveEmptyEntries)
             .Select(f => baseRel is "" or "." ? f : Path.GetRelativePath(baseRel, f).Replace('\\', '/'))
             .ToList();
     }
 
     private static string? Run(string cwd, params string[] args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardOutputEncoding = Utf8 };
         foreach (var a in args) psi.ArgumentList.Add(a);
         try
         {

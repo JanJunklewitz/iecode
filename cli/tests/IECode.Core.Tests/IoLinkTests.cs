@@ -65,11 +65,12 @@ public sealed class IoLinkTests : IDisposable
     public void LoadsFromGitHistoryAndWorkingCopyIncludingReferencedXti()
     {
         var dir = _ws["Repo/Sys"];
-        const string device = """<Io><Device File="Device 2.xti"/></Io>""";
+        // a non-ASCII file name: git quotes it unless asked for -z
+        const string device = """<Io><Device File="Gerät 2.xti"/></Io>""";
         Directory.CreateDirectory(Path.Combine(dir, "_Config", "IO"));
         File.WriteAllText(Path.Combine(dir, "Sys.tsproj"), Tsproj(Old, $"<Project>{device}</Project>"));
         // owner names in an .xti are relative to its item ("" = the device itself)
-        File.WriteAllText(Path.Combine(dir, "_Config", "IO", "Device 2.xti"), """
+        File.WriteAllText(Path.Combine(dir, "_Config", "IO", "Gerät 2.xti"), """
             <TcSmItem><Device><Name>Device 2</Name></Device><Mappings><OwnerA Name="TIPC^PLC1^PLC1 Instance"><OwnerB Name="">
               <Link VarA="PlcTask Inputs^MAIN.bExtra" VarB="Channel 5^Input"/></OwnerB></OwnerA></Mappings></TcSmItem>
             """);
@@ -81,7 +82,7 @@ public sealed class IoLinkTests : IDisposable
         var work = IoLinks.Load(Path.Combine(dir, "Sys.tsproj"), null);
         Assert.Equal(5, head.Count);                                           // 4 in .tsproj + 1 in the referenced .xti
         Assert.Equal(5, work.Count);
-        var extra = head.Single(l => l.File == "_Config/IO/Device 2.xti");
+        var extra = head.Single(l => l.File == "_Config/IO/Gerät 2.xti");
         Assert.Equal("TIID^Device 2^Channel 5^Input", extra.Io);
         Assert.DoesNotContain(head, l => l.Variable.EndsWith("MAIN.bOld"));    // unreferenced leftover
         Assert.Equal(4, IoLinks.Diff(head, work).Count);

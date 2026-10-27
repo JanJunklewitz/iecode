@@ -69,9 +69,10 @@ export async function log(root: string, paths: string[], max = 50): Promise<Comm
 /** Files below a folder at a commit, filtered by extension. Paths are returned below `dir` as given by the caller. */
 export async function filesAt(root: string, ref: string, dir: string, exts: string[]): Promise<string[]> {
   const base = rel(root, dir);
-  const out = await git(root, ['ls-tree', '-r', '--name-only', ref, '--', base || '.']);
+  // -z: no C-quoting of non-ASCII paths (core.quotePath)
+  const out = await git(root, ['ls-tree', '-r', '-z', '--name-only', ref, '--', base || '.']);
   const want = exts.map(e => e.toLowerCase());
-  return out.split('\n')
+  return out.split('\0')
     .filter(f => want.includes(path.extname(f).toLowerCase()))
     .map(f => path.join(dir, ...path.posix.relative(base, f).split('/')));
 }

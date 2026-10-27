@@ -138,3 +138,22 @@ test('tree comparison with git HEAD: added, removed and moved values', async () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('history reads referenced files with non-ASCII names (git quotes them without -z)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'iecode-iotree-'));
+  try {
+    writeFileSync(join(dir, 'Sys.tsproj'), '<TcSmProject><Project><Io><Device File="Gerät 1.xti"/></Io></Project></TcSmProject>');
+    mkdirSync(join(dir, '_Config', 'IO'), { recursive: true });
+    writeFileSync(join(dir, '_Config', 'IO', 'Gerät 1.xti'), `<TcSmItem><Device><Name>Gerät 1</Name></Device><Mappings><OwnerA Name="TIPC^PLC1^PLC1 Instance"><OwnerB Name="">
+  <Link VarA="PlcTask Inputs^MAIN.bTür" VarB="Channel 1^Input"/></OwnerB></OwnerA></Mappings></TcSmItem>`);
+    const git = (...a: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.quotePath=true', ...a], { cwd: dir, stdio: 'pipe' });
+    git('init', '-q');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    const head = await projectAt(join(dir, 'Sys.tsproj'), 'HEAD');
+    assert.deepEqual(head.warnings, []);
+    assert.deepEqual((await linksAt(join(dir, 'Sys.tsproj'), 'HEAD')).map(l => l.io), ['TIID^Gerät 1^Channel 1^Input']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
