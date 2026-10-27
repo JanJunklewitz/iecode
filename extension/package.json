@@ -49,21 +49,6 @@
     "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
-    "configurationDefaults": {
-      "editor.tokenColorCustomizations": {
-        "textMateRules": [
-          {
-            "scope": [
-              "comment.line.double-slash.twincat-st",
-              "comment.block.twincat-st"
-            ],
-            "settings": {
-              "foreground": "#6A9955"
-            }
-          }
-        ]
-      }
-    },
     "languages": [
       {
         "id": "twincat-st",
@@ -655,6 +640,11 @@
           "type": "boolean",
           "default": true,
           "description": "Open TwinCAT object files as Structured Text instead of XML."
+        },
+        "iecode.greenComments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show comments in Structured Text green, also in themes that render comments grey. Not applied in high contrast themes; turn off to use the theme's (or your own token) colors."
         },
         "iecode.cliPath": {
           "type": "string",
