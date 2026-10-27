@@ -44,3 +44,7 @@ Forgot it? Amend the last commit with `git commit --amend -s --no-edit`, or sign
 ## Reporting security issues
 
 Don't open a public issue. See [SECURITY.md](SECURITY.md).
+
+## Code of conduct
+
+This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). By participating you agree to uphold it.

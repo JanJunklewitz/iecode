@@ -1,0 +1,68 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please don't attach real customer or employer PLC projects, AMS NetIds,
+        hostnames, credentials or tokens. A small synthetic example is best.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - VS Code extension
+        - iecode CLI
+        - Installer (install.ps1 / tcpkg)
+        - GitHub Action (setup-iecode)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: IECode version
+      description: Extension version from the Extensions view, or `iecode --version`.
+      placeholder: 0.1.2
+    validations:
+      required: true
+  - type: input
+    id: twincat
+    attributes:
+      label: TwinCAT version
+      description: Required for CLI issues.
+      placeholder: 3.1.4024.66
+  - type: input
+    id: environment
+    attributes:
+      label: OS and VS Code version
+      placeholder: Windows 11, VS Code 1.105
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Run ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error messages and screenshots if helpful.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of the "IECode" output channel or the CLI. Remove anything sensitive.
+      render: text
