@@ -52,18 +52,40 @@ async function pickCommit(root: string, file: string, title: string) {
 
 /**
  * Copy of the compiled CLI outside the versioned extension folder, so the git config written by
- * setupGitDiff stays valid after an extension update. Refreshed on every activation once it exists.
+ * setupGitDiff stays valid after an extension update. Refreshed on activation once it exists, but only
+ * when the extension version changed: a running `git diff` in a terminal reads it while other windows start.
  */
 const cliDir = (ctx: vscode.ExtensionContext) => path.join(ctx.globalStorageUri.fsPath, 'cli');
-async function installCli(ctx: vscode.ExtensionContext): Promise<string> {
+async function installCli(ctx: vscode.ExtensionContext, force: boolean): Promise<string> {
   const dir = cliDir(ctx);
+  const cli = path.join(dir, 'cli.js').split(path.sep).join('/');
+  const version = String(ctx.extension.packageJSON.version);
+  const stamp = path.join(dir, '.version');
+  if (!force && await fs.readFile(stamp, 'utf8').catch(() => '') === version) return cli;
+  // copy next to it first, so the old copy is missing only for the moment of the swap
+  const tmp = `${dir}.${process.pid}`;
+  await fs.rm(tmp, { recursive: true, force: true });
+  await fs.cp(path.join(ctx.extensionPath, 'out', 'src'), tmp, { recursive: true });
+  await fs.writeFile(path.join(tmp, '.version'), version, 'utf8');
   await fs.rm(dir, { recursive: true, force: true });
-  await fs.cp(path.join(ctx.extensionPath, 'out', 'src'), dir, { recursive: true });
-  return path.join(dir, 'cli.js').split(path.sep).join('/');
+  await fs.rename(tmp, dir);
+  return cli;
+}
+
+/** A program on PATH (with PATHEXT on Windows), or undefined. */
+async function onPath(name: string): Promise<string | undefined> {
+  const exts = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : [''];
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      const file = path.join(dir, name + ext);
+      if (await fs.stat(file).then(s => s.isFile(), () => false)) return file;
+    }
+  }
+  return undefined;
 }
 
 export function register(ctx: vscode.ExtensionContext) {
-  void fs.access(cliDir(ctx)).then(() => installCli(ctx), () => undefined).catch(() => undefined);
+  void fs.access(cliDir(ctx)).then(() => installCli(ctx, false), () => undefined).catch(() => undefined);
   ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(REV_SCHEME, {
     async provideTextDocumentContent(uri) {
       const ref = new URLSearchParams(uri.query).get('ref') ?? 'HEAD';
@@ -76,8 +98,11 @@ export function register(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
     async provideTextDocumentContent(uri) {
       const src = vscode.Uri.parse(new URLSearchParams(uri.query).get('src') ?? '');
-      // not workspace.fs: some schemes only have a content provider (e.g. git-graph: from the Git Graph extension)
-      const xml = (await vscode.workspace.openTextDocument(src)).getText();
+      // workspace.fs reads the bytes as UTF-8 regardless of files.encoding; some schemes only have a
+      // content provider (e.g. git-graph: from the Git Graph extension), so fall back to a text document
+      const xml = await vscode.workspace.fs.readFile(src).then(
+        bytes => Buffer.from(bytes).toString('utf8'),
+        async () => (await vscode.workspace.openTextDocument(src)).getText());
       // git: returns empty content for a side where the file doesn't exist (added / deleted)
       return xml.trim() === '' ? '' : toView(xml);
     },
@@ -180,11 +205,16 @@ export function register(ctx: vscode.ExtensionContext) {
       `Show TwinCAT objects as ST in git diff / git log -p / git difftool for ${path.basename(root)}? This adds lines to .gitattributes and sets diff.iecode.textconv and difftool.iecode.cmd in the repository's git config.`,
       { modal: true }, 'Set up');
     if (ok !== 'Set up') return;
-    const cli = await installCli(ctx);
+    const cli = await installCli(ctx, true);
     await config(root, 'diff.iecode.textconv', `node "${cli}" decode`);
-    // git difftool ignores textconv: wrap the configured graphical diff tool (e.g. KDiff3) instead
-    const tool = await getConfig(root, 'diff.guitool') ?? await getConfig(root, 'diff.tool');
-    const viewer = tool && tool !== 'iecode' ? await getConfig(root, `difftool.${tool}.path`) : undefined;
+    // git difftool ignores textconv: wrap the configured graphical diff tool (e.g. KDiff3) instead,
+    // found the way git difftool finds it (merge tool settings as fallback, then the tool on PATH)
+    let tool: string | undefined;
+    for (const key of ['diff.guitool', 'merge.guitool', 'diff.tool', 'merge.tool']) {
+      const t = await getConfig(root, key);
+      if (t && t !== 'iecode') { tool = t; break; }
+    }
+    const viewer = tool && (await getConfig(root, `difftool.${tool}.path`) ?? await getConfig(root, `mergetool.${tool}.path`) ?? await onPath(tool));
     if (viewer) await config(root, 'difftool.iecode.cmd', `node "${cli}" difftool "${viewer.replace(/\\/g, '/')}" "$LOCAL" "$REMOTE"`);
     const attrs = path.join(root, '.gitattributes');
     const existing = await fs.readFile(attrs, 'utf8').catch(() => '');
@@ -195,7 +225,7 @@ export function register(ctx: vscode.ExtensionContext) {
       await fs.writeFile(attrs, existing + sep + block, 'utf8');
     }
     vscode.window.showInformationMessage('IECode: git diff now shows ST for TwinCAT objects'
-      + (viewer ? `; git difftool -t iecode shows ST in ${tool}` : '; no difftool with a path is configured, so git difftool still shows XML')
+      + (viewer ? `; git difftool -t iecode shows ST in ${tool}` : '; no graphical diff tool is configured or on PATH, so git difftool still shows XML')
       + '. The git config is local to this clone; commit .gitattributes to share the pattern.');
   });
 }
