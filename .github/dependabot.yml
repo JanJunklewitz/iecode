@@ -7,6 +7,15 @@ updates:
   - package-ecosystem: npm
     directory: /extension
     schedule: { interval: weekly }
+    ignore:
+      # must not be newer than engines.vscode (vsce refuses to package)
+      - dependency-name: "@types/vscode"
+      # Node types follow the Node of the oldest supported VS Code (1.90: Node 20)
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 (native compiler) needs tsconfig changes; moved deliberately
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: nuget
     directory: /cli
     schedule: { interval: weekly }
