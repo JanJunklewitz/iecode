@@ -33,6 +33,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
 | **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; Source Control diffs open as ST; **Show ST in git diff** (textconv, `git difftool -t iecode`) | ✔ | ✔ |
 | **IO Links**: the PLC / NC / IO links of a TwinCAT project as a hardware tree (device › box › terminal › channel), compared between working copy, HEAD and any commit with added / removed / moved values marked; **Open as YAML** or right-click a `.tsproj` / `.xti` (Explorer, editor tab, Source Control) for a YAML diff in the diff editor; CSV export | ✔ | ✔ |
+| **IO-Link** view: the IO-Link masters of the system projects (EL6224, EP6224 …) with their ports, the device on each port (vendor, device, IDs, IODD) and its process data with the linked variables, also as the **IO-Link Explorer** (tree on the left, details of the selection on the right); **Save as Independent Project File** for one master or **Save All Devices as Independent Project Files**, laid out the way TwinCAT stores them | ✔ | ✔ |
 | **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
@@ -101,6 +102,7 @@ Or open this folder in VS Code and press F5.
 - Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace; symbols from installed libraries (e.g. Tc2_Standard) are not known yet.
 - Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
 - The ADS interface from source code has no sizes and ignores conditional pragmas. It doesn't know types from libraries: library GVLs (e.g. each library's `Global_Version`) and members inherited from library function blocks are missing. The build output (`.tmc`) is exact.
+- **Save as Independent Project File** edits the `.xti` files directly: close the project in TwinCAT XAE first, or XAE overwrites the change when it saves. Only EtherCAT boxes stored in an `.xti` (not inline in the `.tsproj`) can be moved.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
 
 ## License and trademarks

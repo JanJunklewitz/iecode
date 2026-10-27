@@ -30,18 +30,18 @@ export interface HwLink {
   file: string;
 }
 
-interface LinkFile { path: string; category?: string; itemPath?: string; doc: Doc }
-interface Doc { src: string; root: XNode | undefined }
+export interface LinkFile { path: string; category?: string; itemPath?: string; doc: Doc }
+export interface Doc { src: string; root: XNode | undefined }
 
 const CATEGORY_BY_PARENT: Record<string, string> = { Io: 'IO', Safety: 'SPLC', Plc: 'PLC' };
 
-function* walk(n: XNode): Generator<XNode> { for (const c of n.children) { yield c; yield* walk(c); } }
+export function* walk(n: XNode): Generator<XNode> { for (const c of n.children) { yield c; yield* walk(c); } }
 
 const unescapeText = (s: string) =>
   s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
     .replace(/&#(x?)([0-9a-f]+);/gi, (_, x, n) => String.fromCodePoint(parseInt(n, x ? 16 : 10))).replace(/&amp;/g, '&');
-const text = (doc: Doc, n: XNode | undefined) => (n ? unescapeText(doc.src.slice(n.innerStart, n.innerEnd)).trim() : '');
-const hasAncestor = (n: XNode, name: string) => { for (let a = n.parent; a; a = a.parent) if (a.name === name) return true; return false; };
+export const text = (doc: Doc, n: XNode | undefined) => (n ? unescapeText(doc.src.slice(n.innerStart, n.innerEnd)).trim() : '');
+export const hasAncestor = (n: XNode, name: string) => { for (let a = n.parent; a; a = a.parent) if (a.name === name) return true; return false; };
 
 function load(src: string): Doc {
   const root = parseXml(src.replace(/^﻿/, '')).children.find(c => !c.name.startsWith('?'));
@@ -50,7 +50,7 @@ function load(src: string): Doc {
 
 /** TwinCAT writes characters that are invalid in file names as %_XX. */
 const fromFileName = (file: string) => path.basename(file, path.extname(file)).replace(/%_([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-const toFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, c => '%_' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+export const toFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, c => '%_' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
 
 function itemName(doc: Doc, file: string): string {
   const own = doc.root?.children.map(c => child(c, 'Name')).find(n => n);
@@ -109,7 +109,7 @@ async function addFile(file: string, category: string, parentItemPath: string | 
 interface SetContext { dir: string; read: FileReader; visited: Set<string>; files: LinkFile[]; warnings: string[] }
 
 /** The .tsproj and every .xti it references, with the item path its relative owner names start from. */
-async function linkFileSet(tsproj: string, read: FileReader, warnings: string[]): Promise<LinkFile[]> {
+export async function linkFileSet(tsproj: string, read: FileReader, warnings: string[]): Promise<LinkFile[]> {
   const full = path.resolve(tsproj);
   const src = await read(full);
   if (src === undefined) return [];
@@ -196,7 +196,11 @@ export interface IoSnapshot { links: HwLink[]; boxes: string[]; warnings: string
 /** All links of a system project (sorted, without duplicates) and the box catalog of its IO tree. */
 export async function readProject(tsproj: string, read: FileReader): Promise<IoSnapshot> {
   const warnings: string[] = [];
-  const files = await linkFileSet(tsproj, read, warnings);
+  return snapshotOf(tsproj, await linkFileSet(tsproj, read, warnings), warnings);
+}
+
+/** The snapshot of an already loaded file set (see linkFileSet). */
+export function snapshotOf(tsproj: string, files: LinkFile[], warnings: string[]): IoSnapshot {
   const dir = path.dirname(path.resolve(tsproj));
   const unique = new Map<string, HwLink>();
   for (const f of files) {
