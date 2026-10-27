@@ -105,7 +105,7 @@ Or open this folder in VS Code and press F5.
 
 ## License and trademarks
 
-Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+MIT License, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 TwinCAT®, Beckhoff® and EtherCAT® are registered trademarks of Beckhoff Automation GmbH. This extension is not
 affiliated with, endorsed by, or supported by Beckhoff Automation GmbH.

@@ -6,7 +6,7 @@ Thanks for helping! Issues and pull requests are welcome.
 
 This project uses the [Developer Certificate of Origin 1.1](https://developercertificate.org/) instead of a CLA.
 By signing off a commit you certify that you wrote the change, or otherwise have the right to submit it
-under the project's license (Apache-2.0).
+under the project's license (MIT).
 
 Sign off every commit with `-s`:
 
@@ -25,7 +25,7 @@ Forgot it? Amend the last commit with `git commit --amend -s --no-edit`, or sign
 
 ## What not to contribute
 
-- Code you may not license under Apache-2.0, including code copied from GPL projects or from your
+- Code you may not license under MIT, including code copied from GPL projects or from your
   employer without permission.
 - Beckhoff or Microsoft binaries, interop assemblies or type libraries (for example `TCatSysManagerLib`,
   `EnvDTE`, `TwinCAT.Ads` DLLs). `iecode` uses the copies installed on the user's machine.
