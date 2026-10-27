@@ -108,6 +108,25 @@ internal static class Runner
         return body(shell);
     }
 
+    /// <summary>
+    /// Starts one XAE shell for several solutions (version, user database, login applied); the caller opens
+    /// the solutions and disposes the shell. Starting XAE once saves ~5–10 s per solution.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static XaeShell StartShell(Context ctx)
+    {
+        var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
+        var shell = XaeShell.Start(new ShellOptions(ctx.Version, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
+        try
+        {
+            if (!ctx.Version.IsAuto) shell.SelectVersion(ctx.Version);
+            if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
+            if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
+            return shell;
+        }
+        catch { shell.Dispose(); throw; }
+    }
+
     [SupportedOSPlatform("windows")]
     internal static (string, string)? Credentials(Context ctx)
     {

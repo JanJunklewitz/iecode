@@ -192,6 +192,12 @@
         "icon": "$(package)"
       },
       {
+        "command": "iecode.libSaveAll",
+        "title": "Save All PLC Projects as Libraries…",
+        "category": "IECode",
+        "icon": "$(package)"
+      },
+      {
         "command": "iecode.encrypt",
         "title": "Encrypt / Protect…",
         "category": "IECode",
@@ -422,6 +428,11 @@
           "command": "iecode.buildWorkspace",
           "when": "isWindows && view == iecode.projects",
           "group": "1_build@1"
+        },
+        {
+          "command": "iecode.libSaveAll",
+          "when": "isWindows && view == iecode.projects",
+          "group": "1_build@9"
         },
         {
           "command": "iecode.buildAffected",
@@ -655,6 +666,10 @@
         },
         {
           "command": "iecode.libSave",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.libSaveAll",
           "when": "isWindows"
         },
         {

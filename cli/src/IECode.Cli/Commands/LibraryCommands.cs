@@ -7,13 +7,13 @@ using static IECode.Cli.Runner;
 
 namespace IECode.Cli.Commands;
 
-/// <summary><c>iecode lib …</c>: save, list, info, update, outdated, installed, install, uninstall.</summary>
+/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, install, uninstall.</summary>
 internal static class LibraryCommands
 {
     public static Command Create()
     {
-        var lib = new Command("lib", "PLC libraries: save, list, update references, install");
-        foreach (var c in new[] { Save(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), Uninstall() })
+        var lib = new Command("lib", "PLC libraries: save (one or all), list, update references, install");
+        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), Uninstall() })
             lib.Subcommands.Add(c);
         return lib;
     }
@@ -69,6 +69,72 @@ internal static class LibraryCommands
         var written = WithShell(ctx, solution, shell => shell.SaveAsLibrary(plcName ?? meta?.Name, file, install));
         ctx.Log.Success($"{written}{(install ? "  (installed)" : "")}");
         return Outcome.Ok(new { file = written, compiled, installed = install, title = meta?.Title, version = meta?.ProjectVersion });
+    }
+
+    // ------------------------------------------------------------------ save-all
+
+    private static Command SaveAll()
+    {
+        var folder = new Argument<string?>("folder") { Description = "Workspace folder (default: current folder)", Arity = ArgumentArity.ZeroOrOne };
+        var compiled = new Option<bool>("--compiled") { Description = "Save as .compiled-library (no source code)" };
+        var install = new Option<bool>("--install") { Description = "Also install them in the local library repository (in build order, so users see the new versions)" };
+        var librariesOnly = new Option<bool>("--libraries-only") { Description = "Only projects with library properties (Title, Company, Version)" };
+        var outDir = new Option<string?>("--out", "-o") { Description = "One output folder for all files (default: --dist next to each solution)" };
+        var dist = new Option<string>("--dist") { Description = "Folder next to each solution, without --out", DefaultValueFactory = _ => "dist" };
+        var failFast = new Option<bool>("--fail-fast") { Description = "Stop at the first project that fails (default: save the others and report)" };
+        var dryRun = new Option<bool>("--dry-run") { Description = "Only show what would be saved (any OS)" };
+        var cmd = new Command("save-all", "Save every PLC project in the workspace as .library or .compiled-library, with one XAE shell")
+            { folder, compiled, install, librariesOnly, outDir, dist, failFast, dryRun };
+        Action(cmd, ctx =>
+        {
+            var w = Workspace.Load(ctx.Get(folder) ?? ".");
+            foreach (var u in w.Units.Where(u => u.Solution is null))
+                ctx.Log.Warn($"{u.Id} has no .sln; skipped (open it once in XAE to create one).");
+            var plan = LibraryExport.Plan(w, ctx.Get(compiled), ctx.Get(outDir), ctx.Get(librariesOnly), ctx.Get(dist));
+            if (plan.Count == 0) throw new IECodeException(ExitCodes.NotFound, "No PLC project with a solution found.");
+            foreach (var p in plan)
+                ctx.Log.Info($"  {p.Unit.Id,-36} → {Path.GetRelativePath(w.Root, p.File)}{(p.Unit.Plc.IsLibrary ? "" : "   (no library properties)")}");
+            if (ctx.Get(dryRun)) return Outcome.Ok(new { dryRun = true, items = plan.Select(p => new { unit = p.Unit.Id, file = p.File, isLibrary = p.Unit.Plc.IsLibrary }) });
+
+            if (!OperatingSystem.IsWindows())
+                throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode lib save-all' needs Windows with TwinCAT XAE.", "Use --dry-run to see the plan on any OS.");
+
+            var results = new List<object>();
+            var failed = 0;
+            using var shell = StartShell(ctx);
+            string? open = null;
+            var step = 0;
+            foreach (var p in plan)
+            {
+                step++;
+                try
+                {
+                    if (!string.Equals(open, p.Unit.Solution!.Path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        shell.OpenSolution(p.Unit.Solution.Path);
+                        open = p.Unit.Solution.Path;
+                    }
+                    var written = shell.SaveAsLibrary(p.Unit.Plc.Name, p.File, ctx.Get(install));
+                    ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
+                    results.Add(new { unit = p.Unit.Id, file = written, ok = true });
+                }
+                catch (IECodeException e) when (!ctx.Get(failFast))
+                {
+                    failed++;
+                    ctx.Log.Error($"[{step}/{plan.Count}] {p.Unit.Id}: {e.Message}");
+                    results.Add(new { unit = p.Unit.Id, file = p.File, ok = false, error = e.Message });
+                }
+            }
+            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = plan.Count - failed, failed, results };
+            if (failed > 0)
+            {
+                ctx.Log.Warn($"{failed} of {plan.Count} project(s) could not be saved; library projects need Title, Company and Version and must compile.");
+                return new Outcome(ExitCodes.LibraryFailed, data);
+            }
+            ctx.Log.Success($"{plan.Count} project(s) saved");
+            return Outcome.Ok(data);
+        });
+        return cmd;
     }
 
     // ------------------------------------------------------------------ list

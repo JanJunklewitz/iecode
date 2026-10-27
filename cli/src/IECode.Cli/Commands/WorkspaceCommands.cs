@@ -118,12 +118,7 @@ internal static class WorkspaceCommands
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode ws build' needs Windows with TwinCAT XAE.", "Use --dry-run to see the build order on any OS.");
 
             var results = new List<object>();
-            var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
-            // One shell for the whole run: starting XAE once saves ~5–10 s per solution.
-            using var shell = XaeShell.Start(new ShellOptions(ctx.Version, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
-            if (!ctx.Version.IsAuto) shell.SelectVersion(ctx.Version);
-            if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
-            if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
+            using var shell = StartShell(ctx);
             var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var step = 0;
             foreach (var u in order)

@@ -30,7 +30,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Library manager** (Installed / Updates / Consolidate / Browse) on the `.plcproj` files; sources: workspace, TwinCAT library repository, folders | ✔ | ✔ |
 | **Library sources**: referenced `.library` files (repository or library folders, and the libraries they reference) are read without TwinCAT: go to definition / find references / hover / completion into library POUs, DUTs, GVLs and interfaces (also `Tc2_Standard.TON`), read-only ST views, objects and members under each reference in the tree | ✔ | ✔ |
 | **Build / Check / Clean**, compiler messages in Problems on the ST view lines | – | ✔ |
-| **Activate** on local or remote targets, **Save as library** (.library / .compiled-library, install), **Encrypt / protect** with a user DB | – | ✔ |
+| **Activate** on local or remote targets, **Save as library** — one or all PLC projects (.library / .compiled-library, install), **Encrypt / protect** with a user DB | – | ✔ |
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
 | **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; Source Control diffs open as ST; **Show ST in git diff** (textconv, `git difftool -t iecode`) | ✔ | ✔ |
 | **IO Links**: the PLC / NC / IO links of a TwinCAT project as a hardware tree (device › box › terminal › channel), compared between working copy, HEAD and any commit with added / removed / moved values marked; **Open as YAML** or right-click a `.tsproj` / `.xti` (Explorer, editor tab, Source Control) for a YAML diff in the diff editor; CSV export | ✔ | ✔ |
