@@ -157,3 +157,22 @@ test('history reads referenced files with non-ASCII names (git quotes them witho
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('git refs starting with "-" are refused, not passed to git as options', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'iecode-gitref-'));
+  try {
+    const git = (...a: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: dir, stdio: 'pipe' });
+    writeFileSync(join(dir, 'a.txt'), 'a');
+    git('init', '-q');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    const { show, filesAt } = await import('../src/core/git');
+    const out = join(dir, 'pwned.txt');
+    assert.equal(await show(dir, `--output=${out}`, join(dir, 'a.txt')), undefined);
+    await assert.rejects(filesAt(dir, `--output=${out}`, dir, ['.txt']), /Invalid git ref/);
+    await assert.rejects(fs.access(out));
+    assert.equal(await show(dir, 'HEAD', join(dir, 'a.txt')), 'a');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

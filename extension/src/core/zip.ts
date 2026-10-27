@@ -2,6 +2,9 @@
 
 import { inflateRawSync } from 'zlib';
 
+/** Largest entry inflated (bytes); library objects are a few kB to MB. */
+const MAX_ENTRY = 512 * 1024 * 1024;
+
 export interface ZipEntry { name: string; method: number; offset: number; size: number; compressedSize: number }
 
 /** Entries from the central directory, in archive order. */
@@ -31,6 +34,7 @@ export function zipRead(buf: Buffer, e: ZipEntry): Buffer {
   const start = e.offset + 30 + buf.readUInt16LE(e.offset + 26) + buf.readUInt16LE(e.offset + 28);
   const data = buf.subarray(start, start + e.compressedSize);
   if (e.method === 0) return data;
-  if (e.method === 8) return inflateRawSync(data);
+  // capped at the size the directory declares, so a crafted archive can't inflate without bound
+  if (e.method === 8) return inflateRawSync(data, { maxOutputLength: Math.max(1, Math.min(e.size, MAX_ENTRY)) });
   throw new Error(`Unsupported ZIP compression ${e.method} (${e.name})`);
 }

@@ -83,7 +83,7 @@ internal static class WorkspaceCommands
             return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         }
         var top = Run("rev-parse", "--show-toplevel").First();
-        return Run("diff", "--name-only", $"{since}...HEAD")
+        return Run("diff", "--name-only", $"{Git.CheckRef(since)}...HEAD")
             .Concat(Run("status", "--porcelain").Select(l => l.Length > 3 ? l[3..].Trim('"') : l))
             .Select(f => Path.GetFullPath(Path.Combine(top, f)));
     }

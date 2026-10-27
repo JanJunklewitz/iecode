@@ -38,7 +38,7 @@ public sealed class Git
     }
 
     /// <summary>File content at a commit, or null if the file didn't exist there.</summary>
-    public string? Show(string gitRef, string path) => Run(Root, "show", $"{gitRef}:{Rel(path)}");
+    public string? Show(string gitRef, string path) => Run(Root, "show", $"{CheckRef(gitRef)}:{Rel(path)}");
 
     /// <summary>Contents of many files at a commit with one git call; files missing at that commit are left out.</summary>
     public IReadOnlyDictionary<string, string> ShowMany(string gitRef, IReadOnlyList<string> paths)
@@ -83,12 +83,16 @@ public sealed class Git
     {
         var baseRel = Rel(folder);
         // -z: no C-quoting of non-ASCII paths (core.quotePath)
-        var output = Run(Root, "ls-tree", "-r", "-z", "--name-only", gitRef, "--", baseRel is "" or "." ? "." : baseRel)
+        var output = Run(Root, "ls-tree", "-r", "-z", "--name-only", CheckRef(gitRef), "--", baseRel is "" or "." ? "." : baseRel)
             ?? throw new IECodeException(ExitCodes.NotFound, $"Git ref '{gitRef}' not found.");
         return output.Split('\0', StringSplitOptions.RemoveEmptyEntries)
             .Select(f => baseRel is "" or "." ? f : Path.GetRelativePath(baseRel, f).Replace('\\', '/'))
             .ToList();
     }
+
+    /// <summary>A ref as given; refuses one starting with '-', which git would read as an option (e.g. show --output=&lt;file&gt;).</summary>
+    public static string CheckRef(string gitRef) =>
+        gitRef.StartsWith('-') ? throw new IECodeException(ExitCodes.Usage, $"Invalid git ref '{gitRef}'.") : gitRef;
 
     private static string? Run(string cwd, params string[] args)
     {

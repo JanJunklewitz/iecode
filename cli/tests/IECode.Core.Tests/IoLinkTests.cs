@@ -132,6 +132,21 @@ public sealed class IoLinkTests : IDisposable
         Assert.Equal("'a: it''s'", IoTree.YamlScalar("a: it's"));
     }
 
+    [Fact]
+    public void RefusesGitRefsThatLookLikeOptions()
+    {
+        var dir = _ws["Repo"];
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "a");
+        Git("init", "-q"); Git("add", "-A"); Git("-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "one");
+        var git = Core.Git.Open(dir);
+        var output = Path.Combine(dir, "pwned.txt");
+        Assert.Equal(ExitCodes.Usage, Assert.Throws<IECodeException>(() => git.Show($"--output={output}", Path.Combine(dir, "a.txt"))).ExitCode);
+        Assert.Throws<IECodeException>(() => git.FilesAt($"--output={output}", dir));
+        Assert.False(File.Exists(output));
+        Assert.Equal("a", git.Show("HEAD", Path.Combine(dir, "a.txt")));
+    }
+
     private void Git(params string[] args)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = _ws["Repo"], RedirectStandardOutput = true, RedirectStandardError = true };

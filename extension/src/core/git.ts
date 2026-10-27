@@ -25,11 +25,17 @@ function real(p: string): string {
   return dir === p ? p : path.join(real(dir), path.basename(p));
 }
 
+/** A ref as given; refuses one starting with '-', which git would read as an option (e.g. show --output=<file>). */
+function checkRef(ref: string): string {
+  if (ref.startsWith('-')) throw new Error(`Invalid git ref '${ref}'`);
+  return ref;
+}
+
 const rel = (root: string, p: string) => path.relative(real(root), real(p)).split(path.sep).join('/');
 
 /** File content at a commit (undefined if the file didn't exist there). */
 export async function show(root: string, ref: string, file: string): Promise<string | undefined> {
-  try { return await git(root, ['show', `${ref}:${rel(root, file)}`]); } catch { return undefined; }
+  try { return await git(root, ['show', `${checkRef(ref)}:${rel(root, file)}`]); } catch { return undefined; }
 }
 
 /** Contents of many files at a commit with one git call; files missing at that commit are left out. */
@@ -70,7 +76,7 @@ export async function log(root: string, paths: string[], max = 50): Promise<Comm
 export async function filesAt(root: string, ref: string, dir: string, exts: string[]): Promise<string[]> {
   const base = rel(root, dir);
   // -z: no C-quoting of non-ASCII paths (core.quotePath)
-  const out = await git(root, ['ls-tree', '-r', '-z', '--name-only', ref, '--', base || '.']);
+  const out = await git(root, ['ls-tree', '-r', '-z', '--name-only', checkRef(ref), '--', base || '.']);
   const want = exts.map(e => e.toLowerCase());
   return out.split('\0')
     .filter(f => want.includes(path.extname(f).toLowerCase()))

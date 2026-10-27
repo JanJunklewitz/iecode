@@ -5,6 +5,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\IECode.Core\IECode.Core.csproj" />
-    <PackageReference Include="Beckhoff.TwinCAT.Ads" Version="7.0.348" />
+    <PackageReference Include="Beckhoff.TwinCAT.Ads" Version="7.0.389" />
   </ItemGroup>
 </Project>
