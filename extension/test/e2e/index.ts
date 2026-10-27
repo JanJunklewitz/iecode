@@ -79,6 +79,13 @@ export async function run(): Promise<void> {
   const changes = (await import('../../src/core/iolinks')).diffLinks(await linksAt(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj'), 'HEAD'), links);
   assert.equal(changes.length, 0, 'no IO link changes since HEAD');
   await vscode.commands.executeCommand('iecode.ioLinks');
+  // context menu of a .tsproj: IO links of HEAD and the working copy as YAML in the diff editor
+  await vscode.commands.executeCommand('iecode.ioLinksDiff', vscode.Uri.file(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj')));
+  const io = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  assert.ok(io instanceof vscode.TabInputTextDiff && io.modified.scheme === 'iecode-io', 'IO links YAML diff open');
+  const yaml = await vscode.workspace.openTextDocument(io.modified);
+  assert.match(yaml.getText(), /^# IO links of MachineX\.tsproj \(working copy\): 2 link\(s\)\n/, 'YAML of the working copy');
+  assert.equal(yaml.languageId, 'yaml');
 
   // ADS interface from the source code (no build output in the fixture)
   const ads = await import('../../src/core/adsinterface');

@@ -4,7 +4,7 @@
 // iecode-st diff <a.TcPOU> <b.TcPOU>                  -> unified diff of the ST views
 // iecode-st diff --rev <ref> [--to <ref>] <file>      -> ST diff against a git commit (default: working copy)
 // iecode-st difftool <viewer> <a> <b>                 -> open the ST views in a graphical diff tool (git difftool cmd)
-// iecode-st links <x.tsproj> [--csv]                  -> IO links of a TwinCAT project
+// iecode-st links <x.tsproj> [--csv|--yaml]           -> IO links of a TwinCAT project (--yaml: as hardware tree)
 // iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv] -> IO link changes since a commit
 // iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv] -> ADS interface from source (.plcproj) or build output (.tmc)
 // iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv] -> ADS interface changes in the source since a commit
@@ -17,7 +17,8 @@ import { isEncrypted } from './core/projects';
 import { unifiedDiff } from './core/textdiff';
 import { repoRoot, show } from './core/git';
 import { changesToCsv, diffLinks, linksToCsv, shortPath } from './core/iolinks';
-import { linksAt } from './core/iohistory';
+import { linksAt, projectAt } from './core/iohistory';
+import { buildTree, treeToYaml } from './core/iotree';
 import { loadPlcProject } from './core/projects';
 import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
@@ -86,8 +87,15 @@ async function main(argv: string[]): Promise<number> {
   }
   if (cmd === 'difftool' && args.length === 3) return difftool(args[0], args[1], args[2]);
   if (cmd === 'links' && args[0]) {
-    const csv = args.includes('--csv');
-    const links = await linksAt(path.resolve(args.filter(a => a !== '--csv')[0]), undefined);
+    const csv = args.includes('--csv'), yaml = args.includes('--yaml');
+    const file = path.resolve(args.filter(a => a !== '--csv' && a !== '--yaml')[0]);
+    if (yaml) {
+      const s = await projectAt(file, undefined);
+      s.warnings.forEach(w => process.stderr.write(`warning: ${w}\n`));
+      process.stdout.write(treeToYaml(buildTree(s.links, s.boxes)));
+      return 0;
+    }
+    const links = await linksAt(file, undefined);
     if (csv) process.stdout.write(linksToCsv(links));
     else for (const l of links) process.stdout.write(`${l.variable}  <->  ${l.io}\n`);
     return 0;
@@ -132,7 +140,7 @@ function usage(): number {
     '       iecode-st encode <file> <view.st>',
     '       iecode-st diff <a> <b> | diff --rev <ref> [--to <ref>] <file>',
     '       iecode-st difftool <viewer> <a> <b>',
-    '       iecode-st links <x.tsproj> [--csv]',
+    '       iecode-st links <x.tsproj> [--csv|--yaml]',
     '       iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv]',
     '       iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv]',
     '       iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv]',

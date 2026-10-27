@@ -11,7 +11,7 @@ import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
 import * as compare from './commands/compare';
 import * as setup from './commands/setup';
-import { showIoLinks } from './views/ioLinks';
+import { registerIoYaml, showIoLinks } from './views/ioLinks';
 import { showAdsInterface } from './views/adsInterface';
 import { isEncrypted } from './core/projects';
 
@@ -93,6 +93,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   language.register(ctx, state);
   compare.register(ctx);
   setup.register(ctx);
+  registerIoYaml(ctx);
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', (n?: Node) => {
     const sln = n && 'unit' in n ? n.unit.solution : undefined;
     const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => n && 'unit' in n && x.file === n.unit.plc.file))?.file;

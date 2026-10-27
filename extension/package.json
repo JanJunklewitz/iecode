@@ -255,6 +255,12 @@
         "icon": "$(plug)"
       },
       {
+        "command": "iecode.ioLinksDiff",
+        "title": "Compare IO Links with HEAD (YAML)",
+        "category": "IECode",
+        "icon": "$(plug)"
+      },
+      {
         "command": "iecode.adsInterface",
         "title": "ADS Interface…",
         "category": "IECode",
@@ -276,6 +282,11 @@
         {
           "submenu": "iecode.compare",
           "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "3_compare"
+        },
+        {
+          "command": "iecode.ioLinksDiff",
+          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
           "group": "3_compare"
         }
       ],
@@ -542,6 +553,18 @@
         {
           "submenu": "iecode.compare",
           "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"
+        },
+        {
+          "command": "iecode.ioLinksDiff",
+          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "group": "3_compare"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "iecode.ioLinksDiff",
+          "when": "scmProvider == git",
+          "group": "navigation"
         }
       ]
     },
