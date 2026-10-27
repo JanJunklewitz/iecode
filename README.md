@@ -13,10 +13,41 @@ Open source, built to support other IEC 61131-3 platforms (CODESYS, Siemens) lat
 
 ## Install
 
-- **VS Code extension:** VS Code Marketplace / Open VSX ("IECode"), or the `.vsix` from [GitHub Releases](https://github.com/JanJunklewitz/iecode/releases).
-- **CLI (Windows):** `irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex`,
-  or the `IECode.Cli` NuGet package from the GitHub Packages feed (also usable as a TwinCAT Package Manager source),
-  or **IECode: Install CLI** in VS Code.
+### 1. VS Code extension
+
+Search for **IECode** in the Extensions view (VS Code Marketplace / Open VSX) and click **Install**. Versions with
+an odd minor number (0.1.x, 0.3.x …) are pre-releases; if VS Code offers it, pick **Switch to Pre-Release Version** on the extension page.
+
+Or install the `.vsix` from [GitHub Releases](https://github.com/JanJunklewitz/iecode/releases):
+
+```powershell
+code --install-extension iecode-0.1.1.vsix
+```
+
+That's all you need to view, edit and compare TwinCAT files as Structured Text.
+
+### 2. CLI (Windows, for build, activate and libraries)
+
+Easiest: in VS Code run **IECode: Set up this PC** (Command Palette, `Ctrl+Shift+P`). It installs the CLI and checks
+your TwinCAT installation.
+
+Or in PowerShell (per user, no admin rights; checks the SHA256 and adds `iecode` to your PATH):
+
+```powershell
+irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex
+iecode doctor
+```
+
+Other ways:
+
+| Way | Command | When |
+|---|---|---|
+| GitHub CLI | `gh release download -R JanJunklewitz/iecode -p "iecode-*-win-x64.zip"`, unzip, add the folder to PATH | you already use `gh` (also works with your GitHub login) |
+| ZIP | `iecode-<version>-win-x64.zip` from [Releases](https://github.com/JanJunklewitz/iecode/releases), unzip, add the folder to PATH | offline or locked-down PCs |
+| NuGet / TwinCAT Package Manager | `IECode.Cli` from the GitHub Packages feed `https://nuget.pkg.github.com/JanJunklewitz/index.json` | central distribution in a team (the feed needs a GitHub token) |
+| GitHub Actions | `uses: JanJunklewitz/iecode/setup-iecode@v0` | CI on Windows runners |
+
+A specific version: `& ([scriptblock]::Create((irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1))) -Version 0.1.1`.
 
 ## Requirements
 

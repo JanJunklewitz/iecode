@@ -93,8 +93,24 @@ function collect(main: XNode): XmlSection[] {
 
 // ---------------------------------------------------------------- decode
 
+/** Git conflict markers (<<<<<<< / ======= / >>>>>>>) at the start of a line. */
+const CONFLICT_RE = /^(<{7}|={7}|>{7})(?:\s|$)/m;
+
+/** The XML structure itself is in conflict: no ST view possible until it is resolved in the XML. */
+export class ConflictError extends ViewError {}
+
+function parseOrConflict(xml: string): XNode {
+  try {
+    return parseXml(xml);
+  } catch (e) {
+    // markers inside CDATA leave the XML intact (they simply show up in the ST view)
+    if (CONFLICT_RE.test(xml)) throw new ConflictError('Unresolved merge conflict in the XML structure: resolve it in the XML (iecode: Open as XML)');
+    throw e;
+  }
+}
+
 export function decode(xml: string): string {
-  const main = findMain(parseXml(xml));
+  const main = findMain(parseOrConflict(xml));
   const parts: string[] = [];
   for (const s of collect(main)) {
     const lines: string[] = [];
@@ -151,7 +167,7 @@ interface Edit { start: number; end: number; text: string }
 export function encode(xml: string, view: string): string {
   const eol = detectEol(xml);
   const toFile = (s: string) => s.replace(/\n/g, eol);
-  const main = findMain(parseXml(xml));
+  const main = findMain(parseOrConflict(xml));
   const existing = new Map(collect(main).map(s => [s.key, s]));
   const wanted = parseView(view);
   const wantedKeys = new Set(wanted.map(s => s.key));

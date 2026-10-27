@@ -6,7 +6,7 @@
 //       <OwnerB Name="TIID^Device 1 (EtherCAT)^Term 1 (EK1100)^Term 2 (EL1008)">
 //         <Link VarA="PlcTask Inputs^MAIN.bStart" VarB="Channel 1^Input" />
 
-import { parseXml, XNode } from '../xml';
+import { HwLink, linksOfFile } from './iotree';
 
 export interface IoLink {
   /** Task / PLC / NC side, e.g. "TIPC^PLC1^PLC1 Instance^PlcTask Inputs^MAIN.bStart". */
@@ -19,29 +19,17 @@ export interface IoLink {
   file: string;
 }
 
-const isIo = (path: string) => /^TIID\^/i.test(path);
+/** Variable / IO view of a link: the IO side (TIID^…) goes into `io` unless both or neither side is IO. */
+export function toIoLink(l: HwLink): IoLink {
+  const swap = l.left.startsWith('TIID^') && !l.right.startsWith('TIID^');
+  return { variable: swap ? l.right : l.left, io: swap ? l.left : l.right, attrs: l.attrs, file: l.file };
+}
 
-function* walk(n: XNode): Generator<XNode> { for (const c of n.children) { yield c; yield* walk(c); } }
+export const sortLinks = (links: IoLink[]) => links.sort((x, y) => x.variable.localeCompare(y.variable) || x.io.localeCompare(y.io));
 
-/** Extracts all links from one .tsproj / .xti file. The IO side is always put into `io`. */
+/** Extracts the links of one .tsproj / .xti file (its active <Mappings>). The IO side is always put into `io`. */
 export function extractLinks(xml: string, file: string): IoLink[] {
-  const root = parseXml(xml.replace(/^﻿/, ''));
-  const out: IoLink[] = [];
-  for (const a of walk(root)) {
-    if (a.name !== 'OwnerA' || !a.attrs.Name) continue;
-    for (const b of a.children) {
-      if (b.name !== 'OwnerB' || !b.attrs.Name) continue;
-      for (const l of b.children) {
-        if (l.name !== 'Link') continue;
-        const { VarA = '', VarB = '', ...attrs } = l.attrs;
-        const sideA = `${a.attrs.Name}^${VarA}`;
-        const sideB = `${b.attrs.Name}^${VarB}`;
-        const [variable, io] = isIo(sideA) && !isIo(sideB) ? [sideB, sideA] : [sideA, sideB];
-        out.push({ variable, io, attrs, file });
-      }
-    }
-  }
-  return out.sort((x, y) => x.variable.localeCompare(y.variable) || x.io.localeCompare(y.io));
+  return sortLinks(linksOfFile(xml, file).map(toIoLink));
 }
 
 export type LinkChangeKind = 'added' | 'removed' | 'moved' | 'changed';

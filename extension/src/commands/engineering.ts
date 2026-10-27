@@ -8,7 +8,7 @@ import { WorkspaceState } from '../state';
 import { Unit, affected, buildOrder, unitOfFile } from '../core/workspace';
 import { CliDiagnostic, mapToView } from '../core/diagnostics';
 import { decode } from '../model';
-import { CliResult, cliAvailable, output, reportFailure, runCli } from '../cli/iecode';
+import { CliResult, cliAvailable, installCli, output, reportFailure, runCli } from '../cli/iecode';
 import { Node } from '../views/tree';
 
 const SEVERITY = { error: vscode.DiagnosticSeverity.Error, warning: vscode.DiagnosticSeverity.Warning, info: vscode.DiagnosticSeverity.Information };
@@ -268,9 +268,8 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
       { modal: true }, 'Install', 'Open instructions');
     if (pick === 'Open instructions') return void vscode.env.openExternal(vscode.Uri.parse(docs));
     if (pick !== 'Install') return;
-    const term = vscode.window.createTerminal({ name: 'IECode: install CLI', shellPath: 'powershell.exe' });
-    term.show();
-    term.sendText('irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex');
+    if (await installCli()) vscode.window.showInformationMessage('IECode: CLI installed. Run "IECode: Set up this PC…" to check TwinCAT.');
+    else vscode.window.showErrorMessage('IECode: installing the CLI failed. See the IECode output.');
   });
 
   reg('iecode.buildWorkspace', () => buildMany(undefined, 'all'));

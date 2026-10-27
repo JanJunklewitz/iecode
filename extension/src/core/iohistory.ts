@@ -1,28 +1,26 @@
-// IO links of a TwinCAT project on disk or at a git commit: the .tsproj plus all .xti files below its folder.
+// IO links of a TwinCAT project on disk or at a git commit: the .tsproj plus the .xti files it references.
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { extractLinks, IoLink } from './iolinks';
-import { findFiles } from './projects';
-import { filesAt, repoRoot, show } from './git';
+import { IoSnapshot, readProject } from './iotree';
+import { IoLink, sortLinks, toIoLink } from './iolinks';
+import { filesAt, repoRoot, showMany } from './git';
+
+/** Links and box catalog of a .tsproj; `ref` undefined = working copy. */
+export async function projectAt(tsproj: string, ref: string | undefined): Promise<IoSnapshot> {
+  if (!ref) return readProject(tsproj, f => fs.readFile(f, 'utf8').catch(() => undefined));
+  const root = await repoRoot(tsproj);
+  if (!root) throw new Error(`${tsproj} is not in a git repository`);
+  // one git call for every candidate file below the project; TwinCAT's file names may differ in case
+  const dir = path.dirname(path.resolve(tsproj));
+  const files = await filesAt(root, ref, dir, ['.tsproj', '.xti']);
+  // exact name first, as in the CLI (a case-only duplicate in the tree, e.g. committed on Linux)
+  const exact = new Map([...(await showMany(root, ref, files))].map(([f, text]) => [path.resolve(f), text]));
+  const anyCase = new Map([...exact].map(([f, text]) => [f.toLowerCase(), text]));
+  return readProject(tsproj, async f => exact.get(path.resolve(f)) ?? anyCase.get(path.resolve(f).toLowerCase()));
+}
 
 /** Links of a .tsproj; `ref` undefined = working copy. Files are reported relative to the project folder. */
 export async function linksAt(tsproj: string, ref: string | undefined): Promise<IoLink[]> {
-  const dir = path.dirname(tsproj);
-  const relName = (f: string) => path.relative(dir, f).split(path.sep).join('/');
-  const links: IoLink[] = [];
-  if (!ref) {
-    // same set as at a commit: every .xti below the project, at any depth (IO trees nest one folder per box)
-    const files = [tsproj, ...(await findFiles(dir, ['.xti'], 64, true)).filter(f => f !== tsproj)];
-    for (const f of files) links.push(...extractLinks(await fs.readFile(f, 'utf8'), relName(f)));
-    return links;
-  }
-  const root = await repoRoot(tsproj);
-  if (!root) throw new Error(`${tsproj} is not in a git repository`);
-  const files = (await filesAt(root, ref, dir, ['.tsproj', '.xti'])).filter(f => f === tsproj || f.toLowerCase().endsWith('.xti'));
-  for (const f of files) {
-    const xml = await show(root, ref, f);
-    if (xml) links.push(...extractLinks(xml, relName(f)));
-  }
-  return links;
+  return sortLinks((await projectAt(tsproj, ref)).links.map(toIoLink));
 }

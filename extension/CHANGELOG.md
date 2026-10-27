@@ -4,7 +4,32 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 
 ## Unreleased
 
-- **ADS Interface** (Projects view title menu, or right-click a project): the symbols an HMI or other ADS client can access by name, without running the PLC. From the build output (`<PLC>.tmc`, exact, reloads when a build finishes, warns when the sources are newer) or straight from the source code (working copy or any commit). Compare any two, filter, expand members, export CSV, save a JSON snapshot for `iecode ads diff --fail-on-change`; compare with a saved snapshot or another build's `.tmc` (e.g. of the released version).
+- **ADS Interface**: compare with a saved JSON snapshot or another build's `.tmc` (e.g. of the released version): **Snapshot or .tmc file…** at the end of the "compared with" list, like `iecode ads diff --against`.
+
+## 0.1.1 (pre-release)
+
+### ADS interface
+- **ADS Interface** (Projects view title menu, or right-click a project): the symbols an HMI or other ADS client can access by name, without running the PLC. From the build output (`<PLC>.tmc`, exact, reloads when a build finishes, warns when the sources are newer) or straight from the source code (working copy or any commit). Compare any two, filter, expand members, export CSV, save a JSON snapshot for `iecode ads diff --fail-on-change`.
+
+### IO links
+- **Hardware tree**: the IO Links view groups the links by device, box, terminal and channel with short names (`Plc^MAIN.x`, `NC^…`). Comparisons mark added, removed and moved values in the tree; **Open as YAML** shows both versions in the diff editor.
+- **Compare IO Links with HEAD / with Commit… (YAML)** in the context menu of a `.tsproj` / `.xti` (Explorer, editor tab). Running a compare again shows the current state, not the result of the first run.
+- **Only the files the project uses**: links are read from the `.xti` files the `.tsproj` references, with owner names resolved along that chain; unreferenced leftovers and `<UnrestoredVarLinks>` no longer count. `.xti` files with non-ASCII names (e.g. `Gerät 1.xti`) are now also read at HEAD and other commits instead of showing all their links as added.
+- **System projects without a PLC** (e.g. an IO-only `*.Sys` repo) show up under **System Projects** in the Projects view instead of "No TwinCAT projects found"; clicking one opens its IO links.
+
+### Compare and Source Control
+- **Source Control diffs as ST**: clicking a changed `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` in the Source Control view shows both sides as Structured Text instead of XML (follows `iecode.openAsST`). This also works for diffs opened from the Git Graph extension and for diff tabs restored after a reload. Umlauts stay intact with `files.encoding` set to e.g. `windows1252`.
+- **IECode: Compare** submenu on changed files in the Source Control view: compares with HEAD or a commit as ST for TwinCAT objects and as IO links YAML for `.tsproj` / `.xti`, and opens the IO Links view.
+- **Show ST in git diff** also sets up `git difftool -t iecode`, which opens the ST views in your graphical diff tool (e.g. KDiff3). The tool is found the way git difftool finds it: `diff.tool`, else `merge.tool`, with its configured path or on PATH; `.cmd` / `.bat` tools work too. The git config points to a copy of the CLI outside the versioned extension folder, so it keeps working after extension updates; run the command again once in clones set up with 0.1.0.
+
+### Editor
+- **Green ST comments** (`iecode.greenComments`, on by default): comments in the ST view are green also in themes that render them grey, close to code. Not applied in high contrast themes; turn the setting off to get the theme's or your own token colors back.
+- **Merge conflicts in the XML**: a `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` whose conflict markers sit in the XML structure (e.g. a method's `Id` or `FolderPath`) now stays open as XML, with a hint, so the conflict can be resolved there (Accept Current / Incoming). Before, the ST view closed the XML tab and only showed a parse error. Conflicts inside ST code still show up in the ST view and can be resolved there.
+
+### Setup and CLI
+- **Set up this PC…** (Projects view menu, also offered once to new users when the CLI is missing): installs the iecode CLI and checks TwinCAT with `iecode doctor` in one step. If `iecode.cliPath` points to a CLI that doesn't start, it says so instead of reinstalling.
+- **Install CLI** installs in the background instead of a terminal, and a CLI installed while VS Code runs is found without a restart. An `iecode` already on PATH (e.g. the NuGet tool or a dev build) takes precedence over that install.
+- **iecode CLI**: `iecode io links --yaml` prints the IO links as the same hardware tree; `io links` and `io diff` read the links the same way as the extension (referenced `.xti` chain, non-ASCII file names, names differing only in case). `--csv` together with `--yaml` writes a sorted CSV.
 
 ## 0.1.0 (pre-release)
 

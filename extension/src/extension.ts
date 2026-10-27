@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
-import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError } from './model';
+import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
@@ -9,8 +9,10 @@ import type { Node } from './views/tree';
 import * as objects from './commands/objects';
 import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
+import * as commentColor from './lang/commentColor';
 import * as compare from './commands/compare';
-import { showIoLinks } from './views/ioLinks';
+import * as setup from './commands/setup';
+import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
 import { showAdsInterface } from './views/adsInterface';
 import { isEncrypted } from './core/projects';
 
@@ -45,6 +47,7 @@ class TcStFileSystem implements vscode.FileSystemProvider {
     try {
       return Buffer.from(decode(stripBom(xml)), 'utf8');
     } catch (e) {
+      if (e instanceof ConflictError) throw new vscode.FileSystemError(e.message);
       throw new vscode.FileSystemError(`Cannot show as ST: ${(e as Error).message}`);
     }
   }
@@ -71,6 +74,16 @@ class TcStFileSystem implements vscode.FileSystemProvider {
 
 const stripBom = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 
+/** True when the file's XML structure (not just ST code inside CDATA) has unresolved conflict markers. */
+async function xmlConflict(file: vscode.Uri): Promise<boolean> {
+  try {
+    decode(stripBom(await fs.readFile(file.fsPath, 'utf8')));
+    return false;
+  } catch (e) {
+    return e instanceof ConflictError;
+  }
+}
+
 export function activate(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     vscode.workspace.registerFileSystemProvider(SCHEME, new TcStFileSystem(ctx), { isCaseSensitive: true }),
@@ -90,10 +103,18 @@ export function activate(ctx: vscode.ExtensionContext) {
   objects.register(ctx, state);
   engineering.register(ctx, state);
   language.register(ctx, state);
+  commentColor.register(ctx);
   compare.register(ctx);
-  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', (n?: Node) => {
-    const sln = n && 'unit' in n ? n.unit.solution : undefined;
-    const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => n && 'unit' in n && x.file === n.unit.plc.file))?.file;
+  setup.register(ctx);
+  registerIoYaml(ctx);
+  // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
+  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {
+    const uri = n instanceof vscode.Uri ? n : n && 'resourceUri' in n ? n.resourceUri : undefined;
+    if (uri) return showIoLinks(ctx, state, uri.scheme === 'file' ? await owningProject(uri.fsPath) : undefined);
+    const node = n as Node | undefined;
+    if (node?.kind === 'system') return showIoLinks(ctx, state, node.project.file);
+    const sln = node && 'unit' in node ? node.unit.solution : undefined;
+    const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => node && 'unit' in node && x.file === node.unit.plc.file))?.file;
     showIoLinks(ctx, state, tsproj);
   }));
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsInterface', (n?: Node) =>
@@ -102,7 +123,7 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   // Give every iecode: document the ST language (also restored tabs after reload).
   const setLang = (d: vscode.TextDocument) => {
-    if ((d.uri.scheme === SCHEME || d.uri.scheme === 'iecode-rev') && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
+    if ([SCHEME, compare.REV_SCHEME, compare.SRC_SCHEME].includes(d.uri.scheme) && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
   };
   vscode.workspace.textDocuments.forEach(setLang);
   ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(setLang));
@@ -112,7 +133,10 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (!file) return;
     // visualizations, text lists, tasks …: no ST view, open the file itself (e.g. from the project tree)
     if (!EXT_RE.test(file.path)) { if (file.scheme === 'file') await vscode.commands.executeCommand('vscode.open', file); return; }
-    const doc = await vscode.workspace.openTextDocument(toView(file.scheme === SCHEME ? toFile(file) : file));
+    if (file.scheme === SCHEME) file = toFile(file);
+    // conflicted XML: open the file itself (the redirect below keeps it and explains why)
+    if (file.scheme === 'file' && await xmlConflict(file)) { await vscode.window.showTextDocument(file, { preview: false }); return; }
+    const doc = await vscode.workspace.openTextDocument(toView(file));
     await vscode.window.showTextDocument(doc, { preview: false });
   };
 
@@ -138,6 +162,11 @@ export function activate(ctx: vscode.ExtensionContext) {
       if (!(input instanceof vscode.TabInputText)) continue;
       const u = input.uri;
       if (u.scheme !== 'file' || !EXT_RE.test(u.path) || xmlExempt.has(u.toString())) continue;
+      // a merge conflict in the XML structure can only be resolved in the XML: keep that tab
+      if (await xmlConflict(u)) {
+        void vscode.window.showWarningMessage(`${u.path.split('/').pop()}: unresolved merge conflict in the XML structure. Resolve it here, then reopen as ST.`);
+        continue;
+      }
       const doc = await vscode.workspace.openTextDocument(toView(u));
       await vscode.window.showTextDocument(doc, { viewColumn: tab.group.viewColumn, preview: tab.isPreview });
       // a preview tab may already have been replaced by the ST view

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { decode, encode } from '../src/model';
+import { decode, encode, ConflictError } from '../src/model';
 import { parseXml } from '../src/xml';
 
 const dir = join(__dirname, '..', '..', 'samples');
@@ -65,4 +65,21 @@ test('removing a property removes accessors and their LineIds', () => {
 test('invalid views are rejected with a line number', () => {
   assert.throws(() => encode(pou, decode(pou) + '//==== GET Missing ====\nVAR\nEND_VAR\n'), /PROPERTY Missing/);
   assert.throws(() => encode(load('ST_Axis.TcDUT'), decode(load('ST_Axis.TcDUT')) + '//---- IMPLEMENTATION ----\nx;\n'), /no implementation/);
+});
+
+test('merge conflict in the XML structure is reported as ConflictError, not a parse error', () => {
+  const xml = pou.replace(/( *<Method Name="Start"[^\r\n]*\r?\n)/,
+    '<<<<<<< HEAD\r\n$1=======\r\n    <Method Name="Start" Id="{a1b2c3d4-0000-0000-0000-000000000099}" FolderPath="Other\\">\r\n>>>>>>> feature\r\n');
+  assert.notEqual(xml, pou);
+  assert.throws(() => decode(xml), (e: Error) => e instanceof ConflictError && /merge conflict/.test(e.message));
+  assert.throws(() => encode(xml, decode(pou)), ConflictError);
+});
+
+test('merge conflict inside ST code stays editable in the view', () => {
+  const xml = pou.replace(/( *_fSpeed := fSetSpeed;\r?\n)/, '<<<<<<< HEAD\r\n$1=======\r\n    _fSpeed := 2.0 * fSetSpeed;\r\n>>>>>>> feature\r\n');
+  assert.notEqual(xml, pou);
+  const v = decode(xml);
+  assert.match(v, /^<{7} HEAD$/m);
+  const resolved = encode(xml, v.replace(/<{7} HEAD\n([\s\S]*?)={7}\n[\s\S]*?>{7} feature\n/, '$1'));
+  assert.equal(decode(resolved), decode(pou));
 });

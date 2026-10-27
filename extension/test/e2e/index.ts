@@ -62,6 +62,41 @@ export async function run(): Promise<void> {
   assert.ok(rev.getText().includes('Start := TRUE;') && !rev.getText().includes('CDATA'), 'HEAD shown as ST');
   await vscode.commands.executeCommand('iecode.compareWithHead', vscode.Uri.file(path));
 
+  // a diff from the Source Control view (git: ↔ file:) is replaced by the ST diff
+  // the git extension opens the repository some time after start (slower on Windows); wait for it and for the redirect
+  const until = async <T>(get: () => T | undefined, ms = 15000): Promise<T | undefined> => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 250))) { const v = get(); if (v) return v; }
+    return undefined;
+  };
+  const stDiff = () => until(() => {
+    const t = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    return t instanceof vscode.TabInputTextDiff && t.original.scheme === 'iecode-src' ? t : undefined;
+  });
+  type GitApi = { repositories: { state: { workingTreeChanges: { uri: vscode.Uri }[] } }[]; toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
+  const gitApi = (await vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')!.activate()).getAPI(1);
+  const change = await until(() => gitApi.repositories[0]?.state.workingTreeChanges.find(c => c.uri.path.endsWith('/FB_Motor.TcPOU')));
+  assert.ok(change, 'git sees the changed file');
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  // what clicking the file in the Source Control view opens (git.openChange finds no resource on Windows: c: vs C:)
+  await vscode.commands.executeCommand('vscode.diff', gitApi.toGitUri(change.uri, 'HEAD'), change.uri, 'FB_Motor.TcPOU (Working Tree)');
+  const scm = await stDiff();
+  assert.ok(scm instanceof vscode.TabInputTextDiff, 'SCM diff open');
+  assert.deepEqual([scm.original.scheme, scm.modified.scheme], ['iecode-src', 'iecode'], 'SCM diff redirected to ST');
+  const left = await vscode.workspace.openTextDocument(scm.original);
+  assert.ok(left.getText().includes('Start := TRUE;') && !left.getText().includes('CDATA'), 'SCM diff original shown as ST');
+
+  // a diff from a scheme with only a content provider and no file system (like git-graph: of the Git Graph extension)
+  const graphXml = before.replace('Start := TRUE;', 'Start := bGraph;');
+  const graph = vscode.workspace.registerTextDocumentContentProvider('e2e-graph', { provideTextDocumentContent: () => graphXml });
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(path).with({ scheme: 'e2e-graph' }), vscode.Uri.file(path), 'Git Graph diff');
+  const graphTab = await stDiff();
+  assert.ok(graphTab instanceof vscode.TabInputTextDiff, 'Git Graph diff open');
+  assert.deepEqual([graphTab.original.scheme, graphTab.modified.scheme], ['iecode-src', 'iecode'], 'Git Graph diff redirected to ST');
+  const graphLeft = (await vscode.workspace.openTextDocument(graphTab.original)).getText();
+  assert.ok(graphLeft.includes('Start := bGraph;') && !graphLeft.includes('CDATA'), 'content-provider-only side shown as ST');
+  graph.dispose();
+
   // IO links of the fixture project
   const { linksAt } = await import('../../src/core/iohistory');
   const links = await linksAt(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj'), undefined);
@@ -69,6 +104,13 @@ export async function run(): Promise<void> {
   const changes = (await import('../../src/core/iolinks')).diffLinks(await linksAt(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj'), 'HEAD'), links);
   assert.equal(changes.length, 0, 'no IO link changes since HEAD');
   await vscode.commands.executeCommand('iecode.ioLinks');
+  // context menu of a .tsproj: IO links of HEAD and the working copy as YAML in the diff editor
+  await vscode.commands.executeCommand('iecode.ioLinksDiff', vscode.Uri.file(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj')));
+  const io = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  assert.ok(io instanceof vscode.TabInputTextDiff && io.modified.scheme === 'iecode-io', 'IO links YAML diff open');
+  const yaml = await vscode.workspace.openTextDocument(io.modified);
+  assert.match(yaml.getText(), /^# IO links of MachineX\.tsproj \(working copy\): 2 link\(s\)\n/, 'YAML of the working copy');
+  assert.equal(yaml.languageId, 'yaml');
 
   // ADS interface from the source code (no build output in the fixture)
   const ads = await import('../../src/core/adsinterface');

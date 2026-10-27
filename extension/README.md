@@ -31,8 +31,8 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Build / Check / Clean**, compiler messages in Problems on the ST view lines | – | ✔ |
 | **Activate** on local or remote targets, **Save as library** (.library / .compiled-library, install), **Encrypt / protect** with a user DB | – | ✔ |
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
-| **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; **Show ST in git diff** (textconv) | ✔ | ✔ |
-| **IO Links**: variable ↔ channel mappings of a TwinCAT project, compared between working copy, HEAD and any commit (added / removed / moved / changed), CSV export | ✔ | ✔ |
+| **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; Source Control diffs open as ST; **Show ST in git diff** (textconv, `git difftool -t iecode`) | ✔ | ✔ |
+| **IO Links**: the PLC / NC / IO links of a TwinCAT project as a hardware tree (device › box › terminal › channel), compared between working copy, HEAD and any commit with added / removed / moved values marked; **Open as YAML** or right-click a `.tsproj` / `.xti` (Explorer, editor tab, Source Control) for a YAML diff in the diff editor; CSV export | ✔ | ✔ |
 | **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two or with a saved snapshot / another build's `.tmc`, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
@@ -41,7 +41,8 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | Setting | Default | |
 |---|---|---|
 | `iecode.openAsST` | `true` | Open TwinCAT object files as Structured Text instead of XML |
-| `iecode.cliPath` | `""` | Path to `iecode`; empty: from PATH. Install with **IECode: Install CLI** |
+| `iecode.greenComments` | `true` | Show ST comments green, also in themes that render them grey (not in high contrast themes) |
+| `iecode.cliPath` | `""` | Path to `iecode`; empty: from PATH. Install with **IECode: Set up this PC** (installs and checks TwinCAT) or **IECode: Install CLI** |
 | `iecode.tcVersion` | `auto` | TwinCAT version for build / activate: `auto`, `4024`, `4026`, `4024.66` |
 | `iecode.platforms` | `[]` | Target platforms to build, e.g. `TwinCAT RT (x64)` |
 | `iecode.targets` | `[]` | AMS NetIds offered when activating |
@@ -70,7 +71,7 @@ The ST view is also available on the command line (`node out/src/cli.js`, instal
 iecode-st decode <file>                                  # ST view
 iecode-st diff <a.TcPOU> <b.TcPOU>                       # unified diff of the ST views
 iecode-st diff --rev HEAD~3 [--to <ref>] <file>          # ST diff against git history
-iecode-st links <x.tsproj> [--csv]                       # IO links
+iecode-st links <x.tsproj> [--csv|--yaml]                # IO links (--yaml: hardware tree)
 iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> # IO link changes
 iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members]  # ADS interface from source / build output
 iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj>     # ADS interface changes in the source

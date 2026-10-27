@@ -1,13 +1,15 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { listMembers, Member, ObjectType, PlcObject, LibraryRef } from '../core/projects';
-import { Group, Unit, librariesByTitle } from '../core/workspace';
+import { listMembers, Member, ObjectType, PlcObject, LibraryRef, Solution, TwinCatProject } from '../core/projects';
+import { Group, Unit, librariesByTitle, systemProjects } from '../core/workspace';
 import { WorkspaceState } from '../state';
 
 /** Tree nodes. `contextValue` drives the context menus in package.json. */
 export type Node =
   | { kind: 'group'; group: Group; units: Unit[] }
+  | { kind: 'systems'; systems: { solution: Solution; project: TwinCatProject }[] }
+  | { kind: 'system'; solution: Solution; project: TwinCatProject }
   | { kind: 'unit'; unit: Unit }
   | { kind: 'references'; unit: Unit }
   | { kind: 'reference'; unit: Unit; ref: LibraryRef }
@@ -43,10 +45,12 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       const groups = (['library', 'application', 'standalone'] as Group[])
         .map(g => ({ kind: 'group' as const, group: g, units: m.units.filter(u => u.group === g) }))
         .filter(g => g.units.length);
-      return groups;
+      const systems = systemProjects(m);
+      return systems.length ? [...groups, { kind: 'systems', systems }] : groups;
     }
     switch (n.kind) {
       case 'group': return n.units.map(unit => ({ kind: 'unit' as const, unit }));
+      case 'systems': return n.systems.map(s => ({ kind: 'system' as const, ...s }));
       case 'unit': return [{ kind: 'references', unit: n.unit }, ...this.folderChildren(n.unit, '')];
       case 'references': return n.unit.plc.references.map(ref => ({ kind: 'reference' as const, unit: n.unit, ref }));
       case 'folder': return this.folderChildren(n.unit, n.rel);
@@ -81,6 +85,23 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       case 'group': {
         const it = new vscode.TreeItem(GROUP_LABEL[n.group], C.Expanded);
         it.contextValue = 'group';
+        return it;
+      }
+      case 'systems': {
+        const it = new vscode.TreeItem('System Projects', C.Expanded);
+        it.contextValue = 'systems';
+        return it;
+      }
+      case 'system': {
+        const p = n.project;
+        const it = new vscode.TreeItem(p.name, C.None);
+        it.description = path.basename(n.solution.file);
+        it.iconPath = new vscode.ThemeIcon('server-environment');
+        it.tooltip = new vscode.MarkdownString(`**${p.name}** (no PLC project)  \n${p.file}${p.tcVersion ? `  \nTwinCAT ${p.tcVersion}` : ''}`);
+        it.contextValue = 'system';
+        it.resourceUri = vscode.Uri.file(p.file);
+        it.id = `system:${p.file}`;
+        it.command = { command: 'iecode.ioLinks', title: 'IO Links', arguments: [n] };
         return it;
       }
       case 'unit': {
