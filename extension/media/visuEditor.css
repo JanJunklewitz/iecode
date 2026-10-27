@@ -1,0 +1,87 @@
+:root {
+  --wire: var(--vscode-editorWidget-border, #888);
+  --wire-text: var(--vscode-foreground);
+  --wire-dim: var(--vscode-descriptionForeground);
+  --frame-fill: rgba(127, 127, 127, .08);
+  --frame-stroke: var(--vscode-descriptionForeground, #888);
+  --frame-text: #666;
+  --img-fill: rgba(127, 127, 127, .12);
+}
+html, body { height: 100%; }
+body { margin: 0; padding: 0; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-editor-background); overflow: hidden; }
+#app { display: flex; flex-direction: column; height: 100vh; }
+.bar { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); flex-wrap: wrap; }
+.bar .grow { flex: 1; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 2px 0 0 2px; }
+.seg button:last-child { border-radius: 0 2px 2px 0; }
+button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 0; padding: 3px 10px; cursor: pointer; font: inherit; border-radius: 2px; }
+button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+button.on { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+input[type=text], input[type=number], input[type=search], input.inl {
+  background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent);
+  padding: 2px 5px; font: inherit; min-width: 0; box-sizing: border-box;
+}
+input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+input.var, .var { font-family: var(--vscode-editor-font-family); color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); }
+.filter { width: 320px; }
+.status { opacity: .75; font-size: 12px; }
+.status.err { color: var(--vscode-errorForeground); opacity: 1; }
+.empty { padding: 16px; opacity: .7; }
+.dim { color: var(--vscode-descriptionForeground); }
+.pad { padding: 2px 10px 6px; }
+
+.main { display: flex; flex: 1; min-height: 0; }
+.outline { width: 220px; overflow: auto; border-right: 1px solid var(--vscode-panel-border); padding: 4px 0; flex-shrink: 0; }
+.outline .row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 6px; cursor: pointer; }
+.outline .row:hover { background: var(--vscode-list-hoverBackground); }
+.outline .row.sel { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.kind { display: inline-block; width: 16px; text-align: center; opacity: .8; }
+
+.stage { flex: 1; overflow: auto; padding: 12px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); outline: none; }
+svg.visu { display: block; box-shadow: 0 0 0 1px var(--vscode-panel-border); user-select: none; font-family: Arial, sans-serif; }
+svg.visu.wire { background: var(--vscode-editor-background); }
+svg.visu .hit { fill: transparent; stroke: none; cursor: move; }
+svg.visu .hit.container { pointer-events: none; }
+svg.visu g[data-guid] > .hit.container { pointer-events: stroke; }
+svg.visu .tab { cursor: pointer; }
+svg.visu .framed { pointer-events: none; }
+svg.visu .txt { white-space: pre; pointer-events: none; }
+svg.visu .selbox { fill: none; stroke: var(--vscode-focusBorder, #0078d4); stroke-width: 2; pointer-events: none; }
+svg.visu .handle { fill: var(--vscode-focusBorder, #0078d4); cursor: nwse-resize; }
+svg.visu .coord { fill: var(--vscode-focusBorder, #0078d4); pointer-events: none; }
+
+.props { width: 320px; overflow: auto; border-left: 1px solid var(--vscode-panel-border); flex-shrink: 0; padding-bottom: 20px; }
+.ph { font-weight: 600; padding: 8px 10px 2px; font-size: 14px; }
+.sec { text-transform: uppercase; font-size: 11px; letter-spacing: .04em; color: var(--vscode-descriptionForeground); padding: 10px 10px 4px; cursor: default; }
+details.allp > summary { cursor: pointer; }
+.prow { display: flex; align-items: center; gap: 6px; padding: 2px 10px; }
+.prow > label { width: 112px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+.prow > input[type=text], .prow > input[type=number] { flex: 1; }
+.prow > .val { flex: 1; overflow-wrap: anywhere; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; }
+.grid2 .prow > label { width: 46px; }
+.grid2 .prow > input { width: 100%; }
+.swatchrow { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--vscode-panel-border); vertical-align: middle; }
+input[type=color] { width: 32px; height: 20px; padding: 0; border: 1px solid var(--vscode-panel-border); background: none; }
+.act { padding: 6px 10px 2px; }
+pre.decl, .decl pre { font-family: var(--vscode-editor-font-family); font-size: 12px; margin: 0 10px; padding: 6px 8px; background: var(--vscode-textCodeBlock-background); white-space: pre-wrap; }
+.decl { margin: 0 0 10px; }
+.decl > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
+.decl pre { margin: 0; }
+
+.list { flex: 1; overflow: auto; padding: 10px 14px 24px; }
+.card { border: 1px solid var(--vscode-panel-border); border-radius: 3px; margin: 0 0 6px; padding: 4px 8px 5px; }
+.card.sel { border-color: var(--vscode-focusBorder); }
+.card .head { cursor: pointer; padding: 1px 0; }
+.card .ln { display: flex; gap: 8px; align-items: baseline; padding: 1px 0 1px 22px; }
+.card .lbl { width: 110px; flex-shrink: 0; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .val { overflow-wrap: anywhere; }
+.card input.inl { flex: 1; max-width: 520px; }
+.card .val input.inl { width: 260px; flex: none; }
+.card .card { margin-top: 5px; }
+a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+a:hover { text-decoration: underline; }

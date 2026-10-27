@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// iecode-st decode <file.TcPOU>                       -> print ST view (also usable as git textconv)
+// iecode-st decode <file.TcPOU>                       -> print ST view (also usable as git textconv; .TcVIS: YAML summary)
 // iecode-st encode <file.TcPOU> <view.st>             -> splice view back into the object file
 // iecode-st diff <a.TcPOU> <b.TcPOU>                  -> unified diff of the ST views
 // iecode-st diff --rev <ref> [--to <ref>] <file>      -> ST diff against a git commit (default: working copy)
@@ -13,6 +13,7 @@ import { spawnSync } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { decode, encode } from './model';
+import { parseVisu, visuToText } from './core/tcvis';
 import { isEncrypted } from './core/projects';
 import { unifiedDiff } from './core/textdiff';
 import { repoRoot, show } from './core/git';
@@ -22,8 +23,10 @@ import { buildTree, treeToYaml } from './core/iotree';
 import { loadPlcProject } from './core/projects';
 import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
-const toView = (xml: string) => (isEncrypted(xml) ? '(* encrypted object *)\n' : decode(xml.replace(/^﻿/, '')));
-const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO)$/i;
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS)$/i;
+/** ST view of an object, YAML summary of a visualization (git textconv runs on a temp file: detect by content). */
+const toView = (xml: string) => (/<Visu\s/.test(xml.slice(0, 500)) ? visuToText(parseVisu(xml))
+  : isEncrypted(xml) ? '(* encrypted object *)\n' : decode(xml.replace(/^﻿/, '')));
 
 /** Writes the ST views of both files to a temp folder and runs the viewer on them; other files are passed as they are. */
 function difftool(viewer: string, a: string, b: string): number {
@@ -31,7 +34,7 @@ function difftool(viewer: string, a: string, b: string): number {
   try {
     const side = (file: string, sub: string) => {
       if (!EXT_RE.test(file)) return file;
-      const out = path.join(dir, sub, path.basename(file) + '.st');
+      const out = path.join(dir, sub, path.basename(file) + (/\.TcVIS$/i.test(file) ? '.yaml' : '.st'));
       mkdirSync(path.dirname(out), { recursive: true });
       writeFileSync(out, toView(readFileSync(file, 'utf8')), 'utf8');
       return out;

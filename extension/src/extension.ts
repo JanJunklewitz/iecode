@@ -15,6 +15,7 @@ import * as setup from './commands/setup';
 import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
 import { showAdsInterface } from './views/adsInterface';
 import { isEncrypted } from './core/projects';
+import { registerVisuEditor } from './views/visuEditor';
 
 const SCHEME = 'iecode';
 const LANG = 'twincat-st';
@@ -107,6 +108,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   compare.register(ctx);
   setup.register(ctx);
   registerIoYaml(ctx);
+  registerVisuEditor(ctx);
   // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {
     const uri = n instanceof vscode.Uri ? n : n && 'resourceUri' in n ? n.resourceUri : undefined;
@@ -123,7 +125,10 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   // Give every iecode: document the ST language (also restored tabs after reload).
   const setLang = (d: vscode.TextDocument) => {
-    if ([SCHEME, compare.REV_SCHEME, compare.SRC_SCHEME].includes(d.uri.scheme) && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
+    if (![SCHEME, compare.REV_SCHEME, compare.SRC_SCHEME].includes(d.uri.scheme)) return;
+    // visualizations compare as YAML
+    const lang = /\.TcVIS$/i.test(d.uri.path) ? 'yaml' : LANG;
+    if (d.languageId !== lang) vscode.languages.setTextDocumentLanguage(d, lang);
   };
   vscode.workspace.textDocuments.forEach(setLang);
   ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(setLang));

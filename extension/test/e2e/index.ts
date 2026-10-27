@@ -118,6 +118,42 @@ export async function run(): Promise<void> {
   assert.ok((await ads.fromSourceAt(plc, undefined)).symbols.some(s => s.name === 'MAIN.fbMotor'), 'MAIN.fbMotor from source');
   await vscode.commands.executeCommand('iecode.adsInterface');
 
+  // visualizations: the visual editor opens by default, the YAML summary follows unsaved edits, compare shows YAML
+  const visPath = join(ws, 'VI_Demo.TcVIS');
+  const visUri = vscode.Uri.file(visPath);
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  await vscode.commands.executeCommand('vscode.open', visUri);
+  const visTab = await until(() => { const t = vscode.window.tabGroups.activeTabGroup.activeTab?.input; return t instanceof vscode.TabInputCustom ? t : undefined; });
+  assert.ok(visTab instanceof vscode.TabInputCustom && visTab.viewType === 'iecode.visuEditor', 'visual editor opens for .TcVIS');
+  const visDoc = await vscode.workspace.openTextDocument(visUri);
+  const tcvis = await import('../../src/core/tcvis');
+  const moved = tcvis.applyEdits(visDoc.getText(), [{ element: 'aaaaaaaa-0000-0000-0000-000000000001', member: tcvis.propertyId('m_StaticPosition.iX'), value: '77' }]);
+  const we = new vscode.WorkspaceEdit();
+  we.replace(visUri, new vscode.Range(0, 0, visDoc.lineCount, 0), moved);
+  await vscode.workspace.applyEdit(we);
+  await vscode.commands.executeCommand('iecode.openVisuText', visUri);
+  const summary = vscode.window.activeTextEditor!.document;
+  assert.equal(summary.languageId, 'yaml');
+  assert.match(summary.getText(), /at: \[77, 20\]/, 'summary shows the unsaved edit');
+  await visDoc.save();
+  await vscode.commands.executeCommand('iecode.compareWithHead', visUri);
+  const visDiff = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  assert.ok(visDiff instanceof vscode.TabInputTextDiff && visDiff.original.scheme === 'iecode-rev', 'visualization compare open');
+  const visLeft = await vscode.workspace.openTextDocument(visDiff.original);
+  const visRight = await vscode.workspace.openTextDocument(visDiff.modified);
+  assert.match(visLeft.getText(), /at: \[10, 20\]/, 'HEAD as YAML');
+  assert.match(visRight.getText(), /at: \[77, 20\]/, 'working copy as YAML');
+  assert.equal(visLeft.languageId, 'yaml');
+  // a diff of two versions (Source Control, Git Graph) shows both as YAML instead of XML
+  const visOld = vscode.workspace.registerTextDocumentContentProvider('e2e-vis', { provideTextDocumentContent: () => tcvis.applyEdits(moved, [{ element: 'aaaaaaaa-0000-0000-0000-000000000001', member: tcvis.propertyId('m_StaticPosition.iX'), value: '5' }]) });
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  await vscode.commands.executeCommand('vscode.diff', visUri.with({ scheme: 'e2e-vis' }), visUri, 'VI_Demo.TcVIS (Working Tree)');
+  const visScm = await until(() => { const t = vscode.window.tabGroups.activeTabGroup.activeTab?.input; return t instanceof vscode.TabInputTextDiff && t.original.scheme === 'iecode-src' ? t : undefined; });
+  assert.ok(visScm, 'visualization diff redirected');
+  assert.match((await vscode.workspace.openTextDocument(visScm.original)).getText(), /at: \[5, 20\]/);
+  assert.match((await vscode.workspace.openTextDocument(visScm.modified)).getText(), /at: \[77, 20\]/);
+  visOld.dispose();
+
   // library manager and graph open without errors
   await vscode.commands.executeCommand('iecode.libraries');
   await vscode.commands.executeCommand('iecode.showGraph');

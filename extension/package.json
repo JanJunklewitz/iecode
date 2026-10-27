@@ -1,7 +1,7 @@
 {
   "name": "iecode",
   "displayName": "IECode – Structured Text for TwinCAT",
-  "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, build and deploy with the iecode CLI.",
+  "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, view and edit .TcVIS visualizations, build and deploy with the iecode CLI.",
   "version": "0.1.1",
   "publisher": "iecode",
   "icon": "resources/icon.png",
@@ -46,7 +46,8 @@
     "onFileSystem:iecode-rev",
     "onFileSystem:iecode-src",
     "onFileSystem:iecode-io",
-    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,plcproj,tsproj,tspproj}"
+    "onCustomEditor:iecode.visuEditor",
+    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
     "languages": [
@@ -64,7 +65,8 @@
           ".TcDUT",
           ".TcGVL",
           ".TcIO",
-          ".TcTTO"
+          ".TcTTO",
+          ".TcVIS"
         ]
       }
     ],
@@ -83,6 +85,18 @@
         "embeddedLanguages": {
           "meta.embedded.block.twincat-st": "twincat-st"
         }
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "iecode.visuEditor",
+        "displayName": "IECode Visualization Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.TcVIS"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "snippets": [
@@ -277,6 +291,18 @@
         "title": "Compare with Commit… (ST / IO links)"
       },
       {
+        "command": "iecode.openVisuEditor",
+        "title": "Open in Visualization Editor",
+        "category": "IECode",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "iecode.openVisuText",
+        "title": "Open Visualization as Text (YAML)",
+        "category": "IECode",
+        "icon": "$(list-flat)"
+      },
+      {
         "command": "iecode.adsInterface",
         "title": "ADS Interface…",
         "category": "IECode",
@@ -285,6 +311,16 @@
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "iecode.openVisuEditor",
+          "when": "resourceExtname =~ /\\\\.TcVIS$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.openVisuText",
+          "when": "resourceExtname =~ /\\\\.TcVIS$/i",
+          "group": "navigation"
+        },
         {
           "command": "iecode.openAsST",
           "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
@@ -312,6 +348,10 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "iecode.openVisuEditor",
+          "when": "resourceScheme == file && resourceExtname =~ /\\\\.TcVIS$/i && activeCustomEditorId != iecode.visuEditor"
+        },
         {
           "command": "iecode.openAsST",
           "when": "resourceScheme == file && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"

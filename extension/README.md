@@ -34,6 +34,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; Source Control diffs open as ST; **Show ST in git diff** (textconv, `git difftool -t iecode`) | ✔ | ✔ |
 | **IO Links**: the PLC / NC / IO links of a TwinCAT project as a hardware tree (device › box › terminal › channel), compared between working copy, HEAD and any commit with added / removed / moved values marked; **Open as YAML** or right-click a `.tsproj` / `.xti` (Explorer, editor tab, Source Control) for a YAML diff in the diff editor; CSV export | ✔ | ✔ |
 | **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
+| **Visualization editor** for `.TcVIS`: the elements drawn on a canvas with the content of frames and tab controls from the workspace; move / resize with the mouse or arrow keys; edit texts, variables, frame parameters, input actions and colors in a property panel; **Simplified** view lists what each element shows and does; wireframe drawing; **YAML** summary, also used to compare visualizations (HEAD, commits, Source Control, `git diff`) | ✔ | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
 ## Settings
@@ -64,11 +65,18 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
   and the file isn't touched.
 - When TwinCAT XAE changes the file on disk, the view reloads.
 
+Visualizations (`.TcVIS`) store each element as a list of `{ Id, Value }` pairs, where the id is the CRC-32 of the
+property's path in the element's function block (`m_StaticPosition.iX`, `m_StaticTexts.pstText`, …). The editor
+decodes the common properties by that hash and frame parameters by the name tree stored next to them; other values
+appear as `#<id>` under **All properties**. Edits replace single values in place (undo / redo / save as for text),
+so the rest of the file stays byte-identical. Values that are style colors, structured, or missing in an element are
+read-only there: set them once in TwinCAT.
+
 
 The ST view is also available on the command line (`node out/src/cli.js`, installed as `iecode-st`):
 
 ```
-iecode-st decode <file>                                  # ST view
+iecode-st decode <file>                                  # ST view (.TcVIS: YAML summary)
 iecode-st diff <a.TcPOU> <b.TcPOU>                       # unified diff of the ST views
 iecode-st diff --rev HEAD~3 [--to <ref>] <file>          # ST diff against git history
 iecode-st links <x.tsproj> [--csv|--yaml]                # IO links (--yaml: hardware tree)
@@ -82,12 +90,14 @@ As a git textconv for readable diffs (or use **IECode: Show ST in git diff**):
 ```
 git config diff.iecode.textconv "node /path/to/out/src/cli.js decode"
 echo "*.TcPOU diff=iecode" >> .gitattributes
+echo "*.TcVIS diff=iecode" >> .gitattributes
 ```
 
 ## Develop
 
 ```
-npm install && npm test          # unit tests (view round trip, project model, templates, workspace, language, libraries)
+npm install && npm test          # unit tests (view round trip, project model, templates, workspace, language, libraries, visualizations)
+IECODE_TCVIS_SAMPLES=<folder> npm test   # also parse every .TcVIS below <folder> (real projects, nothing is written)
 ./scripts/e2e.sh                 # end-to-end in real VS Code (throwaway profile)
 npm run package                  # iecode-<version>.vsix
 ```
@@ -101,6 +111,8 @@ Or open this folder in VS Code and press F5.
 - Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace; symbols from installed libraries (e.g. Tc2_Standard) are not known yet.
 - Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
 - The ADS interface from source code has no sizes and ignores conditional pragmas. It doesn't know types from libraries: library GVLs (e.g. each library's `Global_Version`) and members inherited from library function blocks are missing. The build output (`.tmc`) is exact.
+- Visualization editor: elements can't be added or deleted yet, and the drawing is an approximation (no images, styles
+  as their stored colors, frames from libraries as placeholders). Texts containing `"` can't be edited there.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
 
 ## License and trademarks

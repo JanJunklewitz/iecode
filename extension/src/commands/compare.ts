@@ -5,12 +5,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { decode } from '../model';
+import { parseVisu, visuToText } from '../core/tcvis';
 import { isEncrypted } from '../core/projects';
 import { config, getConfig, log, repoRoot, show } from '../core/git';
 
 export const REV_SCHEME = 'iecode-rev';
 export const SRC_SCHEME = 'iecode-src';
-const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO)$/i;
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS)$/i;
+/** Visualizations compare as their YAML summary (read-only), objects as ST. */
+const VIS_RE = /\.TcVIS$/i;
 const OWN_SCHEMES = ['iecode', REV_SCHEME, SRC_SCHEME];
 
 /** iecode-rev:/path/X.TcPOU?ref=<commit> shows the ST view of the file at that commit. */
@@ -19,13 +22,19 @@ const revUri = (file: string, ref: string, label: string) =>
 const viewUri = (file: string) => vscode.Uri.file(file).with({ scheme: 'iecode' });
 /** iecode-src:/path/X.TcPOU?src=<uri> shows the ST view of any readable URI (e.g. git: from the Source Control view). */
 const srcUri = (src: vscode.Uri) => src.with({ scheme: SRC_SCHEME, query: new URLSearchParams({ src: src.toString() }).toString() });
-/** ST side of a diff: the editable view for working-tree files, a read-only view for everything else. */
-const stSide = (u: vscode.Uri) => (u.scheme === 'file' ? viewUri(u.fsPath) : srcUri(u));
+/** ST side of a diff: the editable view for working-tree objects, a read-only view for everything else. */
+const stSide = (u: vscode.Uri) => (u.scheme === 'file' && !VIS_RE.test(u.path) ? viewUri(u.fsPath) : srcUri(u));
+/** Working copy side of a compare. */
+const workingSide = (file: string) => stSide(vscode.Uri.file(file));
 
-function toView(xml: string): string {
+function toView(xml: string, file: string): string {
+  if (VIS_RE.test(file)) {
+    try { return visuToText(parseVisu(xml)); } catch (e) { return `# ${(e as Error).message}\n`; }
+  }
   if (isEncrypted(xml)) return '(* encrypted object – content not available *)\n';
   return decode(xml.replace(/^﻿/, ''));
 }
+const viewKind = (file: string) => (VIS_RE.test(file) ? 'YAML' : 'ST');
 
 /** The Uri of an explorer / editor argument or a Source Control resource state. */
 const argUri = (arg: unknown) => (arg instanceof vscode.Uri ? arg : (arg as { resourceUri?: vscode.Uri } | undefined)?.resourceUri);
@@ -92,7 +101,8 @@ export function register(ctx: vscode.ExtensionContext) {
       const root = await repoRoot(uri.fsPath);
       if (!root) return '(* not in a git repository *)\n';
       const xml = await show(root, ref, uri.fsPath);
-      return xml === undefined ? `(* ${path.basename(uri.fsPath)} doesn't exist in ${ref} *)\n` : toView(xml);
+      if (xml === undefined) return VIS_RE.test(uri.path) ? `# ${path.basename(uri.fsPath)} doesn't exist in ${ref}\n` : `(* ${path.basename(uri.fsPath)} doesn't exist in ${ref} *)\n`;
+      return toView(xml, uri.path);
     },
   }));
   ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
@@ -104,7 +114,7 @@ export function register(ctx: vscode.ExtensionContext) {
         bytes => Buffer.from(bytes).toString('utf8'),
         async () => (await vscode.workspace.openTextDocument(src)).getText());
       // git: returns empty content for a side where the file doesn't exist (added / deleted)
-      return xml.trim() === '' ? '' : toView(xml);
+      return xml.trim() === '' ? '' : toView(xml, src.path);
     },
   }));
 
@@ -118,7 +128,7 @@ export function register(ctx: vscode.ExtensionContext) {
       if (!EXT_RE.test(original.path) || !EXT_RE.test(modified.path)) continue;
       if (OWN_SCHEMES.includes(original.scheme) && OWN_SCHEMES.includes(modified.scheme)) continue;
       try {
-        await vscode.commands.executeCommand('vscode.diff', stSide(original), stSide(modified), `${tab.label} (ST)`,
+        await vscode.commands.executeCommand('vscode.diff', stSide(original), stSide(modified), `${tab.label} (${viewKind(modified.path)})`,
           { viewColumn: tab.group.viewColumn, preview: tab.isPreview });
       } catch (err) {
         vscode.window.showWarningMessage(`IECode: cannot show the diff as ST: ${(err as Error).message}`);
@@ -132,7 +142,7 @@ export function register(ctx: vscode.ExtensionContext) {
     }
   }));
 
-  const title = (file: string, left: string, right: string) => `${path.basename(file).replace(EXT_RE, '')} (ST): ${left} ↔ ${right}`;
+  const title = (file: string, left: string, right: string) => `${path.basename(file).replace(EXT_RE, '')} (${viewKind(file)}): ${left} ↔ ${right}`;
   const reg = (id: string, fn: (arg?: unknown) => unknown) =>
     ctx.subscriptions.push(vscode.commands.registerCommand(id, async (arg?: unknown) => {
       try { await fn(arg); } catch (e) { vscode.window.showErrorMessage(`IECode: ${(e as Error).message}`); }
@@ -147,7 +157,7 @@ export function register(ctx: vscode.ExtensionContext) {
   reg('iecode.compareWithHead', async arg => {
     const file = targetFile(arg);
     if (!file || !await needRepo(file)) return;
-    await vscode.commands.executeCommand('vscode.diff', revUri(file, 'HEAD', 'HEAD'), viewUri(file), title(file, 'HEAD', 'working copy'));
+    await vscode.commands.executeCommand('vscode.diff', revUri(file, 'HEAD', 'HEAD'), workingSide(file), title(file, 'HEAD', 'working copy'));
   });
 
   reg('iecode.compareWithCommit', async arg => {
@@ -155,7 +165,7 @@ export function register(ctx: vscode.ExtensionContext) {
     const root = file && await needRepo(file);
     if (!file || !root) return;
     const c = await pickCommit(root, file, 'Compare the working copy with …');
-    if (c) await vscode.commands.executeCommand('vscode.diff', revUri(file, c.hash, c.short), viewUri(file), title(file, c.short, 'working copy'));
+    if (c) await vscode.commands.executeCommand('vscode.diff', revUri(file, c.hash, c.short), workingSide(file), title(file, c.short, 'working copy'));
   });
 
   reg('iecode.compareCommits', async arg => {
@@ -174,7 +184,7 @@ export function register(ctx: vscode.ExtensionContext) {
     const uri = argUri(arg) ?? vscode.window.activeTextEditor?.document.uri;
     if (uri && EXT_RE.test(uri.path)) return vscode.commands.executeCommand(st, uri);
     if (uri && /\.(tsproj|xti)$/i.test(uri.path)) return vscode.commands.executeCommand(io, uri);
-    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO) and system project files (.tsproj, .xti).');
+    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO), visualizations (.TcVIS) and system project files (.tsproj, .xti).');
   });
   scm('iecode.scmCompareWithHead', 'iecode.compareWithHead', 'iecode.ioLinksDiff');
   scm('iecode.scmCompareWithCommit', 'iecode.compareWithCommit', 'iecode.ioLinksDiffCommit');
@@ -189,12 +199,12 @@ export function register(ctx: vscode.ExtensionContext) {
     if (!file) return;
     let other = selected;
     if (!other) {
-      const pick = await vscode.window.showOpenDialog({ title: 'Compare with (ST)', filters: { 'TwinCAT objects': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO'] } });
+      const pick = await vscode.window.showOpenDialog({ title: 'Compare with', filters: { 'TwinCAT objects': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO', 'TcVIS'] } });
       other = pick?.[0]?.fsPath;
     }
     if (!other) return;
-    await vscode.commands.executeCommand('vscode.diff', viewUri(other), viewUri(file),
-      `${path.basename(other)} ↔ ${path.basename(file)} (ST)`);
+    await vscode.commands.executeCommand('vscode.diff', workingSide(other), workingSide(file),
+      `${path.basename(other)} ↔ ${path.basename(file)} (${viewKind(file)})`);
   });
 
   reg('iecode.setupGitDiff', async arg => {
@@ -218,7 +228,7 @@ export function register(ctx: vscode.ExtensionContext) {
     if (viewer) await config(root, 'difftool.iecode.cmd', `node "${cli}" difftool "${viewer.replace(/\\/g, '/')}" "$LOCAL" "$REMOTE"`);
     const attrs = path.join(root, '.gitattributes');
     const existing = await fs.readFile(attrs, 'utf8').catch(() => '');
-    const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
+    const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO', '*.TcVIS'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
     if (wanted.length) {
       const block = '# IECode: show TwinCAT objects as Structured Text in git diff\n' + wanted.map(p => `${p} diff=iecode`).join('\n') + '\n';
       const sep = existing === '' ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
