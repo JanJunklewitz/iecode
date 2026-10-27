@@ -33,7 +33,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
 | **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; **Show ST in git diff** (textconv) | ✔ | ✔ |
 | **IO Links**: variable ↔ channel mappings of a TwinCAT project, compared between working copy, HEAD and any commit (added / removed / moved / changed), CSV export | ✔ | ✔ |
-| **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
+| **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two or with a saved snapshot / another build's `.tmc`, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
 ## Settings

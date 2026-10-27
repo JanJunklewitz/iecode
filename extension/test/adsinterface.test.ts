@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromSource, fromSourceAt, fromTmc, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
+import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromFile, fromSource, fromSourceAt, fromTmc, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
 import { loadPlcProject } from '../src/core/projects';
 
 const fixtures = join(__dirname, '..', '..', 'test', 'fixtures', 'ws');
@@ -219,6 +219,27 @@ test('ADS interface: fixture project from source, build output, stale check, CSV
     const snap = JSON.parse(toSnapshot('PLC1', built.symbols, false));
     assert.equal(snap.format, 'iecode-ads-interface/1');
     assert.equal(snap.symbols[1].bitSize, 1);
+
+    // compare with a snapshot / another build's .tmc
+    const json = join(dir, 'PLC1.ads-interface.json');
+    writeFileSync(json, toSnapshot('PLC1', built.symbols, false));
+    const saved = await fromFile(json, true);
+    assert.equal(saved.origin, 'build');
+    assert.equal(saved.members, false);
+    assert.deepEqual(diffInterfaces(saved, built), []);
+    assert.deepEqual(diffInterfaces(await fromFile(tmc), built), []);
+    writeFileSync(json, toSnapshot('PLC1', built.symbols.slice(1), false));
+    assert.deepEqual(diffInterfaces(await fromFile(json), built).map(c => [c.kind, c.name]), [['added', built.symbols[0].name]]);
+    const expanded = await fromBuild(plc, true);
+    writeFileSync(json, toSnapshot('PLC1', expanded.symbols, true));
+    assert.deepEqual((await fromFile(json)).symbols.map(s => s.name), built.symbols.map(s => s.name));
+    assert.equal((await fromFile(json, true)).symbols.length, expanded.symbols.length);
+    writeFileSync(json, toSnapshot('PLC1', src.symbols, true));
+    const fromSrc = await fromFile(json, true);
+    assert.equal(fromSrc.origin, 'source');
+    assert.ok(fromSrc.roots?.includes('MAIN'));
+    writeFileSync(json, '{"format":"other/2","symbols":[]}');
+    await assert.rejects(fromFile(json), /unknown format/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

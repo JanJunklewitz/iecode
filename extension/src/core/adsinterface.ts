@@ -337,6 +337,34 @@ export async function fromSourceAt(plc: PlcProject, ref: string | undefined, mem
   return fromSource(objects, members);
 }
 
+/** Only the symbols that aren't a member of another symbol in the list. */
+export function topLevel(symbols: AdsSymbol[]): AdsSymbol[] {
+  const names = new Set(symbols.map(s => U(s.name)));
+  const parents = function* (n: string) { for (let i = n.lastIndexOf('.'); i > 0; i = n.lastIndexOf('.', i - 1)) yield n.slice(0, i); };
+  return symbols.filter(s => ![...parents(U(s.name))].some(p => names.has(p)));
+}
+
+/**
+ * Interface from a file: a .tmc (any build, e.g. of a released version) or a JSON snapshot written by
+ * `toSnapshot` / `iecode ads symbols --save`. `members` is false when a snapshot has no members.
+ */
+export async function fromFile(file: string, members = false): Promise<AdsInterface & { members: boolean }> {
+  const text = await fs.readFile(file, 'utf8');
+  if (!/\.json$/i.test(file)) return { origin: 'build', file, members, symbols: fromTmc(text, members) };
+  let snap: { format?: string; members?: boolean; symbols?: AdsSymbol[] };
+  try { snap = JSON.parse(text.replace(/^﻿/, '')); } catch (e) { throw new Error(`Cannot read ${path.basename(file)}: ${(e as Error).message}`); }
+  if (snap.format !== undefined && snap.format !== SNAPSHOT_FORMAT) throw new Error(`${path.basename(file)} has an unknown format '${snap.format}' (expected ${SNAPSHOT_FORMAT}).`);
+  if (!Array.isArray(snap.symbols)) throw new Error(`${path.basename(file)} is not an ADS interface snapshot (no symbols).`);
+  const expanded = snap.members === true;
+  const symbols = expanded && !members ? topLevel(snap.symbols) : snap.symbols;
+  // a snapshot of the source has no sizes; it is compared with the build like the source itself
+  const source = !symbols.some(s => s.bitSize !== undefined);
+  return {
+    origin: source ? 'source' : 'build', file, members: expanded && members, symbols,
+    ...(source ? { roots: [...new Set(symbols.map(s => s.name.split('.')[0]))] } : {}),
+  };
+}
+
 // ---- comparing ----
 
 // Tc2_System.T_MaxString and T_MaxString are the same type: the build qualifies library types, the source often doesn't.
