@@ -2,7 +2,7 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.1.2 (pre-release)
 
 ### Libraries
 - **Navigate into libraries**: the sources of referenced, non-compiled `.library` files are read directly (no TwinCAT needed) from the library repository (`iecode.libraryRepository`) and the library folders (`iecode.librarySources`), including the libraries they reference. Go to definition, find references, hover, completion and workspace symbols cover their POUs (with methods, properties, actions), DUTs, GVLs and interfaces; namespace-qualified names like `Tc2_Standard.TON` resolve too. Library objects open as read-only ST views (`iecode-lib:`); rename refuses symbols declared in a library. Workspace objects win over library objects of the same name.
