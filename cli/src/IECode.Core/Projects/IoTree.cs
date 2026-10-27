@@ -4,7 +4,7 @@ using System.Xml.Linq;
 
 namespace IECode.Core.Projects;
 
-/// <summary>A link, oriented like the Timaris hardware links tool: the PLC side left, otherwise the ordinally smaller side left.</summary>
+/// <summary>A link, oriented for the tree: the PLC side left, otherwise the ordinally smaller side left.</summary>
 public sealed record HwLink(string Left, string Right, string? Size, string? OffsLeft, string? OffsRight,
     IReadOnlyDictionary<string, string> Attributes, string File);
 
@@ -12,8 +12,8 @@ public sealed record HwLink(string Left, string Right, string? Size, string? Off
 public sealed record IoSnapshot(IReadOnlyList<HwLink> Links, IReadOnlyList<string> Boxes, IReadOnlyList<string> Warnings);
 
 /// <summary>
-/// IO links of a TwinCAT system project as a hardware tree (device > box > terminal > channel), in the format
-/// of the HardwareLinks.yaml of the Timaris hardware links tool. Links come from the active &lt;Mappings&gt; of the
+/// IO links of a TwinCAT system project as a hardware tree (device > box > terminal > channel), written as
+/// YAML. Links come from the active &lt;Mappings&gt; of the
 /// .tsproj and of the .xti files it references (directly or through other .xti files); owner names in an .xti are
 /// relative to the item the file holds and are resolved along that chain. Unreferenced .xti files and
 /// &lt;UnrestoredVarLinks&gt; are ignored. Same rules as the VS Code extension (src/core/iotree.ts).

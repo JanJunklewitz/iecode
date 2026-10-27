@@ -27,7 +27,7 @@ internal static class IoCommands
         var at = new Option<string?>("--at") { Description = "Git commit / branch / tag to read (default: working copy)" };
         var csv = new Option<string?>("--csv") { Description = "Also write the list to a CSV file" };
         var full = FullOption();
-        var yaml = new Option<bool>("--yaml") { Description = "Show the links as a hardware tree (device › box › terminal › channel) in the format of HardwareLinks.yaml" };
+        var yaml = new Option<bool>("--yaml") { Description = "Show the links as a hardware tree (device › box › terminal › channel) as YAML" };
         var cmd = new Command("links", "List the IO links of TwinCAT projects") { path, at, csv, full, yaml };
         Action(cmd, ctx =>
         {

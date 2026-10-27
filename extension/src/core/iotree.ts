@@ -1,10 +1,9 @@
-// IO links of a TwinCAT system project as a hardware tree (device > box > terminal > channel), in the
-// format of the HardwareLinks.yaml of the Timaris hardware links tool:
+// IO links of a TwinCAT system project as a hardware tree (device > box > terminal > channel), written as YAML:
 //
-//   Device 1 TM (EtherCAT):
-//     -KF2.0 (EK1100):
-//       -KF2.11 (EL1809):
-//         Channel 1: Plc^MAIN.stDevices.fbBT1.stIO.IbOn
+//   Device 1 (EtherCAT):
+//     Term 1 (EK1100):
+//       Term 2 (EL1008):
+//         Channel 1: Plc^MAIN.bStart
 //
 // Links are read from the active <Mappings> of the .tsproj and of the .xti files it references (directly
 // or through other .xti files). Owner names in an .xti are relative to the item the file holds, so they
@@ -16,7 +15,7 @@ import { parseXml, XNode, child } from '../xml';
 /** Reads a file (working copy or a commit); undefined if it doesn't exist. */
 export type FileReader = (file: string) => Promise<string | undefined>;
 
-/** One link, oriented like the hardware links tool: the PLC side left, otherwise the ordinally smaller side left. */
+/** One link, oriented for the tree: the PLC side left, otherwise the ordinally smaller side left. */
 export interface HwLink {
   left: string;
   right: string;
