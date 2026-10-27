@@ -4,7 +4,8 @@
 import { tokenize, wordAt, ELEMENTARY_TYPES, KEYWORDS } from './lexer';
 import { parseObject, ParsedObject, PlcSymbol, Range, sections } from './parser';
 
-export interface IndexedObject { file: string; view: string; parsed: ParsedObject; root?: PlcSymbol }
+/** `library`: name of the (read-only) library the object comes from; unset for workspace objects. */
+export interface IndexedObject { file: string; view: string; parsed: ParsedObject; root?: PlcSymbol; library?: string }
 export interface Location { file: string; range: Range; symbol: PlcSymbol; owner?: PlcSymbol }
 
 const U = (s: string) => s.toUpperCase();
@@ -25,15 +26,20 @@ export function baseTypeName(type: string | undefined): string | undefined {
 export class SymbolIndex {
   private readonly byFile = new Map<string, IndexedObject>();
   private readonly byName = new Map<string, IndexedObject>();
+  /** Library namespaces (upper case) → library name, for qualified names like Tc2_Standard.TON. */
+  private namespaces = new Map<string, string>();
 
-  /** Adds or replaces an object from its view text. */
-  update(file: string, view: string): IndexedObject {
+  /** Adds or replaces an object from its view text. Workspace objects win over library objects of the same name. */
+  update(file: string, view: string, library?: string): IndexedObject {
     this.remove(file);
     const name = file.split(/[\\/]/).pop()!.replace(/\.\w+$/, '');
     const parsed = parseObject(view, name);
-    const obj: IndexedObject = { file, view, parsed, root: parsed.root };
+    const obj: IndexedObject = { file, view, parsed, root: parsed.root, library };
     this.byFile.set(file, obj);
-    if (obj.root) this.byName.set(U(obj.root.name), obj);
+    if (obj.root) {
+      const prev = this.byName.get(U(obj.root.name));
+      if (!prev || !library || prev.library) this.byName.set(U(obj.root.name), obj);
+    }
     return obj;
   }
 
@@ -41,12 +47,29 @@ export class SymbolIndex {
     const old = this.byFile.get(file);
     if (!old) return;
     this.byFile.delete(file);
-    if (old.root && this.byName.get(U(old.root.name)) === old) this.byName.delete(U(old.root.name));
+    if (old.root && this.byName.get(U(old.root.name)) === old) {
+      const n = U(old.root.name);
+      this.byName.delete(n);
+      const next = [...this.byFile.values()].filter(o => o.root && U(o.root.name) === n).sort((a, b) => Number(!!a.library) - Number(!!b.library))[0];
+      if (next) this.byName.set(n, next);
+    }
   }
+
+  setNamespaces(namespaces: Map<string, string>) {
+    this.namespaces = new Map([...namespaces].map(([ns, lib]) => [U(ns), lib]));
+  }
+
+  /** Library of a namespace name, if it is one. */
+  namespace(name: string): string | undefined { return this.namespaces.get(U(name)); }
 
   get(file: string) { return this.byFile.get(file); }
   objects() { return [...this.byFile.values()]; }
-  find(name: string) { return this.byName.get(U(name)); }
+  /** Object by name; a namespace prefix (Tc2_Standard.TON, e.g. in a variable's type) is skipped. */
+  find(name: string): IndexedObject | undefined {
+    const hit = this.byName.get(U(name));
+    const dot = name.indexOf('.');
+    return hit ?? (dot > 0 && this.namespace(name.slice(0, dot)) ? this.find(name.slice(dot + 1)) : undefined);
+  }
 
   /** Members, variables, fields and enum values of a type, following EXTENDS. */
   membersOf(typeName: string | undefined, seen = new Set<string>()): { sym: PlcSymbol; obj: IndexedObject }[] {
@@ -80,6 +103,8 @@ export class SymbolIndex {
     if (!w || KEYWORDS.has(U(w.word)) || ELEMENTARY_TYPES.has(U(w.word))) return undefined;
     const chain = [...w.qualifier, w.word];
     const member = this.sectionMember(obj, line);
+    // Tc2_Standard.TON: the namespace only selects the library
+    if (chain.length > 1 && this.namespace(chain[0]) && !this.resolveFirst(obj, member, chain[0])) chain.shift();
 
     // first part of the chain
     let cur = this.resolveFirst(obj, member, chain[0]);
@@ -157,6 +182,9 @@ export class SymbolIndex {
     const dotted = /([A-Za-z_][\w.]*)\.\w*$/.exec(before);
     if (dotted) {
       const offset = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0) + col - (before.length - before.lastIndexOf('.'));
+      const ns = this.namespace(dotted[1]);
+      if (ns) return this.objects().filter(o => o.root && o.library?.toLowerCase() === ns.toLowerCase())
+        .map(o => ({ label: o.root!.name, kind: o.root!.kind, detail: o.root!.detail }));
       const qLoc = this.resolve(file, line, offset - lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0));
       if (!qLoc) return [];
       const s = qLoc.symbol;

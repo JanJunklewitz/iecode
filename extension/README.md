@@ -28,6 +28,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Language features**: go to definition, find references, rename symbol, hover, completion after `.`, workspace symbols (Ctrl+T), live checks (unclosed IF/FOR/…, END_VAR, duplicate variables) | ✔ | ✔ |
 | **Workspace**: several solutions and loose `.plcproj` files, library links (⇄ workspace / pinned), dependency graph and build order | ✔ | ✔ |
 | **Library manager** (Installed / Updates / Consolidate / Browse) on the `.plcproj` files; sources: workspace, TwinCAT library repository, folders | ✔ | ✔ |
+| **Library sources**: referenced `.library` files (repository or library folders, and the libraries they reference) are read without TwinCAT: go to definition / find references / hover / completion into library POUs, DUTs, GVLs and interfaces (also `Tc2_Standard.TON`), read-only ST views, objects and members under each reference in the tree | ✔ | ✔ |
 | **Build / Check / Clean**, compiler messages in Problems on the ST view lines | – | ✔ |
 | **Activate** on local or remote targets, **Save as library** (.library / .compiled-library, install), **Encrypt / protect** with a user DB | – | ✔ |
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
@@ -109,7 +110,7 @@ Or open this folder in VS Code and press F5.
 
 - Section order in the text doesn't reorder XML elements. A renamed section header counts as delete + add, so the member gets a new GUID.
 - Renaming an object in the tree renames the file, its declaration and the `.plcproj` entry, but not references to it in other objects (use **Rename Symbol** for variables and members).
-- Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace; symbols from installed libraries (e.g. Tc2_Standard) are not known yet.
+- Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace and of referenced libraries with sources (`.library`). A `.compiled-library` (e.g. most Beckhoff libraries) has no sources: its symbols are not known. Of a library, the version TwinCAT would use is read (`*`: the newest available).
 - Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
 - The ADS interface from source code has no sizes and ignores conditional pragmas. It doesn't know types from libraries: library GVLs (e.g. each library's `Global_Version`) and members inherited from library function blocks are missing. The build output (`.tmc`) is exact.
 - Visualization editor: elements can't be added or deleted yet, and the drawing is an approximation (no images, styles

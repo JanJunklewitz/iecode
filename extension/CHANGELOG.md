@@ -4,6 +4,10 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 
 ## Unreleased
 
+### Libraries
+- **Navigate into libraries**: the sources of referenced, non-compiled `.library` files are read directly (no TwinCAT needed) from the library repository (`iecode.libraryRepository`) and the library folders (`iecode.librarySources`), including the libraries they reference. Go to definition, find references, hover, completion and workspace symbols cover their POUs (with methods, properties, actions), DUTs, GVLs and interfaces; namespace-qualified names like `Tc2_Standard.TON` resolve too. Library objects open as read-only ST views (`iecode-lib:`); rename refuses symbols declared in a library. Workspace objects win over library objects of the same name.
+- **References** in the IECode view expand to the library's folders, objects and members when its sources are found; the description shows the version used for `*` and marks compiled libraries.
+
 ### Visualizations
 - **Visualization editor** for `.TcVIS` (opens by default; **Reopen Editor With…** for XML): draws the elements with their positions, colors, fonts and texts, and the visualizations shown in frames and tab controls when they are in the workspace (click a tab to switch). Drag to move, drag the corner handle to resize, arrow keys nudge. The property panel edits position, texts, text / tooltip variables, plain colors, frame parameters and the variables of input actions; **All properties** lists every stored value.
 - **Simplified** view: one card per element with its text, variable, shown visualization, parameters and input actions, editable inline and filterable. **Wireframe** draws outlines, kinds and variables only; **Variables** shows `‹rSpeed›` instead of `%.2f`.

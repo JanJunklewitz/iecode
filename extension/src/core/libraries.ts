@@ -121,3 +121,32 @@ export function removeReference(text: string, name: string): string {
     .replace(new RegExp(`^[ \\t]*<PlaceholderResolution\\s+Include="${n}">[\\s\\S]*?</PlaceholderResolution>\\r?\\n?`, 'im'), '')
     .replace(new RegExp(`^[ \\t]*<LibraryReference\\s+Include="${n}\\s*,[^"]*"\\s*(?:/>|>[\\s\\S]*?</LibraryReference>)\\r?\\n?`, 'im'), '');
 }
+
+// ------------------------------------------------------------------ library sources (navigation into .library files)
+
+export interface LibrarySourceFile { file?: string; version?: string; compiled?: boolean }
+
+/** The .library file of a referenced library among the available ones ('*' = newest). A .compiled-library has
+ *  no sources: then only `compiled` is set. */
+export async function findLibrarySource(id: LibraryId, available: Available[]): Promise<LibrarySourceFile> {
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const cands = available
+    .filter(a => same(a.name, id.name) && (!a.vendor || !id.vendor || same(a.vendor, id.vendor)) && (id.version === '*' || a.version === id.version))
+    .sort((a, b) => compareVersions(b.version, a.version));
+  let compiled = false;
+  // only the version TwinCAT would use: sources of another version would be misleading
+  for (const a of cands.filter(c => c.version === cands[0].version)) {
+    let files: string[];
+    if (a.source === 'repository') {
+      const names = await fs.readdir(a.location).catch(() => [] as string[]);
+      files = names.filter(n => /\.library$/i.test(n)).sort((x, y) => Number(same(y, `${id.name}.library`)) - Number(same(x, `${id.name}.library`)))
+        .map(n => path.join(a.location, n));
+      compiled ||= names.some(n => /\.compiled-library$/i.test(n));
+    } else {
+      files = /\.compiled-library$/i.test(a.location) ? [] : [a.location];
+      compiled ||= files.length === 0;
+    }
+    if (files.length) return { file: files[0], version: a.version };
+  }
+  return compiled ? { compiled } : {};
+}

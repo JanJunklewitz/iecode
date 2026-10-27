@@ -4,6 +4,8 @@ import { promises as fs } from 'fs';
 import { listMembers, Member, ObjectType, PlcObject, LibraryRef, Solution, TwinCatProject } from '../core/projects';
 import { Group, Unit, librariesByTitle, systemProjects } from '../core/workspace';
 import { WorkspaceState } from '../state';
+import { LibrarySource, LibrarySources } from '../lang/librarySources';
+import { LibraryObject } from '../core/libraryArchive';
 
 /** Tree nodes. `contextValue` drives the context menus in package.json. */
 export type Node =
@@ -15,7 +17,11 @@ export type Node =
   | { kind: 'reference'; unit: Unit; ref: LibraryRef }
   | { kind: 'folder'; unit: Unit; rel: string }
   | { kind: 'object'; unit: Unit; obj: PlcObject }
-  | { kind: 'member'; unit: Unit; obj: PlcObject; member: Member };
+  | { kind: 'member'; unit: Unit; obj: PlcObject; member: Member }
+  // sources of a referenced .library (read-only)
+  | { kind: 'libraryFolder'; lib: LibrarySource; rel: string }
+  | { kind: 'libraryObject'; lib: LibrarySource; key: string; obj: LibraryObject }
+  | { kind: 'libraryMember'; key: string; member: Member };
 
 const GROUP_LABEL: Record<Group, string> = { library: 'Libraries', application: 'Applications', standalone: 'Standalone PLC' };
 
@@ -33,8 +39,9 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
 
-  constructor(private readonly state: WorkspaceState) {
+  constructor(private readonly state: WorkspaceState, private readonly libraries: LibrarySources) {
     state.onDidChange(() => this.changed.fire(undefined));
+    libraries.onDidChange(() => this.changed.fire(undefined));
   }
 
   refresh() { this.changed.fire(undefined); }
@@ -55,6 +62,12 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       case 'references': return n.unit.plc.references.map(ref => ({ kind: 'reference' as const, unit: n.unit, ref }));
       case 'folder': return this.folderChildren(n.unit, n.rel);
       case 'object': return this.members(n.unit, n.obj);
+      case 'reference': {
+        const lib = this.libraries.get(n.ref.effective.name);
+        return lib ? this.libraryChildren(lib, '') : [];
+      }
+      case 'libraryFolder': return this.libraryChildren(n.lib, n.rel);
+      case 'libraryObject': return listMembers(n.obj.xml).map(member => ({ kind: 'libraryMember' as const, key: n.key, member }));
       default: return [];
     }
   }
@@ -67,6 +80,20 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
     for (const o of unit.plc.objects) if (o.rel.startsWith(prefix) && o.rel.slice(prefix.length).includes('/')) sub.add(prefix + o.rel.slice(prefix.length).split('/')[0]);
     const folders = [...sub].sort((a, b) => a.localeCompare(b)).map(f => ({ kind: 'folder' as const, unit, rel: f }));
     const objects = unit.plc.objects.filter(o => direct(o.rel)).sort((a, b) => a.name.localeCompare(b.name)).map(obj => ({ kind: 'object' as const, unit, obj }));
+    return [...folders, ...objects];
+  }
+
+  private libraryChildren(lib: LibrarySource, rel: string): Node[] {
+    const prefix = rel ? rel + '/' : '';
+    const sub = new Set<string>();
+    for (const o of lib.objects)
+      if (o.obj.folder === rel || o.obj.folder.startsWith(prefix)) {
+        const rest = o.obj.folder.slice(prefix.length);
+        if (o.obj.folder !== rel && rest) sub.add(prefix + rest.split('/')[0]);
+      }
+    const folders = [...sub].sort((a, b) => a.localeCompare(b)).map(f => ({ kind: 'libraryFolder' as const, lib, rel: f }));
+    const objects = lib.objects.filter(o => o.obj.folder === rel).sort((a, b) => a.obj.name.localeCompare(b.obj.name))
+      .map(o => ({ kind: 'libraryObject' as const, lib, key: o.key, obj: o.obj }));
     return [...folders, ...objects];
   }
 
@@ -126,9 +153,12 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       case 'reference': {
         const e = n.ref.effective;
         const lib = librariesByTitle(this.state.current.units).get(e.name.toLowerCase());
-        const it = new vscode.TreeItem(e.name, C.None);
-        it.description = lib ? `${e.version} · ⇄ workspace ${lib.plc.version}` : e.version === '*' ? '* (newest)' : e.version;
-        it.tooltip = `${e.name}, ${e.version} (${e.vendor})${n.ref.pinned ? ' · pinned resolution' : ''}`;
+        const src = lib ? undefined : this.libraries.get(e.name);
+        const it = new vscode.TreeItem(e.name, src?.objects.length ? C.Collapsed : C.None);
+        it.description = lib ? `${e.version} · ⇄ workspace ${lib.plc.version}` : e.version === '*' ? `* (newest${src?.version ? ': ' + src.version : ''})` : e.version;
+        if (src?.compiled && !src.file) it.description += ' · compiled';
+        it.tooltip = `${e.name}, ${e.version} (${e.vendor})${n.ref.pinned ? ' · pinned resolution' : ''}`
+          + (src?.file ? `\nSources: ${src.file}` : src?.compiled ? '\nCompiled library: no sources' : src?.error ? `\n${src.error}` : '');
         it.iconPath = new vscode.ThemeIcon(lib ? 'link' : 'package');
         it.contextValue = lib ? 'reference.workspace' : 'reference';
         return it;
@@ -153,12 +183,31 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
         if (!o.encrypted) it.command = { command: 'iecode.openAsST', title: 'Open', arguments: [vscode.Uri.file(o.file)] };
         return it;
       }
+      case 'libraryFolder': {
+        const it = new vscode.TreeItem(path.posix.basename(n.rel), C.Collapsed);
+        it.iconPath = vscode.ThemeIcon.Folder;
+        it.contextValue = 'libraryFolder';
+        it.id = `libfolder:${n.lib.file}:${n.rel}`;
+        return it;
+      }
+      case 'libraryObject': {
+        const o = n.obj;
+        const it = new vscode.TreeItem(o.name, hasMembers(o.type) ? C.Collapsed : C.None);
+        it.description = TYPE_SHORT[o.type];
+        it.iconPath = new vscode.ThemeIcon(TYPE_ICON[o.type]);
+        it.tooltip = `${o.name} (library ${n.lib.id.name}, read-only)`;
+        it.contextValue = `libraryObject.${o.type}`;
+        it.id = `libobj:${n.key}`;
+        it.command = { command: 'vscode.open', title: 'Open', arguments: [LibrarySources.uri(n.key)] };
+        return it;
+      }
+      case 'libraryMember':
       case 'member': {
         const m = n.member;
         const it = new vscode.TreeItem(m.name, C.None);
         it.description = m.kind === 'PROPERTY' ? `${m.signature.replace(/^PROPERTY\s+(\w+\s+)?\w+\s*/i, '')} ${[m.get && 'get', m.set && 'set'].filter(Boolean).join('/')}` : m.signature.replace(/^(METHOD|ACTION|TRANSITION)\s+(?:(PUBLIC|PRIVATE|PROTECTED|INTERNAL|ABSTRACT|FINAL)\s+)*\w+\s*/i, '');
         it.iconPath = new vscode.ThemeIcon(MEMBER_ICON[m.kind]);
-        it.contextValue = `member.${m.kind}`;
+        it.contextValue = n.kind === 'member' ? `member.${m.kind}` : `libraryMember.${m.kind}`;
         it.command = { command: 'iecode.revealMember', title: 'Open', arguments: [n] };
         return it;
       }

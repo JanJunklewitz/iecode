@@ -13,6 +13,7 @@ import {
 } from '../core/templates';
 import { addCompile, addFolder, removeCompile, removeFolder, renameObjectXml, renamePath } from '../core/plcproj';
 import { decode, encode, parseView, HEADER_RE } from '../model';
+import { LibrarySources } from '../lang/librarySources';
 
 const BUILTIN_TYPES = ['BOOL', 'BYTE', 'WORD', 'DWORD', 'LWORD', 'SINT', 'USINT', 'INT', 'UINT', 'DINT', 'UDINT', 'LINT', 'ULINT',
   'REAL', 'LREAL', 'TIME', 'LTIME', 'DATE', 'TOD', 'DT', 'STRING', 'WSTRING', 'HRESULT'];
@@ -240,6 +241,7 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
 
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.revealMember', (n: Node) => {
     if (n?.kind === 'member') return revealSection(n.obj.file, n.member.name);
+    if (n?.kind === 'libraryMember') return revealSection(LibrarySources.uri(n.key), n.member.name);
   }));
 }
 
@@ -281,8 +283,10 @@ export function removeMemberFromView(view: string, kind: string, name: string): 
   return out.join('\n');
 }
 
-async function revealSection(file: string, name: string) {
-  await vscode.commands.executeCommand('iecode.openAsST', vscode.Uri.file(file));
+/** Opens an object's ST view (a file, or a library object's iecode-lib: URI) at a member's section. */
+async function revealSection(file: string | vscode.Uri, name: string) {
+  if (typeof file === 'string') await vscode.commands.executeCommand('iecode.openAsST', vscode.Uri.file(file));
+  else await vscode.window.showTextDocument(file, { preview: false });
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
   const text = ed.document.getText();

@@ -22,7 +22,8 @@ export function repositoryPaths(): { repo?: string; folders: string[] } {
   return { repo, folders: cfg.get<string[]>('librarySources', []) };
 }
 
-async function available(): Promise<Available[]> {
+/** Libraries in the repository and the configured library folders. */
+export async function availableLibraries(): Promise<Available[]> {
   const { repo, folders } = repositoryPaths();
   const all = [...(repo ? await scanRepository(repo) : [])];
   for (const f of folders) all.push(...await scanFolder(f));
@@ -38,7 +39,7 @@ export function showLibraryManager(ctx: vscode.ExtensionContext, state: Workspac
   panel.webview.html = html(nonce, panel.webview.cspSource);
 
   const post = async () => {
-    const rows = overview(state.current, await available());
+    const rows = overview(state.current, await availableLibraries());
     const units = state.current.units.map(u => ({ id: u.id, plcFile: u.plc.file, group: u.group }));
     const { repo, folders } = repositoryPaths();
     panel?.webview.postMessage({ type: 'state', rows, units, sources: { repo, folders }, focus: focusLib });

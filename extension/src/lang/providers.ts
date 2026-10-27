@@ -7,10 +7,10 @@ import { PlcSymbol, Range } from './parser';
 import { decode } from '../model';
 import { isEncrypted } from '../core/projects';
 import { WorkspaceState } from '../state';
+import { LIB_SCHEME, LibrarySources } from './librarySources';
 
 const LANG = 'twincat-st';
 const SCHEME = 'iecode';
-const toView = (file: string) => vscode.Uri.file(file).with({ scheme: SCHEME });
 const vrange = (r: Range) => new vscode.Range(r.line, r.col, r.endLine, r.endCol);
 
 const SYMBOL_KIND: Record<string, vscode.SymbolKind> = {
@@ -30,8 +30,10 @@ const COMPLETION_KIND: Record<string, vscode.CompletionItemKind> = {
   ENUM_VALUE: vscode.CompletionItemKind.EnumMember, KEYWORD: vscode.CompletionItemKind.Keyword, TYPE: vscode.CompletionItemKind.TypeParameter,
 };
 
-export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
+export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, libraries: LibrarySources) {
   const index = new SymbolIndex();
+  const toView = (file: string) => libraries.isLibraryKey(file) ? LibrarySources.uri(file) : vscode.Uri.file(file).with({ scheme: SCHEME });
+  const libraryOf = (file: string) => index.get(file)?.library;
   const mtimes = new Map<string, number>();
   const problems = vscode.languages.createDiagnosticCollection('iecode-st');
   ctx.subscriptions.push(problems);
@@ -52,6 +54,26 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
       } catch { /* unreadable or not an ST object: skip */ }
     }
   };
+
+  /** Index the sources of referenced libraries (read-only, replaced as a whole when they change). */
+  const libKeys = new Set<string>();
+  const reindexLibraries = () => {
+    const now = new Set<string>();
+    for (const { key, library } of libraries.keys()) {
+      now.add(key);
+      if (libKeys.has(key)) continue;
+      try {
+        const v = libraries.view(key);
+        if (v) index.update(key, v.text, library);
+      } catch { /* not decodable: skip */ }
+    }
+    for (const k of libKeys) if (!now.has(k)) index.remove(k);
+    libKeys.clear();
+    now.forEach(k => libKeys.add(k));
+    index.setNamespaces(libraries.namespaces());
+  };
+  // a library may have been rebuilt with the same path: drop everything and index again
+  libraries.onDidChange(() => { for (const k of libKeys) index.remove(k); libKeys.clear(); reindexLibraries(); });
 
   /** Keep the open (possibly unsaved) document as the source of truth for its file. */
   const fromDoc = (doc: vscode.TextDocument) => {
@@ -75,7 +97,7 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     fromDoc(doc);
     return index.resolve(doc.uri.fsPath, p.line, p.character);
   };
-  const selector: vscode.DocumentSelector = { language: LANG, scheme: SCHEME };
+  const selector: vscode.DocumentSelector = [{ language: LANG, scheme: SCHEME }, { language: LANG, scheme: LIB_SCHEME }];
 
   ctx.subscriptions.push(
     vscode.languages.registerDefinitionProvider(selector, {
@@ -102,7 +124,8 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
         const s = l.symbol;
         const md = new vscode.MarkdownString();
         md.appendCodeblock(hoverText(s, l.owner), LANG);
-        md.appendMarkdown(`\n${s.kind.toLowerCase().replace('_', ' ')}${l.owner ? ` of **${l.owner.name}**` : ''}`);
+        const lib = libraryOf(l.file);
+        md.appendMarkdown(`\n${s.kind.toLowerCase().replace('_', ' ')}${l.owner ? ` of **${l.owner.name}**` : ''}${lib ? ` · library ${lib}` : ''}`);
         return new vscode.Hover(md);
       },
     }),
@@ -123,6 +146,8 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
       prepareRename(doc, p) {
         const l = at(doc, p);
         if (!l) throw new Error('Nothing to rename here.');
+        const lib = libraryOf(l.file);
+        if (lib) throw new Error(`${l.symbol.name} is declared in library ${lib} (read-only).`);
         if (!['VARIABLE', 'FIELD', 'METHOD', 'PROPERTY', 'ACTION', 'ENUM_VALUE'].includes(l.symbol.kind))
           throw new Error('Rename objects (POUs, DUTs, GVLs) from the IECode project tree.');
         const w = doc.getWordRangeAtPosition(p);
@@ -133,7 +158,7 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
         const l = at(doc, p);
         if (!l) return;
         const edit = new vscode.WorkspaceEdit();
-        for (const r of index.references(l)) edit.replace(toView(r.file), vrange(r.range), newName);
+        for (const r of index.references(l)) if (!libraryOf(r.file)) edit.replace(toView(r.file), vrange(r.range), newName);
         return edit;
       },
     }),
@@ -148,7 +173,7 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
             if (!q || s.name.toLowerCase().includes(q))
               out.push(new vscode.SymbolInformation(s.name, SYMBOL_KIND[s.kind], container, new vscode.Location(toView(o.file), vrange(s.range))));
           };
-          add(o.root, '');
+          add(o.root, o.library ?? '');
           for (const c of o.root.children) if (c.kind !== 'VARIABLE' || o.root.kind === 'GVL') add(c, o.root.name);
           if (out.length > 500) break;
         }

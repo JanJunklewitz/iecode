@@ -46,6 +46,7 @@
     "onFileSystem:iecode-rev",
     "onFileSystem:iecode-src",
     "onFileSystem:iecode-io",
+    "onFileSystem:iecode-lib",
     "onCustomEditor:iecode.visuEditor",
     "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,plcproj,tsproj,tspproj}"
   ],
