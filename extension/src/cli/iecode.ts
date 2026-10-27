@@ -24,7 +24,7 @@ export const output = vscode.window.createOutputChannel('IECode');
 export const cliAvailable = () => process.platform === 'win32';
 
 function cliPath(): string {
-  return vscode.workspace.getConfiguration('iecode').get<string>('cliPath', '').trim() || 'iecode';
+  return customCliPath() ?? 'iecode';
 }
 
 /** Global options from settings, e.g. --tc 4024.66. */
@@ -88,13 +88,17 @@ const INSTALL_DIR = path.join(process.env.LOCALAPPDATA ?? '', 'iecode');
 
 /**
  * VS Code keeps the PATH it was started with, so a CLI installed while it runs isn't found by name.
- * Adds the install folder to this process's PATH when the CLI is there.
+ * Adds the install folder to the end of this process's PATH when the CLI is there, so an iecode found
+ * earlier on PATH (e.g. the NuGet tool or a dev build) still wins.
  */
 export function useInstallDir() {
   if (!existsSync(path.join(INSTALL_DIR, 'iecode.exe'))) return;
   const dirs = (process.env.PATH ?? '').split(path.delimiter);
-  if (!dirs.some(d => d.toLowerCase() === INSTALL_DIR.toLowerCase())) process.env.PATH = [INSTALL_DIR, ...dirs].join(path.delimiter);
+  if (!dirs.some(d => d.toLowerCase() === INSTALL_DIR.toLowerCase())) process.env.PATH = [...dirs, INSTALL_DIR].join(path.delimiter);
 }
+
+/** The iecode.cliPath setting, when set (installing doesn't fix a wrong one). */
+export const customCliPath = () => vscode.workspace.getConfiguration('iecode').get<string>('cliPath', '').trim() || undefined;
 
 /** True if the configured CLI starts (`iecode --version`). */
 export function cliInstalled(): Promise<boolean> {

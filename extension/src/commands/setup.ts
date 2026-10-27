@@ -2,7 +2,7 @@
 // Viewing, editing and comparing objects as ST need no setup; this is for build, activate and libraries.
 
 import * as vscode from 'vscode';
-import { cliAvailable, cliInstalled, installCli, output, runCli } from '../cli/iecode';
+import { cliAvailable, cliInstalled, customCliPath, installCli, output, runCli } from '../cli/iecode';
 
 const OFFERED = 'iecode.setupOffered';
 
@@ -12,6 +12,12 @@ async function setUp(): Promise<void> {
     return;
   }
   if (!await cliInstalled()) {
+    // installing wouldn't help: the check (and every CLI call) uses that setting
+    const custom = customCliPath();
+    if (custom) {
+      vscode.window.showErrorMessage(`IECode: the CLI set in iecode.cliPath ("${custom}") doesn't start. Fix or clear that setting, then run the setup again.`);
+      return;
+    }
     const pick = await vscode.window.showInformationMessage(
       'Set up IECode on this PC? This installs the iecode CLI for your user from the latest GitHub release (downloads, checks SHA256, adds it to PATH) and then checks the TwinCAT installation.',
       { modal: true }, 'Set up');
