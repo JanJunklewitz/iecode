@@ -38,6 +38,43 @@ public sealed class Git
     /// <summary>File content at a commit, or null if the file didn't exist there.</summary>
     public string? Show(string gitRef, string path) => Run(Root, "show", $"{gitRef}:{Rel(path)}");
 
+    /// <summary>Contents of many files at a commit with one git call; files missing at that commit are left out.</summary>
+    public IReadOnlyDictionary<string, string> ShowMany(string gitRef, IReadOnlyList<string> paths)
+    {
+        var result = new Dictionary<string, string>();
+        if (paths.Count == 0) return result;
+        var psi = new ProcessStartInfo("git") { WorkingDirectory = Root, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        psi.ArgumentList.Add("cat-file");
+        psi.ArgumentList.Add("--batch");
+        using var p = Process.Start(psi)!;
+        var errors = p.StandardError.ReadToEndAsync();
+        var input = Task.Run(() =>
+        {
+            foreach (var path in paths) p.StandardInput.Write($"{gitRef}:{Rel(path)}\n");
+            p.StandardInput.Close();
+        });
+        using var data = new MemoryStream();
+        p.StandardOutput.BaseStream.CopyTo(data);
+        input.Wait();
+        p.WaitForExit();
+        _ = errors.Result;
+        var bytes = data.GetBuffer().AsSpan(0, (int)data.Length);
+        var pos = 0;
+        foreach (var path in paths)
+        {
+            var nl = bytes[pos..].IndexOf((byte)'\n');
+            if (nl < 0) break;
+            var header = System.Text.Encoding.UTF8.GetString(bytes.Slice(pos, nl));
+            pos += nl + 1;
+            var blob = header.LastIndexOf(" blob ", StringComparison.Ordinal);
+            if (blob < 0) continue;                       // "<object> missing" (or not a file)
+            var size = int.Parse(header[(blob + 6)..], System.Globalization.CultureInfo.InvariantCulture);
+            result[path] = System.Text.Encoding.UTF8.GetString(bytes.Slice(pos, size));
+            pos += size + 1;
+        }
+        return result;
+    }
+
     /// <summary>Files below a folder at a commit, relative to that folder.</summary>
     public IReadOnlyList<string> FilesAt(string gitRef, string folder)
     {
