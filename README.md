@@ -21,7 +21,7 @@ an odd minor number (0.1.x, 0.3.x …) are pre-releases; if VS Code offers it, p
 Or install the `.vsix` from [GitHub Releases](https://github.com/JanJunklewitz/iecode/releases):
 
 ```powershell
-code --install-extension iecode-0.1.2.vsix
+code --install-extension iecode-0.2.0.vsix
 ```
 
 That's all you need to view, edit and compare TwinCAT files as Structured Text.
@@ -47,7 +47,7 @@ Other ways:
 | NuGet / TwinCAT Package Manager | `IECode.Cli` from the GitHub Packages feed `https://nuget.pkg.github.com/JanJunklewitz/index.json` | central distribution in a team (the feed needs a GitHub token) |
 | GitHub Actions | `uses: JanJunklewitz/iecode/setup-iecode@v0` | CI on Windows runners |
 
-A specific version: `& ([scriptblock]::Create((irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1))) -Version 0.1.2`.
+A specific version: `& ([scriptblock]::Create((irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1))) -Version 0.2.0`.
 
 ## Requirements
 

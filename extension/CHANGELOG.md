@@ -2,6 +2,15 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.0
+
+First stable release, with everything from the 0.1.x pre-releases.
+
+### Security
+- Git refs that start with `-` (compare with a commit, `iecode-st --rev`, `iecode build --affected --since`) are refused instead of being passed to git, where they would be read as options.
+- `iecode.cliPath` can only be set in user (machine) settings, not by a workspace's `.vscode/settings.json`; the extension states that it doesn't run in Restricted Mode.
+- `.library` archives are inflated only up to the size they declare.
+
 ## 0.1.2 (pre-release)
 
 ### Libraries
