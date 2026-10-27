@@ -6,6 +6,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 - **ADS Interface** (Projects view title menu, or right-click a project): the symbols an HMI or other ADS client can access by name, without running the PLC. From the build output (`<PLC>.tmc`, exact, reloads when a build finishes, warns when the sources are newer) or straight from the source code (working copy or any commit). Compare any two, filter, expand members, export CSV, save a JSON snapshot for `iecode ads diff --fail-on-change`.
 
+- **Source Control diffs as ST**: clicking a changed `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` in the Source Control view shows both sides as Structured Text instead of XML (follows `iecode.openAsST`).
+- **Show ST in git diff** also sets up `git difftool -t iecode`, which opens the ST views in the configured graphical diff tool (e.g. KDiff3). The git config now points to a copy of the CLI outside the versioned extension folder, so it keeps working after extension updates; run the command again once in clones set up with 0.1.0.
+
 ## 0.1.0 (pre-release)
 
 First public pre-release.

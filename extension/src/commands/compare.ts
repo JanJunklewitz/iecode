@@ -6,15 +6,21 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { decode } from '../model';
 import { isEncrypted } from '../core/projects';
-import { config, log, repoRoot, show } from '../core/git';
+import { config, getConfig, log, repoRoot, show } from '../core/git';
 
 export const REV_SCHEME = 'iecode-rev';
+export const SRC_SCHEME = 'iecode-src';
 const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO)$/i;
+const OWN_SCHEMES = ['iecode', REV_SCHEME, SRC_SCHEME];
 
 /** iecode-rev:/path/X.TcPOU?ref=<commit> shows the ST view of the file at that commit. */
 const revUri = (file: string, ref: string, label: string) =>
   vscode.Uri.file(file).with({ scheme: REV_SCHEME, query: new URLSearchParams({ ref, label }).toString() });
 const viewUri = (file: string) => vscode.Uri.file(file).with({ scheme: 'iecode' });
+/** iecode-src:/path/X.TcPOU?src=<uri> shows the ST view of any readable URI (e.g. git: from the Source Control view). */
+const srcUri = (src: vscode.Uri) => src.with({ scheme: SRC_SCHEME, query: new URLSearchParams({ src: src.toString() }).toString() });
+/** ST side of a diff: the editable view for working-tree files, a read-only view for everything else. */
+const stSide = (u: vscode.Uri) => (u.scheme === 'file' ? viewUri(u.fsPath) : srcUri(u));
 
 function toView(xml: string): string {
   if (isEncrypted(xml)) return '(* encrypted object – content not available *)\n';
@@ -40,7 +46,20 @@ async function pickCommit(root: string, file: string, title: string) {
   return pick?.c;
 }
 
+/**
+ * Copy of the compiled CLI outside the versioned extension folder, so the git config written by
+ * setupGitDiff stays valid after an extension update. Refreshed on every activation once it exists.
+ */
+const cliDir = (ctx: vscode.ExtensionContext) => path.join(ctx.globalStorageUri.fsPath, 'cli');
+async function installCli(ctx: vscode.ExtensionContext): Promise<string> {
+  const dir = cliDir(ctx);
+  await fs.rm(dir, { recursive: true, force: true });
+  await fs.cp(path.join(ctx.extensionPath, 'out', 'src'), dir, { recursive: true });
+  return path.join(dir, 'cli.js').split(path.sep).join('/');
+}
+
 export function register(ctx: vscode.ExtensionContext) {
+  void fs.access(cliDir(ctx)).then(() => installCli(ctx), () => undefined).catch(() => undefined);
   ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(REV_SCHEME, {
     async provideTextDocumentContent(uri) {
       const ref = new URLSearchParams(uri.query).get('ref') ?? 'HEAD';
@@ -49,6 +68,38 @@ export function register(ctx: vscode.ExtensionContext) {
       const xml = await show(root, ref, uri.fsPath);
       return xml === undefined ? `(* ${path.basename(uri.fsPath)} doesn't exist in ${ref} *)\n` : toView(xml);
     },
+  }));
+  ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
+    async provideTextDocumentContent(uri) {
+      const src = vscode.Uri.parse(new URLSearchParams(uri.query).get('src') ?? '');
+      const xml = Buffer.from(await vscode.workspace.fs.readFile(src)).toString('utf8');
+      // git: returns empty content for a side where the file doesn't exist (added / deleted)
+      return xml.trim() === '' ? '' : toView(xml);
+    },
+  }));
+
+  // Source Control view (and any other diff of two object files): show both sides as ST instead of XML.
+  ctx.subscriptions.push(vscode.window.tabGroups.onDidChangeTabs(async e => {
+    if (!vscode.workspace.getConfiguration('iecode').get<boolean>('openAsST', true)) return;
+    for (const tab of e.opened) {
+      const input = tab.input;
+      if (!(input instanceof vscode.TabInputTextDiff)) continue;
+      const { original, modified } = input;
+      if (!EXT_RE.test(original.path) || !EXT_RE.test(modified.path)) continue;
+      if (OWN_SCHEMES.includes(original.scheme) && OWN_SCHEMES.includes(modified.scheme)) continue;
+      try {
+        await vscode.commands.executeCommand('vscode.diff', stSide(original), stSide(modified), `${tab.label} (ST)`,
+          { viewColumn: tab.group.viewColumn, preview: tab.isPreview });
+      } catch (err) {
+        vscode.window.showWarningMessage(`IECode: cannot show the diff as ST: ${(err as Error).message}`);
+        continue;
+      }
+      // a preview tab may already have been replaced by the ST diff
+      const same = (t: vscode.Tab) => t.input instanceof vscode.TabInputTextDiff
+        && t.input.original.toString() === original.toString() && t.input.modified.toString() === modified.toString();
+      const still = tab.group.tabs.find(same);
+      if (still) await vscode.window.tabGroups.close(still);
+    }
   }));
 
   const title = (file: string, left: string, right: string) => `${path.basename(file).replace(EXT_RE, '')} (ST): ${left} ↔ ${right}`;
@@ -110,11 +161,15 @@ export function register(ctx: vscode.ExtensionContext) {
     const root = folder && await needRepo(folder);
     if (!root) return;
     const ok = await vscode.window.showInformationMessage(
-      `Show TwinCAT objects as ST in git diff / git log -p for ${path.basename(root)}? This adds lines to .gitattributes and sets diff.iecode.textconv in the repository's git config.`,
+      `Show TwinCAT objects as ST in git diff / git log -p / git difftool for ${path.basename(root)}? This adds lines to .gitattributes and sets diff.iecode.textconv and difftool.iecode.cmd in the repository's git config.`,
       { modal: true }, 'Set up');
     if (ok !== 'Set up') return;
-    const cli = path.join(ctx.extensionPath, 'out', 'src', 'cli.js');
+    const cli = await installCli(ctx);
     await config(root, 'diff.iecode.textconv', `node "${cli}" decode`);
+    // git difftool ignores textconv: wrap the configured graphical diff tool (e.g. KDiff3) instead
+    const tool = await getConfig(root, 'diff.guitool') ?? await getConfig(root, 'diff.tool');
+    const viewer = tool && tool !== 'iecode' ? await getConfig(root, `difftool.${tool}.path`) : undefined;
+    if (viewer) await config(root, 'difftool.iecode.cmd', `node "${cli}" difftool "${viewer.replace(/\\/g, '/')}" "$LOCAL" "$REMOTE"`);
     const attrs = path.join(root, '.gitattributes');
     const existing = await fs.readFile(attrs, 'utf8').catch(() => '');
     const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
@@ -123,6 +178,8 @@ export function register(ctx: vscode.ExtensionContext) {
       const sep = existing === '' ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
       await fs.writeFile(attrs, existing + sep + block, 'utf8');
     }
-    vscode.window.showInformationMessage('IECode: git diff now shows ST for TwinCAT objects. The textconv setting is local to this clone; commit .gitattributes to share the pattern.');
+    vscode.window.showInformationMessage('IECode: git diff now shows ST for TwinCAT objects'
+      + (viewer ? `; git difftool -t iecode shows ST in ${tool}` : '; no difftool with a path is configured, so git difftool still shows XML')
+      + '. The git config is local to this clone; commit .gitattributes to share the pattern.');
   });
 }

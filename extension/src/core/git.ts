@@ -54,3 +54,7 @@ export async function filesAt(root: string, ref: string, dir: string, exts: stri
 
 /** Sets a git config value in the repository. */
 export const config = (root: string, key: string, value: string) => git(root, ['config', key, value]).then(() => undefined);
+
+/** Effective git config value in the repository (local, global or system), or undefined if unset. */
+export const getConfig = (root: string, key: string) =>
+  git(root, ['config', '--get', key]).then(v => v.trim() || undefined, () => undefined);

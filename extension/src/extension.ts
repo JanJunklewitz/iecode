@@ -102,7 +102,7 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   // Give every iecode: document the ST language (also restored tabs after reload).
   const setLang = (d: vscode.TextDocument) => {
-    if ((d.uri.scheme === SCHEME || d.uri.scheme === 'iecode-rev') && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
+    if ([SCHEME, compare.REV_SCHEME, compare.SRC_SCHEME].includes(d.uri.scheme) && d.languageId !== LANG) vscode.languages.setTextDocumentLanguage(d, LANG);
   };
   vscode.workspace.textDocuments.forEach(setLang);
   ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(setLang));

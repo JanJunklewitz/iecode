@@ -62,6 +62,16 @@ export async function run(): Promise<void> {
   assert.ok(rev.getText().includes('Start := TRUE;') && !rev.getText().includes('CDATA'), 'HEAD shown as ST');
   await vscode.commands.executeCommand('iecode.compareWithHead', vscode.Uri.file(path));
 
+  // a diff from the Source Control view (git: ↔ file:) is replaced by the ST diff
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  await vscode.commands.executeCommand('git.openChange', vscode.Uri.file(path));
+  await new Promise(r => setTimeout(r, 2500));
+  const scm = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  assert.ok(scm instanceof vscode.TabInputTextDiff, 'SCM diff open');
+  assert.deepEqual([scm.original.scheme, scm.modified.scheme], ['iecode-src', 'iecode'], 'SCM diff redirected to ST');
+  const left = await vscode.workspace.openTextDocument(scm.original);
+  assert.ok(left.getText().includes('Start := TRUE;') && !left.getText().includes('CDATA'), 'SCM diff original shown as ST');
+
   // IO links of the fixture project
   const { linksAt } = await import('../../src/core/iohistory');
   const links = await linksAt(join(ws, 'ws/apps/MachineX/MachineX/MachineX.tsproj'), undefined);
