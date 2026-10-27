@@ -9,7 +9,7 @@
     <Company>IECode</Company>
     <Product>IECode</Product>
     <Copyright>Copyright 2026 Jan Junklewitz and the IECode contributors</Copyright>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/JanJunklewitz/iecode</RepositoryUrl>
     <!-- Lets the Windows-only projects compile on macOS / Linux (they only run on Windows). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>

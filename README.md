@@ -31,7 +31,7 @@ systems first. The software is provided "AS IS", without warranties of any kind.
 
 ## License
 
-[Apache License 2.0](LICENSE). See [NOTICE](NOTICE). Contributions require a DCO sign-off, see
+[MIT License](LICENSE). See [NOTICE](NOTICE). Contributions require a DCO sign-off, see
 [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 
 ## Trademarks
