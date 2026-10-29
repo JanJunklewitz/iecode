@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.1
+
+### Documentation
+- The README shows the main features as animated GIFs (ST view of the TwinCAT XML, completion and go to definition, project view and ST diffs), plus badges for CI, the latest release, the Marketplace version and the license.
+
 ## 0.2.0
 
 First stable release, with everything from the 0.1.x pre-releases.
