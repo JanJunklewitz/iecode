@@ -7,3 +7,4 @@ tsconfig.json
 scripts/**
 samples/**
 resources/icon.svg
+images/**

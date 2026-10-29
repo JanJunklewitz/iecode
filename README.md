@@ -1,7 +1,23 @@
 # IECode
 
+[![CI](https://github.com/JanJunklewitz/iecode/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JanJunklewitz/iecode/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/JanJunklewitz/iecode?label=release)](https://github.com/JanJunklewitz/iecode/releases/latest)
+[![VS Marketplace](https://vsmarketplacebadges.dev/version-short/iecode.iecode.svg)](https://marketplace.visualstudio.com/items?itemName=iecode.iecode)
+[![License: MIT](https://img.shields.io/github/license/JanJunklewitz/iecode)](https://github.com/JanJunklewitz/iecode/blob/main/LICENSE)
+
 Structured Text for TwinCAT in VS Code, plus a command-line tool for builds, libraries and deployment.
 Open source, built to support other IEC 61131-3 platforms (CODESYS, Siemens) later.
+
+![A .TcPOU file shown as TwinCAT XML, then opened as plain Structured Text with methods, properties and actions as sections](extension/images/st-view.gif)
+
+<details>
+<summary>More: completion and go to definition, project view and ST diffs</summary>
+
+![Typing fbMotor. offers the members of FB_Motor; F12 on Start jumps to the method in FB_Motor](extension/images/language-features.gif)
+
+![The IECode Projects view expanded down to the members of FB_Motor, then an ST diff of MAIN against HEAD](extension/images/projects-compare.gif)
+
+</details>
 
 | Folder | What it is | Runs on |
 |---|---|---|
@@ -21,7 +37,7 @@ an odd minor number (0.1.x, 0.3.x …) are pre-releases; if VS Code offers it, p
 Or install the `.vsix` from [GitHub Releases](https://github.com/JanJunklewitz/iecode/releases):
 
 ```powershell
-code --install-extension iecode-0.2.0.vsix
+code --install-extension iecode-0.2.1.vsix
 ```
 
 That's all you need to view, edit and compare TwinCAT files as Structured Text.
@@ -47,7 +63,7 @@ Other ways:
 | NuGet / TwinCAT Package Manager | `IECode.Cli` from the GitHub Packages feed `https://nuget.pkg.github.com/JanJunklewitz/index.json` | central distribution in a team (the feed needs a GitHub token) |
 | GitHub Actions | `uses: JanJunklewitz/iecode/setup-iecode@v0` | CI on Windows runners |
 
-A specific version: `& ([scriptblock]::Create((irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1))) -Version 0.2.0`.
+A specific version: `& ([scriptblock]::Create((irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1))) -Version 0.2.1`.
 
 ## Requirements
 
