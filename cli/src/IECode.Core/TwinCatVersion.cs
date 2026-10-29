@@ -61,5 +61,14 @@ public sealed partial record TwinCatVersion(int? Build, int? Revision)
             .FirstOrDefault() ?? "TwinCAT PLC Control";
     }
 
+    /// <summary>
+    /// Profile name of a file in a RepTool <c>Profiles</c> folder: "&lt;name&gt;.profile" (4024) or "&lt;name&gt;.profile.xml"
+    /// (4026); null for other files.
+    /// </summary>
+    public static string? RepToolProfileName(string fileName) =>
+        fileName.EndsWith(".profile.xml", StringComparison.OrdinalIgnoreCase) ? fileName[..^".profile.xml".Length]
+        : fileName.EndsWith(".profile", StringComparison.OrdinalIgnoreCase) ? fileName[..^".profile".Length]
+        : null;
+
     public override string ToString() => IsAuto ? "auto" : Revision is null ? $"3.1.{Build}" : $"3.1.{Build}.{Revision}";
 }

@@ -54,6 +54,14 @@ public class TwinCatVersionTests
         Assert.Equal("TwinCAT PLC Control_Build_4026.12", TwinCatVersion.PickRepToolProfile(profiles, TwinCatVersion.Auto));
         Assert.Equal("TwinCAT PLC Control", TwinCatVersion.PickRepToolProfile(profiles, TwinCatVersion.Parse("4022")));
     }
+
+    [Theory]
+    [InlineData("TwinCAT PLC Control_Build_4024.66.profile", "TwinCAT PLC Control_Build_4024.66")]
+    [InlineData("TwinCAT PLC Control_Build_4026.24.profile.xml", "TwinCAT PLC Control_Build_4026.24")]
+    [InlineData("TwinCAT PLC Control.xml", null)]
+    [InlineData("GLOBAL.dependencies", null)]
+    public void ReadsRepToolProfileFileNames(string file, string? expected) =>
+        Assert.Equal(expected, TwinCatVersion.RepToolProfileName(file));
 }
 
 public class ProtectionSpecTests
@@ -101,5 +109,85 @@ public class BuildSummaryTests
                                                "========== Build: 1 succeeded, 0 failed, 0 up-to-date, 0 skipped ==========")!.Failed);
 
     [Fact]
+    public void ParsesSucceededOrUpToDate() =>
+        Assert.Equal(new BuildSummary(1, 2, 0, 0),
+            BuildSummary.TryParse("========== Build: 1 succeeded or up-to-date, 2 failed, 0 skipped =========="));
+
+    [Fact]
     public void NoSummaryIsNull() => Assert.Null(BuildSummary.TryParse("Build started..."));
+}
+
+public class BuildOutputTests
+{
+    // Line formats of the TcXaeShell 15 (TwinCAT 3.1.4024) Build pane
+    private const string Output =
+        "------ Build started: Project: PLC1, Configuration: Debug TwinCAT RT (x64) ------\r\n" +
+        "------ Build started: Application: MachineX.PLC1 -------\r\n" +
+        "typify code ...\r\n" +
+        "PLC1.Library Manager : error: Could not open library '#Tc3_MotorLib'. (Reason: The library 'Tc3_MotorLib, 1.2.0.0 (Example)' has not been installed to the system.)\r\n" +
+        "PLC1.Library Manager : warning: Library tc3_motorlib, 1.2.0.0 (example) has not been added to the Library Manager, or no valid license could be found\r\n" +
+        "FB_Axis(46) : error: Unknown type: 'Tc3_MotorLib.FB_Motor' [tc3_axislib, 1.0.0.0 (example)]\r\n" +
+        @"C:\W\MachineX\PLC1\VISUs\Visu.TcVIS : error: Unknown type: 'Tc3_MotorLib.VI_Motor__vis'" + "\r\n" +
+        @"C:\W\MachineX\PLC1\POUs\FB_Motor.TcPOU;FB_Motor\M_Start(4) : error: C0077: Unknown type: 'fSped'" + "\r\n" +
+        @"C:\W\MachineX\PLC1\POUs\FB_Motor.TcPOU(47) : message: Related Position" + "\r\n" +
+        "PLC.PLC1 : message: generate boot information...\r\n" +
+        "Compile complete -- 3 errors, 1 warnings\r\n" +
+        "Build complete -- 3 errors, 1 warnings : no download possible!\r\n" +
+        "------ Build started: Project: MachineX, Configuration: Debug TwinCAT RT (x64) ------\r\n" +
+        "Error: The operation could not be completed. Unbekannter Fehler \r\n" +
+        "========== Build: 1 succeeded or up-to-date, 2 failed, 0 skipped ==========\r\n";
+
+    private static readonly List<Diagnostic> Parsed = BuildOutput.Parse(Output);
+
+    [Fact]
+    public void FindsErrorsAndWarningsButNotMessagesOrSummaries()
+    {
+        Assert.Equal(5, Parsed.Count(d => d.Severity == Severity.Error));
+        Assert.Equal(1, Parsed.Count(d => d.Severity == Severity.Warning));
+        Assert.Equal(6, Parsed.Count);
+    }
+
+    [Fact]
+    public void LibraryManagerKeepsItsOrigin()
+    {
+        var d = Parsed[0];
+        Assert.StartsWith("PLC1.Library Manager: Could not open library '#Tc3_MotorLib'.", d.Message);
+        Assert.Null(d.File);
+        Assert.Equal("PLC1", d.Project);
+    }
+
+    [Fact]
+    public void ObjectWithLine() =>
+        Assert.Equal(new Diagnostic(Severity.Error, "FB_Axis: Unknown type: 'Tc3_MotorLib.FB_Motor' [tc3_axislib, 1.0.0.0 (example)]",
+            Project: "PLC1", Line: 46), Parsed[2]);
+
+    [Fact]
+    public void FileWithoutLine() =>
+        Assert.Equal(new Diagnostic(Severity.Error, "Unknown type: 'Tc3_MotorLib.VI_Motor__vis'",
+            File: @"C:\W\MachineX\PLC1\VISUs\Visu.TcVIS", Project: "PLC1"), Parsed[3]);
+
+    [Fact]
+    public void FileWithObjectLineAndCode() =>
+        Assert.Equal(new Diagnostic(Severity.Error, @"FB_Motor\M_Start: Unknown type: 'fSped'", "C0077",
+            @"C:\W\MachineX\PLC1\POUs\FB_Motor.TcPOU", "PLC1", 4), Parsed[4]);
+
+    [Fact]
+    public void BareErrorBelongsToTheNextProject()
+    {
+        Assert.Equal("The operation could not be completed. Unbekannter Fehler", Parsed[5].Message);
+        Assert.Equal("MachineX", Parsed[5].Project);
+    }
+
+    [Fact]
+    public void LibraryManagerBelongsToItsProjectEvenBeforeItsHeader()
+    {
+        var d = BuildOutput.Parse(
+            "------ Build started: Project: PLC2, Configuration: Debug TwinCAT RT (x64) ------\r\n" +
+            "PLC1.Library Manager : error: Could not open library '#Tc3_MotorLib'.\r\n" +
+            "------ Build started: Project: PLC1, Configuration: Debug TwinCAT RT (x64) ------\r\n");
+        Assert.Equal("PLC1", Assert.Single(d).Project);
+    }
+
+    [Fact]
+    public void SplitsCode() => Assert.Equal(("C0032", "Cannot convert type"), BuildOutput.SplitCode("C0032: Cannot convert type"));
 }

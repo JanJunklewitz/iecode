@@ -9,9 +9,26 @@ public sealed record InstalledLibrary(string Name, string Version, string Vendor
 /// </summary>
 public static class LibraryRepository
 {
-    /// <summary>Default repository of a TwinCAT installation.</summary>
-    public static string? DefaultPath(string? twinCatDir) =>
-        twinCatDir is null ? null : System.IO.Path.Combine(twinCatDir, "Components", "Plc", "Managed Libraries");
+    /// <summary>Default repository of a TwinCAT installation: the first of <see cref="Candidates"/> that exists, else the first one.</summary>
+    public static string? DefaultPath(string? twinCatDir)
+    {
+        var candidates = Candidates(twinCatDir, Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+        return candidates.FirstOrDefault(Directory.Exists) ?? candidates.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Where TwinCAT keeps its system repository: <c>%ProgramData%\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries</c>
+    /// since 4026 (shared by all builds of the Remote Manager), <c>&lt;TwinCAT&gt;\Components\Plc\Managed Libraries</c> before.
+    /// </summary>
+    public static IReadOnlyList<string> Candidates(string? twinCatDir, string? programData)
+    {
+        var list = new List<string>();
+        if (!string.IsNullOrEmpty(programData))
+            list.Add(System.IO.Path.Combine(programData, "Beckhoff", "TwinCAT", "PlcEngineering", "Managed Libraries"));
+        if (!string.IsNullOrEmpty(twinCatDir))
+            list.Add(System.IO.Path.Combine(twinCatDir, "Components", "Plc", "Managed Libraries"));
+        return list;
+    }
 
     public static IReadOnlyList<InstalledLibrary> Scan(string root)
     {
