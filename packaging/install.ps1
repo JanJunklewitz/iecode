@@ -26,12 +26,15 @@ $base = if ($Version -eq 'latest') { "https://github.com/$Repository/releases/la
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("iecode-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-  Write-Host "● Reading release $Version from $Repository…"
-  $sums = (Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing).Content -split "`n" | Where-Object { $_ -match 'iecode-.*-win-x64\.zip' }
+  Write-Host "● Reading release $Version from ${Repository}…"
+  # GitHub serves release assets as application/octet-stream, so .Content would be a byte array: read the file instead
+  $sumsFile = Join-Path $tmp 'SHA256SUMS'
+  Invoke-WebRequest "$base/SHA256SUMS" -OutFile $sumsFile -UseBasicParsing
+  $sums = Get-Content $sumsFile | Where-Object { $_ -match 'iecode-.*-win-x64\.zip' }
   if (-not $sums) { throw "No win-x64 zip listed in SHA256SUMS of release $Version." }
   $hash, $zip = ($sums | Select-Object -First 1).Trim() -split '\s+', 2
 
-  Write-Host "● Downloading $zip…"
+  Write-Host "● Downloading ${zip}…"
   $file = Join-Path $tmp $zip
   Invoke-WebRequest "$base/$zip" -OutFile $file -UseBasicParsing
   $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
