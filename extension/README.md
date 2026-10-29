@@ -1,11 +1,26 @@
 # IECode – Structured Text for TwinCAT
 
+[![CI](https://github.com/JanJunklewitz/iecode/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JanJunklewitz/iecode/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/JanJunklewitz/iecode?label=release)](https://github.com/JanJunklewitz/iecode/releases/latest)
+[![VS Marketplace](https://vsmarketplacebadges.dev/version-short/iecode.iecode.svg)](https://marketplace.visualstudio.com/items?itemName=iecode.iecode)
+[![License: MIT](https://img.shields.io/github/license/JanJunklewitz/iecode)](https://github.com/JanJunklewitz/iecode/blob/main/LICENSE)
+
 Edit TwinCAT 3 `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files as plain Structured Text in VS Code, browse and extend
 PLC projects, work with several libraries and applications in one workspace, and build / deploy through the
 [`iecode` CLI](../cli/README.md).
 
 **No export/import, no `.st` files on disk.** The TwinCAT XML file stays the only source of truth;
 VS Code shows a live text view of it and saving writes your text back into the XML file.
+
+![A .TcPOU file shown as TwinCAT XML, then opened as plain Structured Text with methods, properties and actions as sections](https://github.com/JanJunklewitz/iecode/raw/HEAD/extension/images/st-view.gif)
+
+Completion after `.`, go to definition across objects, and saving straight back into the `.TcPOU`:
+
+![Typing fbMotor. offers the members of FB_Motor; F12 on Start jumps to the method in FB_Motor](https://github.com/JanJunklewitz/iecode/raw/HEAD/extension/images/language-features.gif)
+
+The **IECode** view shows libraries, applications, objects and members; **Compare with HEAD (ST)** diffs the ST, not the XML:
+
+![The IECode Projects view expanded down to the members of FB_Motor, then an ST diff of MAIN against HEAD](https://github.com/JanJunklewitz/iecode/raw/HEAD/extension/images/projects-compare.gif)
 
 ```
 FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
