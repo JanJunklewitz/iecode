@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.3
+
+### Installation
+- `install.ps1` (the PowerShell one-liner, **IECode: Set up this PC** and the `setup-iecode` action) installs the CLI: it read the release's `SHA256SUMS` as bytes instead of text and reported "No win-x64 zip listed in SHA256SUMS". Its messages show the repository and file names in Windows PowerShell 5.1 too.
+
 ## 0.2.2
 
 ### CLI
