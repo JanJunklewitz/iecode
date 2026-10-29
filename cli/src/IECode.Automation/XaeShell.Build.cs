@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 using IECode.Automation.Interop;
 using IECode.Core;
 
@@ -83,9 +82,10 @@ public sealed partial class XaeShell
         _log.ClearStatus();
 
         var failedProjects = ComCall.Retry(() => (int)b.LastBuildInfo);
-        var diags = ReadErrorList();
+        var output = ReadOutputPane("Build");
+        var diags = ReadErrorList() ?? BuildOutput.Parse(output);
         foreach (var d in diags) _log.Add(d);
-        var summary = BuildSummary.TryParse(ReadOutputPane("Build"));
+        var summary = BuildSummary.TryParse(output);
         var errors = diags.Count(d => d.Severity == Severity.Error);
         var ok = failedProjects == 0 && errors == 0 && (summary?.Failed ?? 0) == 0;
         return new BuildResult(active, ok, failedProjects, errors, diags.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds);
@@ -106,33 +106,48 @@ public sealed partial class XaeShell
             }
         }
         WaitUntilIdle();
-        var diags = ReadErrorList();
+        var diags = ReadErrorList() ?? BuildOutput.Parse(ReadOutputPane("Build"));
         foreach (var d in diags) _log.Add(d);
         return (diags.Count(d => d.Severity == Severity.Error), diags.Count(d => d.Severity == Severity.Warning));
     }
 
-    [GeneratedRegex(@"^(?<code>[A-Z]{1,3}\d{3,5})\s*:\s*")]
-    private static partial Regex CodePrefix();
+    // EnvDTE.Constants.vsWindowKindErrorList / vsWindowKindOutput
+    private const string ErrorListWindow = "{D78612C7-9962-4B83-95D9-268046DAD23A}";
+    private const string OutputWindow = "{34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3}";
 
-    private List<Diagnostic> ReadErrorList()
+    /// <summary>
+    /// The automation object of a tool window (ErrorList, OutputWindow). Goes through _DTE.Windows because
+    /// late binding sees the shell's _DTE type info, which has no DTE2.ToolWindows.
+    /// </summary>
+    private dynamic ToolWindow(string kind) => ComCall.Retry(() => (object)Dte.Windows.Item(kind).Object);
+
+    /// <summary>The Error List entries, or null if the shell doesn't expose them (then the caller parses the Build pane).</summary>
+    private List<Diagnostic>? ReadErrorList()
     {
         var list = new List<Diagnostic>();
         object items;
-        try { items = ComCall.Retry(() => (object)Dte.ToolWindows.ErrorList.ErrorItems); }
-        catch (Exception e) { _log.Detail($"Error list not readable: {e.Message}"); return list; }
+        try
+        {
+            var errorList = ToolWindow(ErrorListWindow);
+            items = ComCall.Retry(() => (object)errorList.ErrorItems);
+        }
+        catch (Exception e)
+        {
+            _log.Detail($"Error list not readable ({e.Message}); using the Build output instead");
+            return null;
+        }
 
         foreach (var item in ComCall.Items(items))
         {
-            string text = ComCall.Retry(() => (string)item.Description);
-            var m = CodePrefix().Match(text);
+            var (code, text) = BuildOutput.SplitCode(ComCall.Retry(() => (string)item.Description));
             int level = ComCall.Retry(() => (int)item.ErrorLevel);
             string? file = ComCall.Retry(() => (string?)item.FileName);
             int line = ComCall.Retry(() => (int)item.Line);
             int col = ComCall.Retry(() => (int)item.Column);
             list.Add(new Diagnostic(
                 level switch { 4 => Severity.Error, 2 => Severity.Warning, _ => Severity.Info }, // vsBuildErrorLevel High/Medium/Low
-                m.Success ? text[m.Length..] : text,
-                m.Success ? m.Groups["code"].Value : null,
+                text,
+                code,
                 string.IsNullOrEmpty(file) ? null : file,
                 ComCall.Retry(() => (string?)item.Project),
                 line > 0 ? line : null,
@@ -141,9 +156,25 @@ public sealed partial class XaeShell
         return list;
     }
 
+    private bool _loadOutputPending;
+
+    /// <summary>
+    /// Clears the Build pane before a build or check, except for the first one after <see cref="OpenSolution"/>:
+    /// what opening wrote there (e.g. libraries that can't be loaded) is reported with that build. Reading the pane
+    /// before the first build instead fails in TcXaeShell 15 and leaves the build hanging.
+    /// </summary>
     private void ClearErrorList()
     {
-        try { ComCall.Retry(() => { Dte.ToolWindows.OutputWindow.OutputWindowPanes.Item("Build").Clear(); }, attempts: 3); }
+        if (_loadOutputPending)
+        {
+            _loadOutputPending = false;
+            return;
+        }
+        try
+        {
+            var output = ToolWindow(OutputWindow);
+            ComCall.Retry(() => { output.OutputWindowPanes.Item("Build").Clear(); }, attempts: 3);
+        }
         catch (Exception) { /* pane appears only after the first build */ }
     }
 
@@ -151,7 +182,8 @@ public sealed partial class XaeShell
     {
         try
         {
-            var doc = ComCall.Retry(() => (object)Dte.ToolWindows.OutputWindow.OutputWindowPanes.Item(name).TextDocument);
+            var output = ToolWindow(OutputWindow);
+            var doc = ComCall.Retry(() => (object)output.OutputWindowPanes.Item(name).TextDocument);
             dynamic d = doc;
             var start = ComCall.Retry(() => (object)d.StartPoint.CreateEditPoint());
             dynamic s = start;
@@ -159,6 +191,7 @@ public sealed partial class XaeShell
         }
         catch (Exception e) when (e is COMException or ArgumentException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
         {
+            _log.Detail($"Output pane '{name}' not readable: {e.Message}");
             return "";
         }
     }

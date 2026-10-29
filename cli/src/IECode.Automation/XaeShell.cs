@@ -183,6 +183,7 @@ public sealed partial class XaeShell : IDisposable
         }
         SolutionPath = full;
         WaitUntilIdle();
+        _loadOutputPending = true;
     }
 
     /// <summary>TwinCAT projects of the open solution with their System Manager (ITcSysManager).</summary>

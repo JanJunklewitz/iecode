@@ -138,4 +138,14 @@ public sealed class LibraryRepositoryTests : IDisposable
     [Fact]
     public void UnknownLibraryHasNoNewest() =>
         Assert.Null(LibraryRepository.Newest(LibraryRepository.Scan(Repo()), "Tc3_Nope", null));
+
+    [Fact]
+    public void RepositoryCandidatesPreferProgramDataOverInstallFolder() =>
+        Assert.Equal(
+            [Path.Combine("PD", "Beckhoff", "TwinCAT", "PlcEngineering", "Managed Libraries"), Path.Combine("TC", "Components", "Plc", "Managed Libraries")],
+            LibraryRepository.Candidates("TC", "PD"));
+
+    [Fact]
+    public void RepositoryCandidatesSkipUnknownFolders() =>
+        Assert.Equal([Path.Combine("TC", "Components", "Plc", "Managed Libraries")], LibraryRepository.Candidates("TC", null));
 }
