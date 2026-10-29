@@ -2,6 +2,13 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.2
+
+### CLI
+- `iecode build` and `iecode check` report the compiler errors and warnings with file, line and project. TcXaeShell 15 (4024) doesn't expose its Error List through automation, so they are read from the Build output; libraries that can't be loaded when the solution opens are reported too, and the build summary line is read.
+- TwinCAT 4026 and the Remote Manager: RepTool and its profiles are found in the folder of the build selected with `--tc` (`Components\Plc\Build_<build>`), and the default library repository is `%ProgramData%\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries`. `iecode doctor`, `lib installed`, `lib outdated` and `lib restore` work without `--repository`.
+- `lib install`, `lib uninstall` and `lib restore` pass the RepTool profile so RepTool accepts it (it reported "No profile name specified").
+
 ## 0.2.1
 
 ### Documentation
