@@ -2,6 +2,12 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Language features
+- Live check of ARRAY initializers in declarations: the number of elements is compared with the declared bounds ("ARRAY[0..273] has 274 elements, initializer has 272"; more elements are an error, fewer a warning), and missing commas between elements, double commas and a trailing comma before `]` are reported. Comments and strings, structs `(a := 1)`, nested and multi-dimensional arrays and repetitions `n(value)` are understood; bounds or repetition counts that are constants aren't checked.
+- Hovering an element of an ARRAY initializer shows the index it initializes, e.g. `aDevices[17] — element 18 of 274`, to find where a long list goes off.
+
 ## 0.2.3
 
 ### Installation

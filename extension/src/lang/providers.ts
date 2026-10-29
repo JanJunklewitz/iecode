@@ -8,6 +8,7 @@ import { decode } from '../model';
 import { isEncrypted } from '../core/projects';
 import { WorkspaceState } from '../state';
 import { LIB_SCHEME, LibrarySources } from './librarySources';
+import { elementAt } from './arrays';
 
 const LANG = 'twincat-st';
 const SCHEME = 'iecode';
@@ -127,6 +128,15 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, li
         const lib = libraryOf(l.file);
         md.appendMarkdown(`\n${s.kind.toLowerCase().replace('_', ' ')}${l.owner ? ` of **${l.owner.name}**` : ''}${lib ? ` · library ${lib}` : ''}`);
         return new vscode.Hover(md);
+      },
+    }),
+
+    // element index inside ARRAY initializers: aDevices[17]
+    vscode.languages.registerHoverProvider(selector, {
+      provideHover(doc, p) {
+        fromDoc(doc);
+        const text = elementAt(index.get(doc.uri.fsPath)?.parsed.arrays ?? [], p.line, p.character);
+        return text ? new vscode.Hover(new vscode.MarkdownString().appendCodeblock(text, LANG)) : undefined;
       },
     }),
 

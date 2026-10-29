@@ -4,6 +4,7 @@
 
 import { Token, tokenize } from './lexer';
 import { HEADER_RE } from '../model';
+import { ArrayInit, checkArrayInit } from './arrays';
 
 export type SymbolKind =
   | 'FUNCTION_BLOCK' | 'PROGRAM' | 'FUNCTION' | 'INTERFACE' | 'STRUCT' | 'UNION' | 'ENUM' | 'ALIAS' | 'GVL'
@@ -35,7 +36,8 @@ export interface PlcSymbol {
 
 export interface Problem { message: string; range: Range; severity: 'error' | 'warning' }
 
-export interface ParsedObject { root?: PlcSymbol; problems: Problem[] }
+/** `arrays`: initializers of ARRAY variables, for the element index on hover. */
+export interface ParsedObject { root?: PlcSymbol; problems: Problem[]; arrays: ArrayInit[] }
 
 const VAR_BLOCKS = new Set(['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_GLOBAL', 'VAR_TEMP', 'VAR_STAT', 'VAR_INST', 'VAR_EXTERNAL', 'VAR_CONFIG']);
 const POU_KINDS = new Set(['FUNCTION_BLOCK', 'PROGRAM', 'FUNCTION', 'INTERFACE']);
@@ -75,7 +77,7 @@ function parseType(toks: Token[], i: number): [string, number] {
 }
 
 /** Variables of all VAR … END_VAR blocks in a token range. */
-function parseVarBlocks(toks: Token[], lines: string[], problems: Problem[]): PlcSymbol[] {
+function parseVarBlocks(toks: Token[], lines: string[], problems: Problem[], arrays: ArrayInit[]): PlcSymbol[] {
   const vars: PlcSymbol[] = [];
   for (let i = 0; i < toks.length; i++) {
     if (!(toks[i].type === 'keyword' && VAR_BLOCKS.has(toks[i].upper))) continue;
@@ -99,6 +101,10 @@ function parseVarBlocks(toks: Token[], lines: string[], problems: Problem[]): Pl
           const [type, next] = parseType(toks, k + 1);
           for (const n of names)
             vars.push({ name: n.text, kind: 'VARIABLE', type, scope, ...(modifiers.length ? { modifiers } : {}), range: rangeOf(n), full: rangeOf(n), detail: lines[n.line]?.trim() ?? '', children: [] });
+          if (toks[next]?.text === ':=') {
+            const a = checkArrayInit(names[0], toks.slice(k + 1, next), toks, next + 1, problems);
+            if (a) arrays.push(a);
+          }
           k = next;
           let depth = 0;
           while (k < toks.length && !(depth === 0 && toks[k].text === ';')) {
@@ -150,6 +156,7 @@ export function checkBlocks(toks: Token[]): Problem[] {
 export function parseObject(view: string, fallbackName: string): ParsedObject {
   const lines = view.split('\n');
   const problems: Problem[] = [];
+  const arrays: ArrayInit[] = [];
   const secs = sections(view);
   const toksOf = (from: number, to: number) => {
     const text = lines.slice(from, to).join('\n');
@@ -160,12 +167,12 @@ export function parseObject(view: string, fallbackName: string): ParsedObject {
   const declEnd = main.implLine >= 0 ? main.implLine : main.end;
   const mainToks = toksOf(main.start, declEnd);
   const root = parseHeader(mainToks, lines, fallbackName, main, secs[1]?.headerLine ?? lines.length);
-  if (root) root.children.push(...parseVarBlocks(mainToks, lines, problems));
+  if (root) root.children.push(...parseVarBlocks(mainToks, lines, problems, arrays));
   if (main.implLine >= 0) problems.push(...checkBlocks(toksOf(main.implLine + 1, main.end)));
 
   if (root) {
     // TYPE … STRUCT fields / enum values
-    if (root.kind === 'STRUCT' || root.kind === 'UNION') root.children.push(...parseFields(mainToks, lines, problems));
+    if (root.kind === 'STRUCT' || root.kind === 'UNION') root.children.push(...parseFields(mainToks, lines, problems, arrays));
     if (root.kind === 'ENUM') root.children.push(...parseEnum(mainToks, lines));
   }
 
@@ -179,7 +186,7 @@ export function parseObject(view: string, fallbackName: string): ParsedObject {
       // accessors belong to the property declared before them
       if (property && property.name.toUpperCase() === s.name.toUpperCase()) {
         property.full = { ...property.full, endLine: fullRange.endLine, endCol: fullRange.endCol };
-        property.children.push(...parseVarBlocks(toks, lines, problems).map(v => ({ ...v, scope: `${s.kind} ${v.scope}` })));
+        property.children.push(...parseVarBlocks(toks, lines, problems, arrays).map(v => ({ ...v, scope: `${s.kind} ${v.scope}` })));
       }
       continue;
     }
@@ -199,12 +206,12 @@ export function parseObject(view: string, fallbackName: string): ParsedObject {
       range: nameTok ? rangeOf(nameTok) : { line: s.headerLine, col: 0, endLine: s.headerLine, endCol: 0 },
       full: fullRange,
       detail: head ? lines[head.line].trim() : `${s.kind} ${s.name}`,
-      children: parseVarBlocks(toks, lines, problems),
+      children: parseVarBlocks(toks, lines, problems, arrays),
     };
     if (s.kind === 'PROPERTY') property = sym;
     root?.children.push(sym);
   }
-  return { root, problems };
+  return { root, problems, arrays };
 }
 
 function parseHeader(toks: Token[], lines: string[], fallbackName: string, main: Section, endLine: number): PlcSymbol | undefined {
@@ -247,7 +254,7 @@ function parseHeader(toks: Token[], lines: string[], fallbackName: string, main:
   return sym;
 }
 
-function parseFields(toks: Token[], lines: string[], problems: Problem[]): PlcSymbol[] {
+function parseFields(toks: Token[], lines: string[], problems: Problem[], arrays: ArrayInit[]): PlcSymbol[] {
   const s = toks.findIndex(t => t.upper === 'STRUCT' || t.upper === 'UNION');
   const e = toks.findIndex(t => t.upper === 'END_STRUCT' || t.upper === 'END_UNION');
   if (s < 0) return [];
@@ -256,7 +263,7 @@ function parseFields(toks: Token[], lines: string[], problems: Problem[]): PlcSy
   if (inner.length && inner[0].type === 'keyword' && inner[0].upper === 'EXTENDS') inner.splice(0, 2);
   const fake: Token = { ...toks[s], type: 'keyword', text: 'VAR', upper: 'VAR' };
   const end: Token = { ...toks[e < 0 ? toks.length - 1 : e], type: 'keyword', text: 'END_VAR', upper: 'END_VAR' };
-  return parseVarBlocks([fake, ...inner, end], lines, problems).map(v => ({ ...v, kind: 'FIELD' as const, scope: undefined }));
+  return parseVarBlocks([fake, ...inner, end], lines, problems, arrays).map(v => ({ ...v, kind: 'FIELD' as const, scope: undefined }));
 }
 
 function parseEnum(toks: Token[], lines: string[]): PlcSymbol[] {
