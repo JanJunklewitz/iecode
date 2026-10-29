@@ -2,7 +2,7 @@
   "name": "iecode",
   "displayName": "IECode – Structured Text for TwinCAT",
   "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, view and edit .TcVIS visualizations, build and deploy with the iecode CLI.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "iecode",
   "icon": "resources/icon.png",
   "galleryBanner": {
