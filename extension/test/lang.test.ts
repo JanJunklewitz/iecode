@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { tokenize, wordAt } from '../src/lang/lexer';
 import { parseObject, checkBlocks } from '../src/lang/parser';
 import { SymbolIndex, baseTypeName } from '../src/lang/index';
+import { elementAt } from '../src/lang/arrays';
 
 const FB = `FUNCTION_BLOCK FB_Motor EXTENDS FB_Base IMPLEMENTS I_Motor, I_Diag
 VAR_INPUT
@@ -190,4 +191,53 @@ test('completion after a dot shows the public face of the type', () => {
 test('baseTypeName strips pointers, arrays and string lengths', () => {
   assert.equal(baseTypeName('POINTER TO ARRAY[0..9] OF ST_Axis'), 'ST_Axis');
   assert.equal(baseTypeName('STRING(80)'), 'STRING');
+});
+
+const decl = (vars: string) => parseObject(`PROGRAM P\nVAR\n${vars}\nEND_VAR\n`, 'P');
+const messages = (vars: string) => decl(vars).problems.map(p => `${p.range.line + 1}: ${p.message}`);
+
+test('array initializers: element count against the declared bounds', () => {
+  assert.deepEqual(messages(`a : ARRAY[0..3] OF INT := [1, 2, 3, 4];`), []);
+  assert.deepEqual(messages(`a : ARRAY[0..273] OF I_X :=\n[\n  fbA,\n  fbB\n];`), ['3: ARRAY[0..273] has 274 elements, initializer has 2']);
+  const p = decl(`a : ARRAY[1..2] OF INT := [1, 2, 3];`).problems[0];
+  assert.equal(p.severity, 'error');                                              // too many: error, too few: warning
+  assert.equal(decl(`a : ARRAY[1..3] OF INT := [1];`).problems[0].severity, 'warning');
+  // comments and strings, repetition, structs, nested arrays, multi-dim, negative and hex bounds
+  assert.deepEqual(messages(`s : ARRAY[0..2] OF STRING := ['a,b', (* x, y *) 'c', // d, e\n 'f'];`), []);
+  assert.deepEqual(messages(`a : ARRAY[0..9] OF INT := [2(0), 3(1), 5(7)];`), []);
+  assert.deepEqual(messages(`a : ARRAY[0..9] OF INT := [2(0), 3(1)];`), ['3: ARRAY[0..9] has 10 elements, initializer has 5']);
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF ST_X := [(n := 1, f := [1, 2]), (n := 2, f := [3, 4])];`), []);
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF ARRAY[0..2] OF INT := [[1, 2, 3], [4, 5, 6]];`), []);
+  assert.deepEqual(messages(`a : ARRAY[1..2, 0..2] OF INT := [1, 2, 3, 4, 5, 6];`), []);
+  assert.deepEqual(messages(`a : ARRAY[1..2, 0..2] OF INT := [1, 2, 3, 4, 5];`), ['3: ARRAY[1..2, 0..2] has 6 elements, initializer has 5']);
+  assert.deepEqual(messages(`a : ARRAY[-2..2] OF INT := [1, 2, 3, 4, 5]; b : ARRAY[0..16#F] OF BYTE := [16(0)];`), []);
+  assert.deepEqual(messages(`p : ARRAY[0..1] OF POINTER TO INT := [ADR(x), ADR(y), ADR(z)];`), ['3: ARRAY[0..1] has 2 elements, initializer has 3']);
+  // bounds or repetition counts that are constants: not checked
+  assert.deepEqual(messages(`a : ARRAY[0..cMax] OF INT := [1, 2];\nb : ARRAY[0..9] OF INT := [cN(0), 1];\nc : ARRAY[0..cMax - 1] OF INT := [1];`), []);
+  // struct fields too
+  const st = parseObject(`TYPE ST_X :\nSTRUCT\n  a : ARRAY[0..2] OF BOOL := [TRUE, FALSE];\nEND_STRUCT\nEND_TYPE\n`, 'ST_X');
+  assert.deepEqual(st.problems.map(p => p.message), ['ARRAY[0..2] has 3 elements, initializer has 2']);
+});
+
+test('array initializers: missing, double and trailing commas', () => {
+  assert.deepEqual(messages(`a : ARRAY[0..2] OF I_X :=\n[\n  fbA,\n  fbB\n  fbC\n];`), ["7: Missing ',' before 'fbC'", '3: ARRAY[0..2] has 3 elements, initializer has 2']);
+  assert.deepEqual(messages(`a : ARRAY[0..2] OF INT := [1,, 2, 3];`), ["3: Double ','"]);
+  assert.deepEqual(messages(`a : ARRAY[0..2] OF INT := [1, 2, 3,];`), ["3: Trailing ',' before ']'"]);
+  assert.deepEqual(messages(`a : ARRAY[0..2] OF INT := [, 1, 2, 3];`), ["3: Missing element before ','"]);
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF ST_X := [(n := 1) (n := 2)];`), ["3: Missing ',' before '('", '3: ARRAY[0..1] has 2 elements, initializer has 1']);
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF ST_X := [(n := 1 f := 2), (n := 2)];`), ["3: Missing ',' before 'f'"]);
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF INT := [b[1][2], E_S.Idle + 1];`), []);   // indexing, qualified names, operators
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF INT := [1, 2);`), ["3: ')' closes '[' (line 3), expected ']'"]);
+  assert.deepEqual(messages(`a : ARRAY[0..1] OF INT := [1, 2;`), ["3: '[' without ']'"]);
+});
+
+test('array initializers: element index on hover', () => {
+  const src = `PROGRAM P\nVAR\n  a : ARRAY[5..9] OF I_X :=\n  [\n    fbA, // 5\n    3(fbB),\n    fbC\n  ];\n  m : ARRAY[1..2, 0..1] OF INT := [1, 2, 3, 4];\nEND_VAR\n`;
+  const { arrays } = parseObject(src, 'P');
+  const at = (needle: string) => { const p = pos(src, needle); return elementAt(arrays, p.line, p.col); };
+  assert.equal(at('fbA'), 'a[5] — element 1 of 5');
+  assert.equal(at('3(fbB)'), 'a[6] … a[8] — elements 2–4 of 5');
+  assert.equal(at('fbC'), 'a[9] — element 5 of 5');
+  assert.equal(at('3, 4]'), 'm[2, 0] — element 3 of 4');
+  assert.equal(at('// 5'), undefined);
 });
