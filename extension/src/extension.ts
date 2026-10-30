@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
-import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
+import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError, CONFLICT_RE } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
@@ -10,6 +10,7 @@ import * as objects from './commands/objects';
 import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
 import * as commentColor from './lang/commentColor';
+import * as mergeConflicts from './lang/mergeConflicts';
 import * as compare from './commands/compare';
 import * as setup from './commands/setup';
 import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
@@ -108,6 +109,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   engineering.register(ctx, state);
   language.register(ctx, state, libraries);
   commentColor.register(ctx);
+  mergeConflicts.register(ctx);
   compare.register(ctx);
   setup.register(ctx);
   registerIoYaml(ctx);
@@ -147,7 +149,34 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (file.scheme === 'file' && await xmlConflict(file)) { await vscode.window.showTextDocument(file, { preview: false }); return; }
     const doc = await vscode.workspace.openTextDocument(toView(file));
     await vscode.window.showTextDocument(doc, { preview: false });
+    void offerLineIdsCleanup(file);
   };
+
+  // Conflict markers left only in <LineIds>: the view looks clean, but TwinCAT cannot load the file.
+  const offerLineIdsCleanup = async (file: vscode.Uri) => {
+    const raw = await fs.readFile(file.fsPath, 'utf8').catch(() => '');
+    if (!CONFLICT_RE.test(raw) || await xmlConflict(file) || CONFLICT_RE.test(decode(stripBom(raw)))) return;
+    const name = file.path.split('/').pop();
+    const fix = 'Remove line mapping';
+    if (await vscode.window.showWarningMessage(`${name}: the merge conflict is only in the line mapping (<LineIds>), which TwinCAT regenerates.`, fix) !== fix) return;
+    const now = await fs.readFile(file.fsPath, 'utf8');
+    const bom = now.startsWith('﻿') ? '﻿' : '';
+    await fs.writeFile(file.fsPath, bom + encode(stripBom(now), decode(stripBom(now))), 'utf8');
+  };
+
+  // A conflict in the XML structure (e.g. after a merge while the ST view is open): switch that tab to the XML.
+  const toXmlOnConflict = async (file: vscode.Uri) => {
+    const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs)
+      .filter(t => t.input instanceof vscode.TabInputText && t.input.uri.scheme === SCHEME && t.input.uri.fsPath === file.fsPath);
+    if (!tabs.length || !await xmlConflict(file)) return;
+    for (const t of tabs) {
+      await vscode.window.showTextDocument(file, { viewColumn: t.group.viewColumn, preview: false });
+      await vscode.window.tabGroups.close(t);
+    }
+    void vscode.window.showWarningMessage(`${file.path.split('/').pop()}: unresolved merge conflict in the XML structure. Resolve it here, then reopen as ST.`);
+  };
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO}');
+  ctx.subscriptions.push(watcher, watcher.onDidChange(toXmlOnConflict), watcher.onDidCreate(toXmlOnConflict));
 
   // Files the user explicitly asked to see as XML are not redirected.
   const xmlExempt = new Set<string>();
@@ -181,6 +210,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       // a preview tab may already have been replaced by the ST view
       const still = tab.group.tabs.find(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === u.toString());
       if (still) await vscode.window.tabGroups.close(still);
+      void offerLineIdsCleanup(u);
     }
   }));
 
