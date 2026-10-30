@@ -94,20 +94,50 @@ function collect(main: XNode): XmlSection[] {
 // ---------------------------------------------------------------- decode
 
 /** Git conflict markers (<<<<<<< / ======= / >>>>>>>) at the start of a line. */
-const CONFLICT_RE = /^(<{7}|={7}|>{7})(?:\s|$)/m;
+export const CONFLICT_RE = /^(<{7}|={7}|>{7})(?:\s|$)/m;
 
 /** The XML structure itself is in conflict: no ST view possible until it is resolved in the XML. */
 export class ConflictError extends ViewError {}
 
+const CONFLICT_MSG = 'Unresolved merge conflict in the XML structure: resolve it in the XML (iecode: Open as XML)';
+
+/** Offsets of all conflict marker lines. */
+function conflictMarkers(xml: string): number[] {
+  return [...xml.matchAll(new RegExp(CONFLICT_RE.source, 'gm'))].map(m => m.index!);
+}
+
+/** Nodes whose content may hold conflict markers without blocking the ST view. */
+function tolerated(root: XNode): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  const walk = (n: XNode) => {
+    // ST code shows up (markers included) in the view
+    for (const c of n.cdata ?? []) out.push(c);
+    // line mapping only: encode() drops a conflicted <LineIds>, TwinCAT regenerates it
+    if (n.name === 'LineIds') out.push({ start: n.innerStart, end: n.innerEnd });
+    else n.children.forEach(walk);
+  };
+  walk(root);
+  return out;
+}
+
 function parseOrConflict(xml: string): XNode {
+  let root: XNode;
   try {
-    return parseXml(xml);
+    root = parseXml(xml);
   } catch (e) {
-    // markers inside CDATA leave the XML intact (they simply show up in the ST view)
-    if (CONFLICT_RE.test(xml)) throw new ConflictError('Unresolved merge conflict in the XML structure: resolve it in the XML (iecode: Open as XML)');
+    if (CONFLICT_RE.test(xml)) throw new ConflictError(CONFLICT_MSG);
     throw e;
   }
+  const markers = conflictMarkers(xml);
+  if (markers.length) {
+    const ok = tolerated(root);
+    if (markers.some(m => !ok.some(r => m >= r.start && m < r.end))) throw new ConflictError(CONFLICT_MSG);
+  }
+  return root;
 }
+
+/** True when the <LineIds> node holds conflict markers. */
+const conflicted = (n: XNode, xml: string) => CONFLICT_RE.test(xml.slice(n.innerStart, n.innerEnd));
 
 export function decode(xml: string): string {
   const main = findMain(parseOrConflict(xml));
@@ -212,6 +242,9 @@ export function encode(xml: string, view: string): string {
     }
   }
   if (!wantedKeys.has('MAIN')) throw new ViewError('Main declaration missing');
+
+  // a conflicted line mapping would break loading in TwinCAT; it is regenerated on next save/compile
+  for (const li of main.children) if (li.name === 'LineIds' && !removed.has(li) && conflicted(li, xml)) removeNode(li);
 
   // 2. removed sections
   for (const x of existing.values()) {
