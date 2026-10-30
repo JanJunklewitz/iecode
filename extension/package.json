@@ -144,6 +144,18 @@
         "category": "IECode"
       },
       {
+        "command": "iecode.autoResolveXml",
+        "title": "Auto-resolve XML Conflicts",
+        "category": "IECode",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "iecode.openMergeEditor",
+        "title": "Open XML Merge Editor",
+        "category": "IECode",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "iecode.build",
         "title": "Build",
         "category": "IECode",
@@ -445,6 +457,21 @@
         {
           "command": "iecode.openAsXml",
           "when": "resourceScheme == iecode"
+        },
+        {
+          "command": "iecode.autoResolveXml",
+          "when": "resourcePath in iecode.conflictedFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iecode.openMergeEditor",
+          "when": "resourcePath in iecode.conflictedFiles && !isMergeEditor",
+          "group": "navigation@2"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "resourceScheme == iecode && resourcePath in iecode.conflictedFiles",
+          "group": "navigation@3"
         },
         {
           "command": "iecode.compareWithHead",
@@ -833,6 +860,21 @@
         {
           "submenu": "iecode.scmCompare",
           "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.autoResolveXml",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "inline"
+        },
+        {
+          "command": "iecode.openMergeEditor",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "navigation"
         }
       ],

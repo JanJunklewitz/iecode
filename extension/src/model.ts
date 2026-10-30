@@ -158,6 +158,16 @@ export function decode(xml: string): string {
   return parts.join('\n') + '\n';
 }
 
+/** True when the XML structure (not just ST code inside CDATA) has unresolved conflict markers, i.e. decode() throws ConflictError. */
+export function hasXmlConflict(xml: string): boolean {
+  try {
+    parseOrConflict(xml.charCodeAt(0) === 0xfeff ? xml.slice(1) : xml);
+    return false;
+  } catch (e) {
+    return e instanceof ConflictError;
+  }
+}
+
 /** Raw XML (LF) of every implementation that isn't ST, by section key: the view only shows a placeholder for it. */
 export function nonStBodies(xml: string): Map<string, string> {
   const out = new Map<string, string>();

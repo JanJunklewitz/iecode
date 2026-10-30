@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
-import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
+import { decode, encode, hasXmlConflict, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
@@ -12,6 +12,7 @@ import * as language from './lang/providers';
 import * as commentColor from './lang/commentColor';
 import * as mergeConflicts from './lang/mergeConflicts';
 import * as compare from './commands/compare';
+import * as conflicts from './commands/conflicts';
 import * as setup from './commands/setup';
 import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
 import { showAdsInterface } from './views/adsInterface';
@@ -83,14 +84,7 @@ class TcStFileSystem implements vscode.FileSystemProvider {
 const stripBom = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 
 /** True when the file's XML structure (not just ST code inside CDATA) has unresolved conflict markers. */
-async function xmlConflict(file: vscode.Uri): Promise<boolean> {
-  try {
-    decode(stripBom(await fs.readFile(file.fsPath, 'utf8')));
-    return false;
-  } catch (e) {
-    return e instanceof ConflictError;
-  }
-}
+const xmlConflict = async (file: vscode.Uri) => hasXmlConflict(await fs.readFile(file.fsPath, 'utf8').catch(() => ''));
 
 export function activate(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
@@ -115,6 +109,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   commentColor.register(ctx);
   mergeConflicts.register(ctx);
   compare.register(ctx);
+  conflicts.register(ctx);
   setup.register(ctx);
   registerIoYaml(ctx);
   registerIoLinkView(ctx, state);
@@ -159,14 +154,31 @@ export function activate(ctx: vscode.ExtensionContext) {
   vscode.workspace.textDocuments.forEach(setLang);
   ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(setLang));
 
+  // One warning per file at a time: openView and the tab redirect both see the same file opening.
+  const warning = new Set<string>();
+  const warnXmlConflict = async (file: vscode.Uri) => {
+    const key = file.toString();
+    if (warning.has(key)) return;
+    warning.add(key);
+    const pick = await Promise.resolve(vscode.window.showWarningMessage(
+      `${file.path.split('/').pop()}: unresolved merge conflict in the XML structure. Resolve it here, then reopen as ST.`,
+      'Auto-resolve XML', 'Open Merge Editor')).finally(() => warning.delete(key));
+    if (pick === 'Auto-resolve XML') await vscode.commands.executeCommand('iecode.autoResolveXml', file);
+    if (pick === 'Open Merge Editor') await vscode.commands.executeCommand('iecode.openMergeEditor', file);
+  };
+
   const openView = async (file?: vscode.Uri) => {
     file ??= vscode.window.activeTextEditor?.document.uri;
     if (!file) return;
     // visualizations, text lists, tasks …: no ST view, open the file itself (e.g. from the project tree)
     if (!EXT_RE.test(file.path)) { if (file.scheme === 'file') await vscode.commands.executeCommand('vscode.open', file); return; }
     if (file.scheme === SCHEME) file = toFile(file);
-    // conflicted XML: open the file itself (the redirect below keeps it and explains why)
-    if (file.scheme === 'file' && await xmlConflict(file)) { await vscode.window.showTextDocument(file, { preview: false }); return; }
+    // conflicted XML: open the file itself and explain why
+    if (file.scheme === 'file' && await xmlConflict(file)) {
+      void warnXmlConflict(file);
+      await vscode.window.showTextDocument(file, { preview: false });
+      return;
+    }
     const doc = await vscode.workspace.openTextDocument(toView(file));
     await vscode.window.showTextDocument(doc, { preview: false });
   };
@@ -180,7 +192,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       await vscode.window.showTextDocument(file, { viewColumn: t.group.viewColumn, preview: false });
       await vscode.window.tabGroups.close(t);
     }
-    void vscode.window.showWarningMessage(`${file.path.split('/').pop()}: unresolved merge conflict in the XML structure. Resolve it here, then reopen as ST.`);
+    void warnXmlConflict(file);
   };
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO}');
   ctx.subscriptions.push(watcher, watcher.onDidChange(toXmlOnConflict), watcher.onDidCreate(toXmlOnConflict));
@@ -190,10 +202,10 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   ctx.subscriptions.push(
     vscode.commands.registerCommand('iecode.openAsST', (u?: vscode.Uri) => openView(u)),
-    vscode.commands.registerCommand('iecode.openAsXml', async (u?: vscode.Uri) => {
-      u ??= vscode.window.activeTextEditor?.document.uri;
-      if (!u) return;
-      const file = u.scheme === SCHEME ? toFile(u) : u;
+    // editor, tree, explorer or a Source Control resource state (conflict bar)
+    vscode.commands.registerCommand('iecode.openAsXml', async (u?: vscode.Uri | vscode.SourceControlResourceState | Node) => {
+      const file = conflicts.targetUri(u);
+      if (!file) return;
       xmlExempt.add(file.toString());
       await vscode.window.showTextDocument(file, { preview: false });
     }),
@@ -209,7 +221,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       if (u.scheme !== 'file' || !EXT_RE.test(u.path) || xmlExempt.has(u.toString())) continue;
       // a merge conflict in the XML structure can only be resolved in the XML: keep that tab
       if (await xmlConflict(u)) {
-        void vscode.window.showWarningMessage(`${u.path.split('/').pop()}: unresolved merge conflict in the XML structure. Resolve it here, then reopen as ST.`);
+        void warnXmlConflict(u);
         continue;
       }
       const doc = await vscode.workspace.openTextDocument(toView(u));

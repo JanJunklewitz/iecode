@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { decode, encode, ConflictError } from '../src/model';
+import { decode, encode, hasXmlConflict, ConflictError } from '../src/model';
 import { parseXml } from '../src/xml';
 
 const dir = join(__dirname, '..', '..', 'samples');
@@ -97,4 +97,14 @@ test('merge conflict inside ST code stays editable in the view', () => {
   assert.match(v, /^<{7} HEAD$/m);
   const resolved = encode(xml, v.replace(/<{7} HEAD\n([\s\S]*?)={7}\n[\s\S]*?>{7} feature\n/, '$1'));
   assert.equal(decode(resolved), decode(pou));
+});
+
+test('hasXmlConflict: only markers in the XML structure count, a BOM is ignored', () => {
+  const xmlConflict = pou.replace(/( *<Method Name="Start"[^\r\n]*\r?\n)/, '<<<<<<< HEAD\r\n=======\r\n>>>>>>> feature\r\n$1');
+  const codeConflict = pou.replace(/( *_fSpeed := fSetSpeed;\r?\n)/, '<<<<<<< HEAD\r\n$1=======\r\n    _fSpeed := 2.0;\r\n>>>>>>> feature\r\n');
+  assert.equal(hasXmlConflict(xmlConflict), true);
+  assert.equal(hasXmlConflict('﻿' + xmlConflict), true);
+  assert.equal(hasXmlConflict(codeConflict), false);
+  assert.equal(hasXmlConflict(pou), false);
+  assert.equal(hasXmlConflict('<not an object/>'), false, 'other decode errors are no conflict');
 });
