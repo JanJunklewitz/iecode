@@ -1,0 +1,1111 @@
+# Change keys of the PLC .xti survey (2026-10-30), sorted by number of commits.
+# Columns: commits, changed lines, key. Key: '~ path @attr,#text' = changed in place, '+ path' = added line, '- path' = removed line.
+314	121915	~ DataTypes/DataType/Name @GUID
+314	457443	~ DataTypes/DataType/SubItem/Type @GUID
+309	183197	~ DataTypes/DataType/Method/Parameter/Type @GUID
+308	45027	~ DataTypes/DataType/Method/Local/Type @GUID
+307	23808	~ DataTypes/DataType/Method/ReturnType @GUID
+301	495	~ Project/Instance/TmcDesc/ParameterValues/Value/Value #text
+299	27835	~ DataTypes/DataType/ExtendsType @GUID
+298	133773	~ DataTypes/DataType/PropertyItem/GetCodeOffs #text
+297	27487	~ DataTypes/DataType/BitSize #text
+296	2831	~ DataTypes/DataType/Implements @GUID
+293	23567	~ DataTypes/DataType/PropertyItem/SetCodeOffs #text
+288	106407	~ DataTypes/DataType/SubItem/BitSize #text
+288	300096	~ DataTypes/DataType/SubItem/BitOffs #text
+285	765	~ Project/Instance/TmcDesc/Properties/Property/Value #text
+281	104520	+ DataTypes/DataType/SubItem/BitSize
+281	103326	+ DataTypes/DataType/SubItem/BitOffs
+280	82124	+ DataTypes/DataType/SubItem
+280	82119	+ DataTypes/DataType/SubItem/Name
+280	81773	+ DataTypes/DataType/SubItem/Type
+280	82370	+ DataTypes/DataType/SubItem/SubItem(close)
+273	53896	+ DataTypes/DataType/Method/Local/Type
+272	3448	~ Project/Instance/TmcDesc/…/Symbol/BaseType @GUID
+271	48355	+ DataTypes/DataType/Method
+271	48352	+ DataTypes/DataType/Method/Name
+271	55578	+ DataTypes/DataType/Method/ReturnBitSize
+271	48451	+ DataTypes/DataType/Method/Method(close)
+271	52511	+ DataTypes/DataType/Method/Local
+271	52486	+ DataTypes/DataType/Method/Local/Name
+271	54243	+ DataTypes/DataType/Method/Local/BitSize
+271	52195	+ DataTypes/DataType/Method/Local/Local(close)
+268	30856	+ DataTypes/DataType/SubItem/Properties/Property
+268	33785	+ DataTypes/DataType/SubItem/Properties/Property/Name
+268	30831	+ DataTypes/DataType/SubItem/Properties/Property/Property(close)
+267	27855	+ DataTypes/DataType/SubItem/Properties
+267	27825	+ DataTypes/DataType/SubItem/Properties/Properties(close)
+263	55556	- DataTypes/DataType/Method/ReturnBitSize
+262	65214	- DataTypes/DataType/SubItem
+262	65210	- DataTypes/DataType/SubItem/Name
+262	64850	- DataTypes/DataType/SubItem/Type
+262	87589	- DataTypes/DataType/SubItem/BitSize
+262	86476	- DataTypes/DataType/SubItem/BitOffs
+262	65460	- DataTypes/DataType/SubItem/SubItem(close)
+262	51682	+ DataTypes/DataType/SubItem/Comment
+261	32655	+ DataTypes/DataType/Method/…/Property/Name
+261	29695	+ DataTypes/DataType/Method/…/Property/Value
+259	56459	~ DataTypes/DataType/SubItem/Name #text
+259	30074	+ DataTypes/DataType/Method/…/Property/Property(close)
+259	48333	- DataTypes/DataType/Method
+259	48330	- DataTypes/DataType/Method/Name
+259	48429	- DataTypes/DataType/Method/Method(close)
+256	13762	+ DataTypes/DataType/Method/Properties
+256	18379	+ DataTypes/DataType/Method/Properties/Property
+256	21125	+ DataTypes/DataType/Method/Properties/Property/Name
+256	18393	+ DataTypes/DataType/Method/Properties/Property/Property(close)
+256	13771	+ DataTypes/DataType/Method/Properties/Properties(close)
+255	31685	~ DataTypes/DataType/Properties/Property/Value #text
+254	60472	+ DataTypes/DataType/Method/Parameter/Type
+253	57095	+ DataTypes/DataType/Method/Parameter
+253	57068	+ DataTypes/DataType/Method/Parameter/Name
+253	70583	- DataTypes/DataType/Method/Parameter/Type
+253	164740	~ Project/Instance/TmcDesc/…/Symbol/BitOffs #text
+252	17558	+ DataTypes/DataType
+252	17557	+ DataTypes/DataType/Name
+252	18996	+ DataTypes/DataType/BitSize
+252	17566	+ DataTypes/DataType/DataType(close)
+252	58277	+ DataTypes/DataType/Method/Parameter/BitSize
+252	57371	+ DataTypes/DataType/Method/Parameter/Parameter(close)
+252	67184	- DataTypes/DataType/Method/Parameter
+252	67167	- DataTypes/DataType/Method/Parameter/Name
+251	33765	+ DataTypes/DataType/Method/ReturnType
+251	49447	- DataTypes/DataType/Method/Local/Type
+251	68435	- DataTypes/DataType/Method/Parameter/BitSize
+251	67460	- DataTypes/DataType/Method/Parameter/Parameter(close)
+250	37101	- DataTypes/DataType/Method/ReturnType
+249	49747	- DataTypes/DataType/Method/Local/BitSize
+249	47768	- DataTypes/DataType/Method/Local/Local(close)
+248	48084	- DataTypes/DataType/Method/Local
+248	48049	- DataTypes/DataType/Method/Local/Name
+247	3227	~ Project/Instance/TmcDesc/…/Symbol/BitSize #text
+246	17253	- DataTypes/DataType/BitSize
+244	20632	- DataTypes/DataType/Method/Properties/Property/Name
+244	27741	- DataTypes/DataType/Method/…/Property/Name
+244	24493	- DataTypes/DataType/Method/…/Property/Value
+244	15643	+ DataTypes/DataType/Method/Local/Properties
+244	16581	+ DataTypes/DataType/Method/Local/Properties/Property
+244	15656	+ DataTypes/DataType/Method/Local/Properties/Properties(close)
+243	15813	- DataTypes/DataType
+243	15813	- DataTypes/DataType/Name
+243	15821	- DataTypes/DataType/DataType(close)
+243	11676	- DataTypes/DataType/Method/Properties
+243	17704	- DataTypes/DataType/Method/Properties/Property
+243	17694	- DataTypes/DataType/Method/Properties/Property/Property(close)
+243	11654	- DataTypes/DataType/Method/Properties/Properties(close)
+242	22329	- DataTypes/DataType/SubItem/Properties
+242	26235	- DataTypes/DataType/SubItem/Properties/Property
+242	28983	- DataTypes/DataType/SubItem/Properties/Property/Name
+242	26234	- DataTypes/DataType/SubItem/Properties/Property/Property(close)
+242	22330	- DataTypes/DataType/SubItem/Properties/Properties(close)
+242	2388	~ Project/Instance/TmcDesc/…/SubItem/Value #text
+241	1597	~ Project/Instance/TmcDesc/…/SubItem/String (whitespace)
+240	40975	- DataTypes/DataType/SubItem/Comment
+239	1617	~ DataTypes/DataType/SubItem/ArrayInfo/Elements #text
+239	25160	- DataTypes/DataType/Method/…/Property/Property(close)
+238	13161	+ DataTypes/DataType/SubItem/Default
+238	13154	+ DataTypes/DataType/SubItem/Default/Default(close)
+236	13297	+ DataTypes/DataType/Method/Parameter/Properties
+236	13493	+ DataTypes/DataType/Method/Parameter/Properties/Property
+236	13279	+ DataTypes/DataType/Method/Parameter/Properties/Properties(close)
+235	3616	~ DataTypes/DataType/Name @GUID,#text
+230	15435	~ DataTypes/DataType/SubItem/Comment (whitespace)
+230	15854	+ DataTypes/DataType/SubItem/Comment/#cdata
+227	15863	~ DataTypes/DataType/Method/Local/BitSize #text
+227	12059	- DataTypes/DataType/Method/Parameter/Properties
+227	12317	- DataTypes/DataType/Method/Parameter/Properties/Property
+227	12017	- DataTypes/DataType/Method/Parameter/Properties/Properties(close)
+227	18807	+ DataTypes/DataType/Properties/Property
+227	18801	+ DataTypes/DataType/Properties/Property/Name
+227	18796	+ DataTypes/DataType/Properties/Property/Property(close)
+226	15940	~ DataTypes/DataType/Method/Local/Name #text
+225	6676	+ DataTypes/DataType/Properties
+225	6661	+ DataTypes/DataType/Properties/Properties(close)
+224	14342	~ DataTypes/DataType/PropertyItem/Type @GUID
+224	16517	~ DataTypes/DataType/SubItem/Type @GUID,#text
+224	13402	+ DataTypes/DataType/Method/Parameter/Comment
+221	10514	+ DataTypes/DataType/Properties/Property/Value
+220	15502	~ DataTypes/DataType/Method/Name #text
+218	3620	+ DataTypes/DataType/Comment
+218	7453	+ Project/Instance/TmcDesc/…/Symbol/BitSize
+218	7450	+ Project/Instance/TmcDesc/…/Symbol/BaseType
+217	6141	+ DataTypes/DataType/Method/Local/Comment
+217	13871	- DataTypes/DataType/SubItem/Comment/#cdata
+217	4919	+ DataTypes/DataType/Method/Local/ArrayInfo
+217	4913	+ DataTypes/DataType/Method/Local/ArrayInfo/LBound
+217	4923	+ DataTypes/DataType/Method/Local/ArrayInfo/Elements
+217	4907	+ DataTypes/DataType/Method/Local/ArrayInfo/ArrayInfo(close)
+217	5254	+ Project/Instance/TmcDesc/…/Symbol/BitOffs
+216	12175	- DataTypes/DataType/Method/Local/Properties
+216	12843	- DataTypes/DataType/Method/Local/Properties/Property
+216	12212	- DataTypes/DataType/Method/Local/Properties/Properties(close)
+216	5998	- Project/Instance/TmcDesc/…/Symbol/BitSize
+216	5995	- Project/Instance/TmcDesc/…/Symbol/BaseType
+216	5183	+ Project/Instance/TmcDesc/…/Symbol/Symbol(close)
+216	5190	+ Project/Instance/TmcDesc/DataAreas/DataArea/Symbol
+216	5190	+ Project/Instance/TmcDesc/…/Symbol/Name
+215	7630	+ DataTypes/DataType/Comment/#cdata
+215	4921	+ Project/Instance/TmcDesc/…/Symbol/Comment
+214	3799	- Project/Instance/TmcDesc/…/Symbol/BitOffs
+214	3915	- Project/Instance/TmcDesc/…/Symbol/Comment
+213	15251	+ DataTypes/DataType/SubItem/Properties/Property/Value
+213	3728	- Project/Instance/TmcDesc/…/Symbol/Symbol(close)
+213	3735	- Project/Instance/TmcDesc/DataAreas/DataArea/Symbol
+213	3735	- Project/Instance/TmcDesc/…/Symbol/Name
+211	9224	+ DataTypes/DataType/SubItem/Default/Value
+211	4396	+ DataTypes/DataType/ExtendsType
+210	849	~ Project/Instance/TmcDesc/DataAreas/DataArea/ByteSize #text
+210	9330	~ Project/Instance/TmcDesc/…/Symbol/Name #text
+210	4805	+ Project/Instance/TmcDesc/…/Symbol/Properties
+210	5189	+ Project/Instance/TmcDesc/…/Properties/Property
+210	5189	+ Project/Instance/TmcDesc/…/Property/Name
+210	5190	+ Project/Instance/TmcDesc/…/Property/Property(close)
+210	4806	+ Project/Instance/TmcDesc/…/Properties/Properties(close)
+209	13963	- DataTypes/DataType/Method/Parameter/Comment
+207	5678	~ DataTypes/DataType/Method/…/Property/Value #text
+204	5416	+ DataTypes/DataType/SubItem/ArrayInfo
+204	5405	+ DataTypes/DataType/SubItem/ArrayInfo/LBound
+204	5405	+ DataTypes/DataType/SubItem/ArrayInfo/Elements
+204	5402	+ DataTypes/DataType/SubItem/ArrayInfo/ArrayInfo(close)
+204	7032	~ DataTypes/DataType/Method/Name @RpcEnable,@VTableIndex,#text
+202	23118	+ DataTypes/DataType/EnumInfo
+202	23115	+ DataTypes/DataType/EnumInfo/Text
+202	23110	+ DataTypes/DataType/EnumInfo/Enum
+202	23104	+ DataTypes/DataType/EnumInfo/EnumInfo(close)
+202	8760	+ DataTypes/DataType/PropertyItem
+202	8755	+ DataTypes/DataType/PropertyItem/Name
+202	16367	+ DataTypes/DataType/PropertyItem/Comment/#cdata
+202	8759	+ DataTypes/DataType/PropertyItem/PropertyItem(close)
+202	8279	+ DataTypes/DataType/PropertyItem/Type
+202	8157	+ DataTypes/DataType/PropertyItem/BitSize
+201	8102	+ DataTypes/DataType/PropertyItem/Comment
+200	5083	~ DataTypes/DataType/Name @GUID,@Namespace,#text
+200	3962	~ DataTypes/DataType/Method/Local/Type @GUID,#text
+198	16079	- DataTypes/DataType/Properties/Property
+198	16073	- DataTypes/DataType/Properties/Property/Name
+198	16068	- DataTypes/DataType/Properties/Property/Property(close)
+197	3666	+ DataTypes/DataType/BaseType
+197	7954	+ DataTypes/DataType/PropertyItem/GetCodeOffs
+196	4537	- DataTypes/DataType/Method/Local/Comment
+196	6175	- DataTypes/DataType/Properties
+196	6160	- DataTypes/DataType/Properties/Properties(close)
+196	3724	- Project/Instance/TmcDesc/…/Properties/Property
+196	3724	- Project/Instance/TmcDesc/…/Property/Name
+196	3725	- Project/Instance/TmcDesc/…/Property/Property(close)
+195	9529	- DataTypes/DataType/Properties/Property/Value
+195	4335	- DataTypes/DataType/Method/Local/ArrayInfo
+195	4328	- DataTypes/DataType/Method/Local/ArrayInfo/LBound
+195	4335	- DataTypes/DataType/Method/Local/ArrayInfo/Elements
+195	4325	- DataTypes/DataType/Method/Local/ArrayInfo/ArrayInfo(close)
+195	3372	- Project/Instance/TmcDesc/…/Symbol/Properties
+195	3373	- Project/Instance/TmcDesc/…/Properties/Properties(close)
+191	29095	~ DataTypes/DataType/SubItem/Type @GUID,@Namespace,#text
+189	10731	- DataTypes/DataType/SubItem/Default
+189	10726	- DataTypes/DataType/SubItem/Default/Default(close)
+189	14377	- DataTypes/DataType/SubItem/Properties/Property/Value
+188	28506	+ DataTypes/DataType/Method/Comment
+188	60123	+ DataTypes/DataType/Method/Comment/#cdata
+188	13043	~ DataTypes/DataType/Method/Parameter/Name #text
+186	5483	~ DataTypes/DataType/Method/Local/Type @GUID,@Namespace,#text
+185	4193	- DataTypes/DataType/ExtendsType
+183	3230	- DataTypes/DataType/Comment
+182	4817	+ DataTypes/DataType/Method/Parameter/Comment/#cdata
+180	19156	- DataTypes/DataType/Method/Comment
+180	38336	- DataTypes/DataType/Method/Comment/#cdata
+180	6880	- DataTypes/DataType/Comment/#cdata
+180	6158	+ DataTypes/DataType/Method/Properties/Property/Value
+179	4032	- DataTypes/DataType/Method/Parameter/Comment/#cdata
+177	4935	- DataTypes/DataType/SubItem/ArrayInfo
+177	4923	- DataTypes/DataType/SubItem/ArrayInfo/LBound
+177	4925	- DataTypes/DataType/SubItem/ArrayInfo/Elements
+177	4921	- DataTypes/DataType/SubItem/ArrayInfo/ArrayInfo(close)
+176	17945	~ DataTypes/DataType/Method/Name @VTableIndex
+176	3830	~ DataTypes/DataType/Method/ReturnBitSize #text
+176	3302	+ Mappings/OwnerA/OwnerB/Link
+175	2618	+ Project/Instance/TmcDesc/…/Symbol/Default
+175	2613	+ Project/Instance/TmcDesc/…/Default/Default(close)
+174	8343	- DataTypes/DataType/SubItem/Default/Value
+174	3558	- DataTypes/DataType/BaseType
+171	7622	- DataTypes/DataType/Method/Properties/Property/Value
+170	20177	- DataTypes/DataType/EnumInfo
+170	20174	- DataTypes/DataType/EnumInfo/Text
+170	20169	- DataTypes/DataType/EnumInfo/Enum
+170	20163	- DataTypes/DataType/EnumInfo/EnumInfo(close)
+169	10426	+ DataTypes/DataType/EnumInfo/Comment
+168	2173	- Project/Instance/TmcDesc/…/Symbol/Default
+168	2168	- Project/Instance/TmcDesc/…/Default/Default(close)
+166	2829	~ DataTypes/DataType/Method/Name @VTableIndex,#text
+164	2447	+ Project/Instance/TmcDesc/…/Default/Value
+163	1485	~ DataTypes/DataType/Method/Properties/Property/Name #text
+163	3357	~ Project/Instance/TmcDesc/…/Symbol/BaseType @GUID,#text
+162	6960	- DataTypes/DataType/Hides
+162	7341	- DataTypes/DataType/Hides/Hide
+162	6958	- DataTypes/DataType/Hides/Hides(close)
+161	2633	~ DataTypes/DataType/Method/Parameter/Type @GUID,#text
+161	2211	- Project/Instance/TmcDesc/…/Default/Value
+153	1031	~ DataTypes/DataType/Method/Local/ArrayInfo/Elements #text
+152	19405	~ DataTypes/DataType/Method/Parameter/BitSize #text
+151	6887	- DataTypes/DataType/PropertyItem
+151	6881	- DataTypes/DataType/PropertyItem/Name
+151	6423	- DataTypes/DataType/PropertyItem/Type
+151	6310	- DataTypes/DataType/PropertyItem/BitSize
+151	6886	- DataTypes/DataType/PropertyItem/PropertyItem(close)
+151	151	~ Project/Instance @TmcHash
+150	10096	~ DataTypes/DataType/Method/Comment/#cdata (whitespace)
+150	12670	- DataTypes/DataType/PropertyItem/Comment/#cdata
+150	6240	- DataTypes/DataType/PropertyItem/Comment
+146	6426	+ DataTypes/DataType/Hides/Hide
+145	6073	+ DataTypes/DataType/Hides
+145	6071	+ DataTypes/DataType/Hides/Hides(close)
+145	6208	- DataTypes/DataType/PropertyItem/GetCodeOffs
+144	8244	- DataTypes/DataType/EnumInfo/Comment
+144	906	~ DataTypes/DataType/Comment/#cdata (whitespace)
+142	2761	~ Project/Instance/TmcDesc/…/Default/Value #text
+141	1479	+ DataTypes/DataType/PropertyItem/SetCodeOffs
+141	2357	~ Project/Instance/TmcDesc/…/Symbol/Comment (whitespace)
+138	1409	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,#text
+138	1047	~ DataTypes/DataType/SubItem/Default/Value #text
+138	1063	+ DataTypes/DataType/Implements
+135	1164	- DataTypes/DataType/Implements
+135	963	~ DataTypes/DataType/Method/ReturnType @GUID,#text
+131	939	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@ReferenceTo,#text
+130	6588	~ DataTypes/DataType/SubItem/Properties/Property/Name #text
+129	860	~ DataTypes/DataType/Method/…/Property/Name #text
+123	3755	~ DataTypes/DataType/EnumInfo/Text (whitespace)
+122	1724	+ DataTypes/DataType/SubItem/Default/Bool
+120	2522	+ Project/Instance/TmcDesc/…/Property/Value
+112	1300	- DataTypes/DataType/PropertyItem/SetCodeOffs
+111	371	~ DataTypes/DataType/SubItem/Comment/#cdata #text
+111	1679	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,#text
+111	2434	~ DataTypes/DataType/PropertyItem/Comment/#cdata (whitespace)
+110	2530	~ DataTypes/DataType/PropertyItem/Name #text
+106	1152	+ DataTypes/DataType/SubItem/Default/DateTime
+106	1318	~ DataTypes/DataType/Properties/Property/Name #text
+103	915	~ DataTypes/DataType/PropertyItem/BitSize #text
+102	837	+ DataTypes/DataType/SubItem/Default/EnumText
+102	574	~ DataTypes/DataType/Method/ReturnType @RpcDirection
+100	265	~ DataTypes/DataType/ExtendsType @GUID,#text
+99	213	+ Project/Instance/TmcDesc/…/Default/Bool
+98	1239	~ DataTypes/DataType/SubItem/Properties/Property/Value #text
+97	2122	~ DataTypes/DataType/SubItem/Type @GUID,@Namespace,@ReferenceTo,#text
+97	14232	~ DataTypes/DataType/Hides/Hide @GUID
+96	204	- Project/Instance/TmcDesc/…/Default/Bool
+96	1905	- Mappings/OwnerA/OwnerB/Link
+93	939	+ DataTypes/DataType/SubItem/Default/String
+91	231	~ DataTypes/DataType/ExtendsType @GUID,@Namespace,#text
+91	789	~ DataTypes/DataType/PropertyItem/Type @GUID,@Namespace,#text
+91	375	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,@RpcDirection,#text
+90	268	~ Project/Instance/TmcDesc/…/Default/String (whitespace)
+89	429	~ DataTypes/DataType/PropertyItem/Type @GUID,#text
+87	3988	- DataTypes/DataType/SubItem/Default/SubItem/Value
+87	820	- DataTypes/DataType/SubItem/Default/String
+86	483	~ DataTypes/DataType/Method/Parameter/Comment (whitespace)
+85	4821	- DataTypes/DataType/SubItem/Default/SubItem
+85	4821	- DataTypes/DataType/SubItem/Default/SubItem/Name
+85	4821	- DataTypes/DataType/SubItem/Default/SubItem/SubItem(close)
+85	3518	+ Project/Instance/TmcDesc/…/Default/SubItem
+85	3518	+ Project/Instance/TmcDesc/…/SubItem/Name
+85	3518	+ Project/Instance/TmcDesc/…/SubItem/SubItem(close)
+84	4083	+ DataTypes/DataType/SubItem/Default/SubItem
+84	4083	+ DataTypes/DataType/SubItem/Default/SubItem/Name
+84	3324	+ DataTypes/DataType/SubItem/Default/SubItem/Value
+84	4083	+ DataTypes/DataType/SubItem/Default/SubItem/SubItem(close)
+83	1016	- DataTypes/DataType/SubItem/Default/Bool
+83	1756	- Project/Instance/TmcDesc/…/Property/Value
+83	3067	+ Project/Instance/TmcDesc/…/SubItem/Value
+82	571	~ DataTypes/DataType/SubItem/Type @GUID,@ReferenceTo,#text
+82	429	+ Project/Instance/TmcDesc/…/SubItem/String
+80	2296	~ DataTypes/DataType/EnumInfo/Enum #text
+79	290	~ DataTypes/DataType/Method/Local/Comment (whitespace)
+79	874	+ Project/Instance/TmcDesc/…/Default/String
+78	679	- DataTypes/DataType/SubItem/Default/DateTime
+77	846	~ DataTypes/DataType/EnumInfo/Comment (whitespace)
+76	354	~ DataTypes/DataType/Method/Local/Type @GUID,@Namespace,@ReferenceTo,#text
+76	1922	~ Project/Instance/TmcDesc/DataAreas/DataArea/Symbol @TcContextMask
+76	3938	- Project/Instance/TmcDesc/…/Default/SubItem
+76	3938	- Project/Instance/TmcDesc/…/SubItem/Name
+76	3938	- Project/Instance/TmcDesc/…/SubItem/SubItem(close)
+75	3478	- Project/Instance/TmcDesc/…/SubItem/Value
+74	546	- DataTypes/DataType/SubItem/Default/EnumText
+73	409	~ DataTypes/DataType/SubItem/Type @GUID,@Namespace,@PointerTo,#text
+73	972	- DataTypes/DataType/Method/Parameter/ArrayInfo/LBound
+73	982	- DataTypes/DataType/Method/Parameter/ArrayInfo/Elements
+73	76	~ Project/Instance/TmcDesc/ParameterValues/Value/Data #text
+72	277	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,#text
+72	977	- DataTypes/DataType/Method/Parameter/ArrayInfo
+72	967	- DataTypes/DataType/Method/Parameter/ArrayInfo/ArrayInfo(close)
+71	386	- Project/Instance/TmcDesc/…/SubItem/String
+70	451	+ Project/Instance/TmcDesc/…/Comment/#cdata
+69	228	~ DataTypes/DataType/SubItem/Comment/#cdata (whitespace)
+69	839	+ DataTypes/DataType/Method/Parameter/ArrayInfo
+69	833	+ DataTypes/DataType/Method/Parameter/ArrayInfo/LBound
+69	840	+ DataTypes/DataType/Method/Parameter/ArrayInfo/Elements
+69	831	+ DataTypes/DataType/Method/Parameter/ArrayInfo/ArrayInfo(close)
+68	267	+ Mappings/OwnerA/OwnerB
+68	267	+ Mappings/OwnerA/OwnerB/OwnerB(close)
+67	114	~ DataTypes/DataType/Method/Local/Type @GUID,@ReferenceTo,#text
+65	342	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@Namespace,@ReferenceTo,#text
+64	207	~ DataTypes/DataType/Comment (whitespace)
+64	259	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection,#text
+64	139	- DataTypes/DataType/Method/ReturnArrayInfo
+64	139	- DataTypes/DataType/Method/ReturnArrayInfo/LBound
+64	139	- DataTypes/DataType/Method/ReturnArrayInfo/Elements
+64	139	- DataTypes/DataType/Method/ReturnArrayInfo/ReturnArrayInfo(close)
+61	375	- Project/Instance/TmcDesc/…/Comment/#cdata
+61	993	~ DataTypes/DataType/SubItem/Type @GUID,@Namespace
+61	779	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,#text
+60	124	+ DataTypes/DataType/Method/ReturnArrayInfo
+60	123	+ DataTypes/DataType/Method/ReturnArrayInfo/LBound
+60	124	+ DataTypes/DataType/Method/ReturnArrayInfo/Elements
+60	124	+ DataTypes/DataType/Method/ReturnArrayInfo/ReturnArrayInfo(close)
+59	175	~ DataTypes/DataType/Method/Parameter/Comment/#cdata (whitespace)
+59	590	~ DataTypes/DataType/Name @GUID,@Namespace
+59	185	- DataTypes/DataType/ArrayInfo
+59	185	- DataTypes/DataType/ArrayInfo/LBound
+59	185	- DataTypes/DataType/ArrayInfo/Elements
+59	185	- DataTypes/DataType/ArrayInfo/ArrayInfo(close)
+57	624	+ DataTypes/DataType/Method/Local/Comment/#cdata
+57	119	~ DataTypes/DataType/BaseType @GUID,#text
+56	215	~ DataTypes/DataType/Method/Comment/#cdata #text
+56	381	~ Mappings/OwnerA/OwnerB/Link @VarB
+55	248	- DataTypes/DataType/EnumInfo/Comment/#cdata
+54	216	+ DataTypes/DataType/EnumInfo/Comment/#cdata
+54	150	+ DataTypes/DataType/ArrayInfo
+54	150	+ DataTypes/DataType/ArrayInfo/LBound
+54	150	+ DataTypes/DataType/ArrayInfo/Elements
+54	150	+ DataTypes/DataType/ArrayInfo/ArrayInfo(close)
+54	265	~ Project/Instance/TmcDesc/ParameterValues/Value/Name #text
+53	285	~ DataTypes/DataType/SubItem/Type @GUID,@PointerTo,#text
+52	90	+ Project/Instance/TmcDesc/…/Default/DateTime
+52	229	~ DataTypes/DataType/Method/Local/Type @GUID,@PointerTo,#text
+51	134	~ DataTypes/DataType/SubItem/Default/DateTime #text
+51	507	+ DataTypes/DataType/Action
+51	507	+ DataTypes/DataType/Action/Name
+51	507	+ DataTypes/DataType/Action/Action(close)
+51	284	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@ReferenceTo,@PointerTo,#text
+50	368	~ DataTypes/DataType/Method/Comment (whitespace)
+50	188	~ DataTypes/DataType/Method/Local/Type @GUID,@Namespace,@PointerTo,#text
+48	75	- Project/Instance/TmcDesc/…/Default/DateTime
+47	388	~ Mappings/OwnerA/OwnerB/Link @VarA,@VarB
+47	224	~ Mappings/OwnerA/OwnerB/Link @VarA
+47	446	- DataTypes/DataType/Action
+47	446	- DataTypes/DataType/Action/Name
+47	446	- DataTypes/DataType/Action/Action(close)
+47	673	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@PointerTo,#text
+46	84	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection,@Namespace,#text
+46	132	+ Project/Instance/TmcDesc/…/Default/EnumText
+45	56	~ Project/Instance/TmcDesc/Parameters/Parameter/BitSize #text
+45	56	~ Project/Instance/TmcDesc/Parameters/Parameter/BaseType @GUID,#text
+44	161	+ Project/Instance/TmcDesc/…/Symbol/ArrayInfo
+44	161	+ Project/Instance/TmcDesc/…/ArrayInfo/LBound
+44	161	+ Project/Instance/TmcDesc/…/ArrayInfo/Elements
+44	161	+ Project/Instance/TmcDesc/…/ArrayInfo/ArrayInfo(close)
+44	718	- Project/Instance/TmcDesc/…/Default/String
+43	68	~ Instance/TmcDesc/ParameterValues/Value/Value #text
+43	301	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@Namespace,#text
+42	116	- Project/Instance/TmcDesc/…/Default/EnumText
+42	293	+ Project/Instance/TmcDesc/ParameterValues/Value
+42	293	+ Project/Instance/TmcDesc/ParameterValues/Value/Name
+42	293	+ Project/Instance/TmcDesc/ParameterValues/Value/Value(close)
+42	306	+ Project/Instance/TmcDesc/ParameterValues/Value/Value
+41	294	- Project/Instance/TmcDesc/ParameterValues/Value/Value
+40	107	~ Instance/TmcDesc/Properties/Property/Value #text
+40	175	~ DataTypes/DataType/Method/Properties/Property/Value #text
+40	40	~ Project/Instance @LastKnownRefactorCnt,@TmcHash
+39	135	~ DataTypes/DataType/SubItem/Type @GUID,@ReferenceTo,@Namespace,#text
+39	745	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BaseType @GUID
+39	102	~ DataTypes/DataType/Method/ReturnBitSize (whitespace)
+38	117	~ DataTypes/DataType/Method/Local (whitespace)
+38	115	~ DataTypes/DataType/Method/Local/BitSize (whitespace)
+38	38	~ Instance @TmcHash
+38	279	- Project/Instance/TmcDesc/ParameterValues/Value
+38	279	- Project/Instance/TmcDesc/ParameterValues/Value/Name
+38	279	- Project/Instance/TmcDesc/ParameterValues/Value/Value(close)
+38	851	~ Project/Instance/TmcDesc/…/Property/Name #text
+38	1515	+ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link
+37	499	- DataTypes/DataType/Method/Local/Comment/#cdata
+37	37	~ Project/Instance @LastKnownRefactorCnt
+36	37	+ Project/Instance/TmcDesc/ParameterValues/Value/Data
+36	199	+ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB
+36	198	+ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/OwnerB(close)
+36	208	~ Mappings/OwnerA/OwnerB @Name
+35	115	~ DataTypes/DataType/Method/Local/Local(close) (whitespace)
+35	60	~ DataTypes/DataType/SubItem/ArrayInfo/LBound #text
+35	33771	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BitOffs #text
+35	384	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BitSize #text
+35	256	~ Instance/TmcDesc/DataAreas/…/SubItem/Value #text
+35	202	~ Instance/TmcDesc/DataAreas/…/SubItem/String (whitespace)
+35	125	~ DataTypes/DataType/Method/Local/Type @GUID,@Namespace
+35	127	- Mappings/OwnerA/OwnerB
+35	127	- Mappings/OwnerA/OwnerB/OwnerB(close)
+34	76	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,@ReferenceTo,#text
+34	35	- Project/Instance/TmcDesc/ParameterValues/Value/Data
+34	55	+ Project/Instance/UnrestoredVarLinks/OwnerA
+34	55	+ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerA(close)
+33	37	~ DataTypes/DataType/Method/ReturnType @GUID,@ReferenceTo,#text
+33	112	~ DataTypes/DataType/Method/Local/Type (whitespace)
+32	121	~ DataTypes/DataType/SubItem/Type @GUID,@PointerTo,@Namespace,#text
+32	53	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,@ReferenceTo,@RpcDirection,#text
+32	116	- Project/Instance/TmcDesc/…/Symbol/ArrayInfo
+32	116	- Project/Instance/TmcDesc/…/ArrayInfo/LBound
+32	116	- Project/Instance/TmcDesc/…/ArrayInfo/Elements
+32	116	- Project/Instance/TmcDesc/…/ArrayInfo/ArrayInfo(close)
+32	36	~ DataTypes/DataType/ArrayInfo/Elements #text
+31	71	~ DataTypes/DataType/PropertyItem/Type @GUID,@Namespace
+31	113	~ DataTypes/DataType/Method/Local/Name (whitespace)
+31	37	+ Project/Instance/UnrestoredVarLinks
+31	37	+ Project/Instance/UnrestoredVarLinks/UnrestoredVarLinks(close)
+30	704	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/BitSize
+30	703	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/BaseType
+30	330	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/Properties
+30	344	+ Instance/TmcDesc/DataAreas/…/Properties/Property
+30	344	+ Instance/TmcDesc/DataAreas/…/Property/Name
+30	344	+ Instance/TmcDesc/DataAreas/…/Property/Property(close)
+30	330	+ Instance/TmcDesc/DataAreas/…/Properties/Properties(close)
+30	420	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/BitOffs
+30	417	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/Symbol(close)
+30	417	+ Instance/TmcDesc/DataAreas/DataArea/Symbol
+30	417	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/Name
+30	51	~ DataTypes/DataType/Method/Properties/Property/Name (whitespace)
+30	111	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace
+30	903	- DataTypes/DataType/SubItem/Default/SubItem/String
+29	86	~ DataTypes/DataType/SubItem/Type @ReferenceTo
+29	367	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/Comment
+29	102	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace
+29	80	~ DataTypes/DataType/Method (whitespace)
+29	118	~ Project/Instance/TmcDesc/…/Symbol/BaseType @GUID,@Namespace,@ReferenceTo,#text
+28	80	~ DataTypes/DataType/Method/ReturnBitSize @X64,#text
+28	109	~ DataTypes/DataType/SubItem (whitespace)
+28	1221	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/Name #text
+28	111	~ DataTypes/DataType/SubItem/SubItem(close) (whitespace)
+28	744	+ DataTypes/DataType/SubItem/Default/SubItem/String
+27	44	~ Project/Instance/TmcDesc/…/Comment/#cdata (whitespace)
+27	84	~ DataTypes/DataType/Method/Name (whitespace)
+27	83	~ DataTypes/DataType/Method/Method(close) (whitespace)
+27	36	~ DataTypes/DataType/SubItem/Name @Static,#text
+27	77	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@PointerTo,#text
+27	51	~ DataTypes/DataType/Method/ReturnType @GUID,@PointerTo,#text
+27	1078	- Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link
+26	66	~ DataTypes/DataType/Method/Parameter/Parameter(close) (whitespace)
+26	106	~ DataTypes/DataType/SubItem/BitSize (whitespace)
+26	64	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@ReferenceTo,#text
+26	57	~ DataTypes/DataType/Method/…/Property/Name (whitespace)
+26	60	~ DataTypes/DataType/SubItem/Default/Bool #text
+25	40	~ DataTypes/DataType/Method/Local/ArrayInfo/LBound #text
+25	214	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/Default
+25	214	+ Instance/TmcDesc/DataAreas/…/Default/Default(close)
+25	391	- Instance/TmcDesc/DataAreas/DataArea/Symbol/Symbol(close)
+25	391	- Instance/TmcDesc/DataAreas/DataArea/Symbol
+25	391	- Instance/TmcDesc/DataAreas/DataArea/Symbol/Name
+25	336	- Instance/TmcDesc/DataAreas/DataArea/Symbol/Comment
+25	678	- Instance/TmcDesc/DataAreas/DataArea/Symbol/BitSize
+25	677	- Instance/TmcDesc/DataAreas/DataArea/Symbol/BaseType
+25	304	- Instance/TmcDesc/DataAreas/DataArea/Symbol/Properties
+25	321	- Instance/TmcDesc/DataAreas/…/Properties/Property
+25	321	- Instance/TmcDesc/DataAreas/…/Property/Name
+25	321	- Instance/TmcDesc/DataAreas/…/Property/Property(close)
+25	304	- Instance/TmcDesc/DataAreas/…/Properties/Properties(close)
+25	394	- Instance/TmcDesc/DataAreas/DataArea/Symbol/BitOffs
+24	113	~ Instance/TmcDesc/DataAreas/DataArea/ByteSize #text
+24	34	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,@PointerTo,#text
+23	28	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection,@Namespace,@ReferenceTo,#text
+23	104	~ DataTypes/DataType/SubItem/Name (whitespace)
+23	147	+ Instance/TmcDesc/DataAreas/…/Default/Value
+23	155	- Instance/TmcDesc/DataAreas/…/Default/Value
+23	215	- Instance/TmcDesc/DataAreas/DataArea/Symbol/Default
+23	215	- Instance/TmcDesc/DataAreas/…/Default/Default(close)
+23	57	~ Project/Instance/TmcDesc/…/Symbol/BaseType @GUID,@Namespace,#text
+23	42	~ DataTypes/DataType/Name @GUID,@Namespace,@TcBaseType,@AutoDeleteType,#text
+23	51	~ DataTypes/DataType/Method/…/Property/Value (whitespace)
+22	459	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BaseType @GUID,#text
+22	61	- DataTypes/DataType/Format
+22	61	- DataTypes/DataType/Format/Printf
+22	61	- DataTypes/DataType/Format/Format(close)
+22	129	- Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB
+22	128	- Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/OwnerB(close)
+21	34	~ DataTypes/DataType/Method/Parameter/Type @ReferenceTo
+21	48	~ DataTypes/DataType/Method/Parameter/BitSize (whitespace)
+21	102	~ DataTypes/DataType/SubItem/BitOffs (whitespace)
+21	655	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/Comment (whitespace)
+21	102	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@PointerTo,@ReferenceTo,#text
+21	51	~ DataTypes/DataType/Method/Parameter/Name (whitespace)
+21	50	~ DataTypes/DataType/Method/…/Property/Property(close) (whitespace)
+20	36	- Instance/TmcDesc/DataAreas/…/Default/Bool
+20	31	+ Instance/TmcDesc/DataAreas/…/Default/Bool
+20	25	~ DataTypes/DataType/Comment/#cdata #text
+20	294	- DataTypes/DataType/Format/Parameter
+19	45	~ DataTypes/DataType/Method/ReturnType (whitespace)
+19	205	- Project/Instance/TmcDesc/Licenses/License
+19	34	~ DataTypes/DataType/Method/Properties/Property/Property(close) (whitespace)
+18	52	~ DataTypes/DataType/Method/Parameter (whitespace)
+18	40	~ DataTypes/DataType/Method/Parameter/Type (whitespace)
+18	79	~ DataTypes/DataType/SubItem/Type (whitespace)
+18	35	~ DataTypes/DataType/BitSize (whitespace)
+18	204	- Project/Instance/TmcDesc/Licenses/License/LicenseId
+18	204	- Project/Instance/TmcDesc/Licenses/License/License(close)
+18	31	~ DataTypes/DataType/Method/Properties/Properties(close) (whitespace)
+18	53	+ Project/Instance/TmcDesc/Parameters/Parameter
+18	53	+ Project/Instance/TmcDesc/Parameters/Parameter/Name
+18	53	+ Project/Instance/TmcDesc/Parameters/Parameter/BitSize
+18	53	+ Project/Instance/TmcDesc/Parameters/Parameter/BaseType
+18	53	+ Project/Instance/TmcDesc/Parameters/Parameter/PTCID
+18	53	+ Project/Instance/TmcDesc/Parameters/Parameter/Parameter(close)
+18	23	~ DataTypes/DataType/SubItem/ArrayInfo @PointerTo
+18	252	~ DataTypes/DataType/Method/Parameter/BitSize @X64,#text
+18	63	+ DataTypes/DataType/Format
+18	63	+ DataTypes/DataType/Format/Printf
+18	63	+ DataTypes/DataType/Format/Format(close)
+17	126	~ Instance/TmcDesc/DataAreas/DataArea/Symbol @TcContextMask
+17	61	~ Instance/TmcDesc/DataAreas/…/Default/Value #text
+17	252	+ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link
+17	38	~ DataTypes/DataType/Properties/Property/Name (whitespace)
+17	19	+ DataTypes/DataType/SubItem/Default/DateTime/DateTime(close)
+17	97	+ Project/Instance/TmcDesc/Licenses/License
+17	96	+ Project/Instance/TmcDesc/Licenses/License/LicenseId
+17	96	+ Project/Instance/TmcDesc/Licenses/License/License(close)
+17	28	~ DataTypes/DataType/Method/Parameter/Properties/Properties(close) (whitespace)
+17	28	- Project/Instance/UnrestoredVarLinks/OwnerA
+17	28	- Project/Instance/UnrestoredVarLinks/OwnerA/OwnerA(close)
+16	30	~ DataTypes/DataType/ExtendsType @GUID,@Namespace
+16	18	+ Instance/UnrestoredVarLinks/OwnerA
+16	21	+ Instance/UnrestoredVarLinks/OwnerA/OwnerB
+16	21	+ Instance/UnrestoredVarLinks/OwnerA/OwnerB/OwnerB(close)
+16	18	+ Instance/UnrestoredVarLinks/OwnerA/OwnerA(close)
+16	28	~ DataTypes/DataType/Name @GUID,@Namespace,@AutoDeleteType,@TcBaseType,#text
+16	34	~ DataTypes/DataType (whitespace)
+16	26	~ DataTypes/DataType/Name (whitespace)
+16	23	~ DataTypes/DataType/SubItem/Properties/Property/Name (whitespace)
+16	23	~ Project/Instance/TmcDesc/…/Default/Bool #text
+16	16	~ Project/Instance/UnrestoredVarLinks @ImportTime
+16	35	~ DataTypes/DataType/BitSize @X64,#text
+16	17	~ DataTypes/DataType/Method/Parameter/Type @GUID,@RpcDirection,#text
+16	266	+ DataTypes/DataType/Format/Parameter
+16	24	~ DataTypes/DataType/Properties/Property/Value (whitespace)
+16	20	- Project/Instance/UnrestoredVarLinks
+16	20	- Project/Instance/UnrestoredVarLinks/UnrestoredVarLinks(close)
+15	19	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@RpcDirection,#text
+15	129	~ Project/Instance/TmcDesc/…/SubItem/Name #text
+15	16	+ Instance/UnrestoredVarLinks
+15	16	+ Instance/UnrestoredVarLinks/UnrestoredVarLinks(close)
+15	50	- Project/Instance/TmcDesc/Parameters/Parameter
+15	50	- Project/Instance/TmcDesc/Parameters/Parameter/Name
+15	50	- Project/Instance/TmcDesc/Parameters/Parameter/BitSize
+15	50	- Project/Instance/TmcDesc/Parameters/Parameter/BaseType
+15	50	- Project/Instance/TmcDesc/Parameters/Parameter/PTCID
+15	50	- Project/Instance/TmcDesc/Parameters/Parameter/Parameter(close)
+15	66	~ DataTypes/DataType/Method/Parameter/BitSize @X64
+15	52	~ DataTypes/DataType/Method/Parameter/Type @PointerTo
+15	15	~ DataTypes/DataType/SubItem/BitSize @X64,#text
+15	27	~ DataTypes/DataType/Method/Parameter/Properties/Property (whitespace)
+15	15	~ Project/Instance/TmcDesc/ParameterValues/Value/String #text
+14	51	~ Instance/TmcDesc/DataAreas/…/Default/String (whitespace)
+14	32	~ DataTypes/DataType/DataType(close) (whitespace)
+14	21	~ DataTypes/DataType/PropertyItem/Comment (whitespace)
+14	19	~ DataTypes/DataType/SubItem/Properties/Properties(close) (whitespace)
+14	53	~ DataTypes/DataType/Name @GUID,@TcBaseType,@CName,@Namespace,@AutoDeleteType,#text
+14	24	~ DataTypes/DataType/Method/Parameter/Properties (whitespace)
+14	14	~ Project/Instance/TmcDesc/…/Default/EnumText #text
+14	51	- DataTypes/DataType/SubItem/Default/WString
+14	45	+ DataTypes/DataType/SubItem/Default/WString
+14	23	- Project/Instance/TmcDesc/DataAreas/DataArea/DataArea(close)
+14	25	- Project/Instance/TmcDesc/DataAreas/DataArea
+14	25	- Project/Instance/TmcDesc/DataAreas/DataArea/AreaNo
+14	25	- Project/Instance/TmcDesc/DataAreas/DataArea/Name
+14	25	- Project/Instance/TmcDesc/DataAreas/DataArea/ContextId
+14	25	- Project/Instance/TmcDesc/DataAreas/DataArea/ByteSize
+13	14	~  @TcVersion
+13	168	- Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link
+13	202	+ Instance/TmcDesc/DataAreas/…/Property/Value
+13	34	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Const,#text
+13	25	+ Project/Instance/TmcDesc/DataAreas/DataArea/DataArea(close)
+13	27	+ Project/Instance/TmcDesc/DataAreas/DataArea
+13	27	+ Project/Instance/TmcDesc/DataAreas/DataArea/AreaNo
+13	27	+ Project/Instance/TmcDesc/DataAreas/DataArea/Name
+13	27	+ Project/Instance/TmcDesc/DataAreas/DataArea/ContextId
+13	27	+ Project/Instance/TmcDesc/DataAreas/DataArea/ByteSize
+12	12	~ Instance/UnrestoredVarLinks @ImportTime
+12	15	~ DataTypes/DataType/SubItem/Default/EnumText #text
+12	17	~ DataTypes/DataType/SubItem/Properties/Property/Property(close) (whitespace)
+12	121	~ DataTypes/DataType/Method/Name @RpcEnable,@VTableIndex
+12	20	~ Project/Instance/TmcDesc/…/Symbol/BitSize @X64,#text
+12	35	~ DataTypes/DataType/Name @GUID,@Namespace,@AutoDeleteType,@TcBaseType,@CName,#text
+12	418	~ Project/Instance/TmcDesc/…/Property/Value #text
+12	15	~ DataTypes/DataType/Method/Local/ArrayInfo/ArrayInfo(close) (whitespace)
+12	13	- DataTypes/DataType/SubItem/Default/DateTime/DateTime(close)
+12	13	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection
+12	22	+ Project/Instance/TmcDesc/…/SubItem/EnumText
+11	15	~ DataTypes/DataType/PropertyItem/PropertyItem(close) (whitespace)
+11	11	- Instance/UnrestoredVarLinks/OwnerA/OwnerB
+11	11	- Instance/UnrestoredVarLinks/OwnerA/OwnerB/OwnerB(close)
+11	19	~ DataTypes/DataType/EnumInfo/Enum (whitespace)
+11	29	~ DataTypes/DataType/Properties/Property (whitespace)
+11	16	~ DataTypes/DataType/Properties/Properties(close) (whitespace)
+11	16	~ DataTypes/DataType/SubItem/Type @GUID,@ReferenceTo
+11	12	~ DataTypes/DataType/Method/ReturnType @GUID,@PointerTo,@Namespace,#text
+11	13	~ DataTypes/DataType/PropertyItem (whitespace)
+11	25	~ DataTypes/DataType/Method/Properties/Property (whitespace)
+11	36	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@Const,#text
+11	31	~ DataTypes/DataType/Method/Local/Type @GUID,@PointerTo,@Namespace,#text
+11	16	~ DataTypes/DataType/SubItem/Type @GUID,@Namespace,@PointerTo,@ReferenceTo,#text
+11	36	+ Project/Instance/TmcDesc/…/SubItem/DateTime
+11	30	~ DataTypes/DataType/Name @GUID,@CName,#text
+10	11	~ DataTypes/DataType/PropertyItem/BitSize (whitespace)
+10	68	- Project/Instance/TmcDesc/…/SubItem/EnumText
+10	34	~ DataTypes/DataType/Properties/Property/Property(close) (whitespace)
+10	12	~ DataTypes/DataType/Method/ReturnType @GUID,@ReferenceTo,@RpcDirection,#text
+10	14	~ DataTypes/DataType/SubItem/Properties/Property/Value (whitespace)
+10	24	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@Const,#text
+10	14	~ DataTypes/DataType/SubItem/Type @GUID,@Namespace,@ReferenceTo,@PointerTo,#text
+10	26	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@RpcArrayDim,@ReferenceTo,#text
+10	12	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@PointerTo,@RpcArrayDim,#text
+10	16	~ DataTypes/DataType/Implements @GUID,@Namespace
+10	13	~ DataTypes/DataType/Method/Local/ArrayInfo/Elements (whitespace)
+10	21	~ DataTypes/DataType/Method/Local/Properties/Property (whitespace)
+10	23	~ DataTypes/DataType/Method/Local/Properties/Properties(close) (whitespace)
+9	152	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @GuidA,@IdA
+9	19	~ DataTypes/DataType/Method/Properties (whitespace)
+9	59	~ DataTypes/DataType/SubItem/Comment @Min,@Max,@UnitClass,@ChangeLog
+9	10	~ DataTypes/DataType/SubItem/Type @GUID,@PointerTo,@ReferenceTo,#text
+9	45	~ Instance/TmcDesc/ParameterValues/Value/Name #text
+9	11	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection,@ReferenceTo,#text
+9	9	- Instance/UnrestoredVarLinks/OwnerA
+9	9	- Instance/UnrestoredVarLinks/OwnerA/OwnerA(close)
+9	12	~ DataTypes/DataType/Method/Local/ArrayInfo (whitespace)
+9	12	~ DataTypes/DataType/Method/Local/ArrayInfo/LBound (whitespace)
+9	20	~ DataTypes/DataType/Method/Local/Properties (whitespace)
+9	39	~ Project/Instance/TmcDesc/DataAreas/DataArea/Symbol (whitespace)
+8	11	~ DataTypes/DataType/PropertyItem/Type @GUID,@Namespace,@ReferenceTo,#text
+8	73	+ Instance/TmcDesc/DataAreas/…/Default/String
+8	9	- Instance/TmcDesc/DataAreas/…/Default/DateTime
+8	9	+ Instance/TmcDesc/DataAreas/…/Default/DateTime
+8	42	~ DataTypes/DataType/Action/Name #text
+8	12	~ DataTypes/DataType/SubItem/Properties/Property (whitespace)
+8	9	~ DataTypes/DataType/PropertyItem/Name (whitespace)
+8	18	~ Mappings/OwnerA/OwnerB/Link @VarA,@VarB,@Size
+8	40	~ Project/Instance/TmcDesc/…/Symbol/Symbol(close) (whitespace)
+8	50	~ Project/Instance/TmcDesc/…/Property/Name (whitespace)
+8	44	- DataTypes/DataType/PropertyItem/Properties
+8	44	- DataTypes/DataType/PropertyItem/Properties/Property
+8	47	- DataTypes/DataType/PropertyItem/Properties/Property/Name
+8	47	- DataTypes/DataType/PropertyItem/Properties/Property/Value
+8	44	- DataTypes/DataType/PropertyItem/Properties/Property/Property(close)
+8	44	- DataTypes/DataType/PropertyItem/Properties/Properties(close)
+8	65	+ DataTypes/DataType/SubItem/Default/SubItem/DateTime
+7	7	~ Instance/TmcDesc/DataAreas/…/Default/Bool #text
+7	10	~ DataTypes/DataType/Properties (whitespace)
+7	7	~ Project/Instance/TmcDesc/…/ArrayInfo/Elements #text
+7	8	~ Project/Instance/TmcDesc/…/Symbol/BaseType @GUID,@ReferenceTo,#text
+7	18	+ Project/Instance/TmcDesc/…/Symbol/Format
+7	18	+ Project/Instance/TmcDesc/…/Format/Printf
+7	18	+ Project/Instance/TmcDesc/…/Format/Format(close)
+7	18	~ DataTypes/DataType/SubItem/Type @GUID,@PointerTo,@Namespace,@ReferenceTo,#text
+7	19	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@Namespace,#text
+7	7	~ DataTypes/DataType/Method/Parameter/Type @ReferenceTo,@PointerTo
+7	14	~ DataTypes/DataType/SubItem/Default/SubItem/Value #text
+7	7	- Instance/UnrestoredVarLinks
+7	7	- Instance/UnrestoredVarLinks/UnrestoredVarLinks(close)
+7	32	- Project/Instance/TmcDesc/…/SubItem/DateTime
+7	39	~ Project/Instance/TmcDesc/…/Symbol/Default (whitespace)
+7	78	~ Project/Instance/TmcDesc/…/Default/SubItem (whitespace)
+7	81	~ Project/Instance/TmcDesc/…/SubItem/SubItem(close) (whitespace)
+7	138	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @GuidA,@IdA
+7	34	~ DataTypes/DataType/SubItem/Default/SubItem/Name #text
+7	54	+ DataTypes/DataType/SubItem/Default/SubItem/Bool
+6	6	~ DataTypes/DataType/EnumInfo/Comment/#cdata (whitespace)
+6	10	~ DataTypes/DataType/Hides/Hides(close) (whitespace)
+6	11	~ DataTypes/DataType/BaseType (whitespace)
+6	14	~ DataTypes/DataType/EnumInfo (whitespace)
+6	7	~ DataTypes/DataType/Name @GUID,@Namespace,@IecBaseType,#text
+6	6	~ DataTypes/DataType/PropertyItem/Type (whitespace)
+6	7	~ DataTypes/DataType/SubItem/Type @GUID,@ReferenceTo,@PointerTo,#text
+6	7	~ DataTypes/DataType/SubItem/Default/String (whitespace)
+6	7	~ DataTypes/DataType/SubItem/Type @PointerTo
+6	50	~ DataTypes/DataType/SubItem/Comment @UnitClass
+6	51	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @RestoreInfo
+6	78	~ Project/Instance/TmcDesc/…/SubItem/Name (whitespace)
+6	12	+ Project/Instance/TmcDesc/Contexts/Context/DependOn
+6	26	- Project/Instance/TmcDesc/…/Symbol/Format
+6	26	- Project/Instance/TmcDesc/…/Format/Printf
+6	26	- Project/Instance/TmcDesc/…/Format/Format(close)
+6	31	+ DataTypes/DataType/PropertyItem/Properties
+6	31	+ DataTypes/DataType/PropertyItem/Properties/Property
+6	35	+ DataTypes/DataType/PropertyItem/Properties/Property/Name
+6	35	+ DataTypes/DataType/PropertyItem/Properties/Property/Value
+6	31	+ DataTypes/DataType/PropertyItem/Properties/Property/Property(close)
+6	31	+ DataTypes/DataType/PropertyItem/Properties/Properties(close)
+6	6	~ DataTypes/DataType/BaseType @GUID
+6	6	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@ReferenceTo,@RpcDirection,#text
+6	13	~ DataTypes/DataType/Method/ReturnBitSize @X64
+6	7	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,@RpcDirection,@ReferenceTo,#text
+6	17	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@PointerTo,@RpcArrayDim,#text
+5	16	~ DataTypes/DataType/SubItem/Default (whitespace)
+5	16	~ DataTypes/DataType/SubItem/Default/Default(close) (whitespace)
+5	5	~ DataTypes/DataType/SubItem/Name @Static
+5	182	- Instance/TmcDesc/DataAreas/…/Property/Value
+5	9	~ DataTypes/DataType/Hides (whitespace)
+5	13	~ DataTypes/DataType/EnumInfo/EnumInfo(close) (whitespace)
+5	7	~ DataTypes/DataType/SubItem/Properties (whitespace)
+5	7	~ DataTypes/DataType/Method/Properties/Property/Value (whitespace)
+5	7	~ DataTypes/DataType/Name @GUID,@IecBaseType,@Namespace,#text
+5	16	~ DataTypes/DataType/SubItem/Comment @Min,@Max,@ChangeLog
+5	68	+ Instance/TmcDesc/ParameterValues/Value/Value
+5	63	+ Instance/TmcDesc/ParameterValues/Value/Value(close)
+5	63	+ Instance/TmcDesc/ParameterValues/Value
+5	63	+ Instance/TmcDesc/ParameterValues/Value/Name
+5	5	- Instance/TmcDesc/ParameterValues/Value/Data
+5	15	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo
+5	34	~ Project/Instance/TmcDesc/…/Symbol/BaseType (whitespace)
+5	19	~ Project/Instance/TmcDesc/…/Default/Value (whitespace)
+5	47	~ Project/Instance/TmcDesc/…/Properties/Property (whitespace)
+5	47	~ Project/Instance/TmcDesc/…/Property/Property(close) (whitespace)
+5	35	~ Project/Instance/TmcDesc/…/Properties/Properties(close) (whitespace)
+5	57	~ Project/Instance/TmcDesc/…/SubItem/Value (whitespace)
+5	5	~ DataTypes/DataType/SubItem/ArrayInfo/ArrayInfo(close) (whitespace)
+5	10	+ Project/Instance/Contexts/Context/DependOn
+5	5	~ DataTypes/DataType/Method/Local/Type @PointerTo
+5	25	- DataTypes/DataType/SubItem/Default/SubItem/DateTime
+5	19	- DataTypes/DataType/SubItem/Default/SubItem/Bool
+5	10	~ DataTypes/DataType/Method/Parameter/Type @GUID,@RpcDirection,@Namespace,@ReferenceTo,#text
+5	7	~ Project/Instance/TmcDesc/…/Comment/#cdata #text
+4	10	+ Project/Instance/TmcDesc/…/SubItem/Bool
+4	5	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@RpcArrayDim,#text
+4	4	+ DataTypes/DataTypes(close)
+4	4	- DataTypes/DataTypes(close)
+4	66	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @GuidA
+4	4	~ DataTypes/DataType/Name @GUID,@TcBaseType,@Namespace,@AutoDeleteType,#text
+4	6	~ Project/Instance/TmcDesc/…/Symbol/Name @StringType,#text
+4	4	~ DataTypes/DataType/BaseType @GUID,@Namespace,#text
+4	5	~ DataTypes/DataType/Method/Local/Type @GUID,@ReferenceTo,@Namespace,#text
+4	6	~ DataTypes/DataType/Method/Local/ArrayInfo @PointerTo
+4	10	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@Namespace,@PointerTo,#text
+4	50	- Instance/TmcDesc/ParameterValues/Value/Value(close)
+4	50	- Instance/TmcDesc/ParameterValues/Value
+4	50	- Instance/TmcDesc/ParameterValues/Value/Name
+4	54	- Instance/TmcDesc/ParameterValues/Value/Value
+4	4	+ Instance/TmcDesc/ParameterValues/Value/Data
+4	4	+ DataTypes/DataType/SubItem/Default/DateTime/#text
+4	30	~ Project/Instance/TmcDesc/Licenses/License/LicenseId #text
+4	32	~ Project/Instance/TmcDesc/…/Symbol/BitOffs (whitespace)
+4	32	~ Project/Instance/TmcDesc/…/Symbol/Name (whitespace)
+4	33	~ Project/Instance/TmcDesc/…/Symbol/BitSize (whitespace)
+4	34	~ Project/Instance/TmcDesc/…/Default/Default(close) (whitespace)
+4	34	~ Project/Instance/TmcDesc/…/Symbol/Properties (whitespace)
+4	4	~ Mappings/OwnerA/OwnerB/Link @VarA,@Size
+4	4	~ Project/Instance @KeepUnrestoredLinks,@TmcHash
+4	4	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@ReferenceTo,@Const,#text
+4	4	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@Const,@PointerTo,#text
+4	4	~ DataTypes/DataType/Method/Parameter/Type @PointerTo,@ReferenceTo
+4	4	+ Project/Instance/TmcDesc/Licenses
+4	5	+ Project/Instance/TmcDesc/Contexts/Context
+4	5	+ Project/Instance/TmcDesc/Contexts/Context/Id
+4	5	+ Project/Instance/TmcDesc/Contexts/Context/Name
+4	5	+ Project/Instance/TmcDesc/Contexts/Context/ManualConfig
+4	5	+ Project/Instance/TmcDesc/…/ManualConfig/OTCID
+4	5	+ Project/Instance/TmcDesc/…/ManualConfig/ManualConfig(close)
+4	5	+ Project/Instance/TmcDesc/Contexts/Context/Priority
+4	5	+ Project/Instance/TmcDesc/Contexts/Context/CycleTime
+4	5	+ Project/Instance/TmcDesc/Contexts/Context/Context(close)
+4	4	~ Project/Instance/TmcDesc/DataAreas/DataArea/AreaNo #text
+4	4	~ Project/Instance/TmcDesc/DataAreas/DataArea/Name #text
+4	4	~ Project/Instance/TmcDesc/DataAreas/DataArea/ContextId #text
+4	4	~ DataTypes/DataType/Method/Parameter/ArrayInfo/Elements #text
+4	4	~ DataTypes/DataType/SubItem/Type @GUID,@PointerTo,@ReferenceTo,@Namespace,#text
+4	7	~ DataTypes/DataType/Method/Parameter/Type @ReferenceTo,@Const
+4	6	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@Namespace,@RpcArrayDim,#text
+3	22	- Project/Instance/TmcDesc/…/SubItem/Bool
+3	5	~ Instance/TmcDesc/DataAreas/…/Comment/#cdata (whitespace)
+3	45	+ Instance/TmcDesc/DataAreas/…/Default/SubItem
+3	45	+ Instance/TmcDesc/DataAreas/…/SubItem/Name
+3	13	+ Instance/TmcDesc/DataAreas/…/SubItem/Bool
+3	45	+ Instance/TmcDesc/DataAreas/…/SubItem/SubItem(close)
+3	83	- Instance/TmcDesc/DataAreas/…/Default/SubItem
+3	83	- Instance/TmcDesc/DataAreas/…/SubItem/Name
+3	22	- Instance/TmcDesc/DataAreas/…/SubItem/Bool
+3	83	- Instance/TmcDesc/DataAreas/…/SubItem/SubItem(close)
+3	6	~ DataTypes/DataType/Hides/Hide (whitespace)
+3	91	- Instance/TmcDesc/Licenses/License
+3	91	- Instance/TmcDesc/Licenses/License/LicenseId
+3	91	- Instance/TmcDesc/Licenses/License/License(close)
+3	5	~ DataTypes/DataType/Method/Parameter/Type @RpcDirection
+3	14	~ DataTypes/DataType/SubItem/Comment @Min,@Max,@UnitClass
+3	6	~ DataTypes/DataType/Implements (whitespace)
+3	3	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@PointerTo,@RpcArrayDim,@ReferenceTo,#text
+3	12	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@VarB
+3	6	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA
+3	3	~ DataTypes/DataType/SubItem/ArrayInfo/LBound (whitespace)
+3	4	~ DataTypes/DataType/Method/Local/Comment/#cdata (whitespace)
+3	4	~ DataTypes/DataType/Method/Parameter/Type @GUID,@RpcDirection
+3	6	~ Project/Instance/TmcDesc/Contexts/Context/Id @NeedCalleeCall
+3	14	~ Project/Instance/TmcDesc/…/Symbol/Name @StringType
+3	6	~ Project/Instance/Contexts/Context/Id @NeedCalleeCall
+3	4	~ DataTypes/DataType/Name @GUID,@IecBaseType,#text
+3	3	- Project
+3	3	- Project/Instance
+3	3	- Project/Instance/Name
+3	3	- Project/Instance/TmcDesc
+3	3	- Project/Instance/TmcDesc/Name
+3	3	- Project/Instance/TmcDesc/CLSID
+3	3	- Project/Instance/TmcDesc/Licenses
+3	3	+ Project
+3	3	+ Project/Instance
+3	3	+ Project/Instance/Name
+3	3	+ Project/Instance/TmcDesc
+3	3	+ Project/Instance/TmcDesc/Name
+3	3	+ Project/Instance/TmcDesc/CLSID
+3	18	~ Mappings/OwnerA/OwnerB/Link @Size
+3	3	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@RpcDirection,#text
+3	7	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Const,@Namespace,#text
+3	3	+ Project/Instance/TmcDesc/Licenses/Licenses(close)
+2	9	~ DataTypes/DataType/SubItem/Default/Value (whitespace)
+2	6	+ Instance/TmcDesc/DataAreas/…/Default/EnumText
+2	6	- Instance/TmcDesc/DataAreas/…/Default/EnumText
+2	54	- Instance/TmcDesc/DataAreas/…/SubItem/EnumText
+2	81	- Instance/TmcDesc/DataAreas/…/Comment/#cdata
+2	77	+ Instance/TmcDesc/DataAreas/…/Comment/#cdata
+2	10	+ Instance/TmcDesc/DataAreas/DataArea/Symbol/ArrayInfo
+2	10	+ Instance/TmcDesc/DataAreas/…/ArrayInfo/LBound
+2	10	+ Instance/TmcDesc/DataAreas/…/ArrayInfo/Elements
+2	10	+ Instance/TmcDesc/DataAreas/…/ArrayInfo/ArrayInfo(close)
+2	13	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BaseType @GUID,@Namespace,@ReferenceTo,#text
+2	2	~ DataTypes/DataType/ExtendsType (whitespace)
+2	2	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@PointerTo,@Const,#text
+2	2	~ DataTypes/DataType/Method/Parameter/Type @GUID,@RpcDirection,@PointerTo,#text
+2	2	~ DataTypes/DataType/SubItem/Comment @Max,@ChangeLog
+2	2	~ DataTypes/DataType/SubItem/Comment @Max
+2	2	~ Instance/TmcDesc/Parameters/Parameter/BitSize #text
+2	2	~ Instance/TmcDesc/Parameters/Parameter/BaseType @GUID,#text
+2	2	~ Instance/TmcDesc/ParameterValues/Value/Data #text
+2	2	+ DataTypes/DataType/SubItem/Default/DateTime/Default(close)
+2	2	+ Mappings
+2	2	+ Mappings/OwnerA
+2	2	+ Mappings/OwnerA/OwnerA(close)
+2	2	+ Mappings/Mappings(close)
+2	13	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB @Name
+2	5	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@Size,@OffsB
+2	3	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@ReferenceTo,@PointerTo,@RpcArrayDim,#text
+2	12	~ Mappings/OwnerA/OwnerB/Link @VarA,@VarB,@Size,@OffsB
+2	6	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB
+2	2	~ DataTypes/DataType/SubItem/ArrayInfo (whitespace)
+2	2	~ DataTypes/DataType/SubItem/ArrayInfo/Elements (whitespace)
+2	2	~ DataTypes/DataType/SubItem/Default/Bool (whitespace)
+2	28	~ Mappings/OwnerA/OwnerB/Link @VarA,@VarB,@Size,@OffsA
+2	14	~ Mappings/OwnerA/OwnerB/Link @VarA,@Size,@OffsA
+2	2	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@RestoreInfo,@IdA,@ParentTypeA
+2	5	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@RestoreInfo,@IdA,@ParentTypeA,@Size
+2	22	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@RestoreInfo,@IdA,@ParentTypeA,@Size,@OffsA
+2	5	+ DataTypes/DataType/Relations
+2	22	+ DataTypes/DataType/Relations/Relation
+2	22	+ DataTypes/DataType/Relations/Relation/Type
+2	22	+ DataTypes/DataType/Relations/Relation/Relation(close)
+2	5	+ DataTypes/DataType/Relations/Relations(close)
+2	5	- DataTypes/DataType/Relations
+2	19	- DataTypes/DataType/Relations/Relation
+2	19	- DataTypes/DataType/Relations/Relation/Type
+2	19	- DataTypes/DataType/Relations/Relation/Relation(close)
+2	5	- DataTypes/DataType/Relations/Relations(close)
+2	4	~ DataTypes/DataType/PropertyItem/Type @ReferenceTo
+2	2	~ DataTypes/DataType/Method/Parameter/Type @Const
+2	2	~ DataTypes/DataType/BaseType @GUID,@PointerTo,#text
+2	2	+ Project/Instance/Contexts/Context
+2	2	+ Project/Instance/Contexts/Context/Id
+2	2	+ Project/Instance/Contexts/Context/Name
+2	2	+ Project/Instance/Contexts/Context/ManualConfig
+2	2	+ Project/Instance/Contexts/Context/ManualConfig/OTCID
+2	2	+ Project/Instance/Contexts/Context/ManualConfig/ManualConfig(close)
+2	2	+ Project/Instance/Contexts/Context/Priority
+2	2	+ Project/Instance/Contexts/Context/CycleTime
+2	2	+ Project/Instance/Contexts/Context/Context(close)
+2	2	+ Project/Instance/TaskPouOids/TaskPouOid
+2	30	~ DataTypes/DataType/SubItem/Default/SubItem/DateTime #text
+2	3	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@RpcDirection,@ReferenceTo,#text
+2	10	+ DataTypes/DataType/SubItem/Default/SubItem/EnumText
+2	2	~ DataTypes/DataType/Method/Parameter/Type @GUID,@RpcDirection,@ReferenceTo,#text
+2	2	~ DataTypes/DataType/Name @GUID,@AutoDeleteType,@TcBaseType,#text
+2	2	~ DataTypes/DataType/Name @GUID,@AutoDeleteType,@Namespace,@TcBaseType,#text
+2	2	~ Project/Instance/TmcDesc/…/ArrayInfo/LBound #text
+2	3	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection,@PointerTo,#text
+2	2	~ DataTypes/DataType/PropertyItem/Comment/#cdata #text
+2	2	~ DataTypes/DataType/Name @GUID,@TcBaseType,@CName,@RemovableEnumPrefix,@AutoDeleteType,#text
+2	2	~ DataTypes/DataType/Name @GUID,@AutoDeleteType,@TcBaseType,@CName,#text
+2	2	- Project/Instance/TmcDesc/Licenses/Licenses(close)
+2	2	- Project/Instance/TmcDesc/InitSequence
+2	2	- Project/Instance/TmcDesc/Contexts
+2	3	- Project/Instance/TmcDesc/Contexts/Context
+2	3	- Project/Instance/TmcDesc/Contexts/Context/Id
+2	3	- Project/Instance/TmcDesc/Contexts/Context/Name
+2	3	- Project/Instance/TmcDesc/Contexts/Context/ManualConfig
+2	3	- Project/Instance/TmcDesc/…/ManualConfig/OTCID
+2	3	- Project/Instance/TmcDesc/…/ManualConfig/ManualConfig(close)
+2	3	- Project/Instance/TmcDesc/Contexts/Context/Priority
+2	3	- Project/Instance/TmcDesc/Contexts/Context/CycleTime
+2	3	- Project/Instance/TmcDesc/Contexts/Context/Context(close)
+2	2	- Project/Instance/TmcDesc/Contexts/Contexts(close)
+2	2	- Project/Instance/TmcDesc/Parameters
+2	2	- Project/Instance/TmcDesc/Parameters/Parameters(close)
+2	2	- Project/Instance/TmcDesc/DataAreas
+2	2	+ Project/Instance/TmcDesc/InitSequence
+2	2	+ Project/Instance/TmcDesc/Contexts
+2	2	+ Project/Instance/TmcDesc/Contexts/Contexts(close)
+2	2	+ Project/Instance/TmcDesc/Parameters
+2	2	+ Project/Instance/TmcDesc/Parameters/Parameters(close)
+2	2	+ Project/Instance/TmcDesc/DataAreas
+2	2	~ DataTypes/DataType/Name @GUID,@TcBaseType,@CName,@AutoDeleteType,#text
+2	2	~ Project/Instance/TmcDesc/…/Symbol/BaseType @GUID,@Namespace,@PointerTo,#text
+2	4	- Project/Instance/TmcDesc/Contexts/Context/DependOn
+1	1	~ Instance/TmcDesc/DataAreas/…/Default/EnumText #text
+1	26	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @GuidA
+1	1	+ Instance
+1	1	+ Instance/Name
+1	1	+ Instance/TmcDesc
+1	1	+ Instance/TmcDesc/Name
+1	1	+ Instance/TmcDesc/CLSID
+1	1	+ Instance/TmcDesc/Licenses
+1	80	+ Instance/TmcDesc/Licenses/License
+1	80	+ Instance/TmcDesc/Licenses/License/LicenseId
+1	80	+ Instance/TmcDesc/Licenses/License/License(close)
+1	1	+ Instance/TmcDesc/Licenses/Licenses(close)
+1	1	+ Instance/TmcDesc/InitSequence
+1	1	+ Instance/TmcDesc/Contexts
+1	2	+ Instance/TmcDesc/Contexts/Context
+1	2	+ Instance/TmcDesc/Contexts/Context/Id
+1	2	+ Instance/TmcDesc/Contexts/Context/Name
+1	2	+ Instance/TmcDesc/Contexts/Context/ManualConfig
+1	2	+ Instance/TmcDesc/Contexts/Context/ManualConfig/OTCID
+1	2	+ Instance/TmcDesc/Contexts/Context/ManualConfig/ManualConfig(close)
+1	2	+ Instance/TmcDesc/Contexts/Context/Priority
+1	2	+ Instance/TmcDesc/Contexts/Context/CycleTime
+1	2	+ Instance/TmcDesc/Contexts/Context/DependOn
+1	2	+ Instance/TmcDesc/Contexts/Context/Context(close)
+1	1	+ Instance/TmcDesc/Contexts/Contexts(close)
+1	1	+ Instance/TmcDesc/Parameters
+1	13	+ Instance/TmcDesc/Parameters/Parameter
+1	13	+ Instance/TmcDesc/Parameters/Parameter/Name
+1	13	+ Instance/TmcDesc/Parameters/Parameter/BitSize
+1	13	+ Instance/TmcDesc/Parameters/Parameter/BaseType
+1	13	+ Instance/TmcDesc/Parameters/Parameter/PTCID
+1	13	+ Instance/TmcDesc/Parameters/Parameter/Parameter(close)
+1	1	+ Instance/TmcDesc/Parameters/Parameters(close)
+1	1	+ Instance/TmcDesc/DataAreas
+1	3	+ Instance/TmcDesc/DataAreas/DataArea
+1	3	+ Instance/TmcDesc/DataAreas/DataArea/AreaNo
+1	3	+ Instance/TmcDesc/DataAreas/DataArea/Name
+1	3	+ Instance/TmcDesc/DataAreas/DataArea/ContextId
+1	3	+ Instance/TmcDesc/DataAreas/DataArea/ByteSize
+1	1	- Instance
+1	1	- Instance/Name
+1	1	- Instance/TmcDesc
+1	1	- Instance/TmcDesc/Name
+1	1	- Instance/TmcDesc/CLSID
+1	1	- Instance/TmcDesc/Licenses
+1	1	- Instance/TmcDesc/Licenses/Licenses(close)
+1	1	- Instance/TmcDesc/InitSequence
+1	1	- Instance/TmcDesc/Contexts
+1	2	- Instance/TmcDesc/Contexts/Context
+1	2	- Instance/TmcDesc/Contexts/Context/Id
+1	2	- Instance/TmcDesc/Contexts/Context/Name
+1	2	- Instance/TmcDesc/Contexts/Context/ManualConfig
+1	2	- Instance/TmcDesc/Contexts/Context/ManualConfig/OTCID
+1	2	- Instance/TmcDesc/Contexts/Context/ManualConfig/ManualConfig(close)
+1	2	- Instance/TmcDesc/Contexts/Context/Priority
+1	2	- Instance/TmcDesc/Contexts/Context/CycleTime
+1	2	- Instance/TmcDesc/Contexts/Context/DependOn
+1	2	- Instance/TmcDesc/Contexts/Context/Context(close)
+1	1	- Instance/TmcDesc/Contexts/Contexts(close)
+1	1	- Instance/TmcDesc/Parameters
+1	13	- Instance/TmcDesc/Parameters/Parameter
+1	13	- Instance/TmcDesc/Parameters/Parameter/Name
+1	13	- Instance/TmcDesc/Parameters/Parameter/BitSize
+1	13	- Instance/TmcDesc/Parameters/Parameter/BaseType
+1	13	- Instance/TmcDesc/Parameters/Parameter/PTCID
+1	13	- Instance/TmcDesc/Parameters/Parameter/Parameter(close)
+1	1	- Instance/TmcDesc/Parameters/Parameters(close)
+1	1	- Instance/TmcDesc/DataAreas
+1	3	- Instance/TmcDesc/DataAreas/DataArea
+1	3	- Instance/TmcDesc/DataAreas/DataArea/AreaNo
+1	3	- Instance/TmcDesc/DataAreas/DataArea/Name
+1	3	- Instance/TmcDesc/DataAreas/DataArea/ContextId
+1	3	- Instance/TmcDesc/DataAreas/DataArea/ByteSize
+1	2	~ Instance/TmcDesc/DataAreas/DataArea/Symbol (whitespace)
+1	11	- Instance/TmcDesc/DataAreas/DataArea/Symbol/ArrayInfo
+1	11	- Instance/TmcDesc/DataAreas/…/ArrayInfo/LBound
+1	11	- Instance/TmcDesc/DataAreas/…/ArrayInfo/Elements
+1	11	- Instance/TmcDesc/DataAreas/…/ArrayInfo/ArrayInfo(close)
+1	2	- Instance/TmcDesc/DataAreas/DataArea/DataArea(close)
+1	103	~ Instance/TmcDesc/DataAreas/…/Property/Value #text
+1	2	+ Instance/TmcDesc/DataAreas/DataArea/DataArea(close)
+1	1	~ Instance/TmcDesc/DataAreas/…/Comment/#cdata #text
+1	1	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/Symbol(close) (whitespace)
+1	147	~ Instance/TmcDesc/DataAreas/…/Property/Name #text
+1	51	- Instance/TmcDesc/DataAreas/…/Default/String
+1	14	- Instance/TmcDesc/DataAreas/…/SubItem/Value
+1	1	- Instance/TmcDesc/DataAreas/…/SubItem/String
+1	1	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BaseType @GUID,@Namespace,#text
+1	1	~ Instance/TmcDesc/DataAreas/DataArea/AreaNo #text
+1	1	~ Instance/TmcDesc/DataAreas/DataArea/Name #text
+1	1	~ Instance/TmcDesc/DataAreas/DataArea/ContextId #text
+1	11	+ Instance/TmcDesc/DataAreas/…/SubItem/Value
+1	2	+ Instance/TmcDesc/DataAreas/…/SubItem/String
+1	1	~ Instance/TmcDesc/DataAreas/DataArea/Symbol/BitSize @X64,#text
+1	27	+ Instance/TmcDesc/DataAreas/…/SubItem/EnumText
+1	8	~ Instance/TmcDesc/DataAreas/…/SubItem/Name #text
+1	20	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@GuidA,@VarB,@IdA
+1	38	~ Instance/TmcDesc/Licenses/License/LicenseId #text
+1	1	~ DataTypes/DataType/SubItem/Default/DateTime (whitespace)
+1	1	~ DataTypes/DataType/SubItem/Default/DateTime/#text (whitespace)
+1	1	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Const,@PointerTo,#text
+1	2	~ DataTypes/DataType/Method/Local/Type @GUID,@ReferenceTo,@PointerTo,#text
+1	1	~ DataTypes/DataType/Method/Local/Type @GUID,@ReferenceTo,@Namespace,@PointerTo,#text
+1	2	~ DataTypes/DataType/SubItem/Comment @Min,@UnitClass,@Max
+1	1	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB @Name
+1	1	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@RestoreInfo,@IdA
+1	1	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@InOutA,@GuidA,@VarB,@RestoreInfo,@IdA
+1	4	~ Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @RestoreInfo
+1	1	~ Project/Instance/TmcDesc/Contexts/Context/CycleTime #text
+1	1	~ Project/Instance/Contexts/Context/CycleTime #text
+1	1	~ Project/Instance/TmcDesc/Licenses/License/LicenseId (whitespace)
+1	1	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@Size
+1	2	~ Project/Instance/TmcDesc/Contexts/Context/Priority #text
+1	2	~ Project/Instance/Contexts/Context/Priority #text
+1	2	~ Project/Instance/TaskPouOids/TaskPouOid @Prio
+1	22	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@GuidA,@VarB,@IdA
+1	1	- DataTypes/DataType/SubItem/Default/DateTime/#text
+1	1	~ DataTypes/DataType/Relations/Relation/Type #text
+1	1	~ DataTypes/DataType/Method/ReturnType @GUID,@ReferenceTo,@Namespace,#text
+1	2	~ DataTypes/DataType/SubItem/Default/EnumText (whitespace)
+1	1	~ DataTypes/DataType/Method/Local/Comment/#cdata #text
+1	1	~ Project/Instance/TmcDesc/…/Property/Value (whitespace)
+1	1	- Project/Instance/TmcDesc/Properties/Property/Value
+1	1	~ DataTypes/DataType/Name @GUID,@AutoDeleteType,@TcBaseType,@CName,@RemovableEnumPrefix,#text
+1	1	~ DataTypes/DataType/Method/Local/Type @GUID,@PointerTo,@ReferenceTo,#text
+1	1	~ Project/Instance/UnrestoredVarLinks/OwnerA @Name,@Type
+1	1	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@InOutA,@GuidA,@VarB,@RestoreInfo,@IdA,@Size
+1	1	- Mappings
+1	1	- Mappings/OwnerA
+1	1	- Mappings/OwnerA/OwnerA(close)
+1	1	- Mappings/Mappings(close)
+1	4	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@VarB,@RestoreInfo
+1	7	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@Size,@RestoreInfo,@OffsB
+1	3	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@Size,@RestoreInfo
+1	4	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@GuidA,@VarB,@Size,@OffsB,@RestoreInfo
+1	1	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@InOutA,@GuidA,@VarB,@Size,@RestoreInfo
+1	1	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarA,@TypeA,@InOutA,@GuidA,@VarB,@Size,@OffsB,@RestoreInfo
+1	1	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @Size
+1	4	~ Project/Instance/UnrestoredVarLinks/OwnerA/OwnerB/Link @VarB
+1	1	~ DataTypes/DataType/Method/ReturnType @GUID,@Namespace,@RpcDirection
+1	1	~ DataTypes/DataType/Method/Parameter/Type @RpcDirection,@ReferenceTo
+1	2	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Namespace,@ReferenceTo,@Const,#text
+1	1	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@Namespace,@RpcDirection,#text
+1	1	~ DataTypes/DataType/Method/ReturnType @GUID,@PointerTo,@RpcDirection,#text
+1	2	~ DataTypes/DataType/Method/Parameter/Type @GUID,@ReferenceTo,@Const,@Namespace,#text
+1	1	~ DataTypes/DataType/BitSize @X64
+1	2	~ DataTypes/DataType/Method/Parameter/Type @GUID,@RpcDirection,@Namespace,@PointerTo,#text
+1	1	~ DataTypes/DataType/Method/ReturnType @GUID,@RpcDirection,@Namespace,@PointerTo,#text
+1	1	~ DataTypes/DataType/Method/Local/Type @GUID,@Namespace,@PointerTo,@ReferenceTo,#text
+1	1	~ DataTypes/DataType/Method/Parameter/Type @GUID,@PointerTo,@Const,@Namespace,#text
+1	1	~ Project @CopyTmcToTarget,@CopyTpyToTarget
+1	1	~ DataTypes/DataType/Method/Parameter/Comment/#cdata #text
+1	1	~ DataTypes/DataType/Name @GUID,@TcBaseType,@CName,@RemovableEnumPrefix,@Namespace,@AutoDeleteType,#text
+1	1	~ DataTypes/DataType/Method/Parameter/ArrayInfo @PointerTo,@ReferenceTo
+1	1	~ DataTypes/DataType/Name @GUID,@Namespace,@AutoDeleteType,#text
+1	1	~ DataTypes/DataType/Method/Parameter/Type @GUID,@Const,@ReferenceTo,#text
+1	2	- Project/Instance/Contexts/Context/DependOn

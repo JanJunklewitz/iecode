@@ -12,6 +12,10 @@ Goal: find out which parts of a PLC instance `.xti` really change in day-to-day 
   2. maps every line of the old and new file to its XML element path (`Project/Instance/TmcDesc/DataAreas/DataArea/Symbol/Name`) and to the `<Name>` of its parent element (e.g. the `Value` of the parameter named `Application Timestamp`),
   3. pairs removed/added lines inside a hunk; a pair on the same path is a *change* and reports which attributes / text differ, everything else is *added* / *removed*,
   4. sorts each changed line into a category (see below) and counts commits and lines per category.
+- Data (anonymised, no project names or commit messages):
+  - [data/categories.txt](data/categories.txt): totals per category,
+  - [data/change-keys.tsv](data/change-keys.tsv): every change key (XML path + changed attribute) with commit and line counts, for re-categorising without re-running the script,
+  - [data/files.tsv](data/files.tsv): the analysed files (variant, size, commit count).
 - Limitations: line-based, not a real XML diff. When a block is inserted, the following lines of the hunk pair up wrongly and count as added/removed, which inflates the line counts (especially for embedded data types). The **commit percentages** are reliable. The line counts only show orders of magnitude.
 
 ## File structure

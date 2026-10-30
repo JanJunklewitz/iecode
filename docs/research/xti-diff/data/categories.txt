@@ -1,0 +1,21 @@
+# Category totals of the PLC .xti survey (2026-10-30). Columns: commits, % of 390 analysed commits, changed lines, category
+commits analysed: 390
+commits with only noise/layout/metadata/links: 31 (8%)
+
+categories (commits, % of commits, changed lines):
+329	84%	40562	noise:build info
+324	83%	4054438	embedded data types
+321	82%	1651246	layout
+318	82%	894829	noise:guid
+315	81%	179481	process image symbols
+304	78%	44179	noise:whitespace
+276	71%	280	metadata
+262	67%	7302	links (out of scope)
+171	44%	4122	instance parameters
+92	24%	4692	unrestored links
+34	9%	1499	licenses
+28	7%	28	noise:timestamps
+18	5%	21	other
+13	3%	192	tasks
+9	2%	51	project / instance settings
+
