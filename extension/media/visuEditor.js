@@ -15,7 +15,8 @@
     sel: saved.sel || null,
     tabs: {},            // selected tab per tab control guid
   };
-  let visu = null, file = '';
+  let visu = null, file = '', uri = '';
+  let ai = {};           // element guid ('' = the visualization) -> prompt text for AI chats (drag and drop)
   const refs = {};       // referenced visualization name -> Visu | null (null: not in workspace)
   const pending = new Set();
   let error = '';
@@ -62,7 +63,7 @@
 
   window.addEventListener('message', ev => {
     const m = ev.data;
-    if (m.type === 'model') { visu = m.visu; file = m.file; error = ''; if (ui.sel && !byGuid(ui.sel)) ui.sel = null; render(); requestRefs(); }
+    if (m.type === 'model') { visu = m.visu; file = m.file; uri = m.uri; ai = m.ai || {}; error = ''; if (ui.sel && !byGuid(ui.sel)) ui.sel = null; render(); requestRefs(); }
     else if (m.type === 'refs') { Object.assign(refs, m.visus); Object.keys(m.visus).forEach(n => pending.delete(n)); render(); requestRefs(); }
     else if (m.type === 'error') { error = m.message; renderStatus(); }
   });
@@ -89,6 +90,18 @@
   }
 
   function edit(edits) { if (edits.length) vscode.postMessage({ type: 'edit', edits }); }
+
+  // ---------- AI chat ----------
+
+  /** Right-click menu context of an element (or the visualization): "Add to AI Chat", "Comment for AI…". */
+  const menuContext = (guid) => JSON.stringify({ webviewSection: guid ? 'element' : 'visu', file: uri, guid: guid || '' });
+  /** Drag an element into the chat input of Copilot or Claude Code: its summary as text. */
+  const dragToAi = (guid) => (ev) => {
+    if (!ai[guid]) return;
+    ev.dataTransfer.setData('text/plain', ai[guid]);
+    ev.dataTransfer.effectAllowed = 'copy';
+  };
+  const sendToAi = (guid, comment) => vscode.postMessage({ type: 'ai', guid: guid || '', comment });
   const editMember = (e, m, value) => edit([{ element: e.guid, member: m.id, value: String(value) }]);
 
   // ---------- layout ----------
@@ -155,8 +168,9 @@
   function outline() {
     const tree = h('div', { class: 'outline' });
     const item = (e, depth) => {
-      const row = h('div', { class: 'row' + (e.guid === ui.sel ? ' sel' : ''), style: `padding-left:${6 + depth * 12}px`, title: e.type,
-        onclick: () => select(e.guid, true) },
+      const row = h('div', { class: 'row' + (e.guid === ui.sel ? ' sel' : ''), style: `padding-left:${6 + depth * 12}px`,
+        title: e.type + ' · drag into an AI chat to add it as context', draggable: 'true', 'data-vscode-context': menuContext(e.guid),
+        onclick: () => select(e.guid, true), ondragstart: dragToAi(e.guid) },
         h('span', { class: 'kind k-' + kindClass(e) }, kindIcon(e)), ' ', e.name || e.kind,
         h('span', { class: 'dim' }, ' ' + (e.text ? shownText(e) : e.refs[0] ? '→ ' + lastSeg(e.refs[0]) : '')));
       tree.append(row);
@@ -173,7 +187,7 @@
   // ---------- canvas ----------
 
   function canvas() {
-    stage = h('div', { class: 'stage', tabindex: 0 });
+    stage = h('div', { class: 'stage', tabindex: 0, 'data-vscode-context': menuContext(null) });
     stage.addEventListener('keydown', onKey);
     requestAnimationFrame(() => {
       if (ui.zoom === 'fit') {
@@ -203,7 +217,7 @@
   function drawElement(e, depth, live) {
     const r = e.rect;
     const g = s('g', { transform: `translate(${r.x},${r.y})` + (r.angle ? ` rotate(${r.angle},${r.w / 2},${r.h / 2})` : '') });
-    if (live) g.dataset.guid = e.guid;
+    if (live) { g.dataset.guid = e.guid; g.dataset.vscodeContext = menuContext(e.guid); }
     const wire = ui.wire;
     const fill = wire || e.noFill || !e.fill ? 'none' : e.fill.rgb;
     const stroke = wire ? 'var(--wire)' : e.noFrame || !e.frame ? 'none' : e.frame.rgb;
@@ -494,7 +508,7 @@
 
   function simple() {
     const f = ui.filter.trim().toLowerCase();
-    const list = h('div', { class: 'list' });
+    const list = h('div', { class: 'list', 'data-vscode-context': menuContext(null) });
     if (visu.declaration.trim() && !f) list.append(h('details', { class: 'decl' }, h('summary', {}, 'Interface'), h('pre', {}, visu.declaration)));
     const card = (e, depth) => {
       const kids = e.children.map(c => card(c, depth + 1)).filter(Boolean);
@@ -520,7 +534,8 @@
           h('span', { class: 'val' }, a.kind, fs.length ? ': ' : '', fs.map((x, j) => [j ? ', ' : '', h('span', { class: 'dim' }, x.name + ' '),
             x.raw.trim().startsWith('"') ? actionInput(e, i, x) : h('span', { class: 'var' }, x.value)]))));
       });
-      const head = h('div', { class: 'head', onclick: () => select(e.guid) },
+      const head = h('div', { class: 'head', onclick: () => select(e.guid), draggable: 'true', title: 'Drag into an AI chat to add it as context',
+        'data-vscode-context': menuContext(e.guid), ondragstart: dragToAi(e.guid) },
         h('span', { class: 'kind k-' + kindClass(e) }, kindIcon(e)), ' ', h('b', {}, e.name || e.kind), ' ',
         h('span', { class: 'dim' }, `${e.kind} · ${e.identifier} · ${e.rect.x}, ${e.rect.y} · ${e.rect.w} × ${e.rect.h}`));
       return h('div', { class: 'card' + (e.guid === ui.sel ? ' sel' : ''), style: `margin-left:${depth * 18}px` }, head, lines, kids);
@@ -548,16 +563,20 @@
   function props() {
     propsEl = h('div', { class: 'props' });
     const e = ui.sel && byGuid(ui.sel);
+    const row = (lbl, ctl) => h('div', { class: 'prow' }, h('label', {}, lbl), ctl);
+    const aiButtons = (guid) => h('div', { class: 'aibar' },
+      h('button', { title: 'Add to the AI chat (Copilot / Claude Code) as context; or drag it from the element list', onclick: () => sendToAi(guid, false) }, 'Add to AI chat'),
+      h('button', { title: 'Write a comment and send it with this as context to the AI chat', onclick: () => sendToAi(guid, true) }, 'Comment for AI…'));
     if (!e) {
-      propsEl.append(h('div', { class: 'ph' }, visu.name), h('div', { class: 'dim pad' }, 'Select an element to see and edit its properties.'),
+      propsEl.append(h('div', { class: 'ph' }, visu.name), aiButtons(null), ...visuSettings(row),
+        h('div', { class: 'dim pad' }, 'Select an element to see and edit its properties.'),
         h('div', { class: 'pad dim' }, 'Canvas: drag to move, drag the corner handle to resize, arrow keys nudge (Shift: 10, Alt: resize). Alt-click selects inside a group.'));
       if (visu.declaration.trim()) propsEl.append(h('div', { class: 'sec' }, 'Interface'), h('pre', { class: 'decl' }, visu.declaration));
       return propsEl;
     }
     propsEl.append(h('div', { class: 'ph' }, h('span', { class: 'kind k-' + kindClass(e) }, kindIcon(e)), ' ', e.name || e.kind),
-      h('div', { class: 'dim pad' }, `${e.type} · ${e.identifier}`));
+      h('div', { class: 'dim pad' }, `${e.type} · ${e.identifier}`), aiButtons(e.guid));
 
-    const row = (lbl, ctl) => h('div', { class: 'prow' }, h('label', {}, lbl), ctl);
     const ctl = (m, opts) => {
       if (!m) return h('span', { class: 'dim' }, '—');
       if (m.kind === 'color') {
@@ -623,6 +642,20 @@
     propsEl.append(h('details', { class: 'allp' }, h('summary', { class: 'sec' }, `All properties (${e.members.length})`),
       e.members.map(m => row(h('span', { title: m.path || ('id ' + m.id) }, m.label), ctl(m)))));
     return propsEl;
+  }
+
+  /** Size and background of the visualization itself (editable when stored in the file). */
+  function visuSettings(row) {
+    const keys = (ev, old) => { if (ev.key === 'Enter') ev.target.blur(); if (ev.key === 'Escape') { ev.target.value = old; ev.target.blur(); } };
+    const size = (which, val) => visu.stored.size
+      ? h('input', { type: 'number', min: 1, value: val, onkeydown: (ev) => keys(ev, val), onchange: (ev) => edit([{ visu: which, value: ev.target.value }]) })
+      : h('span', { class: 'val', title: 'No size stored in the file (computed from the elements); set it once in TwinCAT' }, String(val));
+    const bg = visu.stored.background
+      ? h('span', { class: 'swatchrow' }, h('input', { type: 'color', value: visu.background, onchange: (ev) => edit([{ visu: 'background', value: ev.target.value }]) }), visu.background)
+      : h('span', { class: 'swatchrow', title: 'No background color stored in the file; set it once in TwinCAT' }, h('span', { class: 'swatch', style: `background:${visu.background}` }), visu.background);
+    return [h('div', { class: 'sec' }, 'Visualization'),
+      h('div', { class: 'grid2' }, row('Width', size('width', visu.width)), row('Height', size('height', visu.height))),
+      row('Background', bg)];
   }
 
   window.addEventListener('resize', () => { if (ui.mode === 'canvas' && ui.zoom === 'fit' && visu) render(); });

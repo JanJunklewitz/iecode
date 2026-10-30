@@ -7,7 +7,7 @@ import { parseXml, XNode, child, cdataText } from '../xml';
 
 export type ObjectType =
   | 'FUNCTION_BLOCK' | 'PROGRAM' | 'FUNCTION' | 'INTERFACE'
-  | 'STRUCT' | 'ENUM' | 'UNION' | 'ALIAS' | 'GVL' | 'TASK' | 'OTHER';
+  | 'STRUCT' | 'ENUM' | 'UNION' | 'ALIAS' | 'GVL' | 'TASK' | 'TEXTLIST' | 'IMAGEPOOL' | 'VISUMANAGER' | 'OTHER';
 
 export interface PlcObject {
   /** Path relative to the .plcproj folder, with '/' separators. */
@@ -151,7 +151,9 @@ export function parseLibraryId(s: string | undefined): LibraryId | undefined {
 
 export const formatLibraryId = (id: LibraryId) => `${id.name}, ${id.version} (${id.vendor})`;
 
-const EXT_TYPE: Record<string, ObjectType> = { '.tcgvl': 'GVL', '.tcio': 'INTERFACE', '.tctto': 'TASK' };
+const EXT_TYPE: Record<string, ObjectType> = {
+  '.tcgvl': 'GVL', '.tcio': 'INTERFACE', '.tctto': 'TASK', '.tcgtlo': 'TEXTLIST', '.tcipo': 'IMAGEPOOL', '.tcvmo': 'VISUMANAGER',
+};
 
 /** Reads name and kind of an object file from its first declaration (cheap: a regex on the file head). */
 export async function describeObject(abs: string, rel: string): Promise<PlcObject> {
