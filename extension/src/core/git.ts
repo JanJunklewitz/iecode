@@ -1,6 +1,7 @@
 // Minimal git access (git CLI) for comparing files and IO links with earlier versions.
 
 import { execFile } from 'child_process';
+import * as os from 'os';
 import * as path from 'path';
 import { promises as fs, realpathSync } from 'fs';
 
@@ -89,3 +90,43 @@ export const config = (root: string, key: string, value: string) => git(root, ['
 /** Effective git config value in the repository (local, global or system), or undefined if unset. */
 export const getConfig = (root: string, key: string) =>
   git(root, ['config', '--get', key]).then(v => v.trim() || undefined, () => undefined);
+
+/** Content of an index stage of an unmerged file (1 base, 2 ours, 3 theirs), or undefined if that stage doesn't exist. */
+export async function stage(root: string, n: 1 | 2 | 3, file: string): Promise<string | undefined> {
+  try { return await git(root, ['show', `:${n}:${rel(root, file)}`]); } catch { return undefined; }
+}
+
+/** Three-way text merge via `git merge-file`; `conflicts` is the number of conflict hunks (git caps it at 127). */
+export async function mergeText(ours: string, base: string, theirs: string,
+  labels: { ours: string; base: string; theirs: string }): Promise<{ text: string; conflicts: number }> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'iecode-merge-'));
+  try {
+    const [o, b, t] = ['ours', 'base', 'theirs'].map(n => path.join(dir, n));
+    await Promise.all([fs.writeFile(o, ours), fs.writeFile(b, base), fs.writeFile(t, theirs)]);
+    // merge.conflictStyle=merge keeps the markers free of ||||||| even if the user's config says diff3
+    const args = ['-c', 'merge.conflictStyle=merge', 'merge-file', '-p', '-L', labels.ours, '-L', labels.base, '-L', labels.theirs, o, b, t];
+    return await new Promise((resolve, reject) =>
+      execFile('git', args, { cwd: dir, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' }, (err, stdout, stderr) => {
+        if (!err) return resolve({ text: stdout, conflicts: 0 });
+        const code = (err as { code?: unknown }).code;
+        // 1..127 is the conflict count; 255 is git's "negative on error", anything else is a failure
+        if (typeof code === 'number' && code >= 1 && code <= 127) return resolve({ text: stdout, conflicts: code });
+        reject(new Error(stderr.trim() || err.message));
+      }));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Names the two sides of an ongoing merge, cherry-pick, rebase or revert for conflict markers. */
+export async function mergeLabels(root: string): Promise<{ ours: string; theirs: string }> {
+  const short = (ref: string) => git(root, ['rev-parse', '--short', ref]).then(s => s.trim());
+  const ours = await git(root, ['symbolic-ref', '--short', '-q', 'HEAD']).then(s => s.trim(), () => short('HEAD'));
+  for (const head of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REBASE_HEAD', 'REVERT_HEAD']) {
+    const hash = await git(root, ['rev-parse', '-q', '--verify', head]).then(s => s.trim(), () => '');
+    if (!hash) continue;
+    const name = await git(root, ['name-rev', '--name-only', hash]).then(s => s.trim(), () => '');
+    return { ours, theirs: name && name !== 'undefined' ? name : await short(hash) };
+  }
+  return { ours, theirs: 'incoming' };
+}
