@@ -51,15 +51,26 @@ test('mergeText merges disjoint changes cleanly', async () => {
 });
 
 test('mergeText reports a conflict with the given labels', async () => {
-  const r = tempRepo();
+  // a user-global diff3 setting is the real risk; mergeText runs outside any repo, so set it via the environment
+  const saved = { c: process.env.GIT_CONFIG_COUNT, k: process.env.GIT_CONFIG_KEY_0, v: process.env.GIT_CONFIG_VALUE_0 };
+  process.env.GIT_CONFIG_COUNT = '1';
+  process.env.GIT_CONFIG_KEY_0 = 'merge.conflictStyle';
+  process.env.GIT_CONFIG_VALUE_0 = 'diff3';
   try {
-    r.git('config', 'merge.conflictStyle', 'diff3');   // must not leak into the output
     const res = await mergeText(BASE.replace('l2', 'ours2'), BASE, BASE.replace('l2', 'theirs2'), labels);
     assert.equal(res.conflicts, 1);
     assert.match(res.text, /^<{7} ours-label$/m);
     assert.match(res.text, /^>{7} theirs-label$/m);
     assert.doesNotMatch(res.text, /^\|{7}/m);
-  } finally { r.cleanup(); }
+  } finally {
+    for (const [k, v] of Object.entries({ GIT_CONFIG_COUNT: saved.c, GIT_CONFIG_KEY_0: saved.k, GIT_CONFIG_VALUE_0: saved.v })) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test('mergeText throws on binary input (git exits 255)', async () => {
+  await assert.rejects(mergeText('a\0b\n', 'a\n', 'a\n', labels));
 });
 
 test('mergeText throws when git merge-file fails', async () => {
