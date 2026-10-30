@@ -75,6 +75,21 @@ test('merge conflict in the XML structure is reported as ConflictError, not a pa
   assert.throws(() => encode(xml, decode(pou)), ConflictError);
 });
 
+test('merge conflict between XML elements (no parse error) is still a ConflictError', () => {
+  const xml = pou.replace(/( *<Method Name="Start"[^\r\n]*\r?\n)/, '<<<<<<< HEAD\r\n=======\r\n>>>>>>> feature\r\n$1');
+  assert.notEqual(xml, pou);
+  assert.throws(() => decode(xml), ConflictError);
+});
+
+test('merge conflict inside <LineIds> keeps the ST view and is dropped on save', () => {
+  const xml = pou.replace(/( *<LineId [^\r\n]*\r?\n)/, '<<<<<<< HEAD\r\n$1=======\r\n      <LineId Id="99" Count="1" />\r\n>>>>>>> feature\r\n');
+  assert.notEqual(xml, pou);
+  assert.equal(decode(xml), decode(pou));
+  const out = encode(xml, decode(xml));
+  assert.doesNotMatch(out, /^(<{7}|={7}|>{7})/m);
+  assert.equal(decode(out), decode(pou));
+});
+
 test('merge conflict inside ST code stays editable in the view', () => {
   const xml = pou.replace(/( *_fSpeed := fSetSpeed;\r?\n)/, '<<<<<<< HEAD\r\n$1=======\r\n    _fSpeed := 2.0 * fSetSpeed;\r\n>>>>>>> feature\r\n');
   assert.notEqual(xml, pou);
