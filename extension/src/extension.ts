@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
-import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError, CONFLICT_RE } from './model';
+import { decode, encode, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
@@ -169,19 +169,6 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (file.scheme === 'file' && await xmlConflict(file)) { await vscode.window.showTextDocument(file, { preview: false }); return; }
     const doc = await vscode.workspace.openTextDocument(toView(file));
     await vscode.window.showTextDocument(doc, { preview: false });
-    void offerLineIdsCleanup(file);
-  };
-
-  // Conflict markers left only in <LineIds>: the view looks clean, but TwinCAT cannot load the file.
-  const offerLineIdsCleanup = async (file: vscode.Uri) => {
-    const raw = await fs.readFile(file.fsPath, 'utf8').catch(() => '');
-    if (!CONFLICT_RE.test(raw) || await xmlConflict(file) || CONFLICT_RE.test(decode(stripBom(raw)))) return;
-    const name = file.path.split('/').pop();
-    const fix = 'Remove line mapping';
-    if (await vscode.window.showWarningMessage(`${name}: the merge conflict is only in the line mapping (<LineIds>), which TwinCAT regenerates.`, fix) !== fix) return;
-    const now = await fs.readFile(file.fsPath, 'utf8');
-    const bom = now.startsWith('﻿') ? '﻿' : '';
-    await fs.writeFile(file.fsPath, bom + encode(stripBom(now), decode(stripBom(now))), 'utf8');
   };
 
   // A conflict in the XML structure (e.g. after a merge while the ST view is open): switch that tab to the XML.
@@ -230,7 +217,6 @@ export function activate(ctx: vscode.ExtensionContext) {
       // a preview tab may already have been replaced by the ST view
       const still = tab.group.tabs.find(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === u.toString());
       if (still) await vscode.window.tabGroups.close(still);
-      void offerLineIdsCleanup(u);
     }
   }));
 
