@@ -13,7 +13,7 @@ import { spawnSync } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { decode, encode } from './model';
-import { parseVisu, visuToText } from './core/tcvis';
+import { SUMMARY_RE, summaryText } from './core/plcArchive';
 import { isEncrypted } from './core/projects';
 import { unifiedDiff } from './core/textdiff';
 import { repoRoot, show } from './core/git';
@@ -23,9 +23,9 @@ import { buildTree, treeToYaml } from './core/iotree';
 import { loadPlcProject } from './core/projects';
 import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
-const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS)$/i;
-/** ST view of an object, YAML summary of a visualization (git textconv runs on a temp file: detect by content). */
-const toView = (xml: string) => (/<Visu\s/.test(xml.slice(0, 500)) ? visuToText(parseVisu(xml))
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i;
+/** ST view of an object, YAML summary of a visualization, text list, image pool or visualization manager (git textconv runs on a temp file: detect by content). */
+const toView = (xml: string) => (/<(Visu|GlobalTextList|ImagePool|VisuManager)\s/.test(xml.slice(0, 600)) ? summaryText(xml)
   : isEncrypted(xml) ? '(* encrypted object *)\n' : decode(xml.replace(/^﻿/, '')));
 
 /** Writes the ST views of both files to a temp folder and runs the viewer on them; other files are passed as they are. */
@@ -34,7 +34,7 @@ function difftool(viewer: string, a: string, b: string): number {
   try {
     const side = (file: string, sub: string) => {
       if (!EXT_RE.test(file)) return file;
-      const out = path.join(dir, sub, path.basename(file) + (/\.TcVIS$/i.test(file) ? '.yaml' : '.st'));
+      const out = path.join(dir, sub, path.basename(file) + (SUMMARY_RE.test(file) ? '.yaml' : '.st'));
       mkdirSync(path.dirname(out), { recursive: true });
       writeFileSync(out, toView(readFileSync(file, 'utf8')), 'utf8');
       return out;

@@ -5,7 +5,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { Visu, VisuEdit, VisuEditError, editRanges, flatten, parseVisu, visuToText } from '../core/tcvis';
+import { Visu, VisuEdit, VisuEditError, editRanges, flatten, parseVisu } from '../core/tcvis';
+import { SUMMARY_RE, summaryText } from '../core/plcArchive';
 import { aiPrompt, visuAiContext } from '../core/aicontext';
 
 export const VISU_VIEW_TYPE = 'iecode.visuEditor';
@@ -161,7 +162,7 @@ export function registerVisuEditor(ctx: vscode.ExtensionContext) {
         try {
           const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file.toString());
           const text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8');
-          return visuToText(parseVisu(text));
+          return summaryText(text);
         } catch (e) {
           return `# ${(e as Error).message}\n`;
         }
@@ -169,7 +170,7 @@ export function registerVisuEditor(ctx: vscode.ExtensionContext) {
     }),
     // keep open summaries in sync with unsaved edits in the visual editor
     vscode.workspace.onDidChangeTextDocument(e => {
-      if (/\.TcVIS$/i.test(e.document.uri.path)) changed.fire(visuTextUri(e.document.uri));
+      if (SUMMARY_RE.test(e.document.uri.path)) changed.fire(visuTextUri(e.document.uri));
     }),
     vscode.commands.registerCommand('iecode.openVisuEditor', (u?: vscode.Uri) => {
       u ??= vscode.window.activeTextEditor?.document.uri;

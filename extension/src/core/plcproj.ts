@@ -89,7 +89,7 @@ export type SettingKey = 'Title' | 'Company' | 'ProjectVersion' | 'Author' | 'De
 export const PROJECT_SETTINGS: { key: SettingKey; label: string; hint: string; kind?: 'bool' | 'multiline' }[] = [
   { key: 'Company', label: 'Company', hint: 'Library vendor. Title, Company and Version together make the project a library.' },
   { key: 'Title', label: 'Title', hint: 'Library name as other projects reference it.' },
-  { key: 'ProjectVersion', label: 'Version', hint: 'Library version, e.g. 1.2.0 or 1.2.0.0.' },
+  { key: 'ProjectVersion', label: 'Version', hint: 'Library version, e.g. 1.2.0.0. Saving a new title or version also updates Version/Global_Version.TcGVL (created for libraries).' },
   { key: 'Released', label: 'Released', hint: 'Marks the library as released; TwinCAT warns before a released library is changed.', kind: 'bool' },
   { key: 'DefaultNamespace', label: 'Default namespace', hint: 'Namespace of the library\'s objects in referencing projects. Empty: the title.' },
   { key: 'Placeholder', label: 'Placeholder', hint: 'Placeholder name referencing projects resolve. Empty: the title.' },

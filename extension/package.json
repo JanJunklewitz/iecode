@@ -1,7 +1,7 @@
 {
   "name": "iecode",
   "displayName": "IECode – Structured Text for TwinCAT",
-  "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, view and edit .TcVIS visualizations, build and deploy with the iecode CLI.",
+  "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, view and edit .TcVIS visualizations, text lists (.TcGTLO), image pools (.TcIPO) and the visualization manager (.TcVMO), build and deploy with the iecode CLI.",
   "version": "0.2.4",
   "publisher": "iecode",
   "icon": "resources/icon.png",
@@ -54,7 +54,8 @@
     "onFileSystem:iecode-io",
     "onFileSystem:iecode-lib",
     "onCustomEditor:iecode.visuEditor",
-    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,plcproj,tsproj,tspproj}"
+    "onCustomEditor:iecode.plcArchiveEditor",
+    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,TcGTLO,TcIPO,TcVMO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
     "languages": [
@@ -73,7 +74,10 @@
           ".TcGVL",
           ".TcIO",
           ".TcTTO",
-          ".TcVIS"
+          ".TcVIS",
+          ".TcGTLO",
+          ".TcIPO",
+          ".TcVMO"
         ]
       }
     ],
@@ -101,6 +105,22 @@
         "selector": [
           {
             "filenamePattern": "*.TcVIS"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "iecode.plcArchiveEditor",
+        "displayName": "IECode Text List / Image Pool / Visualization Manager Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.TcGTLO"
+          },
+          {
+            "filenamePattern": "*.TcIPO"
+          },
+          {
+            "filenamePattern": "*.TcVMO"
           }
         ],
         "priority": "default"
@@ -374,7 +394,7 @@
       "explorer/context": [
         {
           "command": "iecode.projectSettings",
-          "when": "resourceExtname =~ /^\\.plcproj$/i",
+          "when": "resourceExtname =~ /\\\\.plcproj$/i",
           "group": "navigation"
         },
         {
@@ -399,7 +419,7 @@
         },
         {
           "submenu": "iecode.compare",
-          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i",
           "group": "3_compare"
         },
         {
@@ -796,7 +816,7 @@
       "editor/title/context": [
         {
           "submenu": "iecode.compare",
-          "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"
+          "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i"
         },
         {
           "command": "iecode.ioLinksDiff",

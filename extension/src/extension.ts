@@ -19,6 +19,8 @@ import { isEncrypted } from './core/projects';
 import { registerVisuEditor } from './views/visuEditor';
 import { registerAiChat } from './commands/aiChat';
 import { showProjectSettings } from './views/projectSettings';
+import { registerPlcArchiveEditor } from './views/plcArchiveEditor';
+import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
 
 const SCHEME = 'iecode';
@@ -116,6 +118,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerIoLinkView(ctx, state);
   registerVisuEditor(ctx);
   registerAiChat(ctx);
+  registerPlcArchiveEditor(ctx);
   // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {
     const uri = n instanceof vscode.Uri ? n : n && 'resourceUri' in n ? n.resourceUri : undefined;
@@ -147,8 +150,8 @@ export function activate(ctx: vscode.ExtensionContext) {
   // Give every iecode: document the ST language (also restored tabs after reload).
   const setLang = (d: vscode.TextDocument) => {
     if (![SCHEME, LIB_SCHEME, compare.REV_SCHEME, compare.SRC_SCHEME].includes(d.uri.scheme)) return;
-    // visualizations compare as YAML
-    const lang = /\.TcVIS$/i.test(d.uri.path) ? 'yaml' : LANG;
+    // visualizations, text lists, image pools and the visualization manager compare as YAML
+    const lang = SUMMARY_RE.test(d.uri.path) ? 'yaml' : LANG;
     if (d.languageId !== lang) vscode.languages.setTextDocumentLanguage(d, lang);
   };
   vscode.workspace.textDocuments.forEach(setLang);

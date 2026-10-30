@@ -10,10 +10,13 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 
 ### Projects
 - **Project Settings (Title, Version…)** (right-click a PLC project in the IECode view or a `.plcproj` in the Explorer, Command Palette): edits title, company, version, released, default namespace, placeholder, author, description and compiler defines in the `.plcproj`. Only changed lines are written; undo works in the project file.
+- A new title or version also updates `Global_Version.TcGVL` (`stLibVersion_<Title> : ST_LibVersion`, four-part version), which TwinCAT otherwise regenerates only on build. Library projects without one get `Version/Global_Version.TcGVL` and its `.plcproj` entry.
 
 ### Visualizations
 - With no element selected, the property panel edits the visualization's **width, height and background color**.
 - Edit errors in the property panel stay visible in the status bar of the editor (they were cleared right away).
+- **Global text lists** (`.TcGTLO`), **image pools** (`.TcIPO`) and the **visualization manager** (`.TcVMO`) open in an editor (**Reopen Editor With…** for XML): the texts with their translations as a table (translations editable), the images with previews (file editable), and the visualization manager's settings as a form (start visualization from the workspace's visualizations, client size, style, dialogs, user management, memory; every other stored value under **All other settings**). Values are changed in place; everything else in the file stays as it was.
+- They show in the IECode view with their own icons, and compare (HEAD, commits, Source Control, `git diff` / `iecode-st decode`) as YAML instead of XML.
 
 ### AI chat
 - **Add to AI Chat** and **Comment for AI…**: right-click code in the ST view (the selection, or the method / action / property at the cursor) or an element in the visualization editor (canvas, element list, Simplified view; also buttons in the property panel). The context names the POU section or element and the file; elements are sent as their YAML summary. Elements can also be dragged from the element list into a chat input.

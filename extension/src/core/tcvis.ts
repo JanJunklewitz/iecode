@@ -137,7 +137,7 @@ const unescapeXml = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Value of an archive scalar: "text" → text, 12U / 3L / 1UL → number text, true/false, GUIDs as they are. */
-function scalar(raw: string): string {
+export function scalar(raw: string): string {
   const t = raw.trim();
   if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) return unescapeXml(t.slice(1, -1));
   const m = /^(-?\d+)(?:U|L|UL)?$/.exec(t);
@@ -487,7 +487,7 @@ function findElement(src: string, root: XNode, guid: string): XNode | undefined 
 }
 
 /** New raw text for a scalar, in the format of the old one (quotes, U/L suffix, color with the old alpha). */
-function encodeScalar(oldRaw: string, value: string, isColor: boolean): string {
+export function encodeScalar(oldRaw: string, value: string, isColor: boolean): string {
   const t = oldRaw.trim();
   if (t.startsWith('"')) {
     if (value.includes('"')) throw new VisuEditError('double quotes are not supported in texts here; edit them in TwinCAT');

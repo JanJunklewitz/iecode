@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
 import { PROJECT_SETTINGS, SettingKey, checkSetting, readProjectSettings, setProjectSettings } from '../core/plcproj';
+import { GLOBAL_VERSION_REL, addGlobalVersionEntry, globalVersionRel, newGlobalVersion, updateGlobalVersion } from '../core/globalVersion';
 
 type Msg =
   | { type: 'ready' }
@@ -14,6 +15,24 @@ type Msg =
 
 const panels = new Map<string, vscode.WebviewPanel>();
 
+/**
+ * Global_Version.TcGVL for the new title / version: updated when the project has one, created (with its .plcproj
+ * entry) for a library project without. Returns the .plcproj text to save and the file to write, if any.
+ */
+async function globalVersion(dir: vscode.Uri, plcproj: string, s: Record<SettingKey, string>):
+  Promise<{ plcproj: string; file?: vscode.Uri; text?: string; note: string }> {
+  const rel = globalVersionRel(plcproj);
+  const file = vscode.Uri.joinPath(dir, ...(rel ?? GLOBAL_VERSION_REL).split('/'));
+  const old = await vscode.workspace.fs.readFile(file).then(b => Buffer.from(b).toString('utf8'), () => undefined);
+  if (old !== undefined) {
+    let text: string;
+    try { text = updateGlobalVersion(old, s.Title, s.ProjectVersion); }
+    catch { return { plcproj, note: 'Global_Version has no stLibVersion_ constant; TwinCAT regenerates it on build.' }; }
+    return { plcproj: rel ? plcproj : addGlobalVersionEntry(plcproj), file: text === old ? undefined : file, text, note: 'Global_Version updated.' };
+  }
+  if (!s.Company) return { plcproj, note: '' };   // not a library: TwinCAT doesn't generate one either
+  return { plcproj: addGlobalVersionEntry(plcproj, rel ?? GLOBAL_VERSION_REL), file, text: newGlobalVersion(s.Title, s.ProjectVersion), note: 'Global_Version created.' };
+}
 
 export function showProjectSettings(plcproj: string) {
   const open = panels.get(plcproj);
@@ -26,10 +45,10 @@ export function showProjectSettings(plcproj: string) {
   panel.webview.html = html(nonce, panel.webview.cspSource);
   const post = (m: unknown) => panel.webview.postMessage(m);
 
-  const send = async (saved?: boolean) => {
+  const send = async (saved?: boolean, note = '') => {
     try {
       const doc = await vscode.workspace.openTextDocument(file);
-      post({ type: 'settings', name: path.basename(plcproj, '.plcproj'), file: vscode.workspace.asRelativePath(file), values: readProjectSettings(doc.getText()), saved });
+      post({ type: 'settings', name: path.basename(plcproj, '.plcproj'), file: vscode.workspace.asRelativePath(file), values: readProjectSettings(doc.getText()), saved, note });
     } catch (e) {
       post({ type: 'error', message: `Cannot read ${path.basename(plcproj)}: ${(e as Error).message}` });
     }
@@ -45,13 +64,22 @@ export function showProjectSettings(plcproj: string) {
         try {
           const doc = await vscode.workspace.openTextDocument(file);
           const text = doc.getText();
-          const next = setProjectSettings(text, m.values);
+          let next = setProjectSettings(text, m.values);
+          const was = readProjectSettings(text), now = readProjectSettings(next);
+          // TwinCAT regenerates Global_Version only on build: keep it in step with title and version
+          const gv = now.Title && now.ProjectVersion && (was.Title !== now.Title || was.ProjectVersion !== now.ProjectVersion)
+            ? await globalVersion(vscode.Uri.file(path.dirname(plcproj)), next, now) : undefined;
+          if (gv) next = gv.plcproj;
           if (next !== text) {
             const we = new vscode.WorkspaceEdit();
             we.replace(file, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), next);
             if (!await vscode.workspace.applyEdit(we) || !await doc.save()) throw new Error('the file could not be written');
           }
-          return send(true);
+          if (gv?.file && gv.text !== undefined) {
+            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(gv.file, '..'));
+            await vscode.workspace.fs.writeFile(gv.file, Buffer.from(gv.text, 'utf8'));
+          }
+          return send(true, gv?.note);
         } catch (e) {
           return post({ type: 'error', message: `Not saved: ${(e as Error).message}` });
         }
@@ -135,7 +163,7 @@ window.addEventListener('message', ev => {
     // keep what the user is typing when the file changes underneath, unless it was just saved
     if (!m.saved) for (const f of FIELDS) if (f.key in pending) { if (f.kind === 'bool') inputs[f.key].checked = pending[f.key] === 'true'; else inputs[f.key].value = pending[f.key]; }
     update();
-    $('msg').className = 'msg ok'; $('msg').textContent = m.saved ? 'Saved.' : '';
+    $('msg').className = 'msg ok'; $('msg').textContent = m.saved ? 'Saved.' + (m.note ? ' ' + m.note : '') : '';
   }
   if (m.type === 'error') { $('msg').className = 'msg err'; $('msg').textContent = m.message; }
 });
