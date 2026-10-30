@@ -158,6 +158,14 @@ export function decode(xml: string): string {
   return parts.join('\n') + '\n';
 }
 
+/** Raw XML (LF) of every implementation that isn't ST, by section key: the view only shows a placeholder for it. */
+export function nonStBodies(xml: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const s of collect(findMain(parseOrConflict(xml))))
+    if (s.impl && !s.st) out.set(s.key, nl(xml.slice(s.impl.innerStart, s.impl.innerEnd)));
+  return out;
+}
+
 // ---------------------------------------------------------------- parse view
 
 export function parseView(text: string): TextSection[] {
