@@ -18,6 +18,11 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 - **Global text lists** (`.TcGTLO`), **image pools** (`.TcIPO`) and the **visualization manager** (`.TcVMO`) open in an editor (**Reopen Editor With…** for XML): the texts with their translations as a table (translations editable), the images with previews (file editable), and the visualization manager's settings as a form (start visualization from the workspace's visualizations, client size, style, dialogs, user management, memory; every other stored value under **All other settings**). Values are changed in place; everything else in the file stays as it was.
 - They show in the IECode view with their own icons, and compare (HEAD, commits, Source Control, `git diff` / `iecode-st decode`) as YAML instead of XML.
 
+### Editor
+- **Merge conflicts in `.TcPOU/.TcDUT/.TcGVL/.TcIO`**: a conflicted object file gets a conflict bar (editor title and Source Control context menu): **Auto-resolve XML Conflicts**, **Open XML Merge Editor** (VS Code's built-in) and **Open as XML**.
+- **Auto-resolve** merges the ST views of git's index stages and writes the result into the XML of the current side (XML-only differences such as `Id` or `FolderPath`: ours wins). It refuses on delete/modify conflicts, structural conflicts and changed graphical implementations, and asks before overwriting hand edits.
+- Remaining code conflicts show in the ST view with colored blocks and **Accept Current / Incoming / Both Changes** CodeLens.
+
 ### AI chat
 - **Add to AI Chat** and **Comment for AI…**: right-click code in the ST view (the selection, or the method / action / property at the cursor) or an element in the visualization editor (canvas, element list, Simplified view; also buttons in the property panel). The context names the POU section or element and the file; elements are sent as their YAML summary. Elements can also be dragged from the element list into a chat input.
 - `iecode.aiChat`: `auto` (Claude Code if installed, else GitHub Copilot Chat), `copilot` (opens Copilot Chat prefilled), `claude` (copies the context and opens Claude Code to paste it), `clipboard`.

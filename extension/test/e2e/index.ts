@@ -74,7 +74,8 @@ export async function run(): Promise<void> {
   });
   type GitApi = { repositories: { state: { workingTreeChanges: { uri: vscode.Uri }[] } }[]; toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
   const gitApi = (await vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')!.activate()).getAPI(1);
-  const change = await until(() => gitApi.repositories[0]?.state.workingTreeChanges.find(c => c.uri.path.endsWith('/FB_Motor.TcPOU')));
+  // the nested conflict repo may be detected too, so search all repositories
+  const change = await until(() => gitApi.repositories.flatMap(r => r.state.workingTreeChanges).find(c => c.uri.path.endsWith('/FB_Motor.TcPOU')));
   assert.ok(change, 'git sees the changed file');
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   // what clicking the file in the Source Control view opens (git.openChange finds no resource on Windows: c: vs C:)
@@ -153,6 +154,28 @@ export async function run(): Promise<void> {
   assert.match((await vscode.workspace.openTextDocument(visScm.original)).getText(), /at: \[5, 20\]/);
   assert.match((await vscode.workspace.openTextDocument(visScm.modified)).getText(), /at: \[77, 20\]/);
   visOld.dispose();
+
+  // merge conflict (nested repo from scripts/conflict-repo.sh): auto-resolve the XML, resolve the code conflict in the ST view
+  const cPath = join(ws, 'conflict/FB_Motor.TcPOU');
+  const cUri = vscode.Uri.file(cPath);
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  await vscode.window.showTextDocument(cUri);
+  await new Promise(r => setTimeout(r, 1500));
+  assert.equal(vscode.window.activeTextEditor!.document.uri.scheme, 'file', 'conflicted file stays XML');
+  await vscode.commands.executeCommand('iecode.autoResolveXml', cUri);
+  const cView = await until(() => { const d = vscode.window.activeTextEditor?.document; return d?.uri.scheme === 'iecode' ? d : undefined; });
+  assert.ok(cView, 'auto-resolve opens the ST view');
+  assert.equal(cView.uri.fsPath, cUri.fsPath, 'ST view of the conflicted file');
+  assert.equal(cView.getText().split(/\r?\n/).filter(l => l.startsWith('<<<<<<<')).length, 1, 'one code conflict left');
+  const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', cView.uri);
+  assert.deepEqual(lenses.map(l => l.command?.title), ['Accept Current Change', 'Accept Incoming Change', 'Accept Both Changes']);
+  const start = lenses[0].command!.arguments![1] as number;
+  await vscode.commands.executeCommand('iecode.mergeAccept', cView.uri, start, 'current');
+  assert.ok(await cView.save(), 'resolved view saved');
+  const resolved = await fs.readFile(cPath, 'utf8');
+  assert.ok(!/^(<{7}|={7}|>{7})(?:\s|$)/m.test(resolved), 'no conflict marker left on disk');
+  const { decode } = await import('../../src/model');
+  assert.ok(decode(resolved).includes('TRUE AND FALSE'), 'decodes, kept the current side');
 
   // library manager and graph open without errors
   await vscode.commands.executeCommand('iecode.libraries');
