@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GlobalTextList Name="GlobalTextList" Id="{00000000-0000-0000-0000-0000000000a1}">
+    <XmlArchive>
+      <Data>
+        <o xml:space="preserve" t="GlobalTextListObject">
+          <l n="TextList" t="ArrayList" cet="TextListRow">
+            <o>
+              <v n="TextID">"101"</v>
+              <v n="TextDefault">"Start"</v>
+              <l n="LanguageTexts" t="ArrayList" cet="String">
+                <v>"Starten"</v>
+                <v>"Démarrer"</v>
+              </l>
+            </o>
+            <o>
+              <v n="TextID">"102"</v>
+              <v n="TextDefault">"Motor &amp; pump"</v>
+              <l n="LanguageTexts" t="ArrayList" cet="String">
+                <v>"Motor &amp; Pumpe"</v>
+                <n />
+              </l>
+            </o>
+          </l>
+          <l n="Languages" t="ArrayList" cet="String">
+            <v>"de"</v>
+            <v>"fr"</v>
+          </l>
+          <v n="GuidInit">{00000000-0000-0000-0000-0000000000a2}</v>
+        </o>
+      </Data>
+      <TypeList>
+        <Type n="ArrayList">System.Collections.ArrayList</Type>
+      </TypeList>
+    </XmlArchive>
+  </GlobalTextList>
+</TcPlcObject>

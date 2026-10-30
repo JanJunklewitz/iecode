@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { loadSolution, loadPlcProject, listMembers, findFiles } from '../src/core/projects';
 import { newObjectXml, addSections, methodSection, propertySection, actionSection, interfaceStubs, declaration } from '../src/core/templates';
-import { addCompile, addFolder, removeCompile, removeFolder, renamePath, renameObjectXml, hasCompile } from '../src/core/plcproj';
+import { addCompile, addFolder, removeCompile, removeFolder, renamePath, renameObjectXml, hasCompile, readProjectSettings, setProjectSettings } from '../src/core/plcproj';
 import { decode, encode } from '../src/model';
 
 const fixtures = join(__dirname, '..', '..', 'test', 'fixtures', 'ws');
@@ -114,6 +114,25 @@ test('plcproj edits keep CRLF and touch only their entries', () => {
   const gone = removeFolder(text, 'POUs');
   assert.ok(!/POUs/.test(gone));
   assert.match(gone, /Interfaces\\I_Motor/);
+});
+
+test('project settings: read, change in place, add, remove', () => {
+  const lib = readFileSync(join(fixtures, 'libs/Tc3_MotorLib/MotorLib/MotorLib/MotorLib.plcproj'), 'utf8');
+  const s = readProjectSettings(lib);
+  assert.deepEqual([s.Title, s.Company, s.ProjectVersion, s.Author], ['Tc3_MotorLib', 'Example Machines Ltd', '1.3.0', '']);
+  assert.equal(setProjectSettings(lib, { Title: 'Tc3_MotorLib', ProjectVersion: ' 1.3.0 ' }), lib, 'unchanged values: byte-identical');
+
+  const out = setProjectSettings(lib, { ProjectVersion: '1.4.0', Author: 'A & B <team>', Released: 'true' });
+  assert.ok(out.includes('<ProjectVersion>1.4.0</ProjectVersion>\r\n'));
+  assert.ok(out.includes('    <Author>A &amp; B &lt;team&gt;</Author>\r\n    <Released>true</Released>\r\n  </PropertyGroup>'), 'added with the indent of the group');
+  assert.ok(!/[^\r]\n/.test(out), 'CRLF kept');
+  assert.equal(readProjectSettings(out).Author, 'A & B <team>');
+  assert.equal(setProjectSettings(out, { ProjectVersion: '1.3.0', Author: '', Released: '' }), lib, 'empty removes the line');
+
+  assert.throws(() => setProjectSettings(lib, { ProjectVersion: 'v2' }), /Version/);
+  const plc = readFileSync(join(plc1, 'PLC1.plcproj'), 'utf8');
+  assert.equal(readProjectSettings(plc).Title, '');
+  assert.match(setProjectSettings(plc, { Title: 'Tc3_X' }), /<Name>PLC1<\/Name>\r\n    <Title>Tc3_X<\/Title>\r\n  <\/PropertyGroup>/);
 });
 
 test('renames an object inside its file', () => {

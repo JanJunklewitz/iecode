@@ -1,0 +1,42 @@
+html, body { height: 100%; }
+body { margin: 0; padding: 0; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-editor-background); overflow: hidden; }
+#app { display: flex; flex-direction: column; height: 100vh; }
+.bar { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); flex-wrap: wrap; }
+.bar .grow { flex: 1; }
+.body { flex: 1; overflow: auto; padding: 10px 14px 24px; }
+button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 0; padding: 3px 10px; cursor: pointer; font: inherit; border-radius: 2px; }
+button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+input[type=text], input[type=number], input[type=search] {
+  background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent);
+  padding: 2px 5px; font: inherit; min-width: 0; box-sizing: border-box;
+}
+input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.filter { width: 280px; }
+.status { opacity: .75; font-size: 12px; }
+.status.err { color: var(--vscode-errorForeground); opacity: 1; }
+.empty { padding: 16px; opacity: .7; }
+.dim { color: var(--vscode-descriptionForeground); }
+.pad { padding: 8px 0; }
+.mono { font-family: var(--vscode-editor-font-family); }
+.note { padding: 6px 10px; margin: 0 0 10px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textBlockQuote-background); }
+
+table.grid { border-collapse: collapse; width: 100%; }
+.grid th, .grid td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: middle; }
+.grid th { position: sticky; top: -10px; background: var(--vscode-editor-background); font-weight: 600; }
+.grid td input { width: 100%; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.card { border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.card input { width: 100%; }
+.thumb { height: 110px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: repeating-conic-gradient(rgba(127,127,127,.12) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+.thumb img { max-width: 100%; max-height: 110px; }
+.missing { color: var(--vscode-errorForeground); font-size: 12px; }
+.id { font-weight: 600; overflow-wrap: anywhere; }
+
+.form { max-width: 760px; }
+.sec { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--vscode-descriptionForeground); padding: 12px 0 4px; cursor: default; }
+details > summary.sec { cursor: pointer; }
+.prow { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.prow > label { width: 220px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+.prow > input[type=text], .prow > input[type=number] { flex: 1; }

@@ -68,6 +68,8 @@ details.allp > summary { cursor: pointer; }
 .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--vscode-panel-border); vertical-align: middle; }
 input[type=color] { width: 32px; height: 20px; padding: 0; border: 1px solid var(--vscode-panel-border); background: none; }
 .act { padding: 6px 10px 2px; }
+.aibar { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 10px 6px; }
+.outline .row[draggable], .card .head[draggable] { -webkit-user-drag: element; }
 pre.decl, .decl pre { font-family: var(--vscode-editor-font-family); font-size: 12px; margin: 0 10px; padding: 6px 8px; background: var(--vscode-textCodeBlock-background); white-space: pre-wrap; }
 .decl { margin: 0 0 10px; }
 .decl > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }

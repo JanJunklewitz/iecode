@@ -5,7 +5,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { Visu, VisuEdit, VisuEditError, editRanges, parseVisu, visuToText } from '../core/tcvis';
+import { Visu, VisuEdit, VisuEditError, editRanges, flatten, parseVisu } from '../core/tcvis';
+import { SUMMARY_RE, summaryText } from '../core/plcArchive';
+import { aiPrompt, visuAiContext } from '../core/aicontext';
 
 export const VISU_VIEW_TYPE = 'iecode.visuEditor';
 export const VISU_TEXT_SCHEME = 'iecode-visu';
@@ -16,7 +18,16 @@ type Msg =
   | { type: 'refs'; names: string[] }
   | { type: 'openRef'; name: string }
   | { type: 'openXml' }
-  | { type: 'openText' };
+  | { type: 'openText' }
+  | { type: 'ai'; guid: string; comment: boolean };
+
+/** Prompts for dragging into an AI chat: per element guid, and '' for the whole visualization. */
+function aiTexts(visu: Visu, file: vscode.Uri): Record<string, string> {
+  const rel = vscode.workspace.asRelativePath(file);
+  const out: Record<string, string> = { '': aiPrompt(visuAiContext(visu, rel)!) };
+  for (const e of flatten(visu.elements)) out[e.guid] = aiPrompt(visuAiContext(visu, rel, e.guid)!);
+  return out;
+}
 
 /** iecode-visu:/path/X.TcVIS.yaml?file=<uri> shows the YAML summary of a visualization (open document or file). */
 export const visuTextUri = (file: vscode.Uri) =>
@@ -85,7 +96,8 @@ class VisuEditorProvider implements vscode.CustomTextEditorProvider {
     const post = (m: unknown) => panel.webview.postMessage(m);
     const send = () => {
       try {
-        post({ type: 'model', visu: parseVisu(doc.getText()), file: path.basename(doc.uri.fsPath) });
+        const visu = parseVisu(doc.getText());
+        post({ type: 'model', visu, file: path.basename(doc.uri.fsPath), uri: doc.uri.toString(), ai: aiTexts(visu, doc.uri) });
       } catch (e) {
         post({ type: 'error', message: `Cannot show this visualization: ${(e as Error).message}` });
       }
@@ -100,7 +112,7 @@ class VisuEditorProvider implements vscode.CustomTextEditorProvider {
       panel.webview.onDidReceiveMessage(async (m: Msg) => {
         switch (m.type) {
           case 'ready': return send();
-          case 'edit': return this.edit(doc, m.edits, post);
+          case 'edit': return this.edit(doc, m.edits, post, send);
           case 'refs': {
             const visus: Record<string, Visu | null> = {};
             for (const n of m.names.slice(0, 200)) visus[n] = await this.index.load(n, doc.uri);
@@ -113,21 +125,22 @@ class VisuEditorProvider implements vscode.CustomTextEditorProvider {
           }
           case 'openXml': return vscode.commands.executeCommand('vscode.openWith', doc.uri, 'default');
           case 'openText': return vscode.window.showTextDocument(visuTextUri(doc.uri), { preview: false, viewColumn: vscode.ViewColumn.Beside });
+          case 'ai': return vscode.commands.executeCommand(m.comment ? 'iecode.aiComment' : 'iecode.aiAdd', { file: doc.uri.toString(), guid: m.guid });
         }
       }),
     ];
     panel.onDidDispose(() => { clearTimeout(timer); subs.forEach(s => s.dispose()); });
   }
 
-  private async edit(doc: vscode.TextDocument, edits: VisuEdit[], post: (m: unknown) => void) {
+  private async edit(doc: vscode.TextDocument, edits: VisuEdit[], post: (m: unknown) => void, resend: () => void) {
     const text = doc.getText();
     const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
     let ranges: [number, number, string][];
     try {
       ranges = editRanges(stripBom(text), edits);
     } catch (e) {
-      post({ type: 'error', message: e instanceof VisuEditError ? e.message : `Edit failed: ${(e as Error).message}` });
-      return post({ type: 'model', visu: parseVisu(text), file: path.basename(doc.uri.fsPath) });
+      resend();   // reverts the inputs; the model clears the status, so the error goes after it
+      return post({ type: 'error', message: e instanceof VisuEditError ? e.message : `Edit failed: ${(e as Error).message}` });
     }
     const we = new vscode.WorkspaceEdit();
     for (const [s, e, r] of ranges) we.replace(doc.uri, new vscode.Range(doc.positionAt(s + bom), doc.positionAt(e + bom)), r);
@@ -149,7 +162,7 @@ export function registerVisuEditor(ctx: vscode.ExtensionContext) {
         try {
           const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file.toString());
           const text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8');
-          return visuToText(parseVisu(text));
+          return summaryText(text);
         } catch (e) {
           return `# ${(e as Error).message}\n`;
         }
@@ -157,7 +170,7 @@ export function registerVisuEditor(ctx: vscode.ExtensionContext) {
     }),
     // keep open summaries in sync with unsaved edits in the visual editor
     vscode.workspace.onDidChangeTextDocument(e => {
-      if (/\.TcVIS$/i.test(e.document.uri.path)) changed.fire(visuTextUri(e.document.uri));
+      if (SUMMARY_RE.test(e.document.uri.path)) changed.fire(visuTextUri(e.document.uri));
     }),
     vscode.commands.registerCommand('iecode.openVisuEditor', (u?: vscode.Uri) => {
       u ??= vscode.window.activeTextEditor?.document.uri;

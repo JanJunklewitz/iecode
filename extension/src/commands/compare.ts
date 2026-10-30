@@ -5,15 +5,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { decode } from '../model';
-import { parseVisu, visuToText } from '../core/tcvis';
+import { SUMMARY_RE, summaryText } from '../core/plcArchive';
 import { isEncrypted } from '../core/projects';
 import { config, getConfig, log, repoRoot, show } from '../core/git';
 
 export const REV_SCHEME = 'iecode-rev';
 export const SRC_SCHEME = 'iecode-src';
-const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS)$/i;
-/** Visualizations compare as their YAML summary (read-only), objects as ST. */
-const VIS_RE = /\.TcVIS$/i;
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i;
+/** Visualizations, text lists, image pools and the visualization manager compare as their YAML summary (read-only), objects as ST. */
+const VIS_RE = SUMMARY_RE;
 const OWN_SCHEMES = ['iecode', REV_SCHEME, SRC_SCHEME];
 
 /** iecode-rev:/path/X.TcPOU?ref=<commit> shows the ST view of the file at that commit. */
@@ -29,7 +29,7 @@ const workingSide = (file: string) => stSide(vscode.Uri.file(file));
 
 function toView(xml: string, file: string): string {
   if (VIS_RE.test(file)) {
-    try { return visuToText(parseVisu(xml)); } catch (e) { return `# ${(e as Error).message}\n`; }
+    try { return summaryText(xml); } catch (e) { return `# ${(e as Error).message}\n`; }
   }
   if (isEncrypted(xml)) return '(* encrypted object – content not available *)\n';
   return decode(xml.replace(/^﻿/, ''));
@@ -184,7 +184,7 @@ export function register(ctx: vscode.ExtensionContext) {
     const uri = argUri(arg) ?? vscode.window.activeTextEditor?.document.uri;
     if (uri && EXT_RE.test(uri.path)) return vscode.commands.executeCommand(st, uri);
     if (uri && /\.(tsproj|xti)$/i.test(uri.path)) return vscode.commands.executeCommand(io, uri);
-    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO), visualizations (.TcVIS) and system project files (.tsproj, .xti).');
+    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO), visualizations (.TcVIS), text lists (.TcGTLO), image pools (.TcIPO), the visualization manager (.TcVMO) and system project files (.tsproj, .xti).');
   });
   scm('iecode.scmCompareWithHead', 'iecode.compareWithHead', 'iecode.ioLinksDiff');
   scm('iecode.scmCompareWithCommit', 'iecode.compareWithCommit', 'iecode.ioLinksDiffCommit');
@@ -199,7 +199,7 @@ export function register(ctx: vscode.ExtensionContext) {
     if (!file) return;
     let other = selected;
     if (!other) {
-      const pick = await vscode.window.showOpenDialog({ title: 'Compare with', filters: { 'TwinCAT objects': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO', 'TcVIS'] } });
+      const pick = await vscode.window.showOpenDialog({ title: 'Compare with', filters: { 'TwinCAT objects': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO', 'TcVIS', 'TcGTLO', 'TcIPO', 'TcVMO'] } });
       other = pick?.[0]?.fsPath;
     }
     if (!other) return;
@@ -228,7 +228,7 @@ export function register(ctx: vscode.ExtensionContext) {
     if (viewer) await config(root, 'difftool.iecode.cmd', `node "${cli}" difftool "${viewer.replace(/\\/g, '/')}" "$LOCAL" "$REMOTE"`);
     const attrs = path.join(root, '.gitattributes');
     const existing = await fs.readFile(attrs, 'utf8').catch(() => '');
-    const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO', '*.TcVIS'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
+    const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO', '*.TcVIS', '*.TcGTLO', '*.TcIPO', '*.TcVMO'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
     if (wanted.length) {
       const block = '# IECode: show TwinCAT objects as Structured Text in git diff\n' + wanted.map(p => `${p} diff=iecode`).join('\n') + '\n';
       const sep = existing === '' ? '' : existing.endsWith('\n') ? '\n' : '\n\n';

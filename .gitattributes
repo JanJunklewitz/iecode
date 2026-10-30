@@ -4,6 +4,9 @@
 *.TcGVL -text
 *.TcIO  -text
 *.TcTTO -text
+*.TcGTLO -text
+*.TcIPO -text
+*.TcVMO -text
 *.plcproj -text
 *.tsproj -text
 *.tspproj -text

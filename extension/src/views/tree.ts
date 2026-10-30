@@ -28,9 +28,10 @@ const GROUP_LABEL: Record<Group, string> = { library: 'Libraries', application: 
 const TYPE_ICON: Record<ObjectType, string> = {
   FUNCTION_BLOCK: 'symbol-class', PROGRAM: 'symbol-module', FUNCTION: 'symbol-function', INTERFACE: 'symbol-interface',
   STRUCT: 'symbol-structure', ENUM: 'symbol-enum', UNION: 'symbol-structure', ALIAS: 'symbol-type-parameter',
-  GVL: 'symbol-variable', TASK: 'watch', OTHER: 'file',
+  GVL: 'symbol-variable', TASK: 'watch', TEXTLIST: 'symbol-text', IMAGEPOOL: 'file-media', VISUMANAGER: 'settings', OTHER: 'file',
 };
-const TYPE_SHORT: Partial<Record<ObjectType, string>> = { FUNCTION_BLOCK: 'FB', PROGRAM: 'PRG', FUNCTION: 'FUN', INTERFACE: 'ITF', ENUM: 'ENUM', STRUCT: 'STRUCT', UNION: 'UNION', ALIAS: 'ALIAS', GVL: 'GVL' };
+const TYPE_SHORT: Partial<Record<ObjectType, string>> = { FUNCTION_BLOCK: 'FB', PROGRAM: 'PRG', FUNCTION: 'FUN', INTERFACE: 'ITF', ENUM: 'ENUM', STRUCT: 'STRUCT', UNION: 'UNION', ALIAS: 'ALIAS', GVL: 'GVL',
+  TEXTLIST: 'texts', IMAGEPOOL: 'images', VISUMANAGER: 'visu settings' };
 const MEMBER_ICON: Record<Member['kind'], string> = { METHOD: 'symbol-method', PROPERTY: 'symbol-property', ACTION: 'symbol-event', TRANSITION: 'arrow-right' };
 
 const hasMembers = (t: ObjectType) => t === 'FUNCTION_BLOCK' || t === 'PROGRAM' || t === 'INTERFACE' || t === 'FUNCTION';

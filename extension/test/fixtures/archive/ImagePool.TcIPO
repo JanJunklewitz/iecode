@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <ImagePool Name="ImagePool" Id="{00000000-0000-0000-0000-0000000000b1}">
+    <XmlArchive>
+      <Data>
+        <o xml:space="preserve" t="ImagePoolObject">
+          <v n="UniqueIdGenerator">"8"</v>
+          <l n="BitmapPool" t="ArrayList" cet="ImagePoolItem">
+            <o>
+              <v n="BitmapID">"Pump"</v>
+              <v n="FileID">"00000000-0000-0000-0000-0000000000b2|Images\Pump.png"</v>
+              <v n="ItemID">6</v>
+            </o>
+            <o>
+              <v n="BitmapID">""</v>
+              <v n="FileID">""</v>
+              <v n="ItemID">7</v>
+            </o>
+          </l>
+          <v n="ValidIds">true</v>
+        </o>
+      </Data>
+    </XmlArchive>
+  </ImagePool>
+</TcPlcObject>

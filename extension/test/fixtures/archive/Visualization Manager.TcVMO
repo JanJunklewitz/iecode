@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <VisuManager Name="Visualization Manager" Id="{00000000-0000-0000-0000-0000000000c1}">
+    <XmlArchive>
+      <Data>
+        <o xml:space="preserve" t="VisualManagerObject">
+          <v n="UseUnicodeStrings" t="UnicodeSupport">Undefined</v>
+          <o n="ViewSettings" t="VisualManagerViewSettings">
+            <n n="StartVisu" />
+            <v n="StartVisu33">"VI_Main"</v>
+            <v n="BestFit">false</v>
+            <v n="ClientSizeMode" t="VisualClientSizeMode">AutoDetect</v>
+            <v n="ClientSizeX">1920</v>
+            <v n="ClientSizeY">1080</v>
+            <v n="MaxNumOfClients">100</v>
+            <v n="NumpadDialog">"VisuDialogs.Numpad"</v>
+            <v n="GuidShowChangeConfigDialogFunction">{00000000-0000-0000-0000-000000000000}</v>
+          </o>
+          <o n="VisuUserManagement" t="VisuUserManagement">
+            <v n="ApplyLoginRestrictions">false</v>
+            <v n="MaxNumberOfAutenthicationAttempts">-1</v>
+          </o>
+          <v n="UseLocalUserMgmt">true</v>
+        </o>
+      </Data>
+    </XmlArchive>
+  </VisuManager>
+</TcPlcObject>
