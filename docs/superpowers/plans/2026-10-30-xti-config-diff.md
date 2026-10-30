@@ -23,7 +23,7 @@
 - Noise ids: `guid`, `build`, `timestamps`, `whitespace`.
 - Default of `iecode.configDiff.hidden`: `["layout", "metadata", "guid", "build", "timestamps", "whitespace"]`.
 - Test fixtures are synthetic (generic names like `MAIN.bStart`, `PlcTask`). Never copy content from company projects into this public repo.
-- Commits: subject + 1-3 sentence body on *why*; no attribution trailers.
+- Commits: subject + 1-3 sentence body on *why*; no attribution trailers. Every commit is signed off (`git commit -s`): the PR check in `.github/workflows/ci.yml` rejects commits without `Signed-off-by`.
 
 ## Review Focus
 
@@ -53,7 +53,7 @@ export type Category = 'tasks' | 'settings' | 'licenses' | 'unrestored' | 'param
 export type Noise = 'guid' | 'build' | 'timestamps' | 'whitespace';
 export const CATEGORIES: Category[];          // display order from Global Constraints, without 'links'
 export const NOISE: Noise[];
-export interface ConfigEntry { key: string; value: string; category: Category; noise?: Noise }
+export interface ConfigEntry { key: string; value: string; raw: string; category: Category; noise?: Noise }   // value: normalised for comparison; raw: original text
 export function flattenConfig(xml: string): ConfigEntry[];
 export function cycleTimeText(ticks: string): string;   // 100 ns ticks -> "10 ms"
 ```
@@ -81,13 +81,14 @@ Key scheme (identity, never an offset or index unless there is no name):
 | `Mappings/.../Link` | `links/<OwnerA>/<OwnerB>/<VarA>` = `<VarB>` | `links` |
 | anything else | `other/<element path>[<Name> or #index]/...` | `other` |
 
-Values are trimmed text with inner whitespace collapsed to one space (CDATA comments included). Compound children (`Default`, `ArrayInfo`) become one compact value, e.g. `LBound=0 Elements=8`. A key that occurs again gets the suffix `#2`, `#3` … in document order.
+`value` is the trimmed text with inner whitespace collapsed to one space (CDATA comments included); `raw` keeps the original text, so a whitespace-only change is still visible when the `whitespace` filter is off. Compound children (`Default`, `ArrayInfo`) become one compact value, e.g. `LBound=0 Elements=8`. Key parts are escaped (`/` → `%2F`, `#` → `%23`, `%` → `%25`) so names containing them cannot collide with the separators. A key that occurs again gets the suffix `#2`, `#3` … in document order; `diffConfig` (Task 2) pairs such duplicates by equal value first and only then by position, so reordering identical duplicates shows no change.
 
 - [ ] **Step 1: Write failing tests** in `test/configdiff.test.ts`:
   - `flattenConfig finds tasks, licenses, parameters, symbols and types`: keys `tasks/PlcTask/CycleTime` (value `10 ms`), `licenses/{…}` and `licenses/{…}#2`, `parameter-values/Application Port` (value `851`), `symbols/PlcTask Inputs/MAIN.bStart/BaseType` (value `BOOL`), `types/ST_Motor/SubItem/nSpeed/Type` exist with the expected categories.
   - `flattenConfig marks noise`: `parameter-values/Application Timestamp` → `build`; `properties/ChangeDate` → `build`; the `to_string_function` property → `build`; `types/ST_Motor/@GUID` → `guid`; `unrestored/@ImportTime#1` → `timestamps`; `instance/@TmcHash` → category `metadata`; `symbols/PlcTask Inputs/MAIN.bStart/BitOffs` → category `layout`.
   - `flattenConfig handles the split variant`: `SPLIT_POINTER` yields `project/@AmsPort` and `TcVersion` only; `SPLIT_INSTANCE` yields `tasks/...` and `types/...` keys.
   - `flattenConfig puts unknown elements into other and links into links`: a minimal EtherCAT-like xti (`<TcSmItem><Device><Name>Device 1</Name><Box><Name>Term 1</Name><EtherCAT SlaveType="1"/></Box></Device><Mappings>…</Mappings></TcSmItem>`) does not throw, gives at least one `other/` key and one `links/` key.
+  - `flattenConfig escapes key parts`: a symbol named `A/B#1` gives one key ending in `A%2FB%231/BaseType`, distinct from `A/B/...`.
   - `cycleTimeText converts 100 ns ticks`: `'100000'` → `'10 ms'`, `'120000'` → `'12 ms'`, `'5000'` → `'0.5 ms'`, `'abc'` → `'abc'`.
 - [ ] **Step 2: Run** `npm test`. Expected: the new tests fail (module missing).
 - [ ] **Step 3: Implement** `src/core/configmodel.ts`. Walk the `parseXml` tree once and dispatch on element name plus ancestors (`hasAncestor`, `text` from `src/core/iotree.ts`). The generic fallback recurses into unknown elements and names each one by its `<Name>` child text, or by `#<index>` among siblings with the same name.
@@ -114,14 +115,15 @@ export function groupChanges(changes: ConfigChange[], hidden: ReadonlySet<Filter
 export function configToYaml(entries: ConfigEntry[], hidden: ReadonlySet<Filter>, header?: string): string;
 ```
 Rules:
-- `diffConfig` matches by `key`. Changes are sorted by `CATEGORIES` order, then key. A change whose values differ only in whitespace gets noise `whitespace`, unless the entry already has a noise kind.
+- `diffConfig` matches by `key` (duplicates `#n` as described in Task 1). Changes are sorted by `CATEGORIES` order, then key. Two entries with equal `value` but different `raw` give a change with noise `whitespace` (before/after = `raw`), unless the entry already has a noise kind. Otherwise before/after show `value`.
 - `groupChanges` returns the groups in `CATEGORIES` order and leaves out empty ones. `limit` defaults to 500. `links` = number of link changes. `hiddenBy` counts per filter id, so the panel can show "(123 hidden)".
 - `configToYaml` nests the keys by `/`, with categories as top-level keys in `CATEGORIES` order. Hidden entries are left out, so the diff editor shows only what is visible. Scalars are quoted with `yamlScalar` from `src/core/iotree.ts`.
 
 - [ ] **Step 1: Write failing tests:**
   - `diffConfig reports added, removed and changed by key`: build `after` by changing `CycleTime` to 120000, removing one license, and adding symbol `MAIN.bStop`. The result contains `changed tasks/PlcTask/CycleTime 10 ms -> 12 ms`, `removed licenses/...#2` and `added symbols/PlcTask Inputs/MAIN.bStop/BaseType`.
   - `diffConfig ignores reordering`: the same entries in reversed order give `[]`.
-  - `diffConfig marks whitespace-only changes`: feed two `ConfigEntry` lists directly (bypassing `flattenConfig`, which already collapses whitespace) with the same `Comment` key and values `'a b'` vs `'a b '`. The result is one change with noise `whitespace`.
+  - `diffConfig marks whitespace-only changes`: two `PLC_XTI` variants whose symbol `Comment` differs only in spacing, run through `flattenConfig` → one change with noise `whitespace`, before/after the raw texts.
+  - `diffConfig pairs reordered duplicates`: the same `LicenseId` twice, order swapped → `[]`.
   - `groupChanges hides by category and noise and counts`: with `DEFAULT_HIDDEN`, a `BitOffs` change and a GUID change are not shown. `hiddenBy.layout === 1` and `hiddenBy.guid === 1`. A `links` change only increments `links`.
   - `groupChanges limits each category`: 1200 symbol changes with `limit` 500 → `shown.length === 500`, `total === 1200`.
   - `configToYaml leaves out hidden entries`: YAML of `PLC_XTI` with `DEFAULT_HIDDEN` contains `tasks:` and `CycleTime: 10 ms` and does not contain `BitOffs` or `__TO_STRING__`.
@@ -145,11 +147,11 @@ export interface ConfigVersion { entries: ConfigEntry[]; missing: boolean }
 export async function configAt(file: string, ref: string | undefined): Promise<ConfigVersion>;   // ref undefined = working copy
 export function changesToText(changes: ConfigChange[], hidden: ReadonlySet<Filter>): string;
 ```
-`configAt` strips a UTF-8 BOM. When the file does not exist at that ref (or on disk), it returns `{ entries: [], missing: true }` and does not throw. `changesToText` prints a first line `<n> visible change(s), <m> hidden`, then one heading per non-empty visible category (`## tasks (2)`), then lines `changed  <key>  <before> -> <after>`, then a last line `<k> IO link change(s): see links-diff` if there are any.
+`configAt` strips a UTF-8 BOM. When the file does not exist at that ref (or on disk), it returns `{ entries: [], missing: true }` and does not throw. `show()` in `src/core/git.ts` turns every failure into `undefined`, so `configAt` checks the ref first (`git rev-parse --verify <ref>^{commit}`): an invalid ref or a git failure throws `Error('<ref>: not a commit')` instead of reporting the file as missing. `changesToText` prints a first line `<n> visible change(s), <m> hidden`, then one heading per non-empty visible category (`## tasks (2)`), then lines `changed  <key>  <before> -> <after>`, then a last line `<k> IO link change(s): see links-diff` if there are any.
 CLI: `iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <id,id>]`. `--all` = nothing hidden (links still only counted). `--hide` replaces `DEFAULT_HIDDEN`. Exit code 1 if visible changes exist, 0 if none, like `links-diff`.
 
 - [ ] **Step 1: Write failing tests:**
-  - `configAt returns missing for a file that is not in the commit`: temp repo via `fs.mkdtemp` + `git init` and commit `a.xti`. `configAt(<repo>/b.xti, 'HEAD')` → `{ entries: [], missing: true }`. `configAt(<repo>/a.xti, 'HEAD').entries.length > 0`.
+  - `configAt returns missing for a file that is not in the commit`: temp repo via `fs.mkdtemp` + `git init` and commit `a.xti`. `configAt(<repo>/b.xti, 'HEAD')` → `{ entries: [], missing: true }`. `configAt(<repo>/a.xti, 'HEAD').entries.length > 0`. `configAt(<repo>/a.xti, 'nosuchref')` rejects. Temp-repo git calls use `-c core.autocrlf=false` and fixed `user.name`/`user.email`.
   - `changesToText groups by category and mentions hidden and links`: for a diff with one task change, one layout change (hidden by `DEFAULT_HIDDEN`) and one link change, the first line is `1 visible change(s), 1 hidden`, the output contains `## tasks (1)`, has no `## layout` heading, and ends with `1 IO link change(s): see links-diff`.
 - [ ] **Step 2: Run** `npm test`. Expected: fail.
 - [ ] **Step 3: Implement** `confighistory.ts` and the CLI branch.
@@ -159,8 +161,10 @@ CLI: `iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide 
 ### Task 4: "Config Changes" panel, YAML diff and commands
 
 **Files:**
-- Create: `extension/src/views/configDiff.ts` (`registerConfigDiff(ctx)`, `html(nonce, csp)`)
+- Create: `extension/src/views/configDiff.ts` (`registerConfigDiff(ctx)`)
+- Create: `extension/src/views/configDiffHtml.ts` (`html(nonce, csp)`, no `vscode` import, so `node --test` can load it)
 - Modify: `extension/src/extension.ts` (call `registerConfigDiff(ctx)` next to `registerIoYaml(ctx)`)
+- Modify: `extension/src/commands/compare.ts` (new Source Control submenu entries for the config compare; the existing IO links routing for `.tsproj` / `.xti` stays unchanged)
 - Modify: `extension/package.json` (commands, menus, setting)
 - Test: `extension/test/configdiff.test.ts` (pure parts only)
 
@@ -168,7 +172,7 @@ CLI: `iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide 
 - Consumes: `configAt` (Task 3); `groupChanges`, `configToYaml`, `DEFAULT_HIDDEN`, `Filter` (Task 2); `CATEGORIES`, `NOISE` (Task 1); `log`, `repoRoot` from `src/core/git.ts`.
 - Produces:
   - Commands `iecode.configDiff` (title "Compare Config with HEAD", icon `$(settings)`) and `iecode.configDiffCommit` (title "Compare Config with Commit…"). Both accept `Uri | SourceControlResourceState | undefined`, falling back to the active editor. They only accept `.xti`, with the message `IECode: select an .xti file to compare its configuration.`
-  - Menus: `explorer/context`, `editor/title/context`, `scm/resourceState/context`, all with `when` `resourceExtname =~ /\\.xti$/i` and group `3_compare`, next to the IO links entries.
+  - Menus: `explorer/context` and `editor/title/context` with `when` `resourceExtname =~ /\\.xti$/i` and group `3_compare`, next to the IO links entries. Source Control: no own `scm/resourceState/context` entry (VS Code can't filter that menu by file type). Add two separate entries "Compare Config with HEAD / Commit…" to the `iecode.scmCompare` submenu; their handlers accept `.xti` and show `IECode: select an .xti file to compare its configuration.` otherwise. The existing submenu entries and their `.tsproj` / `.xti` → IO links routing stay as they are.
   - Setting `iecode.configDiff.hidden`: `type: array`, `items.enum` = all `Filter` ids, `default` = `DEFAULT_HIDDEN`, `markdownDescription` "Categories and noise kinds hidden in **Config Changes** (the checkboxes in the panel write this setting)."
   - YAML scheme `iecode-config`: `iecode-config:/<file> config (<label>).yaml?file=…&ref=…&label=…`. The provider renders `configToYaml(entries, hidden)` and re-renders when the setting changes (fire `onDidChange` from `onDidChangeConfiguration`).
 
@@ -180,7 +184,9 @@ Panel behaviour (one panel, reused like `showIoLinks`):
 - A version where the file is missing shows the warning `<file> does not exist in <label>`.
 - The webview CSP and escaping follow `src/views/ioLinks.ts` `html()`.
 
-- [ ] **Step 1: Write failing test** `configDiff html has a checkbox per filter`: `html('n', 'csp')` contains `data-filter="<id>"` for every id in `CATEGORIES` and `NOISE`, and `nonce-n`.
+Payload bound: besides 500 changes per category, values longer than 2000 characters are cut with `…` in the message to the webview (full values stay in the YAML).
+
+- [ ] **Step 1: Write failing test** `configDiff html has a checkbox per filter` (imports `configDiffHtml.ts`): `html('n', 'csp')` contains `data-filter="<id>"` for every id in `CATEGORIES` and `NOISE`, and `nonce-n`.
 - [ ] **Step 2: Run** `npm test`. Expected: fail.
 - [ ] **Step 3: Implement** `src/views/configDiff.ts`, the `package.json` contributions and the `extension.ts` wiring.
 - [ ] **Step 4: Run** `npm test`. Expected: pass.
@@ -194,10 +200,9 @@ Panel behaviour (one panel, reused like `showIoLinks`):
 
 **Files:**
 - Modify: `extension/README.md` (feature table row after *IO Links*; CLI block line `iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <ids>]  # config changes of an xti`)
-- Modify: `extension/CHANGELOG.md` (new section for the next version above the current top one, `### System project` bullet: categorised config diff for `.xti`, persisted filters, CLI `config-diff`)
-- Modify: `extension/package.json` (`version` = the next patch version after the current one)
+- Modify: `extension/CHANGELOG.md` (under `## Unreleased`, heading `### System project` (append if it exists): categorised config diff for `.xti`, persisted filters, CLI `config-diff`). Do not change `version` in `package.json`; the maintainer bumps at release.
 - Modify: `TODO.md` (tick the item, link this plan)
 
-- [ ] **Step 1:** Write the README, CHANGELOG, version and TODO changes.
+- [ ] **Step 1:** Write the README, CHANGELOG and TODO changes.
 - [ ] **Step 2: Run** `npm test`. Expected: pass.
 - [ ] **Step 3: Commit** `Docs: config diff for xti files`.
