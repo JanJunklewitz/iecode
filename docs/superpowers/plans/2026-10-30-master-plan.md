@@ -32,4 +32,4 @@ Backlog without a plan yet: see [TODO.md](../../../TODO.md) (AI interface for AD
 - Plans: `docs/superpowers/plans/`
 - Research: `docs/research/`
 - Open items: `TODO.md`
-- Work branch for both plans: `feature/merge-conflicts-and-xti-diff` (from `docs/plans`, which holds the docs only).
+- Work branch for both plans: `feature/merge-conflicts-and-xti-diff`.
