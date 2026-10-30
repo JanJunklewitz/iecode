@@ -2,6 +2,23 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Output
+- The **IECode** output channel shows every CLI run (Build, Check All Objects, Clean, Activate, Save as library, Encrypt …) with levels: progress as info, `⚠` lines as warnings, `✖` lines as errors. After the run it lists the compiler errors, warnings and messages (code, file and line, project) and a result line with the counts; filter by level in the Output view.
+- `iecode.revealOutput`: the channel opens by itself when a command starts (`always`, default), only on failures or warnings (`onProblems`), or `never`.
+
+### Projects
+- **Project Settings (Title, Version…)** (right-click a PLC project in the IECode view or a `.plcproj` in the Explorer, Command Palette): edits title, company, version, released, default namespace, placeholder, author, description and compiler defines in the `.plcproj`. Only changed lines are written; undo works in the project file.
+
+### Visualizations
+- With no element selected, the property panel edits the visualization's **width, height and background color**.
+- Edit errors in the property panel stay visible in the status bar of the editor (they were cleared right away).
+
+### AI chat
+- **Add to AI Chat** and **Comment for AI…**: right-click code in the ST view (the selection, or the method / action / property at the cursor) or an element in the visualization editor (canvas, element list, Simplified view; also buttons in the property panel). The context names the POU section or element and the file; elements are sent as their YAML summary. Elements can also be dragged from the element list into a chat input.
+- `iecode.aiChat`: `auto` (Claude Code if installed, else GitHub Copilot Chat), `copilot` (opens Copilot Chat prefilled), `claude` (copies the context and opens Claude Code to paste it), `clipboard`.
+
 ## 0.2.4
 
 ### Language features

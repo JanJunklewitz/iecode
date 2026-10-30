@@ -316,6 +316,24 @@
         "icon": "$(list-flat)"
       },
       {
+        "command": "iecode.projectSettings",
+        "title": "Project Settings (Title, Version…)",
+        "category": "IECode",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "iecode.aiAdd",
+        "title": "Add to AI Chat",
+        "category": "IECode",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "iecode.aiComment",
+        "title": "Comment for AI…",
+        "category": "IECode",
+        "icon": "$(comment)"
+      },
+      {
         "command": "iecode.adsInterface",
         "title": "ADS Interface…",
         "category": "IECode",
@@ -354,6 +372,11 @@
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "iecode.projectSettings",
+          "when": "resourceExtname =~ /^\\.plcproj$/i",
+          "group": "navigation"
+        },
         {
           "command": "iecode.openVisuEditor",
           "when": "resourceExtname =~ /\\\\.TcVIS$/i",
@@ -407,6 +430,30 @@
           "command": "iecode.compareWithHead",
           "when": "resourceScheme == iecode",
           "group": "navigation@9"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "iecode.aiAdd",
+          "when": "resourceScheme == iecode || editorLangId == twincat-st",
+          "group": "1_iecodeAi@1"
+        },
+        {
+          "command": "iecode.aiComment",
+          "when": "resourceScheme == iecode || editorLangId == twincat-st",
+          "group": "1_iecodeAi@2"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "iecode.aiAdd",
+          "when": "webviewId == 'iecode.visuEditor' && webviewSection =~ /^(element|visu)$/",
+          "group": "1_iecodeAi@1"
+        },
+        {
+          "command": "iecode.aiComment",
+          "when": "webviewId == 'iecode.visuEditor' && webviewSection =~ /^(element|visu)$/",
+          "group": "1_iecodeAi@2"
         }
       ],
       "view/title": [
@@ -603,6 +650,11 @@
           "group": "0_build@8"
         },
         {
+          "command": "iecode.projectSettings",
+          "when": "view == iecode.projects && viewItem =~ /^unit\\./",
+          "group": "2_settings@1"
+        },
+        {
           "command": "iecode.ioLinkSaveIndependent",
           "when": "view == iecode.ioLink && viewItem == iolink.master",
           "group": "inline"
@@ -634,6 +686,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "iecode.aiAdd",
+          "when": "resourceScheme == iecode || editorLangId == twincat-st"
+        },
+        {
+          "command": "iecode.aiComment",
+          "when": "resourceScheme == iecode || editorLangId == twincat-st"
+        },
         {
           "command": "iecode.addMember",
           "when": "false"
@@ -845,6 +905,38 @@
           },
           "default": [],
           "markdownDescription": "Extra folders with library files named `<Name>_<Version>.library` (e.g. a shared drive)."
+        },
+        "iecode.aiChat": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "copilot",
+            "claude",
+            "clipboard"
+          ],
+          "enumDescriptions": [
+            "Claude Code when installed, else GitHub Copilot Chat, else the clipboard.",
+            "Open GitHub Copilot Chat with the context prefilled (you send it).",
+            "Copy the context and open Claude Code; paste it there.",
+            "Only copy the context to the clipboard."
+          ],
+          "default": "auto",
+          "markdownDescription": "Where **Add to AI Chat** and **Comment for AI…** send code and visualization elements."
+        },
+        "iecode.revealOutput": {
+          "type": "string",
+          "enum": [
+            "always",
+            "onProblems",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Open the IECode output when a CLI command (build, check, activate …) starts.",
+            "Open it only when a command fails or reports warnings.",
+            "Don't open it by itself (View › Output › IECode)."
+          ],
+          "default": "always",
+          "markdownDescription": "When the **IECode** output channel opens by itself. It lists every CLI run with its progress, the compiler errors, warnings and messages, and the result; filter by level in the Output view."
         }
       }
     },

@@ -1,10 +1,12 @@
-// Runs the iecode CLI with --json and returns its result. Progress lines go to the "IECode" output channel.
+// Runs the iecode CLI with --json and returns its result. Progress lines, compiler messages and the outcome go to
+// the "IECode" output channel as errors, warnings and info (iecode.revealOutput: when the channel opens by itself).
 
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { CliDiagnostic } from '../core/diagnostics';
+import { LogLevel, countLine, diagnosticLine, progressLine } from '../core/clilog';
 
 export interface CliResult<T = unknown> {
   command: string;
@@ -19,7 +21,28 @@ export interface CliResult<T = unknown> {
   hint?: string;
 }
 
-export const output = vscode.window.createOutputChannel('IECode');
+export const output = vscode.window.createOutputChannel('IECode', { log: true });
+
+const log = (level: LogLevel, text: string) =>
+  level === 'error' ? output.error(text) : level === 'warning' ? output.warn(text) : output.info(text);
+
+/** Opens the output channel (without taking focus) as iecode.revealOutput says: 'start' of each run, or 'problems'. */
+function reveal(when: 'start' | 'problems') {
+  const set = vscode.workspace.getConfiguration('iecode').get<string>('revealOutput', 'always');
+  if (set === 'always' ? when === 'start' : set === 'onProblems' && when === 'problems') output.show(true);
+}
+
+/** The outcome of a run: compiler messages, counts, error and hint. */
+function logResult(res: CliResult) {
+  for (const d of res.diagnostics ?? []) log(d.severity, diagnosticLine(d));
+  const counts = countLine(res.diagnostics ?? []);
+  const summary = `${res.ok ? '✔' : '✖'} ${res.command} · exit ${res.exitCode} · ${(res.durationMs / 1000).toFixed(1)} s${counts ? ' · ' + counts : ''}`;
+  const warnings = (res.diagnostics ?? []).some(d => d.severity === 'warning');
+  log(!res.ok ? 'error' : warnings ? 'warning' : 'info', summary);
+  if (res.error) output.error(res.error);
+  if (res.hint) output.info(`Hint: ${res.hint}`);
+  if (!res.ok || warnings) reveal('problems');
+}
 
 export const cliAvailable = () => process.platform === 'win32';
 
@@ -40,7 +63,8 @@ function globalArgs(): string[] {
 export async function runCli<T = unknown>(args: string[], title: string, cwd?: string): Promise<CliResult<T>> {
   useInstallDir();
   const full = [...args, ...globalArgs(), '--json'];
-  output.appendLine(`> iecode ${full.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
+  output.info(`> iecode ${full.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
+  reveal('start');
   return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, (progress, token) =>
     new Promise<CliResult<T>>((resolve, reject) => {
       const child = spawn(cliPath(), full, { cwd, env: { ...process.env, IECODE_PROGRESS: '1', NO_COLOR: '1' }, windowsHide: true });
@@ -54,23 +78,29 @@ export async function runCli<T = unknown>(args: string[], title: string, cwd?: s
           const line = errBuf.slice(0, nl).replace(/\r$/, '');
           errBuf = errBuf.slice(nl + 1);
           if (!line) continue;
-          output.appendLine(line);
-          progress.report({ message: line.replace(/^[●✔✖⚠]\s*/, '') });
+          const p = progressLine(line);
+          log(p.level, p.text);
+          progress.report({ message: p.text });
         }
       });
       token.onCancellationRequested(() => child.kill());
-      child.on('error', e => reject(new Error(
-        (e as NodeJS.ErrnoException).code === 'ENOENT'
+      child.on('error', e => {
+        const msg = (e as NodeJS.ErrnoException).code === 'ENOENT'
           ? `iecode CLI not found ("${cliPath()}"). Install it (see IECode: Install CLI) or set iecode.cliPath.`
-          : e.message)));
+          : e.message;
+        output.error(msg);
+        reject(new Error(msg));
+      });
       child.on('close', code => {
         try {
           const json = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
           const res = JSON.parse(json) as CliResult<T>;
-          output.appendLine(`  ${res.ok ? '✔' : '✖'} ${res.command} · exit ${res.exitCode} · ${(res.durationMs / 1000).toFixed(1)} s${res.error ? ' · ' + res.error : ''}`);
+          logResult(res);
           resolve(res);
         } catch {
-          reject(new Error(token.isCancellationRequested ? 'Cancelled' : `iecode exited with ${code} without a result. See the IECode output.`));
+          const msg = token.isCancellationRequested ? 'Cancelled' : `iecode exited with ${code} without a result. See the IECode output.`;
+          if (token.isCancellationRequested) output.warn('Cancelled'); else { output.error(`iecode exited with ${code} without a result`); reveal('problems'); }
+          reject(new Error(msg));
         }
       });
     }));
@@ -114,13 +144,23 @@ export function cliInstalled(): Promise<boolean> {
 export function installCli(): Promise<boolean> {
   const script = 'irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1 | iex';
   output.show(true);
-  output.appendLine(`> ${script}`);
+  output.info(`> ${script}`);
+  // the log channel stamps every call, so whole lines only
+  const lines = (level: LogLevel) => {
+    let buf = '';
+    return (d: Buffer) => {
+      buf += d.toString();
+      const parts = buf.split(/\r?\n/);
+      buf = parts.pop()!;
+      for (const l of parts) if (l.trim()) log(level, l);
+    };
+  };
   return Promise.resolve(vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'IECode: installing the CLI' }, () =>
     new Promise<boolean>(resolve => {
       const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true });
-      child.stdout.on('data', d => output.append(d.toString()));
-      child.stderr.on('data', d => output.append(d.toString()));
-      child.on('error', e => { output.appendLine(e.message); resolve(false); });
+      child.stdout.on('data', lines('info'));
+      child.stderr.on('data', lines('error'));
+      child.on('error', e => { output.error(e.message); resolve(false); });
       child.on('close', code => resolve(code === 0));
     }))).then(async ok => ok && await cliInstalled());
 }

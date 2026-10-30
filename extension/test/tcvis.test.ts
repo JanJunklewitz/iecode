@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { applyEdits, crc32, flatten, parseVisu, propertyId, visuToText, VisuEditError } from '../src/core/tcvis';
-
+import { applyEdits, crc32, elementToText, flatten, parseVisu, propertyId, visuToText, VisuEditError } from '../src/core/tcvis';
 const xml = readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', 'visu', 'VI_Demo.TcVIS'), 'utf8');
 const RECT = 'aaaaaaaa-0000-0000-0000-000000000001';
 const FIELD = 'aaaaaaaa-0000-0000-0000-000000000002';
@@ -93,6 +92,28 @@ test('refuses edits it cannot write faithfully', () => {
   assert.throws(() => applyEdits(xml, [{ element: RECT, member: propertyId('m_StaticPosition.iX'), value: '1.5' }]), VisuEditError);
   assert.throws(() => applyEdits(xml, [{ element: RECT, member: propertyId('m_pTextChanges..pVarText'), value: 'x' }]), VisuEditError);
   assert.throws(() => applyEdits(xml, [{ element: 'ffffffff-0000-0000-0000-000000000000', member: 1, value: 'x' }]), VisuEditError);
+  assert.throws(() => applyEdits(xml, [{ visu: 'width', value: '0' }]), VisuEditError);
+});
+
+test('edits size and background of the visualization', () => {
+  const v = parseVisu(xml);
+  assert.deepEqual(v.stored, { size: true, background: true });
+  const out = applyEdits(xml, [{ visu: 'width', value: '1024' }, { visu: 'height', value: '768' }, { visu: 'background', value: '#102030' }]);
+  assert.ok(out.includes('<v n="Width">1024</v>') && out.includes('<v n="Height">768</v>'));
+  assert.ok(out.includes(`<v n="BackgroundColor">${0x102030}</v>`), 'no alpha before, none after');
+  const w = parseVisu(out);
+  assert.deepEqual([w.width, w.height, w.background], [1024, 768, '#102030']);
+  assert.equal(applyEdits(out, [{ visu: 'width', value: '640' }, { visu: 'height', value: '480' }, { visu: 'background', value: '#ffffff' }]), xml);
+  const bare = xml.replace(/<o n="VisuSizeManager"[\s\S]*?<\/d2>\s*<\/o>/, '');
+  assert.equal(parseVisu(bare).stored.size, false);
+  assert.throws(() => applyEdits(bare, [{ visu: 'width', value: '800' }]), /no stored width/);
+});
+
+test('one element as YAML, for AI chats', () => {
+  const v = parseVisu(xml);
+  const t = elementToText(flatten(v.elements).find(e => e.guid === RECT)!);
+  assert.match(t, /^- Rectangle: Rectangle\n {2}id: GenElemInst_1\n {2}at: \[10, 20\]/);
+  assert.ok(visuToText(v).includes(t.replace(/^/gm, '  ').replace(/ +$/, '')), 'same lines as in the summary');
 });
 
 // Real projects: IECODE_TCVIS_SAMPLES=<folder> npm test parses every .TcVIS below that folder

@@ -276,7 +276,7 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     const order = buildOrder(m, ids).map(id => m.units.find(u => u.id === id)!).filter(u => u.solution);
     if (!order.length) return void vscode.window.showInformationMessage(`IECode: nothing to build (${label}).`);
     output.show(true);
-    output.appendLine(`Workspace build (${label}): ${order.map(u => u.id).join(' → ')}`);
+    output.info(`Workspace build (${label}): ${order.map(u => u.id).join(' → ')}`);
     const built = new Set<string>();
     for (const u of order) {
       if (built.has(u.solution!.file)) continue;

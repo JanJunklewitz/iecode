@@ -123,6 +123,7 @@ export interface Visu {
   width: number;
   height: number;
   background: string;
+  stored: { size: boolean; background: boolean };   // stored in the file, so editable (else defaults: set them once in TwinCAT)
   declaration: string;
   elements: VisuElement[];
 }
@@ -351,30 +352,39 @@ function elementOf(src: string, o: XNode): VisuElement {
   };
 }
 
-/** The visualization in a .TcVIS file (with or without BOM). */
-export function parseVisu(xml: string): Visu {
-  const src = xml.replace(/^﻿/, '');
-  const root = parseXml(src);
+/** <Visu> and its VisualObject (elements, size, background). */
+function visualObject(root: XNode): { visu: XNode; obj: XNode } {
   const top = root.children.find(c => c.name === 'TcPlcObject');
   const visu = top?.children.find(c => c.name === 'Visu');
   if (!visu) throw new Error('not a TwinCAT visualization (no <Visu>)');
   const obj = visu.children.find(c => c.name === 'XmlArchive')?.children.find(c => c.name === 'Data')?.children.find(c => c.attrs.t === 'VisualObject');
   if (!obj) throw new Error('visualization has no element data');
+  return { visu, obj };
+}
+const sizeOf = (obj: XNode) => ch(ch(obj, 'VisuSizeManager'), 'Size')?.children.find(c => c.name === 'o');
+const backgroundOf = (obj: XNode) => ch(ch(obj, 'VisualElemList'), 'BackgroundColor');
+
+/** The visualization in a .TcVIS file (with or without BOM). */
+export function parseVisu(xml: string): Visu {
+  const src = xml.replace(/^﻿/, '');
+  const { visu, obj } = visualObject(parseXml(src));
   const list = ch(ch(obj, 'VisualElemList'), 'VisualElementList');
   const elements = (list?.children ?? []).filter(c => c.name === 'o').map(o => elementOf(src, o));
 
-  const size = ch(ch(obj, 'VisuSizeManager'), 'Size')?.children.find(c => c.name === 'o');
+  const size = sizeOf(obj);
   let width = num(src, ch(size, 'Width')), height = num(src, ch(size, 'Height'));
+  const sizeStored = ch(size, 'Width')?.name === 'v' && ch(size, 'Height')?.name === 'v';
   if (!width || !height) {
     for (const e of elements) { width = Math.max(width, e.rect.x + e.rect.w); height = Math.max(height, e.rect.y + e.rect.h); }
   }
-  const bg = ch(ch(obj, 'VisualElemList'), 'BackgroundColor');
+  const bg = backgroundOf(obj);
   const lines = ch(ch(obj, 'TextDocument'), 'TextLines')?.children.filter(c => c.name === 'o').map(o => vText(src, ch(o, 'Text'))) ?? [];
   return {
     name: visu.attrs.Name ?? '',
     guid: (visu.attrs.Id ?? '').replace(/[{}]/g, ''),
     width: width || 800, height: height || 600,
     background: bg ? argbToHex(num(src, bg)) : '#ffffff',
+    stored: { size: sizeStored, background: bg?.name === 'v' },
     declaration: lines.join('\n'),
     elements,
   };
@@ -403,6 +413,18 @@ export function visuToText(v: Visu, opts: { all?: boolean } = {}): string {
   const out: string[] = [`# Visualization ${v.name} (${v.width} x ${v.height})`, `name: ${q(v.name)}`, `size: [${v.width}, ${v.height}]`];
   if (v.declaration.trim()) out.push('interface: |', ...v.declaration.split('\n').map(l => '  ' + l.replace(/\t/g, '    ').trimEnd()));
   out.push('elements:');
+  v.elements.forEach(e => elementLines(e, '  ', out, opts));
+  return out.join('\n') + '\n';
+}
+
+/** The summary of one element (with its children), as in visuToText. */
+export function elementToText(e: VisuElement, opts: { all?: boolean } = {}): string {
+  const out: string[] = [];
+  elementLines(e, '', out, opts);
+  return out.join('\n') + '\n';
+}
+
+function elementLines(e: VisuElement, indent: string, out: string[], opts: { all?: boolean }) {
   const el = (e: VisuElement, ind: string) => {
     const r = e.rect;
     out.push(`${ind}- ${e.kind.replace(/ (\w)/g, (_, c: string) => c.toUpperCase())}: ${q(e.name)}`);
@@ -440,16 +462,16 @@ export function visuToText(v: Visu, opts: { all?: boolean } = {}): string {
     }
     if (e.children.length) { kv('elements', ''); e.children.forEach(c => el(c, p + '  ')); }
   };
-  v.elements.forEach(e => el(e, '  '));
-  return out.join('\n') + '\n';
+  el(e, indent);
 }
 
 // ---------- edits ----------
 
-/** One value to change: a member of an element, or a field of one of its input actions. */
+/** One value to change: a member of an element, a field of one of its input actions, or a setting of the visualization. */
 export type VisuEdit =
   | { element: string; member: number; value: string }
-  | { element: string; action: number; field: string; value: string };
+  | { element: string; action: number; field: string; value: string }
+  | { visu: 'width' | 'height' | 'background'; value: string };
 
 export class VisuEditError extends Error {}
 
@@ -496,6 +518,14 @@ export function editRanges(xml: string, edits: VisuEdit[]): [number, number, str
   const root = parseXml(xml);
   const out: [number, number, string][] = [];
   for (const e of edits) {
+    if ('visu' in e) {
+      const { obj } = visualObject(root);
+      const v = e.visu === 'background' ? backgroundOf(obj) : ch(sizeOf(obj), e.visu === 'width' ? 'Width' : 'Height');
+      if (!v || v.name !== 'v') throw new VisuEditError(`this visualization has no stored ${e.visu}; set it once in TwinCAT`);
+      if (e.visu !== 'background' && !(Number(e.value) > 0)) throw new VisuEditError(`expected a positive size: ${e.value}`);
+      out.push([v.innerStart, v.innerEnd, encodeScalar(inner(xml, v), e.value, e.visu === 'background')]);
+      continue;
+    }
     const el = findElement(xml, root, e.element);
     if (!el) throw new VisuEditError(`element ${e.element} not found`);
     let v: XNode | undefined;
