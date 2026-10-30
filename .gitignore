@@ -41,3 +41,6 @@ _Libraries/
 .env
 *.pfx
 *.snk
+
+# Internal notes and raw data (e.g. from company repos), never commit
+/internal/

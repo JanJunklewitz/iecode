@@ -2,7 +2,7 @@
 // usage: node xtistats.js <maxCommitsPerFile> <file>...   (absolute paths)
 // Writes xtistats.txt to the current directory: per-category totals, then one row per change key
 // (commits, lines, key, sample commit subjects). The output contains commit subjects of the
-// analysed repos, so run it outside this repo and do not commit the output.
+// analysed repos, so run it from internal/ (git-ignored) or outside this repo.
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
