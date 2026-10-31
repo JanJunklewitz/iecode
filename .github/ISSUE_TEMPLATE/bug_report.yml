@@ -24,7 +24,7 @@ body:
     attributes:
       label: IECode version
       description: Extension version from the Extensions view, or `iecode --version`.
-      placeholder: 0.2.4
+      placeholder: 0.2.5
     validations:
       required: true
   - type: input
