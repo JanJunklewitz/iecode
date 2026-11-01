@@ -130,3 +130,8 @@ export async function mergeLabels(root: string): Promise<{ ours: string; theirs:
   }
   return { ours, theirs: 'incoming' };
 }
+
+/** True if `ref` names a commit (also false for a git failure, e.g. no repository). */
+export async function isCommit(root: string, ref: string): Promise<boolean> {
+  try { await git(root, ['rev-parse', '--verify', '--quiet', `${checkRef(ref)}^{commit}`]); return true; } catch { return false; }
+}

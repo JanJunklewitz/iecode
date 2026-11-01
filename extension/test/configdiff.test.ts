@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConfigEntry, cycleTimeText, flattenConfig } from '../src/core/configmodel';
+import { execFileSync } from 'child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { configAt, changesToText } from '../src/core/confighistory';
 import { ConfigChange, DEFAULT_HIDDEN, configToYaml, diffConfig, groupChanges } from '../src/core/configdiff';
 
 const LIC = '{22222222-0000-0000-0000-000000000001}';
@@ -255,4 +260,36 @@ test('configToYaml leaves out hidden entries', () => {
   assert.ok(yaml.includes('CycleTime: 10 ms'));
   assert.ok(!yaml.includes('BitOffs'));
   assert.ok(!yaml.includes('__TO_STRING__'));
+});
+
+test('configAt returns missing for a file that is not in the commit', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'iecode-cfg-'));
+  try {
+    const git = (...a: string[]) => execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: dir, stdio: 'pipe' });
+    git('init', '-q');
+    writeFileSync(join(dir, 'a.xti'), PLC_XTI);
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    assert.deepEqual(await configAt(join(dir, 'b.xti'), 'HEAD'), { entries: [], missing: true });
+    const a = await configAt(join(dir, 'a.xti'), 'HEAD');
+    assert.ok(a.entries.length > 0 && !a.missing);
+    assert.equal((await configAt(join(dir, 'a.xti'), undefined)).entries.length, a.entries.length);
+    await assert.rejects(configAt(join(dir, 'a.xti'), 'nosuchref'), /nosuchref: not a commit/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('changesToText groups by category and mentions hidden and links', () => {
+  const text = changesToText([
+    { kind: 'changed', key: 'tasks/T/Priority', category: 'tasks', before: '1', after: '2' },
+    { kind: 'changed', key: 'symbols/A/x/BitOffs', category: 'layout', before: '1', after: '2' },
+    { kind: 'changed', key: 'links/A/B/C', category: 'links', before: '1', after: '2' },
+  ], new Set(DEFAULT_HIDDEN));
+  const lines = text.trimEnd().split('\n');
+  assert.equal(lines[0], '1 visible change(s), 1 hidden');
+  assert.ok(lines.includes('## tasks (1)'));
+  assert.ok(lines.includes('changed  tasks/T/Priority  1 -> 2'));
+  assert.ok(!text.includes('## layout'));
+  assert.equal(lines.at(-1), '1 IO link change(s): see links-diff');
 });
