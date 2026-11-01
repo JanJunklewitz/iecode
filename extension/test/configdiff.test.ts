@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConfigEntry, cycleTimeText, flattenConfig } from '../src/core/configmodel';
+import { ConfigChange, DEFAULT_HIDDEN, configToYaml, diffConfig, groupChanges } from '../src/core/configdiff';
 
 const LIC = '{22222222-0000-0000-0000-000000000001}';
 
@@ -191,4 +192,67 @@ test('cycleTimeText converts 100 ns ticks', () => {
   assert.equal(cycleTimeText('120000'), '12 ms');
   assert.equal(cycleTimeText('5000'), '0.5 ms');
   assert.equal(cycleTimeText('abc'), 'abc');
+});
+
+const line = (c: ConfigChange) => `${c.kind} ${c.key} ${c.before ?? ''}${c.kind === 'changed' ? ' -> ' : ''}${c.after ?? ''}`.trim();
+
+test('diffConfig reports added, removed and changed by key', () => {
+  const before = flattenConfig(PLC_XTI);
+  const after = flattenConfig(PLC_XTI
+    .replace('<CycleTime>100000', '<CycleTime>120000')
+    .replace(`<License><LicenseId>${LIC}</LicenseId></License>\n          <License>`, '<License>')
+    .replace('</DataArea>', '<Symbol><Name>MAIN.bStop</Name><BaseType>BOOL</BaseType></Symbol></DataArea>'));
+  const lines = diffConfig(before, after).map(line);
+  assert.ok(lines.includes('changed tasks/PlcTask/CycleTime 10 ms -> 12 ms'), lines.join('\n'));
+  assert.ok(lines.includes(`removed licenses/${LIC}#2 present`), lines.join('\n'));
+  assert.ok(lines.includes('added symbols/PlcTask Inputs/MAIN.bStop/BaseType BOOL'), lines.join('\n'));
+});
+
+test('diffConfig ignores reordering', () => {
+  const es = flattenConfig(PLC_XTI);
+  assert.deepEqual(diffConfig(es, [...es].reverse()), []);
+});
+
+test('diffConfig marks whitespace-only changes', () => {
+  const changes = diffConfig(flattenConfig(PLC_XTI), flattenConfig(PLC_XTI.replace('Start button', 'Start   button')));
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].noise, 'whitespace');
+  assert.equal(changes[0].before, 'Start button');
+  assert.equal(changes[0].after, 'Start   button');
+});
+
+test('diffConfig pairs reordered duplicates', () => {
+  const mk = (...v: string[]): ConfigEntry[] => v.map((x, i) => ({ key: i ? `licenses/L#${i + 1}` : 'licenses/L', value: x, raw: x, category: 'licenses' as const }));
+  assert.deepEqual(diffConfig(mk('a', 'b'), mk('b', 'a')), []);
+  assert.equal(diffConfig(mk('a', 'b'), mk('b', 'c')).length, 1);
+});
+
+test('groupChanges hides by category and noise and counts', () => {
+  const hidden = new Set(DEFAULT_HIDDEN);
+  const changes: ConfigChange[] = [
+    { kind: 'changed', key: 'tasks/T/Priority', category: 'tasks', before: '1', after: '2' },
+    { kind: 'changed', key: 'symbols/A/x/BitOffs', category: 'layout', before: '1', after: '2' },
+    { kind: 'changed', key: 'types/T/@GUID', category: 'types', noise: 'guid', before: '1', after: '2' },
+    { kind: 'changed', key: 'links/A/B/C', category: 'links', before: '1', after: '2' },
+  ];
+  const g = groupChanges(changes, hidden);
+  assert.deepEqual(g.groups.map(x => [x.category, x.shown.length, x.hidden]), [['tasks', 1, 0], ['types', 0, 1], ['layout', 0, 1]]);
+  assert.equal(g.hiddenBy.layout, 1);
+  assert.equal(g.hiddenBy.guid, 1);
+  assert.equal(g.links, 1);
+});
+
+test('groupChanges limits each category', () => {
+  const changes: ConfigChange[] = Array.from({ length: 1200 }, (_, i) => ({ kind: 'added', key: `symbols/a/s${i}/BaseType`, category: 'symbols', after: 'INT' }));
+  const [group] = groupChanges(changes, new Set(), 500).groups;
+  assert.equal(group.shown.length, 500);
+  assert.equal(group.total, 1200);
+});
+
+test('configToYaml leaves out hidden entries', () => {
+  const yaml = configToYaml(flattenConfig(PLC_XTI), new Set(DEFAULT_HIDDEN));
+  assert.ok(yaml.includes('tasks:'));
+  assert.ok(yaml.includes('CycleTime: 10 ms'));
+  assert.ok(!yaml.includes('BitOffs'));
+  assert.ok(!yaml.includes('__TO_STRING__'));
 });
