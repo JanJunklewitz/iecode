@@ -49,6 +49,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Build workspace** in dependency order, **build affected** projects after saves | – | ✔ |
 | **Compare as ST** (no XML): with HEAD, a commit, two commits or another file; Source Control diffs open as ST; **Show ST in git diff** (textconv, `git difftool -t iecode`) | ✔ | ✔ |
 | **IO Links**: the PLC / NC / IO links of a TwinCAT project as a hardware tree (device › box › terminal › channel), compared between working copy, HEAD and any commit with added / removed / moved values marked; **Open as YAML** or right-click a `.tsproj` / `.xti` (Explorer, editor tab, Source Control) for a YAML diff in the diff editor; CSV export | ✔ | ✔ |
+| **Config Changes**: the changes of a PLC `.xti` (`_Config/PLC/Plc.xti`) between working copy, HEAD and any commit by meaning, grouped by category (tasks, settings, licenses, symbols, types …); checkboxes hide layout, metadata and build / GUID noise and are saved in `iecode.configDiff.hidden`; **Open as YAML**; right-click an `.xti` (Explorer, editor tab, Source Control) | ✔ | ✔ |
 | **IO-Link** view: the IO-Link masters of the system projects (EL6224, EP6224 …) with their ports, the device on each port (vendor, device, IDs, IODD) and its process data with the linked variables, also as the **IO-Link Explorer** (tree on the left, details of the selection on the right); **Save as Independent Project File** for one master or **Save All Devices as Independent Project Files**, laid out the way TwinCAT stores them | ✔ | ✔ |
 | **ADS Interface**: the symbols ADS clients can access, without a running PLC: from the build output (`<PLC>.tmc`, exact, refreshes after each build) or straight from the source code (working copy or any commit); compare any two or with a saved snapshot / another build's `.tmc`, CSV export, JSON snapshot for `iecode ads diff` | ✔ | ✔ |
 | **Visualization editor** for `.TcVIS`: the elements drawn on a canvas with the content of frames and tab controls from the workspace; move / resize with the mouse or arrow keys; edit texts, variables, frame parameters, input actions and colors in a property panel, and the visualization's size and background; **Simplified** view lists what each element shows and does; wireframe drawing; **YAML** summary, also used to compare visualizations (HEAD, commits, Source Control, `git diff`) | ✔ | ✔ |
@@ -101,6 +102,7 @@ iecode-st diff <a.TcPOU> <b.TcPOU>                       # unified diff of the S
 iecode-st diff --rev HEAD~3 [--to <ref>] <file>          # ST diff against git history
 iecode-st links <x.tsproj> [--csv|--yaml]                # IO links (--yaml: hardware tree)
 iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> # IO link changes
+iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <ids>]  # config changes of an xti
 iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members]  # ADS interface from source / build output
 iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj>     # ADS interface changes in the source
 ```
