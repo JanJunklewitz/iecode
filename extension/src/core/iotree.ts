@@ -37,7 +37,7 @@ const CATEGORY_BY_PARENT: Record<string, string> = { Io: 'IO', Safety: 'SPLC', P
 
 export function* walk(n: XNode): Generator<XNode> { for (const c of n.children) { yield c; yield* walk(c); } }
 
-const unescapeText = (s: string) =>
+export const unescapeText = (s: string) =>
   s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
     .replace(/&#(x?)([0-9a-f]+);/gi, (_, x, n) => String.fromCodePoint(parseInt(n, x ? 16 : 10))).replace(/&amp;/g, '&');
 export const text = (doc: Doc, n: XNode | undefined) => (n ? unescapeText(doc.src.slice(n.innerStart, n.innerEnd)).trim() : '');
