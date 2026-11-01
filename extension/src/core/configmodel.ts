@@ -29,6 +29,8 @@ export function cycleTimeText(ticks: string): string {
 }
 
 const esc = (s: string) => s.replace(/%/g, '%25').replace(/\//g, '%2F').replace(/#/g, '%23');
+/** Inverse of `esc`, for display. */
+export const unescapeKey = (s: string) => s.replace(/%23/g, '#').replace(/%2F/g, '/').replace(/%25/g, '%');
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 export function flattenConfig(xml: string): ConfigEntry[] {

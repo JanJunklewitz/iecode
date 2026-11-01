@@ -52,6 +52,7 @@
     "onFileSystem:iecode-rev",
     "onFileSystem:iecode-src",
     "onFileSystem:iecode-io",
+    "onFileSystem:iecode-config",
     "onFileSystem:iecode-lib",
     "onCustomEditor:iecode.visuEditor",
     "onCustomEditor:iecode.plcArchiveEditor",
@@ -328,6 +329,25 @@
         "category": "IECode"
       },
       {
+        "command": "iecode.configDiff",
+        "title": "Compare Config with HEAD",
+        "category": "IECode",
+        "icon": "$(settings)"
+      },
+      {
+        "command": "iecode.configDiffCommit",
+        "title": "Compare Config with Commit…",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.scmConfigDiff",
+        "title": "Compare Config with HEAD"
+      },
+      {
+        "command": "iecode.scmConfigDiffCommit",
+        "title": "Compare Config with Commit…"
+      },
+      {
         "command": "iecode.scmCompareWithHead",
         "title": "Compare with HEAD (ST / IO links)"
       },
@@ -442,6 +462,16 @@
         {
           "command": "iecode.ioLinksDiffCommit",
           "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "group": "3_compare"
+        },
+        {
+          "command": "iecode.configDiff",
+          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "group": "3_compare"
+        },
+        {
+          "command": "iecode.configDiffCommit",
+          "when": "resourceExtname =~ /\\\\.xti$/i",
           "group": "3_compare"
         }
       ],
@@ -810,6 +840,14 @@
           "when": "false"
         },
         {
+          "command": "iecode.scmConfigDiff",
+          "when": "false"
+        },
+        {
+          "command": "iecode.scmConfigDiffCommit",
+          "when": "false"
+        },
+        {
           "command": "iecode.ioLinkSaveIndependent",
           "when": "false"
         },
@@ -854,6 +892,16 @@
           "command": "iecode.ioLinksDiffCommit",
           "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.configDiff",
+          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "group": "3_compare"
+        },
+        {
+          "command": "iecode.configDiffCommit",
+          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "group": "3_compare"
         }
       ],
       "scm/resourceState/context": [
@@ -888,6 +936,14 @@
           "group": "1@2"
         },
         {
+          "command": "iecode.scmConfigDiff",
+          "group": "1@3"
+        },
+        {
+          "command": "iecode.scmConfigDiffCommit",
+          "group": "1@4"
+        },
+        {
           "command": "iecode.ioLinks",
           "group": "2@1"
         }
@@ -903,6 +959,16 @@
     "configuration": {
       "title": "IECode",
       "properties": {
+        "iecode.configDiff.hidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["tasks", "settings", "licenses", "unrestored", "parameters", "symbols", "types", "other", "layout", "metadata", "guid", "build", "timestamps", "whitespace"]
+          },
+          "uniqueItems": true,
+          "default": ["layout", "metadata", "guid", "build", "timestamps", "whitespace"],
+          "markdownDescription": "Categories and noise kinds hidden in **Config Changes** (the checkboxes in the panel write this setting)."
+        },
         "iecode.openAsST": {
           "type": "boolean",
           "default": true,

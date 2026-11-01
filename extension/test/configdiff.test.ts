@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigEntry, cycleTimeText, flattenConfig } from '../src/core/configmodel';
+import { CATEGORIES, ConfigEntry, NOISE, cycleTimeText, flattenConfig } from '../src/core/configmodel';
+import { html } from '../src/views/configDiffHtml';
 import { execFileSync } from 'child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -292,4 +293,10 @@ test('changesToText groups by category and mentions hidden and links', () => {
   assert.ok(lines.includes('changed  tasks/T/Priority  1 -> 2'));
   assert.ok(!text.includes('## layout'));
   assert.equal(lines.at(-1), '1 IO link change(s): see links-diff');
+});
+
+test('configDiff html has a checkbox per filter', () => {
+  const page = html('n', 'csp');
+  for (const id of [...CATEGORIES, ...NOISE]) assert.ok(page.includes(`data-filter="${id}"`), id);
+  assert.ok(page.includes('nonce-n'));
 });

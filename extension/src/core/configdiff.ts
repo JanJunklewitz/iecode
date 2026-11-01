@@ -1,6 +1,6 @@
 // Comparison of two flattened .xti files by identity key, with filters for categories and noise kinds.
 
-import { CATEGORIES, Category, ConfigEntry, Noise } from './configmodel';
+import { CATEGORIES, Category, ConfigEntry, Noise, unescapeKey } from './configmodel';
 import { naturalSort, yamlScalar } from './iotree';
 
 export type Filter = Category | Noise;
@@ -74,7 +74,6 @@ interface YNode { value?: string; kids: Map<string, YNode> }
 
 /** Visible entries as nested YAML, categories first; sorted by key so a moved block is no difference. */
 export function configToYaml(entries: ConfigEntry[], hidden: ReadonlySet<Filter>, header?: string): string {
-  const unesc = (s: string) => s.replace(/%23/g, '#').replace(/%2F/g, '/').replace(/%25/g, '%');
   const top = new Map<Category, YNode>();
   for (const e of entries) {
     if (isHidden(e, hidden)) continue;
@@ -94,7 +93,7 @@ export function configToYaml(entries: ConfigEntry[], hidden: ReadonlySet<Filter>
     const ind = '  '.repeat(depth);
     for (const k of naturalSort([...n.kids.keys()])) {
       const kid = n.kids.get(k)!;
-      const name = yamlScalar(unesc(k));
+      const name = yamlScalar(unescapeKey(k));
       if (!kid.kids.size) { out.push(`${ind}${name}: ${yamlScalar(kid.value ?? '')}`); continue; }
       out.push(`${ind}${name}:`);
       if (kid.value !== undefined) out.push(`${ind}  (value): ${yamlScalar(kid.value)}`);

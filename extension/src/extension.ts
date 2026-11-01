@@ -15,6 +15,7 @@ import * as compare from './commands/compare';
 import * as conflicts from './commands/conflicts';
 import * as setup from './commands/setup';
 import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
+import { registerConfigDiff } from './views/configDiff';
 import { showAdsInterface } from './views/adsInterface';
 import { registerIoLinkView } from './views/ioLinkTree';
 import { isEncrypted } from './core/projects';
@@ -112,6 +113,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   conflicts.register(ctx);
   setup.register(ctx);
   registerIoYaml(ctx);
+  registerConfigDiff(ctx);
   registerIoLinkView(ctx, state);
   registerVisuEditor(ctx);
   registerAiChat(ctx);
