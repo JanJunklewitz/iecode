@@ -2,7 +2,7 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.5
 
 ### Output
 - The **IECode** output channel shows every CLI run (Build, Check All Objects, Clean, Activate, Save as library, Encrypt …) with levels: progress as info, `⚠` lines as warnings, `✖` lines as errors. After the run it lists the compiler errors, warnings and messages (code, file and line, project) and a result line with the counts; filter by level in the Output view.
