@@ -11,7 +11,9 @@
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.
   - Ideas: live tail with pause / auto-scroll, jump between errors, bookmarks, merge several log files on a common timeline, group repeated messages with a counter, export the filtered view, "ask AI about this entry" using the same interface as the ADS item above.
-  - Open: which log sources and formats first (TwinCAT logger, PLC application logs, iecode CLI output), handling of very large files (streaming, virtual scrolling).
+  - First format: the TwinCAT logger. Other formats (PLC application logs, iecode CLI output, custom logs) come later.
+  - Format-agnostic by design: the viewer works on a generic entry model (time, severity, source, message, extra fields). A format is a configurable definition (e.g. a regex or field mapping, severity mapping, timestamp format, multi-line rule) that can be added in the settings without code changes. The TwinCAT logger is the first built-in definition.
+  - Open: exact TwinCAT logger source and file format, how format definitions are stored and shared (settings vs. files in the repo), handling of very large files (streaming, virtual scrolling).
 - [ ] **SYS folders not detected correctly**: some SYS folders are not recognized correctly by the extension (project view).
 - [x] **Semantic diff for system config files (e.g. `_Config\PLC\Plc.xti`)**: show the *relevant* changes of a `.xti` / `.tsproj` instead of a raw XML diff. IO links are out of scope here (already covered by the IO links diff).
   - Plan: [docs/superpowers/plans/2026-10-30-xti-config-diff.md](docs/superpowers/plans/2026-10-30-xti-config-diff.md).
