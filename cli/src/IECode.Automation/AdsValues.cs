@@ -37,16 +37,12 @@ public static class AdsValues
     }
 
     /// <summary>Follows aliases down to the underlying type and returns its name plus the enum members, if it is an enum.</summary>
-    public static (string BaseType, IReadOnlyDictionary<long, string>? EnumMembers) Resolve(IDataType? type)
+    public static (string BaseType, IReadOnlyDictionary<long, string>? EnumMembers) Resolve(IDataType? type) => Underlying(type) switch
     {
-        for (var i = 0; type is not null && i < 32; i++)
-        {
-            if (type is IAliasType alias && alias.BaseType is { } next) { type = next; continue; }
-            if (type is IEnumType en) return (en.Name, Members(en));
-            return (type.Name, null);
-        }
-        return ("?", null);
-    }
+        null => ("?", null),
+        IEnumType en => (en.Name, Members(en)),
+        var t => (t.Name, null),
+    };
 
     /// <summary>Maps PlcOpen time / date values (raw integers or TwinCAT.PlcOpen objects) to TimeSpan / DateTime; everything else is returned unchanged.</summary>
     public static object? Normalize(string baseType, object? value) => (baseType.ToUpperInvariant(), value) switch
@@ -73,16 +69,16 @@ public static class AdsValues
     /// <summary>true if a variable of this type is one value (primitive, enum, string, subrange), false for structs, FBs, arrays, pointers, references, interfaces.</summary>
     public static bool IsSingleValue(IDataType? type)
     {
-        while (type is IAliasType { BaseType: { } next }) type = next;
-        return type?.Category is DataTypeCategory.Primitive or DataTypeCategory.Enum or DataTypeCategory.String or DataTypeCategory.SubRange;
+        return Underlying(type)?.Category is DataTypeCategory.Primitive or DataTypeCategory.Enum or DataTypeCategory.String or DataTypeCategory.SubRange;
     }
 
     /// <summary>Name of the integer type underlying an enum (INT if unknown), so a parsed enum number can be written.</summary>
-    private static string EnumBaseType(IDataType type)
-    {
-        while (type is IAliasType { BaseType: { } next }) type = next;
-        return type is IEnumType { BaseType: { } b } ? b.Name : "INT";
-    }
+    private static string EnumBaseType(IDataType type) =>
+        Underlying(type) is IEnumType { BaseType: { } b } ? b.Name : "INT";
+
+    /// <summary>The alias chain's end; an enum ends it, because Beckhoff's EnumType is also an alias of its base integer.</summary>
+    private static IDataType? Underlying(IDataType? type) =>
+        TypeChain.Underlying(type, t => t is IEnumType, t => (t as IAliasType)?.BaseType);
 
     private static IReadOnlyDictionary<long, string> Members(IEnumType en)
     {
