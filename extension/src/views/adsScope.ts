@@ -4,7 +4,7 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
 import { AdsHost } from '../ads/host';
-import { minMaxBuckets, spanOptions } from '../core/adswatch';
+import { minMaxBuckets, niceTicks, spanOptions } from '../core/adswatch';
 
 const POST_MS = 100;
 const MAX_WIDTH = 4000;
@@ -22,9 +22,12 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
   panel.webview.html = html(nonce, panel.webview.cspSource);
   // the host keeps running while the scope is open, also if the watch view is hidden
   const lease = host.use();
+  const subs: vscode.Disposable[] = [];
 
   let view = { width: 600, seconds: 10, hidden: new Set<string>(), paused: false };
   let timer: NodeJS.Timeout | undefined;
+  // right edge of the picture while paused; control changes re-post this window instead of jumping to the newest sample
+  let frozenEnd: number | undefined;
 
   const post = () => {
     const p = panel;
@@ -34,6 +37,7 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
     // the newest sample is the right edge, so the plot does not depend on the host clock matching ours
     let end = -Infinity;
     for (const s of syms) { const l = host.buffer.latest(s); if (l) end = Math.max(end, l.t); }
+    if (view.paused && frozenEnd !== undefined) end = frozenEnd;
     const from = end - view.seconds * 1000;
     const s = host.state();
     p.webview.postMessage({
@@ -54,18 +58,25 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
 
   panel.webview.onDidReceiveMessage((m: Msg) => {
     if (m.type === 'view') {
+      const was = view.paused;
       view = {
         width: Math.min(MAX_WIDTH, Math.max(50, Math.round(Number(m.width) || 600))),
         seconds: Math.max(1, Number(m.seconds) || 10),
         hidden: new Set(Array.isArray(m.hidden) ? m.hidden.map(String) : []),
         paused: !!m.paused,
       };
+      if (view.paused && !was) {
+        frozenEnd = undefined;
+        for (const i of host.items()) { const l = host.buffer.latest(i.symbol); if (l && i.numeric && !i.error) frozenEnd = Math.max(frozenEnd ?? -Infinity, l.t); }
+        // a post scheduled before the click must not redraw
+        clearTimeout(timer); timer = undefined;
+      }
     }
     // a control change is answered at once, also while paused
     post();
-  }, undefined, ctx.subscriptions);
+  }, undefined, subs);
 
-  const subs = [host.onSamples(schedule), host.onItems(schedule), host.onState(schedule)];
+  subs.push(host.onSamples(schedule), host.onItems(schedule), host.onState(schedule));
   panel.onDidDispose(() => {
     panel = undefined;
     clearTimeout(timer);
@@ -108,20 +119,16 @@ const COLORS = ['#4e9de0', '#e5694e', '#4fb477', '#d9a93a', '#a678d6', '#3fb6c4'
 const saved = vscode.getState() || {};
 let hidden = new Set(saved.hidden || []), seconds = saved.seconds || 10, paused = false;
 let data = { series: [], spans: [10] }, cursor = null;
+// replies still owed to control changes; while paused only those redraw
+let waiting = 0;
 const cv = $('cv'), ctx = cv.getContext('2d');
 
 function save() { vscode.setState({ hidden: [...hidden], seconds }); }
-function send() { vscode.postMessage({ type: 'view', width: Math.round(cv.clientWidth) || 600, seconds, hidden: [...hidden], paused }); }
+function send() { waiting++; vscode.postMessage({ type: 'view', width: Math.round(cv.clientWidth) || 600, seconds, hidden: [...hidden], paused }); }
 const color = i => COLORS[i % COLORS.length];
 const fmt = v => Math.abs(v) >= 1e6 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(2) : String(Number(v.toPrecision(6)));
 
-function niceTicks(min, max, count) {
-  if (!(max > min)) return [min];
-  const raw = (max - min) / count, pow = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / pow;
-  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow, out = [];
-  for (let i = Math.ceil(min / step - 1e-9); i * step <= max + step * 1e-9; i++) out.push(Number((i * step).toPrecision(12)));
-  return out;
-}
+${niceTicks.toString()}
 
 function legend() {
   $('legend').innerHTML = '';
@@ -219,6 +226,8 @@ new ResizeObserver(() => { send(); draw(); }).observe($('wrap'));
 window.addEventListener('message', ev => {
   const m = ev.data;
   if (m.type !== 'data') return;
+  if (waiting > 0) waiting--;
+  else if (paused) return;
   const same = m.series.length === data.series.length && m.series.every((s, i) => s.symbol === data.series[i].symbol);
   data = m;
   $('note').textContent = m.note;
