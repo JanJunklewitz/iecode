@@ -2,7 +2,7 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.6
 
 ### Editor
 - **Merge conflicts in `.TcPOU/.TcDUT/.TcGVL/.TcIO`**: a conflicted object file gets a conflict bar (editor title and Source Control context menu): **Auto-resolve XML Conflicts** (also in the Source Control merge context menu), **Open XML Merge Editor** (VS Code's built-in) and **Open as XML**.
