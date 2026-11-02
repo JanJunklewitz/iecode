@@ -77,9 +77,9 @@ internal static class TargetCommands
         {
             var id = AmsNetId.Parse(ctx.Get(t2));
             if (!id.IsLocal && !ctx.Log.Confirm($"Write {ctx.Get(sym2)} := {ctx.Get(val)} on {id}?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
-            var written = Automation.Target.Write(id, ctx.Get(p2), ctx.Get(sym2), ctx.Get(val));
-            ctx.Log.Success($"{ctx.Get(sym2)} := {written}");
-            return Outcome.Ok(new { symbol = ctx.Get(sym2), value = written });
+            var (written, text) = Automation.Target.Write(id, ctx.Get(p2), ctx.Get(sym2), ctx.Get(val));
+            ctx.Log.Success($"{ctx.Get(sym2)} := {text}");
+            return Outcome.Ok(new { symbol = ctx.Get(sym2), value = written, text });
         }, windowsOnly: true);
 
         cmd.Subcommands.Add(read);

@@ -33,26 +33,26 @@ public static class Target
         Try(() => { client.WriteControl(new StateInfo(state, 0)); return 0; }, target);
     }
 
-    /// <summary>Reads a PLC variable by its full symbol name, e.g. MAIN.bStart or GVL.nCount. Value is typed as read, Text is the canonical text.</summary>
+    /// <summary>Reads a PLC variable by its full symbol name, e.g. MAIN.bStart or GVL.nCount. Value is the raw value as read, Text is the canonical text.</summary>
     public static (string Type, object? Value, string Text) Read(Core.AmsNetId target, int port, string symbol)
     {
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
         var (baseType, members) = AdsValues.Resolve(sym.DataType);
-        var value = AdsValues.Normalize(baseType, Try(() => sym.ReadValue(), target));
-        return (sym.DataType?.Name ?? "?", value, PlcValueText.Format(baseType, value, members));
+        var value = Try(() => sym.ReadValue(), target);
+        return (sym.DataType?.Name ?? "?", value, PlcValueText.Format(baseType, AdsValues.Normalize(baseType, value), members));
     }
 
     /// <summary>Writes a PLC variable. The text is converted to the variable's type (enum member names and PlcOpen time / date values included).</summary>
-    public static object Write(Core.AmsNetId target, int port, string symbol, string text)
+    public static (object Value, string Text) Write(Core.AmsNetId target, int port, string symbol, string text)
     {
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
         var (baseType, members) = AdsValues.Resolve(sym.DataType);
         var value = PlcValueText.Parse(baseType, text, members);
-        if (members is not null && sym.DataType is { } dt) value = PlcValueText.Parse(EnumBaseType(dt), value.ToString()!);
+        if (members is not null && sym.DataType is { } dt) value = PlcValueText.Parse(EnumBaseType(dt), System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!);
         Try(() => { sym.WriteValue(value); return 0; }, target);
-        return value;
+        return (value, PlcValueText.Format(baseType, value, members));
     }
 
     /// <summary>Name of the integer type underlying an enum (INT if unknown), so a parsed enum number can be written.</summary>
