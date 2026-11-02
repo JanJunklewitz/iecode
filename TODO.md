@@ -18,12 +18,11 @@
     - [x] `interval` clamping (5 -> 10, 9999 -> 5000).
     - [x] Error codes while the target restarts: 0x6, 0x1D (Secure ADS route) and 0x745 observed; 0x1D now counts as connection lost.
   - Manual checks still open:
-    - [ ] Download / online change while watching.
-    - [ ] Config <-> run mode transitions (only the disconnected half was observed; the watch resuming is not).
-    - [ ] INT -> REAL download.
-    - [ ] Enum values (`e`, member names, writes by name): the first check found enums shown as their base INT; fixed, check again.
-    - [ ] Poll timing at 10 ms with about 20 symbols.
-    - [ ] TIME / LTIME / TOD values.
+    - [x] Restart of TwinCAT while watching (`target run`): disconnect (0x745, then 0x1D), `connected:true` again and the same items sample again. The route needs a TCP probe of 8016 / 48898 before it answers after a restart.
+    - [x] Enum values: member name and `e` are shown (INT-based enum `TcEventSeverity`); a write by name is not re-checked.
+    - [x] Poll timing: 21 symbols at `interval` 10 ms give a row about every 17 ms (round trip over the Secure ADS route), about 16 % CPU of the host.
+    - [ ] Download / online change while watching, INT -> REAL. Not possible on TP: the throwaway project failed to start the real-time kernel there (`RTIME: incompatible software detected`, 0x1024), so the original application was put back. Covered by unit tests with a fake link only (`IECode.Automation.Tests`).
+    - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
     - [ ] F5 checks of the view, the scope and the connection lease.
     - [ ] Copilot agent mode: `iecode.ads.aiWrites` off / confirm / auto, whether VS Code still asks on auto, whether "Always Allow" bypasses confirm.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
