@@ -27,6 +27,8 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
     private ISymbolLoader? _loader;
     private byte? _loaderVersion, _watchVersion;
     private bool _stale = true, _versionUnreadable, _versionWarned, _resolved;
+    /// <summary>A watched item read 0x710/0x711: the next Resolve uploads a new symbol table, one-off reads and writes do not.</summary>
+    private bool _itemsDead;
     private Watched[] _watched = [];
     private int[] _sumIndex = [];
     private SumSymbolRead? _sum;
@@ -60,6 +62,8 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         _resolved = false;
         _sum = null;
         var client = Client();
+        if (_itemsDead) _stale = true;
+        _itemsDead = false;
         var version = ReadVersion(client);
         var loader = Loader(client, version);
         var watched = new Watched[symbols.Count];
@@ -128,7 +132,9 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
             var r = result.ValueResults[k];
             if (r.ErrorCode != AdsErrorCode.NoError)
             {
-                if (AdsCodes.IsDeadHandle((uint)r.ErrorCode)) _stale = true;
+                // A symbol in the table but not in the running program reads 0x710 on every poll (the host backs off);
+                // only a resolve should upload the table again for it, not every one-off read or write in between.
+                if (AdsCodes.IsDeadHandle((uint)r.ErrorCode)) _itemsDead = true;
                 row[i] = (null, null, (uint)r.ErrorCode);
                 continue;
             }
@@ -179,6 +185,7 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         _sum = null;
         _resolved = false;
         _stale = true;
+        _itemsDead = false;
         _versionUnreadable = false;
         _watchVersion = null;
     }

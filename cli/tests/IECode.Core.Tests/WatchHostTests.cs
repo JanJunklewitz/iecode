@@ -436,4 +436,79 @@ public sealed class WatchHostTests
         }
         Assert.True(samplesAfterRecovery > 0);
     }
+
+    [Fact]
+    public void WatchHost_PhantomSymbol_IsItemError_OthersKeepStreaming_ResolveBacksOff()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => [Ok("1"), Err(0x710)];
+        r.Host.Start();
+        r.Watch("MAIN.a", "MAIN.phantom");
+        r.Lines.Clear();
+        r.Host.Tick(T0);
+        Assert.Equal(2, r.Backend.ResolveCalls);
+        // Still 0x710 right after a fresh resolve: no further resolve per tick, the item gets an error instead.
+        for (var ms = 10; ms < 5000; ms += 10) r.Host.Tick(T0.AddMilliseconds(ms));
+        Assert.Equal(2, r.Backend.ResolveCalls);
+        var ev = Assert.Single(r.Events("items"));
+        Assert.Equal(2, ev.GetProperty("gen").GetInt32());
+        Assert.Equal(JsonValueKind.Null, ev.GetProperty("items")[0].GetProperty("error").ValueKind);
+        Assert.Contains("not readable", ev.GetProperty("items")[1].GetProperty("error").GetString());
+        var rows = r.Events("samples").Where(s => s.GetProperty("gen").GetInt32() == 2)
+            .SelectMany(s => s.GetProperty("rows").EnumerateArray()).ToList();
+        Assert.True(rows.Count > 400);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal("1", row.GetProperty("v")[0].GetString());
+            Assert.Equal(JsonValueKind.Null, row.GetProperty("v")[1].ValueKind);
+        });
+        Assert.Empty(r.Log);
+
+        // After the 5 s back-off one more resolve; the same result keeps the gen and backs off again.
+        r.Host.Tick(T0.AddMilliseconds(5010));
+        r.Host.Tick(T0.AddMilliseconds(5020));
+        Assert.Equal(3, r.Backend.ResolveCalls);
+        for (var ms = 5030; ms < 10000; ms += 10) r.Host.Tick(T0.AddMilliseconds(ms));
+        Assert.Equal(3, r.Backend.ResolveCalls);
+        Assert.Single(r.Events("items"));
+    }
+
+    [Fact]
+    public void WatchHost_PhantomSymbol_ReadableAgain_ClearsItemError()
+    {
+        var r = new Rig();
+        var phantom = true;
+        r.Backend.ReadFn = () => phantom ? [Ok("1"), Err(0x711)] : [Ok("1"), Ok("2")];
+        r.Host.Start();
+        r.Watch("MAIN.a", "MAIN.b");
+        r.Lines.Clear();
+        r.Host.Tick(T0);
+        r.Host.Tick(T0.AddMilliseconds(10));
+        Assert.Single(r.Events("items"));
+        phantom = false;
+        r.Host.Tick(T0.AddMilliseconds(20));
+        r.Host.Tick(T0.AddMilliseconds(200));
+        var items = r.Events("items");
+        Assert.Equal(2, items.Count);
+        Assert.Equal(3, items[1].GetProperty("gen").GetInt32());
+        Assert.Equal(JsonValueKind.Null, items[1].GetProperty("items")[1].GetProperty("error").ValueKind);
+        var last = r.Events("samples").Last();
+        Assert.Equal(3, last.GetProperty("gen").GetInt32());
+        Assert.Equal("2", last.GetProperty("rows").EnumerateArray().Last().GetProperty("v")[1].GetString());
+        Assert.Equal(2, r.Backend.ResolveCalls);
+    }
+
+    [Fact]
+    public void WatchHost_DeadReadFault_RightAfterResolve_BacksOff()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => throw new AdsFault("dead", 0x711, false);
+        r.Host.Start();
+        r.Watch("MAIN.a");
+        r.Host.Tick(T0);
+        for (var ms = 10; ms < 5000; ms += 10) r.Host.Tick(T0.AddMilliseconds(ms));
+        Assert.Equal(2, r.Backend.ResolveCalls);
+        r.Host.Tick(T0.AddMilliseconds(5010));
+        Assert.Equal(3, r.Backend.ResolveCalls);
+    }
 }

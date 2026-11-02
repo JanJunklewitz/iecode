@@ -9,16 +9,20 @@ namespace IECode.Core.Ads;
 public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null)
 {
     public const int Protocol = 1, MaxSymbols = 200;
-    private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000;
+    private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000, ResolveBackoffMs = 5000;
 
     private readonly Action<string> _log = log ?? Console.Error.WriteLine;
     private readonly List<WatchRow> _pending = [];
     private readonly HashSet<string> _reported = [];
     private IReadOnlyList<string> _symbols = [];
     private IReadOnlyList<WatchItem> _items = [];
+    /// <summary>The items as the backend resolved them; <see cref="_items"/> adds the errors of <see cref="_unreadable"/>.</summary>
+    private IReadOnlyList<WatchItem> _resolvedItems = [];
+    /// <summary>Items that still return 0x710/0x711 right after a fresh resolve: in the symbol table but not readable.</summary>
+    private readonly SortedDictionary<int, uint> _unreadable = [];
     private int _gen;
-    private bool _connected, _needResolve;
-    private DateTimeOffset? _lastFlush, _retryAt;
+    private bool _connected, _needResolve, _freshResolve;
+    private DateTimeOffset? _lastFlush, _retryAt, _resolveBackoffUntil;
     private bool _retryPending;
     private int _intervalMs = 100;
 
@@ -98,8 +102,17 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         if (now - _lastFlush >= TimeSpan.FromMilliseconds(FlushMs)) Flush(now);
     }
 
+    /// <summary>
+    /// Dead-handle codes (0x710/0x711) make the host resolve again, unless they come right after a resolve that already
+    /// loaded a fresh symbol table: then the symbol is in the table but not in the running program (or the runtime is
+    /// going down), another resolve would only upload the same table again. Those items get an item error, the other
+    /// items keep streaming, and the resolve is retried after <see cref="ResolveBackoffMs"/>.
+    /// </summary>
     private void Poll(DateTimeOffset now)
     {
+        var fresh = _freshResolve;
+        _freshResolve = false;
+        var guarded = fresh || _resolveBackoffUntil is { } until && now < until;
         IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> row;
         try
         {
@@ -107,15 +120,29 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         }
         catch (AdsFault f) when (!f.ConnectionLost)
         {
-            if (f.AdsCode is { } c && AdsCodes.IsDeadHandle(c)) ResolveAgain();
-            else ReportOnce("read:" + f.Message, f.Message);
+            if (f.AdsCode is { } c && AdsCodes.IsDeadHandle(c))
+            {
+                if (!guarded) { ResolveAgain(); return; }
+                if (fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
+            }
+            ReportOnce("read:" + f.Message, f.Message);
             return;
         }
-        if (row.Any(r => r.AdsCode is { } c && AdsCodes.IsDeadHandle(c)) || backend.SymbolVersionChanged())
+        var dead = new SortedDictionary<int, uint>();
+        for (var i = 0; i < row.Count; i++)
+            if (row[i].AdsCode is { } c && AdsCodes.IsDeadHandle(c)) dead[i] = c;
+        if ((dead.Count > 0 && !guarded) || backend.SymbolVersionChanged())
         {
             // The row belongs to the old resolution: drop it.
             ResolveAgain();
             return;
+        }
+        if (dead.Count > 0 && fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
+        if (!dead.SequenceEqual(_unreadable))
+        {
+            _unreadable.Clear();
+            foreach (var (i, c) in dead) _unreadable[i] = c;
+            Publish();
         }
         var v = new string?[row.Count];
         var e = new long?[row.Count];
@@ -124,6 +151,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         {
             if (row[i].AdsCode is { } code)
             {
+                if (dead.ContainsKey(i)) continue;
                 var sym = i < _items.Count ? _items[i].Symbol : i.ToString();
                 ReportOnce($"item:{sym}:{code}", $"{sym}: ADS error 0x{code:X}");
                 continue;
@@ -158,12 +186,27 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         _needResolve = true;
         var items = backend.Resolve(_symbols);
         _needResolve = false;
-        if (!items.SequenceEqual(_items))
+        _freshResolve = true;
+        if (!items.SequenceEqual(_resolvedItems))
         {
-            _items = items;
-            _gen++;
-            emit(WatchJson.Serialize(new WatchItemsEvent("items", _gen, _items)));
+            _resolvedItems = items;
+            _unreadable.Clear();
         }
+        // Unreadable items keep their error until the next poll shows whether they read now.
+        Publish();
+    }
+
+    /// <summary>Announces a new gen with an items event if the published items changed.</summary>
+    private void Publish()
+    {
+        var items = _resolvedItems.Select((it, i) => _unreadable.TryGetValue(i, out var c)
+            ? it with { Error = $"In the symbol table but not readable on the target (ADS error 0x{c:X} after a fresh symbol upload); retried every {ResolveBackoffMs / 1000} s" }
+            : it).ToArray();
+        if (items.SequenceEqual(_items)) return;
+        FlushPending();
+        _items = items;
+        _gen++;
+        emit(WatchJson.Serialize(new WatchItemsEvent("items", _gen, _items)));
     }
 
     private void TryConnect()
@@ -222,6 +265,9 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         FlushPending();
         _symbols = symbols;
         _reported.RemoveWhere(k => k.StartsWith("item:", StringComparison.Ordinal));
+        _unreadable.Clear();
+        _freshResolve = false;
+        _resolveBackoffUntil = null;
         IReadOnlyList<WatchItem> items;
         if (_connected)
         {
@@ -233,7 +279,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
             {
                 // The extension keeps its gen after an error reply. Empty items make the next resolve differ,
                 // so it announces a new gen with an items event before any samples of that gen.
-                _items = [];
+                _items = _resolvedItems = [];
                 _needResolve = true;
                 throw;
             }
@@ -244,7 +290,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
             items = symbols.Select(s => new WatchItem(s, "", false, "Not connected")).ToArray();
             _needResolve = true;
         }
-        _items = items;
+        _items = _resolvedItems = items;
         _gen++;
         return new WatchItemsData(_gen, _items);
     }
