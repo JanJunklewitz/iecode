@@ -11,12 +11,19 @@
     - AI write allowlist (which variables an AI may write).
     - Writing structs and arrays.
     - Live online symbol browser.
+  - Manual checks against a real runtime:
+    - [x] Write of non-ASCII strings (e.g. umlauts) via `serve`: write reply, samples and a separate read return the text unchanged.
+    - [x] Interactive EOF and piped one-shot requests (C3): every request read before EOF gets its reply, exit code 0.
+    - [x] Reads, watch and samples at about 100 ms; item errors for unknown names, function blocks and arrays; DT text.
+    - [x] `interval` clamping (5 -> 10, 9999 -> 5000).
+    - [x] Error codes while the target restarts: 0x6, 0x1D (Secure ADS route) and 0x745 observed; 0x1D now counts as connection lost.
   - Manual checks still open:
     - [ ] Download / online change while watching.
-    - [ ] Config <-> run mode transitions.
+    - [ ] Config <-> run mode transitions (only the disconnected half was observed; the watch resuming is not).
     - [ ] INT -> REAL download.
-    - [ ] Write of non-ASCII strings (e.g. umlauts) via `serve`.
-    - [ ] Enum values (`e`).
+    - [ ] Enum values (`e`, member names, writes by name): the first check found enums shown as their base INT; fixed, check again.
+    - [ ] Poll timing at 10 ms with about 20 symbols.
+    - [ ] TIME / LTIME / TOD values.
     - [ ] F5 checks of the view, the scope and the connection lease.
     - [ ] Copilot agent mode: `iecode.ads.aiWrites` off / confirm / auto, whether VS Code still asks on auto, whether "Always Allow" bypasses confirm.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
