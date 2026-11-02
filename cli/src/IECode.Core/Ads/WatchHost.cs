@@ -148,12 +148,16 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         _pending.Clear();
     }
 
-    /// <summary>Resolves the watched symbols again; a changed result starts a new gen (rows of the old gen are flushed first).</summary>
+    /// <summary>
+    /// Resolves the watched symbols again; a changed result starts a new gen (rows of the old gen are flushed first).
+    /// A failed resolve stays pending, so the next Tick tries again.
+    /// </summary>
     private void ResolveAgain()
     {
         FlushPending();
-        _needResolve = false;
+        _needResolve = true;
         var items = backend.Resolve(_symbols);
+        _needResolve = false;
         if (!items.SequenceEqual(_items))
         {
             _items = items;
@@ -217,18 +221,31 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     {
         FlushPending();
         _symbols = symbols;
-        _gen++;
+        _reported.RemoveWhere(k => k.StartsWith("item:", StringComparison.Ordinal));
+        IReadOnlyList<WatchItem> items;
         if (_connected)
         {
-            _items = backend.Resolve(symbols);
+            try
+            {
+                items = backend.Resolve(symbols);
+            }
+            catch
+            {
+                // The extension keeps its gen after an error reply. Empty items make the next resolve differ,
+                // so it announces a new gen with an items event before any samples of that gen.
+                _items = [];
+                _needResolve = true;
+                throw;
+            }
             _needResolve = false;
         }
         else
         {
-            _items = symbols.Select(s => new WatchItem(s, "", false, "Not connected")).ToArray();
+            items = symbols.Select(s => new WatchItem(s, "", false, "Not connected")).ToArray();
             _needResolve = true;
         }
-        _reported.RemoveWhere(k => k.StartsWith("item:", StringComparison.Ordinal));
+        _items = items;
+        _gen++;
         return new WatchItemsData(_gen, _items);
     }
 

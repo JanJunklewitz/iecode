@@ -399,4 +399,41 @@ public sealed class WatchHostTests
         r2.Host.Tick(T0.AddMilliseconds(100));
         Assert.False(r2.Events("samples").Single().GetProperty("rows")[0].TryGetProperty("e", out _));
     }
+
+    [Fact]
+    public void WatchHost_FailedWatch_RecoveryAnnouncesNewGen_BeforeItsSamples()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Host.Start();
+        r.Watch("MAIN.a");
+        r.Host.Tick(T0);
+        r.Host.Tick(T0.AddMilliseconds(100));
+        r.Backend.ResolveFn = _ => throw new AdsFault("Symbol upload failed", null, false);
+        r.Watch("MAIN.a");
+        Assert.False(r.Last().GetProperty("ok").GetBoolean());
+        // The first resolve after the failure fails as well; the host must keep trying.
+        r.Host.Tick(T0.AddMilliseconds(200));
+        r.Backend.ResolveFn = s => s.Select(x => new WatchItem(x, "INT", true, null)).ToArray();
+        r.Host.Tick(T0.AddMilliseconds(300));
+        r.Host.Tick(T0.AddMilliseconds(400));
+        r.Host.Tick(T0.AddMilliseconds(500));
+
+        // Replay the lines as the extension sees them: samples of a gen it was never told about are dropped there.
+        int? known = null;
+        var samplesAfterRecovery = 0;
+        foreach (var e in r.Lines.Select(Parse))
+        {
+            if (e.TryGetProperty("ok", out var ok) && ok.GetBoolean() && e.GetProperty("data").TryGetProperty("gen", out var g))
+                known = g.GetInt32();
+            else if (e.TryGetProperty("event", out var n) && n.GetString() == "items")
+                known = e.GetProperty("gen").GetInt32();
+            else if (e.TryGetProperty("event", out n) && n.GetString() == "samples")
+            {
+                Assert.Equal(known, e.GetProperty("gen").GetInt32());
+                if (known > 1) samplesAfterRecovery++;
+            }
+        }
+        Assert.True(samplesAfterRecovery > 0);
+    }
 }
