@@ -1307,7 +1307,11 @@
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
         "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), at most 100. Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed.",
         "canBeReferencedInPrompt": true,
-        "tags": ["iecode", "twincat", "ads"],
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1316,7 +1320,9 @@
               "description": "Part of the ADS name to search for, e.g. \"MAIN.\" or \"nCounter\"; empty lists the first 100."
             }
           },
-          "required": ["filter"]
+          "required": [
+            "filter"
+          ]
         }
       },
       {
@@ -1326,7 +1332,11 @@
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
         "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for adsRead and adsScope. Returns the resulting list with types and per-symbol errors. Entries you add are marked as added by AI; you can only remove those, not the ones the user added. Watch a variable before asking for its history.",
         "canBeReferencedInPrompt": true,
-        "tags": ["iecode", "twincat", "ads"],
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1350,7 +1360,11 @@
         "userDescription": "Read current values of PLC variables over ADS.",
         "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned.",
         "canBeReferencedInPrompt": true,
-        "tags": ["iecode", "twincat", "ads"],
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1369,7 +1383,11 @@
         "userDescription": "Summarize how watched PLC variables changed over the last seconds.",
         "modelDescription": "Returns min, max, last value and sample count per watched ADS symbol over the last seconds (default 60), plus a tab-separated table of at most 200 rows (time in seconds relative to the newest sample). Only watched symbols have a history: add them with adsWatch first and wait for samples.",
         "canBeReferencedInPrompt": true,
-        "tags": ["iecode", "twincat", "ads"],
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1392,7 +1410,11 @@
         "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
         "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (case-sensitive) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write (unless the user chose Always Allow for this tool), auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
         "canBeReferencedInPrompt": true,
-        "tags": ["iecode", "twincat", "ads"],
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1405,7 +1427,10 @@
               "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
             }
           },
-          "required": ["symbol","value"]
+          "required": [
+            "symbol",
+            "value"
+          ]
         }
       }
     ],
