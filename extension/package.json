@@ -411,6 +411,42 @@
         "title": "Open IO-Link Explorer",
         "category": "IECode",
         "icon": "$(preview)"
+      },
+      {
+        "command": "iecode.adsWatchAdd",
+        "title": "Add Variable to ADS Watch…",
+        "category": "IECode",
+        "icon": "$(add)"
+      },
+      {
+        "command": "iecode.adsWatchAddFromEditor",
+        "title": "Add to ADS Watch",
+        "category": "IECode",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "iecode.adsWatchRemove",
+        "title": "Remove from ADS Watch",
+        "category": "IECode",
+        "icon": "$(close)"
+      },
+      {
+        "command": "iecode.adsWatchClear",
+        "title": "Clear ADS Watch",
+        "category": "IECode",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "iecode.adsWatchWrite",
+        "title": "Write Value…",
+        "category": "IECode",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "iecode.adsWatchCopy",
+        "title": "Copy Value",
+        "category": "IECode",
+        "icon": "$(copy)"
       }
     ],
     "menus": {
@@ -505,6 +541,11 @@
           "command": "iecode.aiComment",
           "when": "resourceScheme == iecode || editorLangId == twincat-st",
           "group": "1_iecodeAi@2"
+        },
+        {
+          "command": "iecode.adsWatchAddFromEditor",
+          "when": "isWindows && (resourceScheme == iecode || editorLangId == twincat-st)",
+          "group": "2_iecodeAds@1"
         }
       ],
       "webview/context": [
@@ -599,6 +640,16 @@
           "command": "iecode.ioLinkRefresh",
           "when": "view == iecode.ioLink",
           "group": "navigation@2"
+        },
+        {
+          "command": "iecode.adsWatchAdd",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iecode.adsWatchClear",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@9"
         }
       ],
       "view/item/context": [
@@ -746,6 +797,31 @@
           "command": "iecode.ioLinkExplorer",
           "when": "view == iecode.projects && viewItem == system",
           "group": "0_build@8"
+        },
+        {
+          "command": "iecode.adsWatchWrite",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "inline@1"
+        },
+        {
+          "command": "iecode.adsWatchRemove",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "inline@2"
+        },
+        {
+          "command": "iecode.adsWatchWrite",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "1_value@1"
+        },
+        {
+          "command": "iecode.adsWatchCopy",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "1_value@2"
+        },
+        {
+          "command": "iecode.adsWatchRemove",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "2_edit@1"
         }
       ],
       "commandPalette": [
@@ -835,6 +911,30 @@
         },
         {
           "command": "iecode.ioLinkReveal",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchAdd",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsWatchAddFromEditor",
+          "when": "isWindows && (resourceScheme == iecode || editorLangId == twincat-st)"
+        },
+        {
+          "command": "iecode.adsWatchClear",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsWatchRemove",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchWrite",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchCopy",
           "when": "false"
         }
       ],
@@ -1065,6 +1165,32 @@
           ],
           "default": "always",
           "markdownDescription": "When the **IECode** output channel opens by itself. It lists every CLI run with its progress, the compiler errors, warnings and messages, and the result; filter by level in the Output view."
+        },
+        "iecode.ads.target": {
+          "type": "string",
+          "default": "local",
+          "markdownDescription": "Target of the **ADS Watch** view: `local` or an AMS NetId (six numbers, e.g. `192.168.1.10.1.1`). Changing it reconnects."
+        },
+        "iecode.ads.port": {
+          "type": "integer",
+          "default": 851,
+          "minimum": 1,
+          "maximum": 65535,
+          "markdownDescription": "ADS port of the PLC runtime for the **ADS Watch** view (`851` = first PLC of TwinCAT 3). Changing it reconnects."
+        },
+        "iecode.ads.sampleIntervalMs": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 5000,
+          "markdownDescription": "How often watched ADS values are read, in milliseconds. Windows timers tick about every 15.6 ms, so below ~16 ms the real rate is lower; every sample carries its actual read time."
+        },
+        "iecode.ads.bufferSeconds": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 10,
+          "maximum": 3600,
+          "markdownDescription": "Seconds of watched ADS values kept for the scope and AI tools. Long windows with many variables keep fewer seconds (at most 2 million values)."
         }
       }
     },
@@ -1091,6 +1217,13 @@
           "icon": "resources/iecode.svg",
           "contextualTitle": "IECode",
           "when": "iecode.hasProjects"
+        },
+        {
+          "id": "iecode.adsWatch",
+          "name": "ADS Watch",
+          "icon": "resources/iecode.svg",
+          "contextualTitle": "IECode",
+          "when": "isWindows"
         }
       ]
     },
@@ -1099,6 +1232,10 @@
         "view": "iecode.projects",
         "contents": "No TwinCAT projects found in this workspace.\nOpen a folder with a .sln, .tsproj or .plcproj, or add one to the workspace.\n[Open Folder](command:vscode.openFolder)",
         "when": "!iecode.hasProjects"
+      },
+      {
+        "view": "iecode.adsWatch",
+        "contents": "No variables watched. Add PLC variables to see their live values over ADS (target: iecode.ads.target).\n[Add Variable…](command:iecode.adsWatchAdd)\nOr right-click a variable in the ST editor › Add to ADS Watch."
       }
     ],
     "submenus": [

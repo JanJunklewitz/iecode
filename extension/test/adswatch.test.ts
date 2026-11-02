@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText } from '../src/core/adswatch';
+import { PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -155,4 +155,32 @@ test('PendingRequests', async () => {
   await assert.rejects(c, /host exited/);
   await assert.rejects(d, /host exited/);
   await assert.rejects(p.add(5, 20), /unknown/);
+});
+
+test('settingsError accepts local and AMS NetIds, rejects the rest', () => {
+  assert.equal(settingsError({ target: 'local', port: 851 }), undefined);
+  assert.equal(settingsError({ target: 'Local', port: 851 }), undefined);
+  assert.equal(settingsError({ target: '192.168.1.10.1.1', port: 852 }), undefined);
+  assert.match(settingsError({ target: '1.2.3', port: 851 }) ?? '', /iecode\.ads\.target/);
+  assert.match(settingsError({ target: '192.168.1.300.1.1', port: 851 }) ?? '', /iecode\.ads\.target/);
+  assert.match(settingsError({ target: 'plc01', port: 851 }) ?? '', /iecode\.ads\.target/);
+  assert.match(settingsError({ target: 'local', port: 0 }) ?? '', /iecode\.ads\.port/);
+  assert.match(settingsError({ target: 'local', port: 65536 }) ?? '', /iecode\.ads\.port/);
+  assert.match(settingsError({ target: 'local', port: 851.5 }) ?? '', /iecode\.ads\.port/);
+});
+
+test('symbolAt qualifies variables declared in PROGRAM and GVL objects', () => {
+  const main = 'PROGRAM MAIN\nVAR\n  bStart : BOOL;\n  fbMotor, fbPump : FB_Motor;\n  bIn AT %I* : BOOL;\nEND_VAR\n\nnCount := 1;\n';
+  assert.deepEqual(symbolAt(main, 'bStart', '/p/MAIN.TcPOU'), { name: 'MAIN.bStart', qualified: true });
+  assert.deepEqual(symbolAt(main, 'fbMotor.bEnable', '/p/MAIN.TcPOU'), { name: 'MAIN.fbMotor.bEnable', qualified: true });
+  assert.deepEqual(symbolAt(main, 'bIn', '/p/MAIN.TcPOU'), { name: 'MAIN.bIn', qualified: true });
+  assert.deepEqual(symbolAt(main, 'MAIN.bStart', '/p/MAIN.TcPOU'), { name: 'MAIN.bStart', qualified: true });
+  // assigned, not declared here (e.g. an unqualified GVL variable)
+  assert.deepEqual(symbolAt(main, 'nCount', '/p/MAIN.TcPOU'), { name: 'nCount', qualified: false });
+  assert.deepEqual(symbolAt(main, 'GVL.nCount', '/p/MAIN.TcPOU'), { name: 'GVL.nCount', qualified: false });
+  const gvl = 'VAR_GLOBAL\n  nCount : INT;\nEND_VAR\n';
+  assert.deepEqual(symbolAt(gvl, 'nCount', 'C:\\p\\GVL.TcGVL'), { name: 'GVL.nCount', qualified: true });
+  const fb = 'FUNCTION_BLOCK FB_Motor\nVAR\n  bEnable : BOOL;\nEND_VAR\n';
+  assert.deepEqual(symbolAt(fb, 'bEnable', '/p/FB_Motor.TcPOU'), { name: 'bEnable', qualified: false });
+  assert.deepEqual(symbolAt(main, '', '/p/MAIN.TcPOU'), { name: '', qualified: false });
 });

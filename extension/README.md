@@ -64,6 +64,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Text lists, image pools, visualization manager** (`.TcGTLO`, `.TcIPO`, `.TcVMO`): translations as an editable table, images with previews, the visualization manager's settings as a form; compared as YAML | ✔ | ✔ |
 | **Project settings** of a PLC project (right-click it in the IECode view or a `.plcproj` in the Explorer): title, company, version, released, default namespace, placeholder, author, description, compiler defines; keeps `Global_Version.TcGVL` in step with title and version | ✔ | ✔ |
 | **AI chat context**: right-click code in the ST view or an element in the visualization editor → **Add to AI Chat** / **Comment for AI…**, or drag an element from the element list into the chat; goes to Claude Code or GitHub Copilot Chat (`iecode.aiChat`) | ✔ | ✔ |
+| **ADS Watch** view: live values of PLC variables on the local runtime or a remote target (`iecode.ads.target`); add them from the build output (`.tmc`), by name or by right-clicking a variable in the ST editor; **write** a value (always confirmed, also on `local`) or copy it. Connects only while the view shows variables and disconnects 30 s after it is hidden | – | ✔ |
 | Encrypted objects are shown with a lock and can't be opened as text | ✔ | ✔ |
 
 ## Settings
@@ -81,6 +82,10 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | `iecode.libraryRepository` | `""` | Library repository; empty: `%TWINCAT3DIR%\Components\Plc\Managed Libraries` |
 | `iecode.librarySources` | `[]` | Extra folders with `<Name>_<Version>.library` files |
 | `iecode.showXae` | `false` | Show the XAE window while the CLI works |
+| `iecode.ads.target` | `local` | Target of the ADS Watch view: `local` or an AMS NetId |
+| `iecode.ads.port` | `851` | ADS port of the PLC runtime |
+| `iecode.ads.sampleIntervalMs` | `100` | How often watched values are read (10 … 5000 ms; below ~16 ms Windows timers make it slower) |
+| `iecode.ads.bufferSeconds` | `300` | Seconds of values kept for the scope and AI tools (10 … 3600) |
 
 ## How it works
 

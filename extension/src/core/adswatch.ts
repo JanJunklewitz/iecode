@@ -213,3 +213,30 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
   }
   return lines.join('\n');
 }
+
+const NETID = /^\d{1,3}(\.\d{1,3}){5}$/;
+
+/** Why the target / port settings can't be used, or undefined. Checked before spawning the host. */
+export function settingsError(s: { target: string; port: number }): string | undefined {
+  if (s.target.toLowerCase() !== 'local' && !(NETID.test(s.target) && s.target.split('.').every(n => Number(n) <= 255)))
+    return `iecode.ads.target "${s.target}" is neither "local" nor an AMS NetId (six numbers, e.g. 192.168.1.10.1.1).`;
+  if (!Number.isInteger(s.port) || s.port < 1 || s.port > 65535)
+    return `iecode.ads.port ${s.port} is not a port number (1 … 65535).`;
+  return undefined;
+}
+
+/**
+ * ADS name of the word at the cursor in an ST view: qualified with the object name when the word's first part is
+ * declared in a PROGRAM or GVL (ADS names are MAIN.x / GVL.x); else unqualified, for the user to complete.
+ */
+export function symbolAt(text: string, word: string, file: string): { name: string; qualified: boolean } {
+  const base = file.split(/[\\/]/).pop() ?? '';
+  const gvl = /\.TcGVL$/i.test(base) ? base.replace(/\.TcGVL$/i, '') : undefined;
+  const object = gvl ?? /^\s*PROGRAM\s+([A-Za-z_]\w*)/im.exec(text)?.[1];
+  if (!object || !word) return { name: word, qualified: false };
+  if (word.toLowerCase().startsWith(object.toLowerCase() + '.')) return { name: word, qualified: true };
+  const first = word.split('.')[0];
+  // a declaration "x : INT", "x, y : INT" or "x AT %I* : BOOL", not an assignment "x := 1"
+  const declared = new RegExp(`^\\s*${first}\\s*(,|:(?!=)|AT\\b)`, 'im').test(text);
+  return declared ? { name: `${object}.${word}`, qualified: true } : { name: word, qualified: false };
+}
