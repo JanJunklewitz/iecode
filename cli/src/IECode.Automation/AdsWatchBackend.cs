@@ -143,16 +143,20 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         return row;
     }
 
+    /// <summary>The baseline is only stored by a successful <see cref="Resolve"/>, never adopted here.</summary>
     public bool SymbolVersionChanged()
     {
-        var version = ReadVersion(Client());
-        if (version is null || _watchVersion is null)
+        byte? version;
+        try
         {
-            _watchVersion ??= version;
-            return false;
+            version = ReadVersion(Client());
         }
-        if (version == _watchVersion) return false;
-        _watchVersion = version;
+        catch (AdsFault f) when (!f.ConnectionLost && f.AdsCode is { } c && AdsCodes.IsDeadHandle(c))
+        {
+            // The symbol table is being replaced: resolve again (the resolve fails and is retried while this lasts).
+            return true;
+        }
+        if (!SymbolVersion.NeedsResolve(_watchVersion, version)) return false;
         _stale = true;
         return true;
     }
@@ -220,6 +224,8 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
     /// <summary>
     /// The 1-byte symbol version; null (warned once) if the target does not answer it. Until the next successful poll or
     /// reconnect it is not asked again, and downloads in between are noticed by read errors only.
+    /// 0x710/0x711 on the version itself means the symbol table is being replaced (start of a download): a dead-handle
+    /// fault, so the host resolves again and a resolve in that window fails instead of storing no version.
     /// </summary>
     private byte? ReadVersion(AdsClient client)
     {
@@ -227,8 +233,16 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         var result = Call($"Symbol version read from {_where}", () => client.ReadAsResult(SymbolVersionGroup, 0, 1));
         var code = result.ErrorCode;
         var read = code == AdsErrorCode.NoError ? result.Data.Length : 0;
-        if (read == 1) return result.Data.Span[0];
-        if (AdsCodes.IsConnectionLost((uint)code)) throw new AdsFault(Text($"Symbol version read from {_where}", (uint)code), (uint)code, true);
+        switch (SymbolVersion.Classify((uint)code, read))
+        {
+            case SymbolVersionRead.Value:
+                return result.Data.Span[0];
+            case SymbolVersionRead.ConnectionLost:
+                throw new AdsFault(Text($"Symbol version read from {_where}", (uint)code), (uint)code, true);
+            case SymbolVersionRead.Changing:
+                _stale = true;
+                throw new AdsFault(Text($"Symbol version read from {_where}", (uint)code) + " (symbol table is changing)", (uint)code, false);
+        }
         _versionUnreadable = true;
         if (!_versionWarned) log?.Invoke($"Cannot read the symbol version of {_where} (index group 0xF008: {code}, {read} byte(s)); downloads are noticed by read errors only.");
         _versionWarned = true;
