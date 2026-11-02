@@ -2,7 +2,11 @@
 
 ## Open
 
-- [ ] **AI interface for ADS variable access**: add an interface that lets an AI agent (e.g. via MCP server or CLI) read and write PLC variables over ADS.
+- [ ] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
+  - Watchlist: tracked variables, added by hand (e.g. from the editor or a symbol picker) or by an AI agent. Read the actual value and write a new value.
+  - Separate window (panel) for the tracked variables, with a mini scope like in the System project: the actual values are recorded and plotted over a configurable time span.
+  - AI interface (e.g. MCP server or CLI) with the same capabilities: define which variables are tracked (add/remove), read the scope data, read the actual value, write variables.
+  - Open: sample rate and buffer size, how writes are guarded (confirmation for AI writes, read-only mode), access to a target when no PLC is connected.
 - [ ] **SYS folders not detected correctly**: some SYS folders are not recognized correctly by the extension (project view).
 - [x] **Semantic diff for system config files (e.g. `_Config\PLC\Plc.xti`)**: show the *relevant* changes of a `.xti` / `.tsproj` instead of a raw XML diff. IO links are out of scope here (already covered by the IO links diff).
   - Plan: [docs/superpowers/plans/2026-10-30-xti-config-diff.md](docs/superpowers/plans/2026-10-30-xti-config-diff.md).
