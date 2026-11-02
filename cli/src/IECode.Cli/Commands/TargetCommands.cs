@@ -63,15 +63,15 @@ internal static class TargetCommands
         var read = new Command("read", "Read a PLC variable") { sym1, t1, p1 };
         Action(read, ctx =>
         {
-            var (type, value) = Automation.Target.Read(AmsNetId.Parse(ctx.Get(t1)), ctx.Get(p1), ctx.Get(sym1));
-            ctx.Log.Info($"{ctx.Get(sym1)} : {type} = {value}");
-            return Outcome.Ok(new { symbol = ctx.Get(sym1), type, value });
+            var (type, value, text) = Automation.Target.Read(AmsNetId.Parse(ctx.Get(t1)), ctx.Get(p1), ctx.Get(sym1));
+            ctx.Log.Info($"{ctx.Get(sym1)} : {type} = {text}");
+            return Outcome.Ok(new { symbol = ctx.Get(sym1), type, value, text });
         }, windowsOnly: true);
 
         var t2 = TargetOption();
         var p2 = PortOption();
         var sym2 = new Argument<string>("symbol") { Description = "Full variable name" };
-        var val = new Argument<string>("value") { Description = "New value (BOOL, integer types, REAL, LREAL, STRING)" };
+        var val = new Argument<string>("value") { Description = "New value (BOOL, integer types, REAL, LREAL, STRING, enum name or number, TIME, DATE, DT)" };
         var write = new Command("write", "Write a PLC variable") { sym2, val, t2, p2 };
         Action(write, ctx =>
         {
