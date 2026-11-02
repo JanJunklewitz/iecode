@@ -2,11 +2,23 @@
 
 ## Open
 
-- [ ] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
-  - Watchlist: tracked variables, added by hand (e.g. from the editor or a symbol picker) or by an AI agent. Read the actual value and write a new value.
-  - Separate window (panel) for the tracked variables, with a mini scope like in the System project: the actual values are recorded and plotted over a configurable time span.
-  - AI interface (e.g. MCP server or CLI) with the same capabilities: define which variables are tracked (add/remove), read the scope data, read the actual value, write variables.
-  - Open: sample rate and buffer size, how writes are guarded (confirmation for AI writes, read-only mode), access to a target when no PLC is connected.
+- [x] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
+  - Plan: [docs/superpowers/plans/2026-11-02-ads-watchlist.md](docs/superpowers/plans/2026-11-02-ads-watchlist.md).
+  - Done: ADS Watch view, ADS Scope, `iecode ads serve`, language model tools `iecode_ads_*`, setting `iecode.ads.aiWrites` (off / confirm / auto).
+  - Left for later:
+    - MCP server: must be served by the extension, not the host, because the watch list and the sample history live in the extension. Claude Code cannot call `vscode.lm` tools, so with `iecode.aiChat` on Claude Code the AI path stays "Add to AI Chat".
+    - ADS notifications instead of polling (for a resolution below 10 ms).
+    - AI write allowlist (which variables an AI may write).
+    - Writing structs and arrays.
+    - Live online symbol browser.
+  - Manual checks still open:
+    - [ ] Download / online change while watching.
+    - [ ] Config <-> run mode transitions.
+    - [ ] INT -> REAL download.
+    - [ ] Write of non-ASCII strings (e.g. umlauts) via `serve`.
+    - [ ] Enum values (`e`).
+    - [ ] F5 checks of the view, the scope and the connection lease.
+    - [ ] Copilot agent mode: `iecode.ads.aiWrites` off / confirm / auto, whether VS Code still asks on auto, whether "Always Allow" bypasses confirm.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.
