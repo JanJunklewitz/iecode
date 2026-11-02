@@ -19,6 +19,9 @@ public sealed class PlcValueTextTests
     [Fact] public void Format_Enum_KnownValue_IsName() => Assert.Equal("Idle", PlcValueText.Format("E_State", (short)0, new Dictionary<long, string> { [0] = "Idle" }));
     [Fact] public void Parse_Enum_ByName() => Assert.Equal(1L, System.Convert.ToInt64(PlcValueText.Parse("E_State", "Running", new Dictionary<long, string> { [0] = "Idle", [1] = "Running" })));
     [Fact] public void Parse_Enum_ByNumber() => Assert.Equal(1L, System.Convert.ToInt64(PlcValueText.Parse("E_State", "1", new Dictionary<long, string> { [1] = "Running" })));
+    [Fact] public void Parse_Enum_ByName_IgnoresCase() => Assert.Equal(1L, System.Convert.ToInt64(PlcValueText.Parse("E_State", "running", new Dictionary<long, string> { [0] = "Idle", [1] = "Running" })));
+    [Fact] public void Parse_Enum_ExactCaseWins() => Assert.Equal(2L, System.Convert.ToInt64(PlcValueText.Parse("E_State", "RUN", new Dictionary<long, string> { [1] = "Run", [2] = "RUN" })));
+    [Fact] public void Parse_Enum_AmbiguousCase_IsUsageError() => Assert.Equal(ExitCodes.Usage, Assert.Throws<IECodeException>(() => PlcValueText.Parse("E_State", "run", new Dictionary<long, string> { [1] = "Run", [2] = "RUN" })).ExitCode);
     [Fact] public void Parse_Bool_Variants() { Assert.Equal(true, PlcValueText.Parse("BOOL", "true")); Assert.Equal(false, PlcValueText.Parse("BOOL", "0")); }
     [Fact] public void Parse_Time() => Assert.Equal(TimeSpan.FromMilliseconds(1500), PlcValueText.Parse("TIME", "00:00:01.5000000"));
     [Fact] public void Parse_Real_RejectsDecimalComma() => Assert.Equal(ExitCodes.Usage, Assert.Throws<IECodeException>(() => PlcValueText.Parse("REAL", "1,5")).ExitCode);

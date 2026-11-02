@@ -73,11 +73,16 @@ public static class PlcValueText
         "BOOL" or "BYTE" or "USINT" or "SINT" or "WORD" or "UINT" or "INT" or "DWORD" or "UDINT" or "DINT"
         or "LWORD" or "ULINT" or "LINT" or "REAL" or "LREAL" or "TIME" or "LTIME";
 
+    /// <summary>A member name (exact spelling first, then ignoring case like IEC identifiers) or a number.</summary>
     private static object ParseEnum(string text, IReadOnlyDictionary<long, string> members)
     {
         var s = text.Trim();
         foreach (var (value, name) in members)
             if (string.Equals(name, s, StringComparison.Ordinal)) return value;
+        var matches = members.Where(m => string.Equals(m.Value, s, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Count == 1) return matches[0].Key;
+        if (matches.Count > 1)
+            throw new IECodeException(ExitCodes.Usage, $"'{s}' matches several enum members: {string.Join(", ", matches.Select(m => m.Value))}. Use the exact spelling.");
         return long.Parse(s, Inv);
     }
 

@@ -97,7 +97,7 @@ talks JSON lines: requests on stdin (←), events and replies on stdout (→). L
 code 0 when stdin closes, after it has answered every request read before that.
 
 ```text
-→ {"event":"hello","protocol":1}                       first line, before the target is even parsed
+→ {"event":"hello","protocol":1}                       first line, before anything about the target can fail
 → {"event":"state","connected":true}                   or connected:false with "error"; retried every 2 s
 ← {"id":1,"op":"watch","symbols":["MAIN.nCount","GVL.bRun"]}
 → {"id":1,"ok":true,"data":{"gen":1,"items":[{"symbol":"MAIN.nCount","type":"INT","numeric":true,"error":null}, …]}}
@@ -108,7 +108,8 @@ code 0 when stdin closes, after it has answered every request read before that.
 ```
 
 Values are canonical text (`TRUE`/`FALSE`, decimal integers, REAL with `.`, enum member names, TIME as
-`00:00:01.5000000`, DT as `2026-11-02T08:15:00`); `e` carries the raw number of enum items. Only single values can be
+`00:00:01.5000000`, DT as `2026-11-02T08:15:00`); `e` carries the raw number of enum items;
+writes take enum member names in any case (the exact spelling wins). Only single values can be
 watched; structs, function blocks, arrays, pointers and references get an item error, add their members instead.
 After a download the symbols are resolved again; changed types start a new `gen` with an `items` event. At most 200 symbols per watch.
 

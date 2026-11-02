@@ -173,10 +173,12 @@ internal static class TargetCommands
                     else if (!string.IsNullOrWhiteSpace(line)) host.Handle(line);
                 }
                 if (eof) break;
+                // An interval request takes effect now: setting Period restarts the pending wait with the new period, so a
+                // change from 5000 ms to 10 ms does not wait out the old 5 s first.
+                if (timer.Period != TimeSpan.FromMilliseconds(host.IntervalMs)) timer.Period = TimeSpan.FromMilliseconds(host.IntervalMs);
                 if (input.IsCompleted) input = lines.Reader.WaitToReadAsync().AsTask();
                 if (!tick.IsCompleted) continue;
                 host.Tick(DateTimeOffset.UtcNow);
-                if (timer.Period != TimeSpan.FromMilliseconds(host.IntervalMs)) timer.Period = TimeSpan.FromMilliseconds(host.IntervalMs);
                 tick = timer.WaitForNextTickAsync().AsTask();
             }
         }
