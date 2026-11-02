@@ -893,6 +893,11 @@
           "group": "inline"
         },
         {
+          "command": "iecode.autoResolveXml",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "navigation"
+        },
+        {
           "command": "iecode.openMergeEditor",
           "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "navigation"
