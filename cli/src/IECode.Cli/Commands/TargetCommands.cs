@@ -1,7 +1,11 @@
 using System.CommandLine;
+using System.Globalization;
+using System.Runtime.Versioning;
 using System.Text;
+using System.Threading.Channels;
 using IECode.Automation;
 using IECode.Core;
+using IECode.Core.Ads;
 using IECode.Core.Projects;
 using static IECode.Cli.Runner;
 
@@ -84,9 +88,111 @@ internal static class TargetCommands
 
         cmd.Subcommands.Add(read);
         cmd.Subcommands.Add(write);
+        cmd.Subcommands.Add(Serve());
         cmd.Subcommands.Add(Symbols());
         cmd.Subcommands.Add(Diff());
         return cmd;
+    }
+
+    private static Command Serve()
+    {
+        var t = TargetOption();
+        // A string, not Option<int>: a bad port must arrive as a state event after hello, not as a parse error (R3).
+        var p = new Option<string>("--port") { Description = "ADS port of the PLC runtime", DefaultValueFactory = _ => "851" };
+        var cmd = new Command("serve", "Stream live PLC values: JSON requests on stdin, JSON events and replies on stdout (used by the VS Code extension); runs until stdin closes") { t, p };
+        Action(cmd, ctx =>
+        {
+            if (OperatingSystem.IsWindows()) RunWatchHost(ctx, ctx.Get(t), ctx.Get(p));
+            return Outcome.Ok();
+        }, windowsOnly: true, protocolStdout: true);
+        return cmd;
+    }
+
+    /// <summary>
+    /// The watch host loop: a reader thread queues stdin lines, this thread handles them and ticks the host every
+    /// IntervalMs. EOF is queued behind the lines read before it, so every request gets its reply before the loop ends (C3).
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static void RunWatchHost(Context ctx, string target, string port)
+    {
+        void Emit(string line) => Console.Out.WriteLine(line);
+        void Log(string text) => ctx.Log.Warn(text);
+
+        // hello comes from host.Start before anything about the target can fail; a bad -t / --port becomes a state event (R3).
+        IWatchBackend backend;
+        string? setupError = null;
+        try
+        {
+            var id = AmsNetId.Parse(target);
+            if (!int.TryParse(port, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n is < 1 or > 65535)
+                throw new IECodeException(ExitCodes.Usage, $"Invalid ADS port '{port}'.");
+            backend = new AdsWatchBackend(id, n, Log);
+            ctx.Log.Step($"Serving ADS values of {id}:{n}; requests on stdin, events on stdout, until stdin closes");
+        }
+        catch (IECodeException e)
+        {
+            backend = new UnavailableBackend(e.Message);
+            setupError = e.Message;
+        }
+
+        var lines = Channel.CreateUnbounded<string?>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+        var reader = new Thread(() =>
+        {
+            try
+            {
+                // UTF-8 explicitly: Program only sets Console.OutputEncoding, stdin would use the OEM code page (O8).
+                using var stdin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
+                while (stdin.ReadLine() is { } line) lines.Writer.TryWrite(line);
+            }
+            catch (IOException e)
+            {
+                ctx.Log.Warn($"stdin: {e.Message}");
+            }
+            finally
+            {
+                lines.Writer.TryWrite(null);
+            }
+        }) { IsBackground = true, Name = "watch stdin" };
+
+        using (backend)
+        {
+            var host = new WatchHost(backend, Emit, Log);
+            reader.Start();
+            host.Start();
+            if (setupError is not null) ctx.Log.Error(setupError);
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(host.IntervalMs));
+            var tick = timer.WaitForNextTickAsync().AsTask();
+            var input = lines.Reader.WaitToReadAsync().AsTask();
+            while (true)
+            {
+                Task.WaitAny(tick, input);
+                var eof = false;
+                while (!eof && lines.Reader.TryRead(out var line))
+                {
+                    if (line is null) eof = true;
+                    else if (!string.IsNullOrWhiteSpace(line)) host.Handle(line);
+                }
+                if (eof) break;
+                if (input.IsCompleted) input = lines.Reader.WaitToReadAsync().AsTask();
+                if (!tick.IsCompleted) continue;
+                host.Tick(DateTimeOffset.UtcNow);
+                if (timer.Period != TimeSpan.FromMilliseconds(host.IntervalMs)) timer.Period = TimeSpan.FromMilliseconds(host.IntervalMs);
+                tick = timer.WaitForNextTickAsync().AsTask();
+            }
+        }
+        Console.Out.Flush();
+    }
+
+    /// <summary>Backend for a target that cannot even be parsed: every connect fails with the parse error, nothing touches the network.</summary>
+    private sealed class UnavailableBackend(string error) : IWatchBackend
+    {
+        public void Connect() => throw new AdsFault(error, null, true);
+        public IReadOnlyList<WatchItem> Resolve(IReadOnlyList<string> symbols) => throw new AdsFault(error, null, true);
+        public IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> ReadWatched() => throw new AdsFault(error, null, true);
+        public bool SymbolVersionChanged() => false;
+        public (string Type, string Value) ReadOnce(string symbol) => throw new AdsFault(error, null, true);
+        public string Write(string symbol, string text) => throw new AdsFault(error, null, true);
+        public void Dispose() { }
     }
 
     private static Argument<string?> InterfacePathArg() => new("path")

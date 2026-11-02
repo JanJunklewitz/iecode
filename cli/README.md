@@ -39,6 +39,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `io diff [path] --from <ref> [--to <ref>] [--csv <file>] [--fail-on-change]` | Compare IO links between two versions: added, removed, moved (other channel), changed (size / offsets). `--fail-on-change` exits with 18 for CI checks | files + git |
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |
+| `ads serve [-t <netid>] [--port 851]` | Live values for tools: JSON requests on stdin, JSON events and replies on stdout, until stdin closes (see [Live values](#live-values)) | ADS |
 | `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
 | `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
@@ -87,6 +88,29 @@ snapshot (`--save`) instead and compare builds against it with `ads diff`.
 Without any build, the VS Code extension shows the interface straight from the source code (GVL and program
 variables, expanded with the project's own function blocks and structs) and compares it between commits; on the
 command line that is `iecode-st ads <x.plcproj>` / `iecode-st ads-diff --rev <ref> <x.plcproj>`.
+
+### Live values
+
+`iecode ads serve` is the host process behind the VS Code ADS watchlist and scope. It holds one ADS connection,
+polls the watched symbols with one sum read per cycle (by instance path, so a download never mixes up variables) and
+talks JSON lines: requests on stdin (←), events and replies on stdout (→). Log lines go to stderr; the process ends with exit
+code 0 when stdin closes, after it has answered every request read before that.
+
+```text
+→ {"event":"hello","protocol":1}                       first line, before the target is even parsed
+→ {"event":"state","connected":true}                   or connected:false with "error"; retried every 2 s
+← {"id":1,"op":"watch","symbols":["MAIN.nCount","GVL.bRun"]}
+→ {"id":1,"ok":true,"data":{"gen":1,"items":[{"symbol":"MAIN.nCount","type":"INT","numeric":true,"error":null}, …]}}
+→ {"event":"samples","gen":1,"rows":[{"t":1730539200000,"v":["42","TRUE"]}]}
+← {"id":2,"op":"read","symbols":["MAIN.sName"]}       one-off read, also of symbols not watched
+← {"id":3,"op":"write","symbol":"MAIN.nCount","value":"7"}   replies with the value read back
+← {"id":4,"op":"interval","ms":50}                    poll interval, 10 … 5000 ms (default 100)
+```
+
+Values are canonical text (`TRUE`/`FALSE`, decimal integers, REAL with `.`, enum member names, TIME as
+`00:00:01.5000000`, DT as `2026-11-02T08:15:00`); `e` carries the raw number of enum items. Only single values can be
+watched; structs, function blocks, arrays, pointers and references get an item error, add their members instead.
+After a download the symbols are resolved again; changed types start a new `gen` with an `items` event. At most 200 symbols per watch.
 
 ## JSON output
 

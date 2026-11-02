@@ -49,17 +49,9 @@ public static class Target
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
         var (baseType, members) = AdsValues.Resolve(sym.DataType);
-        var value = PlcValueText.Parse(baseType, text, members);
-        if (members is not null && sym.DataType is { } dt) value = PlcValueText.Parse(EnumBaseType(dt), System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!);
+        var value = AdsValues.ParseForWrite(sym.DataType, text);
         Try(() => { sym.WriteValue(value); return 0; }, target);
         return (value, PlcValueText.Format(baseType, value, members));
-    }
-
-    /// <summary>Name of the integer type underlying an enum (INT if unknown), so a parsed enum number can be written.</summary>
-    private static string EnumBaseType(IDataType type)
-    {
-        while (type is IAliasType { BaseType: { } next }) type = next;
-        return type is IEnumType { BaseType: { } b } ? b.Name : "INT";
     }
 
     private static AdsClient Connect(Core.AmsNetId target, int port)
@@ -80,7 +72,7 @@ public static class Target
     private static IValueSymbol FindSymbol(AdsClient client, string symbol, Core.AmsNetId target)
     {
         var loader = Try(() => SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default), target);
-        return Try(() => loader.Symbols.TryGetInstance(symbol, out var s) ? s : null, target) as IValueSymbol
+        return Try(() => AdsValues.FindSymbol(loader.Symbols, symbol), target) as IValueSymbol
             ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {target}.",
                 "Use the full instance path, e.g. MAIN.fbMotor.bEnable or GVL.nCount, and check the ADS port (--port, default 851).");
     }
