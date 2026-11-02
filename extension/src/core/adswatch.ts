@@ -248,3 +248,24 @@ export function symbolAt(text: string, word: string, file: string): { name: stri
   const declared = new RegExp(`^\\s*${first}\\s*(,|:(?!=)|AT\\b)`, 'im').test(text);
   return declared ? { name: `${object}.${word}`, qualified: true } : { name: word, qualified: false };
 }
+
+export const SCOPE_SPANS = [10, 30, 60, 300];
+
+// Offers a span only while the buffer holds data for the span before it, so the select never promises history
+// that does not exist; the smallest span is always there.
+export function spanOptions(heldSeconds: number): number[] {
+  return SCOPE_SPANS.filter((_, i) => i === 0 || SCOPE_SPANS[i - 1] < heldSeconds);
+}
+
+// Axis tick values on 1/2/5 x 10^n steps covering [min, max]; about `count` ticks.
+export function niceTicks(min: number, max: number, count: number): number[] {
+  if (!(max > min) || count < 1) return [min];
+  const raw = (max - min) / count;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / pow;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow;
+  const out: number[] = [];
+  const first = Math.ceil(min / step - 1e-9);
+  for (let i = first; i * step <= max + step * 1e-9; i++) out.push(Number((i * step).toPrecision(12)));
+  return out;
+}

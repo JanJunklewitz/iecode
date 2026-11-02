@@ -447,6 +447,12 @@
         "title": "Copy Value",
         "category": "IECode",
         "icon": "$(copy)"
+      },
+      {
+        "command": "iecode.adsScope",
+        "title": "Open ADS Scope",
+        "category": "IECode",
+        "icon": "$(graph)"
       }
     ],
     "menus": {
@@ -645,6 +651,11 @@
           "command": "iecode.adsWatchAdd",
           "when": "view == iecode.adsWatch",
           "group": "navigation@1"
+        },
+        {
+          "command": "iecode.adsScope",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@2"
         },
         {
           "command": "iecode.adsWatchClear",
@@ -923,6 +934,10 @@
         },
         {
           "command": "iecode.adsWatchClear",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsScope",
           "when": "isWindows"
         },
         {

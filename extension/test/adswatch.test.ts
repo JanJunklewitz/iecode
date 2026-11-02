@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -190,4 +190,19 @@ test('watchLimitError allows at most 200 symbols', () => {
   assert.equal(watchLimitError(0), undefined);
   assert.equal(watchLimitError(200), undefined);
   assert.match(watchLimitError(201) ?? '', /At most 200 .*201/);
+});
+
+test('spanOptions offers a span only once the one before it is covered', () => {
+  assert.deepEqual(spanOptions(0), [10]);
+  assert.deepEqual(spanOptions(10), [10]);
+  assert.deepEqual(spanOptions(15), [10, 30]);
+  assert.deepEqual(spanOptions(100), [10, 30, 60, 300]);
+  assert.deepEqual(SCOPE_SPANS, [10, 30, 60, 300]);
+});
+
+test('niceTicks uses 1/2/5 steps inside the range', () => {
+  assert.deepEqual(niceTicks(0, 10, 5), [0, 2, 4, 6, 8, 10]);
+  assert.deepEqual(niceTicks(0.1, 0.9, 4), [0.2, 0.4, 0.6, 0.8]);
+  assert.deepEqual(niceTicks(-3, 3, 3), [-2, 0, 2]);
+  assert.deepEqual(niceTicks(5, 5, 4), [5]);
 });
