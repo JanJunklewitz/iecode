@@ -52,6 +52,7 @@
     "onFileSystem:iecode-rev",
     "onFileSystem:iecode-src",
     "onFileSystem:iecode-io",
+    "onFileSystem:iecode-config",
     "onFileSystem:iecode-lib",
     "onCustomEditor:iecode.visuEditor",
     "onCustomEditor:iecode.plcArchiveEditor",
@@ -142,6 +143,18 @@
         "command": "iecode.openAsXml",
         "title": "Open as XML",
         "category": "IECode"
+      },
+      {
+        "command": "iecode.autoResolveXml",
+        "title": "Auto-resolve XML Conflicts",
+        "category": "IECode",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "iecode.openMergeEditor",
+        "title": "Open XML Merge Editor",
+        "category": "IECode",
+        "icon": "$(git-merge)"
       },
       {
         "command": "iecode.build",
@@ -316,6 +329,16 @@
         "category": "IECode"
       },
       {
+        "command": "iecode.configDiff",
+        "title": "Compare Config with HEAD",
+        "category": "IECode",
+        "icon": "$(settings)"
+      },
+      {
+        "command": "iecode.scmConfigDiff",
+        "title": "Compare Config with HEAD"
+      },
+      {
         "command": "iecode.scmCompareWithHead",
         "title": "Compare with HEAD (ST / IO links)"
       },
@@ -431,6 +454,11 @@
           "command": "iecode.ioLinksDiffCommit",
           "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.configDiff",
+          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "group": "3_compare"
         }
       ],
       "editor/title": [
@@ -445,6 +473,21 @@
         {
           "command": "iecode.openAsXml",
           "when": "resourceScheme == iecode"
+        },
+        {
+          "command": "iecode.autoResolveXml",
+          "when": "resourcePath in iecode.conflictedFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iecode.openMergeEditor",
+          "when": "resourcePath in iecode.conflictedFiles && !isMergeEditor",
+          "group": "navigation@2"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "resourceScheme == iecode && resourcePath in iecode.conflictedFiles",
+          "group": "navigation@3"
         },
         {
           "command": "iecode.compareWithHead",
@@ -783,6 +826,10 @@
           "when": "false"
         },
         {
+          "command": "iecode.scmConfigDiff",
+          "when": "false"
+        },
+        {
           "command": "iecode.ioLinkSaveIndependent",
           "when": "false"
         },
@@ -827,12 +874,37 @@
           "command": "iecode.ioLinksDiffCommit",
           "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.configDiff",
+          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "group": "3_compare"
         }
       ],
       "scm/resourceState/context": [
         {
           "submenu": "iecode.scmCompare",
           "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.autoResolveXml",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "inline"
+        },
+        {
+          "command": "iecode.autoResolveXml",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.openMergeEditor",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.openAsXml",
+          "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "navigation"
         }
       ],
@@ -844,6 +916,10 @@
         {
           "command": "iecode.scmCompareWithCommit",
           "group": "1@2"
+        },
+        {
+          "command": "iecode.scmConfigDiff",
+          "group": "1@3"
         },
         {
           "command": "iecode.ioLinks",
@@ -861,6 +937,16 @@
     "configuration": {
       "title": "IECode",
       "properties": {
+        "iecode.configDiff.hidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["tasks", "settings", "licenses", "unrestored", "parameters", "symbols", "types", "other", "layout", "metadata", "guid", "build", "timestamps", "whitespace"]
+          },
+          "uniqueItems": true,
+          "default": ["layout", "metadata", "guid", "build", "timestamps", "whitespace"],
+          "markdownDescription": "Categories and noise kinds hidden in **Config Changes** (the checkboxes in the panel write this setting)."
+        },
         "iecode.openAsST": {
           "type": "boolean",
           "default": true,

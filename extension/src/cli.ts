@@ -6,6 +6,7 @@
 // iecode-st difftool <viewer> <a> <b>                 -> open the ST views in a graphical diff tool (git difftool cmd)
 // iecode-st links <x.tsproj> [--csv|--yaml]           -> IO links of a TwinCAT project (--yaml: as hardware tree)
 // iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv] -> IO link changes since a commit
+// iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <id,id>] -> config changes of an xti, grouped by category
 // iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv] -> ADS interface from source (.plcproj) or build output (.tmc)
 // iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv] -> ADS interface changes in the source since a commit
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
@@ -20,6 +21,8 @@ import { repoRoot, show } from './core/git';
 import { changesToCsv, diffLinks, linksToCsv, shortPath } from './core/iolinks';
 import { linksAt, projectAt } from './core/iohistory';
 import { buildTree, treeToYaml } from './core/iotree';
+import { DEFAULT_HIDDEN, Filter, diffConfig, isHidden } from './core/configdiff';
+import { changesToText, configAt } from './core/confighistory';
 import { loadPlcProject } from './core/projects';
 import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
@@ -119,6 +122,18 @@ async function main(argv: string[]): Promise<number> {
       process.stdout.write(`${c.kind.padEnd(8)} ${c.variable}  ${c.before ? shortPath(c.before) : ''}${c.before && c.after ? ' -> ' : ''}${c.after && c.after !== c.before ? shortPath(c.after) : ''}${c.details ? '  ' + c.details : ''}\n`);
     return changes.length ? 1 : 0;
   }
+  if (cmd === 'config-diff') {
+    const rev = opt(args, '--rev'), to = opt(args, '--to'), hide = opt(args, '--hide');
+    const all = args.includes('--all');
+    const file = args.filter(a => a !== '--all')[0];
+    if (!rev || !file) return usage();
+    const hidden = new Set<Filter>(all ? [] : hide !== undefined ? hide.split(',').filter(Boolean) as Filter[] : DEFAULT_HIDDEN);
+    const [a, b] = [await configAt(path.resolve(file), rev), await configAt(path.resolve(file), to)];
+    for (const [v, ref] of [[a, rev], [b, to ?? 'working copy']] as const) if (v.missing) process.stderr.write(`warning: ${path.basename(file)} does not exist in ${ref}\n`);
+    const changes = diffConfig(a.entries, b.entries);
+    process.stdout.write(changesToText(changes, hidden));
+    return changes.some(c => !isHidden(c, hidden)) ? 1 : 0;
+  }
   if (cmd === 'ads' || cmd === 'ads-diff') {
     const rev = opt(args, '--rev'), to = opt(args, '--to');
     const flag = (f: string) => { const i = args.indexOf(f); if (i >= 0) args.splice(i, 1); return i >= 0; };
@@ -150,6 +165,7 @@ function usage(): number {
     '       iecode-st difftool <viewer> <a> <b>',
     '       iecode-st links <x.tsproj> [--csv|--yaml]',
     '       iecode-st links-diff --rev <ref> [--to <ref>] <x.tsproj> [--csv]',
+    '       iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <id,id>]',
     '       iecode-st ads <x.plcproj|x.tmc> [--rev <ref>] [--members] [--csv]',
     '       iecode-st ads-diff --rev <ref> [--to <ref>] <x.plcproj> [--members] [--csv]',
   ].join('\n'));

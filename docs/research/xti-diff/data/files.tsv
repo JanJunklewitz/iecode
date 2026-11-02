@@ -1,0 +1,18 @@
+# PLC .xti files of the survey, anonymised. Columns: variant, lines today, commits touching the file
+monolithic	117055	63
+monolithic	127291	19
+monolithic	133838	46
+monolithic	176275	113
+monolithic	214192	61
+monolithic	216611	161
+monolithic	252756	124
+monolithic	255918	4
+monolithic	77589	39
+split: instance file	257644	9
+split: instance file	315600	4
+split: instance file	318310	65
+split: instance file	76618	1
+split: pointer file	4	2
+split: pointer file	6	1
+split: pointer file	6	117
+split: pointer file	6	21

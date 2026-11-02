@@ -1,0 +1,17 @@
+{
+  // F5 from the repo root: starts an Extension Development Host with the extension in extension/ loaded.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run IECode (pick a folder)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension", "${input:folder}"],
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "preLaunchTask": "iecode: compile"
+    }
+  ],
+  "inputs": [
+    { "id": "folder", "type": "promptString", "description": "Folder with your TwinCAT project(s)" }
+  ]
+}
