@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError } from '../ads/host';
-import { WatchItem, symbolAt } from '../core/adswatch';
+import { MAX_WATCHED, WatchItem, symbolAt } from '../core/adswatch';
 
 const REFRESH_MS = 250;
 const ENTER = 'Enter a name…';
@@ -83,6 +83,8 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   const selected = (n?: WatchItem, all?: WatchItem[]) => (all?.length ? all : n ? [n] : [...view.selection]).map(i => i.symbol);
 
   reg('iecode.adsWatchAdd', async () => {
+    const room = MAX_WATCHED - host.watched().length;
+    if (room <= 0) return void vscode.window.showWarningMessage(`IECode: the ADS watch already has ${MAX_WATCHED} variables, the most it can hold. Remove some first.`);
     const watched = new Set(host.watched().map(s => s.toLowerCase()));
     const units = state.current.units.filter(u => !u.plc.isLibrary);
     const picks: (vscode.QuickPickItem & { symbol?: string })[] = [{ label: ENTER, alwaysShow: true }];
@@ -98,9 +100,9 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
         missing.push(u.plc.name);
       }
     }
-    const placeHolder = missing.length
+    const placeHolder = (missing.length
       ? `Variables to watch (not built, so not listed: ${missing.join(', ')})`
-      : 'Variables to watch (from the build output)';
+      : 'Variables to watch (from the build output)') + `; ${room} more fit`;
     const chosen = await vscode.window.showQuickPick(picks, { canPickMany: true, matchOnDescription: true, placeHolder });
     if (!chosen?.length) return;
     const names = chosen.filter(c => c.symbol).map(c => c.symbol!);

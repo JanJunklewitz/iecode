@@ -216,6 +216,14 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
 
 const NETID = /^\d{1,3}(\.\d{1,3}){5}$/;
 
+/** The host (WatchHost.MaxSymbols) rejects longer lists. */
+export const MAX_WATCHED = 200;
+
+/** Why a watch list of `count` symbols can't be watched, or undefined. Checked before the list is saved. */
+export function watchLimitError(count: number): string | undefined {
+  return count > MAX_WATCHED ? `At most ${MAX_WATCHED} variables can be watched (this list has ${count}). Remove some first.` : undefined;
+}
+
 /** Why the target / port settings can't be used, or undefined. Checked before spawning the host. */
 export function settingsError(s: { target: string; port: number }): string | undefined {
   if (s.target.toLowerCase() !== 'local' && !(NETID.test(s.target) && s.target.split('.').every(n => Number(n) <= 255)))

@@ -4,7 +4,7 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchItem, hostStartFailure, parseHostLine, settingsError } from '../core/adswatch';
+import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchItem, hostStartFailure, parseHostLine, settingsError, watchLimitError } from '../core/adswatch';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -113,6 +113,9 @@ export class AdsHost implements vscode.Disposable {
       seen.add(s.toLowerCase());
       list.push(s);
     }
+    // a list the host rejects must not be saved: it would be re-sent and fail on every start
+    const tooMany = watchLimitError(list.length);
+    if (tooMany) throw new Error(tooMany);
     await this.ctx.workspaceState.update(KEY, list);
     const known = new Map(this.items_.map(i => [i.symbol, i]));
     this.items_ = list.map(symbol => known.get(symbol) ?? { symbol, type: '', numeric: false, error: null });
