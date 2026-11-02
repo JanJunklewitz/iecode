@@ -148,12 +148,5 @@ export function registerConfigDiff(ctx: vscode.ExtensionContext) {
   };
 
   command(['iecode.configDiff', 'iecode.scmConfigDiff'], (file) => showPanel(ctx, file, 'HEAD', WORKING));
-  command(['iecode.configDiffCommit', 'iecode.scmConfigDiffCommit'], async (file, root) => {
-    const commits = await log(root, [file], 100);
-    const c = await vscode.window.showQuickPick(
-      commits.map(x => ({ label: `$(git-commit) ${x.short}  ${x.subject}`, description: `${x.date} · ${x.author}`, x })),
-      { title: `Compare the config of ${path.basename(file)} with …`, matchOnDescription: true });
-    if (c) await showPanel(ctx, file, c.x.hash, WORKING);
-  });
 }
 

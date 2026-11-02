@@ -335,17 +335,8 @@
         "icon": "$(settings)"
       },
       {
-        "command": "iecode.configDiffCommit",
-        "title": "Compare Config with Commit…",
-        "category": "IECode"
-      },
-      {
         "command": "iecode.scmConfigDiff",
         "title": "Compare Config with HEAD"
-      },
-      {
-        "command": "iecode.scmConfigDiffCommit",
-        "title": "Compare Config with Commit…"
       },
       {
         "command": "iecode.scmCompareWithHead",
@@ -466,11 +457,6 @@
         },
         {
           "command": "iecode.configDiff",
-          "when": "resourceExtname =~ /\\\\.xti$/i",
-          "group": "3_compare"
-        },
-        {
-          "command": "iecode.configDiffCommit",
           "when": "resourceExtname =~ /\\\\.xti$/i",
           "group": "3_compare"
         }
@@ -844,10 +830,6 @@
           "when": "false"
         },
         {
-          "command": "iecode.scmConfigDiffCommit",
-          "when": "false"
-        },
-        {
           "command": "iecode.ioLinkSaveIndependent",
           "when": "false"
         },
@@ -897,11 +879,6 @@
           "command": "iecode.configDiff",
           "when": "resourceExtname =~ /\\\\.xti$/i",
           "group": "3_compare"
-        },
-        {
-          "command": "iecode.configDiffCommit",
-          "when": "resourceExtname =~ /\\\\.xti$/i",
-          "group": "3_compare"
         }
       ],
       "scm/resourceState/context": [
@@ -938,10 +915,6 @@
         {
           "command": "iecode.scmConfigDiff",
           "group": "1@3"
-        },
-        {
-          "command": "iecode.scmConfigDiffCommit",
-          "group": "1@4"
         },
         {
           "command": "iecode.ioLinks",
