@@ -203,6 +203,57 @@ public sealed class WatchHostTests
     }
 
     [Fact]
+    public void WatchHost_SlowFailedConnect_RetriesTwoSecondsAfterNextTick()
+    {
+        var r = new Rig();
+        r.Backend.ConnectFault = new AdsFault("no target", null, true);
+        r.Host.Start();
+        Assert.Equal(1, r.Backend.ConnectCalls);
+        // The test clock jumps 5 s (the blocked attempt) before the next Tick.
+        r.Host.Tick(T0.AddSeconds(5));
+        Assert.Equal(1, r.Backend.ConnectCalls);
+        r.Host.Tick(T0.AddSeconds(5).AddMilliseconds(1900));
+        Assert.Equal(1, r.Backend.ConnectCalls);
+        r.Host.Tick(T0.AddSeconds(7));
+        Assert.Equal(2, r.Backend.ConnectCalls);
+    }
+
+    [Fact]
+    public void Start_ConnectThrowsOtherException_IsFailedConnect()
+    {
+        var r = new Rig();
+        r.Backend.ConnectFault = new InvalidOperationException("boom");
+        r.Host.Start();
+        var s = Assert.Single(r.Events("state"));
+        Assert.False(s.GetProperty("connected").GetBoolean());
+        Assert.Equal("boom", s.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void Tick_NonConnectionExceptions_DoNotEscape_AndAreReportedOnce()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => throw new AdsFault("version read failed", 0x705, false);
+        r.Host.Start();
+        r.Watch("MAIN.a");
+        r.Host.Tick(T0);
+        r.Host.Tick(T0.AddMilliseconds(100));
+        Assert.Single(r.Log);
+
+        var r2 = new Rig();
+        r2.Host.Start();
+        r2.Watch("MAIN.a");
+        r2.Backend.VersionFn = () => true;
+        r2.Backend.ReadFn = () => [Ok("1")];
+        r2.Backend.ResolveFn = _ => throw new IECodeException(ExitCodes.Usage, "bad resolve");
+        r2.Host.Tick(T0);
+        r2.Host.Tick(T0.AddMilliseconds(100));
+        Assert.Single(r2.Log);
+        Assert.Equal(1, r2.Backend.ConnectCalls);
+    }
+
+    [Fact]
     public void Write_ReturnsReadBack()
     {
         var r = new Rig();

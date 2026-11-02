@@ -19,6 +19,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     private int _gen;
     private bool _connected, _needResolve;
     private DateTimeOffset? _lastFlush, _retryAt;
+    private bool _retryPending;
     private int _intervalMs = 100;
 
     public int IntervalMs => _intervalMs;
@@ -26,7 +27,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     public void Start()
     {
         emit(WatchJson.Serialize(new WatchHelloEvent("hello", Protocol)));
-        TryConnect(DateTimeOffset.UtcNow);
+        TryConnect();
     }
 
     public void Handle(string requestLine)
@@ -55,7 +56,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         }
         catch (AdsFault f)
         {
-            if (f.ConnectionLost) MarkLost(f.Message, DateTimeOffset.UtcNow);
+            if (f.ConnectionLost) MarkLost(f.Message, null);
             emit(WatchJson.Serialize(new WatchReply(id, false, null, f.Message, f.AdsCode)));
         }
         catch (Exception ex)
@@ -69,8 +70,15 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         _lastFlush ??= now;
         if (!_connected)
         {
+            if (_retryPending)
+            {
+                // The failed attempt may have blocked for seconds; count the retry delay from the first Tick after it.
+                _retryPending = false;
+                _retryAt = now + TimeSpan.FromMilliseconds(RetryMs);
+                return;
+            }
             if (_retryAt is { } at && now < at) return;
-            TryConnect(now);
+            TryConnect();
             return;
         }
         try
@@ -82,6 +90,10 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         {
             MarkLost(f.Message, now);
             return;
+        }
+        catch (Exception ex)
+        {
+            ReportOnce("tick:" + ex.Message, ex.Message);
         }
         if (now - _lastFlush >= TimeSpan.FromMilliseconds(FlushMs)) Flush(now);
     }
@@ -150,18 +162,19 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         }
     }
 
-    private void TryConnect(DateTimeOffset now)
+    private void TryConnect()
     {
         try
         {
             backend.Connect();
         }
-        catch (AdsFault f)
+        catch (Exception ex)
         {
             _connected = false;
-            _retryAt = now + TimeSpan.FromMilliseconds(RetryMs);
-            if (_reported.Add("connect:" + f.Message))
-                emit(WatchJson.Serialize(new WatchStateEvent("state", false, f.Message)));
+            _retryAt = null;
+            _retryPending = true;
+            if (_reported.Add("connect:" + ex.Message))
+                emit(WatchJson.Serialize(new WatchStateEvent("state", false, ex.Message)));
             return;
         }
         _connected = true;
@@ -174,16 +187,22 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         }
         catch (AdsFault f) when (f.ConnectionLost)
         {
-            MarkLost(f.Message, now);
+            MarkLost(f.Message, null);
+        }
+        catch (Exception ex)
+        {
+            ReportOnce("tick:" + ex.Message, ex.Message);
         }
     }
 
-    private void MarkLost(string message, DateTimeOffset now)
+    /// <summary>now == null: the caller has no clock reading after the failure, the retry delay starts with the next Tick.</summary>
+    private void MarkLost(string message, DateTimeOffset? now)
     {
         FlushPending();
         if (!_connected) return;
         _connected = false;
-        _retryAt = now + TimeSpan.FromMilliseconds(RetryMs);
+        _retryAt = now is { } t ? t + TimeSpan.FromMilliseconds(RetryMs) : null;
+        _retryPending = now is null;
         _reported.Clear();
         _reported.Add("connect:" + message);
         emit(WatchJson.Serialize(new WatchStateEvent("state", false, message)));
