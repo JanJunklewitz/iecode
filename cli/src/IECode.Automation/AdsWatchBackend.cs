@@ -65,7 +65,7 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         if (_itemsDead) _stale = true;
         _itemsDead = false;
         var version = ReadVersion(client);
-        var loader = Loader(client, version);
+        var loader = Loader(client, version, symbols.Count);
         var watched = new Watched[symbols.Count];
         var items = new WatchItem[symbols.Count];
         for (var i = 0; i < symbols.Count; i++)
@@ -196,11 +196,24 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
 
     private AdsClient Client() => _client ?? throw new AdsFault($"Not connected to {_where}", null, true);
 
-    private ISymbolLoader Loader(AdsClient client, byte? version)
+    /// <summary>An empty table while <paramref name="requested"/> symbols are wanted is a lost connection, never cached.</summary>
+    private ISymbolLoader Loader(AdsClient client, byte? version, int requested)
     {
         if (_loader is null || _stale || version != _loaderVersion)
         {
-            _loader = Call($"Symbol upload from {_where}", () => SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default));
+            // The table is uploaded on first access of Symbols, so the count is taken inside the mapped call.
+            var (loader, count) = Call($"Symbol upload from {_where}", () =>
+            {
+                var l = SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default);
+                return (l, l.Symbols.Count);
+            });
+            if (SymbolTable.MeansUnreachable(requested, count))
+            {
+                _loader = null;
+                _stale = true;
+                throw new AdsFault($"Symbol upload from {_where}: empty symbol table, the target does not answer", null, true);
+            }
+            _loader = loader;
             _loaderVersion = version;
             _stale = false;
         }
@@ -214,7 +227,7 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
     private IValueSymbol Find(string symbol)
     {
         var client = Client();
-        var sym = Lookup(Loader(client, ReadVersion(client)), symbol)
+        var sym = Lookup(Loader(client, ReadVersion(client), 1), symbol)
             ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}.");
         if (!AdsValues.IsSingleValue(sym.DataType))
             throw new IECodeException(ExitCodes.Usage, $"{sym.DataType?.Name ?? "?"} is not a single value; add its members instead");
