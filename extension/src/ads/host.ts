@@ -4,7 +4,7 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchItem, hostStartFailure, parseHostLine, settingsError, watchLimitError } from '../core/adswatch';
+import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchEntry, WatchItem, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError } from '../core/adswatch';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -101,22 +101,35 @@ export class AdsHost implements vscode.Disposable {
   }
 
   watched(): string[] {
-    return this.ctx.workspaceState.get<string[]>(KEY, []);
+    return this.entries().map(e => e.symbol);
   }
 
+  /** The saved list with the AI flag per entry. */
+  entries(): WatchEntry[] {
+    return parseWatchList(this.ctx.workspaceState.get<unknown>(KEY, []));
+  }
+
+  /** Sets the list by name; symbols already watched keep their AI flag, new ones count as the user's. */
   async setWatched(symbols: string[]): Promise<WatchItem[]> {
+    const flags = new Map(this.entries().map(e => [e.symbol.toLowerCase(), e.ai]));
+    return this.setEntries(symbols.map(symbol => ({ symbol, ai: flags.get(symbol.trim().toLowerCase()) ?? false })));
+  }
+
+  async setEntries(entries: WatchEntry[]): Promise<WatchItem[]> {
     // ADS names are case-insensitive
     const seen = new Set<string>();
-    const list: string[] = [];
-    for (const s of symbols.map(x => x.trim())) {
-      if (!s || seen.has(s.toLowerCase())) continue;
-      seen.add(s.toLowerCase());
-      list.push(s);
+    const kept: WatchEntry[] = [];
+    for (const e of entries) {
+      const symbol = e.symbol.trim();
+      if (!symbol || seen.has(symbol.toLowerCase())) continue;
+      seen.add(symbol.toLowerCase());
+      kept.push({ symbol, ai: e.ai });
     }
+    const list = kept.map(e => e.symbol);
     // a list the host rejects must not be saved: it would be re-sent and fail on every start
     const tooMany = watchLimitError(list.length);
     if (tooMany) throw new Error(tooMany);
-    await this.ctx.workspaceState.update(KEY, list);
+    await this.ctx.workspaceState.update(KEY, kept);
     const known = new Map(this.items_.map(i => [i.symbol, i]));
     this.items_ = list.map(symbol => known.get(symbol) ?? { symbol, type: '', numeric: false, error: null });
     this.itemsChanged.fire();

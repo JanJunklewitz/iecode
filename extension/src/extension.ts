@@ -25,6 +25,7 @@ import { showProjectSettings } from './views/projectSettings';
 import { registerPlcArchiveEditor } from './views/plcArchiveEditor';
 import { registerAdsWatch } from './views/adsWatch';
 import { showAdsScope } from './views/adsScope';
+import { registerAdsLmTools } from './ads/lmTools';
 import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
 
@@ -121,6 +122,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerAiChat(ctx);
   registerPlcArchiveEditor(ctx);
   registerAdsWatch(ctx, state);
+  registerAdsLmTools(ctx, state);
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsScope', () => showAdsScope(ctx)));
   // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {

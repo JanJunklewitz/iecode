@@ -224,6 +224,41 @@ export function watchLimitError(count: number): string | undefined {
   return count > MAX_WATCHED ? `At most ${MAX_WATCHED} variables can be watched (this list has ${count}). Remove some first.` : undefined;
 }
 
+/** A saved watch entry; `ai` marks entries the AI added, the only ones it may remove (O10). */
+export interface WatchEntry { symbol: string; ai: boolean }
+
+/** The saved list (workspaceState): entries, or a plain string array saved before the `ai` flag existed. */
+export function parseWatchList(raw: unknown): WatchEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: WatchEntry[] = [];
+  for (const x of raw) {
+    if (typeof x === 'string') out.push({ symbol: x, ai: false });
+    else if (x && typeof x === 'object' && typeof x.symbol === 'string') out.push({ symbol: x.symbol, ai: x.ai === true });
+  }
+  return out;
+}
+
+/**
+ * Adds and removes symbols (ADS names are case-insensitive), keeping the order. With `byAi` new entries are marked
+ * `ai` and `remove` drops only `ai` entries, so the AI cannot take away what the user watches (O10).
+ */
+export function watchEdit(current: WatchEntry[], add: string[] = [], remove: string[] = [], byAi = false): WatchEntry[] {
+  const out = [...current];
+  const seen = new Set(out.map(e => e.symbol.toLowerCase()));
+  for (const s of add.map(x => x.trim())) {
+    if (!s || seen.has(s.toLowerCase())) continue;
+    seen.add(s.toLowerCase());
+    out.push({ symbol: s, ai: byAi });
+  }
+  const drop = new Set(remove.map(x => x.trim().toLowerCase()));
+  return out.filter(e => !drop.has(e.symbol.toLowerCase()) || (byAi && !e.ai));
+}
+
+/** What an AI write does per `iecode.ads.aiWrites`; an unknown value refuses, like the default `off`. */
+export function aiWriteDecision(setting: string): 'refuse' | 'confirm' | 'allow' {
+  return setting === 'confirm' ? 'confirm' : setting === 'auto' ? 'allow' : 'refuse';
+}
+
 /** Why the target / port settings can't be used, or undefined. Checked before spawning the host. */
 export function settingsError(s: { target: string; port: number }): string | undefined {
   if (s.target.toLowerCase() !== 'local' && !(NETID.test(s.target) && s.target.split('.').every(n => Number(n) <= 255)))

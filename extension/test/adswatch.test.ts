@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, parseWatchList } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -205,4 +205,36 @@ test('niceTicks uses 1/2/5 steps inside the range', () => {
   assert.deepEqual(niceTicks(0.1, 0.9, 4), [0.2, 0.4, 0.6, 0.8]);
   assert.deepEqual(niceTicks(-3, 3, 3), [-2, 0, 2]);
   assert.deepEqual(niceTicks(5, 5, 4), [5]);
+});
+
+test('aiWriteDecision refuses anything but confirm and auto', () => {
+  assert.equal(aiWriteDecision('off'), 'refuse');
+  assert.equal(aiWriteDecision('confirm'), 'confirm');
+  assert.equal(aiWriteDecision('auto'), 'allow');
+  assert.equal(aiWriteDecision('bogus'), 'refuse');
+  assert.equal(aiWriteDecision(''), 'refuse');
+});
+
+test('watchEdit by the user adds without duplicates and removes case-insensitively', () => {
+  const a = { symbol: 'a', ai: false };
+  assert.deepEqual(watchEdit([a], ['a', 'b'], ['A']), [{ symbol: 'b', ai: false }]);
+  assert.deepEqual(watchEdit([a], [' B ', 'b', '', 'C']), [a, { symbol: 'B', ai: false }, { symbol: 'C', ai: false }]);
+  assert.deepEqual(watchEdit([{ symbol: 'x', ai: true }], [], ['X']), []);
+  assert.deepEqual(watchEdit([a]), [a]);
+});
+
+test('watchEdit by the AI marks its entries and removes only those (O10)', () => {
+  const user = { symbol: 'MAIN.a', ai: false };
+  const mine = watchEdit([user], ['MAIN.b', 'main.A'], [], true);
+  assert.deepEqual(mine, [user, { symbol: 'MAIN.b', ai: true }]);
+  assert.deepEqual(watchEdit(mine, [], ['main.a'], true), mine);
+  assert.deepEqual(watchEdit(mine, [], ['main.B'], true), [user]);
+});
+
+test('parseWatchList reads old string lists and entry lists', () => {
+  assert.deepEqual(parseWatchList(['MAIN.a', 'GVL.b']), [{ symbol: 'MAIN.a', ai: false }, { symbol: 'GVL.b', ai: false }]);
+  assert.deepEqual(parseWatchList([{ symbol: 'MAIN.a', ai: true }, { symbol: 'GVL.b' }, 'x']), [{ symbol: 'MAIN.a', ai: true }, { symbol: 'GVL.b', ai: false }, { symbol: 'x', ai: false }]);
+  assert.deepEqual(parseWatchList(undefined), []);
+  assert.deepEqual(parseWatchList({}), []);
+  assert.deepEqual(parseWatchList([42, null, { ai: true }]), []);
 });

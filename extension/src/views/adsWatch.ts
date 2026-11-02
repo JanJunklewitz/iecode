@@ -1,11 +1,13 @@
 // ADS Watch view: watched PLC variables with their live values from the `iecode ads serve` host. Symbols come
 // from the build output (.tmc), the ST editor or free text; writes are always confirmed, also on `local` (C0).
+// Entries the AI added (LM tools) carry a sparkle icon.
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError } from '../ads/host';
 import { MAX_WATCHED, WatchItem, symbolAt } from '../core/adswatch';
+import { aiWritesSetting } from '../ads/lmTools';
 
 const REFRESH_MS = 250;
 const ENTER = 'Enter a name…';
@@ -14,19 +16,25 @@ const NAME = /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/;
 class WatchTree implements vscode.TreeDataProvider<WatchItem> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
+  private ai = new Set<string>();
 
   constructor(private readonly host: AdsHost) {}
 
   refresh() { this.changed.fire(); }
 
-  getChildren(n?: WatchItem): WatchItem[] { return n ? [] : this.host.items(); }
+  getChildren(n?: WatchItem): WatchItem[] {
+    if (n) return [];
+    this.ai = new Set(this.host.entries().filter(e => e.ai).map(e => e.symbol.toLowerCase()));
+    return this.host.items();
+  }
 
   getTreeItem(n: WatchItem): vscode.TreeItem {
     const it = new vscode.TreeItem(n.symbol, vscode.TreeItemCollapsibleState.None);
     const value = this.host.value(n.symbol);
     it.description = n.error ? `⚠ ${n.error}` : value === null ? '⚠ read error' : value ?? '';
-    it.tooltip = n.type || undefined;
-    it.iconPath = new vscode.ThemeIcon(n.error ? 'warning' : 'symbol-variable');
+    const ai = this.ai.has(n.symbol.toLowerCase());
+    it.tooltip = [n.type, ai ? 'added by AI' : ''].filter(Boolean).join(' · ') || undefined;
+    it.iconPath = new vscode.ThemeIcon(n.error ? 'warning' : ai ? 'sparkle' : 'symbol-variable');
     it.contextValue = 'adsWatch.item';
     it.id = `adsWatch:${n.symbol}`;
     return it;
@@ -53,6 +61,9 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     view.message = !s.connected && s.error ? `Disconnected: ${s.error}` : undefined;
   };
   showState();
+  // auto-approved AI writes must never be on unnoticed
+  const showAiWrites = () => { view.description = aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined; };
+  showAiWrites();
 
   // the host runs while the view is visible with a non-empty list; a saved list alone does not connect (O11)
   let lease: vscode.Disposable | undefined;
@@ -68,6 +79,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     host.onItems(() => { schedule(); updateLease(); }),
     host.onState(() => { showState(); schedule(); }),
     view.onDidChangeVisibility(updateLease),
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites')) showAiWrites(); }),
     new vscode.Disposable(() => { clearTimeout(timer); lease?.dispose(); }),
   );
 
