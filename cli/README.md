@@ -112,6 +112,12 @@ Values are canonical text (`TRUE`/`FALSE`, decimal integers, REAL with `.`, enum
 writes take enum member names in any case (the exact spelling wins). Only single values can be
 watched; structs, function blocks, arrays, pointers and references get an item error, add their members instead.
 After a download the symbols are resolved again; changed types start a new `gen` with an `items` event. At most 200 symbols per watch.
+A symbol that is in the symbol table but not readable on the target gets an item error and is retried every 5 s; the others keep streaming.
+
+Good to know: the value a `write` replies with is read right after the write, not proof that it stays; a PLC program
+may overwrite or reset it within ~200 ms. The first failing call to a target that stopped answering
+blocks for the 5 s ADS client timeout, so a request on stdin can wait up to 5 s. Reading by name sends every name in
+every cycle, so the load grows with symbols × rate; until measured on your network, keep 200 symbols at 100 ms or slower.
 
 ## JSON output
 

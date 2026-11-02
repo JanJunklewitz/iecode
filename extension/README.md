@@ -152,6 +152,7 @@ Or open this folder in VS Code and press F5.
   as their stored colors, frames from libraries as placeholders). Texts containing `"` can't be edited there.
 - **Save as Independent Project File** edits the `.xti` files directly: close the project in TwinCAT XAE first, or XAE overwrites the change when it saves. Only EtherCAT boxes stored in an `.xti` (not inline in the `.tsproj`) can be moved.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
+- The value a write (yours or the AI's) reports is read right after the write; it is no proof that the value stays, a PLC program may overwrite or reset it within ~200 ms.
 - AI writes with `iecode.ads.aiWrites` = `confirm` rely on you not choosing **Always Allow** for the `adsWrite` tool in the chat: VS Code then skips the confirmation, and the extension API (1.95) offers no way to keep a tool from being auto-approved. With `auto` IECode asks nothing, but VS Code may still show its own confirmation by its tool approval rules. `iecode.ads.target` and `iecode.ads.port` can come from a workspace `.vscode/settings.json`; while they differ from your user settings, `auto` confirms each write (the prompt shows the target), so a cloned repository cannot choose where auto-approved writes go.
 
 ## License and trademarks
