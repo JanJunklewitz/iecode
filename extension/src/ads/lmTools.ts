@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
-import { aiWriteDecision, oneLine, scopeText, watchEdit, workspaceOverrides } from '../core/adswatch';
+import { WriteDecision, aiWriteDecision, oneLine, scopeText, watchEdit, workspaceOverrides, writeStillApproved } from '../core/adswatch';
 import { output } from '../cli/iecode';
 import { sendToAiChat } from '../commands/aiChat';
 import { AdsHost, StartError } from './host';
@@ -22,10 +22,16 @@ export function aiWritesSetting(): string {
   return vscode.workspace.getConfiguration('iecode.ads').inspect<string>('aiWrites')?.globalValue ?? 'off';
 }
 
-/** True if the workspace settings point iecode.ads.target or .port somewhere else than the user settings. */
+/**
+ * True if the workspace settings, or the settings of any workspace folder (multi-root), point iecode.ads.target or
+ * .port somewhere else than the user settings.
+ */
 function workspaceTarget(): boolean {
-  const c = vscode.workspace.getConfiguration('iecode.ads');
-  return workspaceOverrides(c.inspect<string>('target')) || workspaceOverrides(c.inspect<number>('port'));
+  const scopes = [undefined, ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri)];
+  return scopes.some(uri => {
+    const c = vscode.workspace.getConfiguration('iecode.ads', uri);
+    return workspaceOverrides(c.inspect<string>('target')) || workspaceOverrides(c.inspect<number>('port'));
+  });
 }
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -170,12 +176,19 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     },
   };
 
+  // The decision each prepared write was shown with; invoke checks it against the settings at that time.
+  const prepared = new Map<string, WriteDecision>();
+  const writeKey = (input: WriteInput) => JSON.stringify([input.symbol, input.value]);
+
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
     prepareInvocation(opts) {
       const symbol = show(opts.input.symbol), value = show(opts.input.value);
       const setting = aiWritesSetting();
       const redirected = workspaceTarget();
       const decision = aiWriteDecision(setting, redirected);
+      // writes the user declined never reach invoke; keep the map from growing on them
+      if (prepared.size >= 100) prepared.clear();
+      prepared.set(writeKey(opts.input), decision);
       if (decision !== 'confirm') return { invocationMessage: decision === 'allow' ? `Writing ${symbol} := ${value}` : undefined };
       const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
       return {
@@ -185,8 +198,14 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     },
     async invoke(opts) {
       const { symbol, value } = opts.input;
-      if (aiWriteDecision(aiWritesSetting()) === 'refuse') {
+      const before = prepared.get(writeKey(opts.input));
+      prepared.delete(writeKey(opts.input));
+      const now = aiWriteDecision(aiWritesSetting(), workspaceTarget());
+      if (now === 'refuse') {
         return text('Not written: AI writes are off. The user can allow them with the command "IECode: Set AI Write Access…" (setting iecode.ads.aiWrites in the user settings).');
+      }
+      if (!writeStillApproved(before, now)) {
+        return text('Not written: the AI write access or the ADS target settings changed after this write was prepared, so it now needs the user\'s confirmation. Call adsWrite again to ask for it.');
       }
       output.info(`AI write ${show(symbol)} := ${show(value)} on ${host.target()}`);
       try {

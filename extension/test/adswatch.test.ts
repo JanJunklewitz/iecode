@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, parseWatchList, workspaceOverrides, oneLine } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -220,6 +220,19 @@ test('aiWriteDecision asks instead of auto-approving while the workspace redirec
   assert.equal(aiWriteDecision('auto', false), 'allow');
   assert.equal(aiWriteDecision('confirm', true), 'confirm');
   assert.equal(aiWriteDecision('off', true), 'refuse');
+});
+
+test('writeStillApproved refuses when the decision got stricter after the prepare step', () => {
+  assert.equal(writeStillApproved('allow', 'allow'), true);
+  assert.equal(writeStillApproved('confirm', 'confirm'), true);
+  assert.equal(writeStillApproved('confirm', 'allow'), true);
+  assert.equal(writeStillApproved('allow', 'confirm'), false);
+  assert.equal(writeStillApproved(undefined, 'confirm'), false);
+  assert.equal(writeStillApproved(undefined, 'allow'), true);
+  assert.equal(writeStillApproved('confirm', 'refuse'), false);
+  assert.equal(writeStillApproved('refuse', 'refuse'), false);
+  assert.equal(writeStillApproved('refuse', 'confirm'), false);
+  assert.equal(writeStillApproved('refuse', 'allow'), true);
 });
 
 test('workspaceOverrides flags workspace values that differ from the user or default value', () => {

@@ -263,6 +263,17 @@ export function aiWriteDecision(setting: string, workspaceTarget = false): 'refu
   return setting === 'confirm' ? 'confirm' : setting === 'auto' ? (workspaceTarget ? 'confirm' : 'allow') : 'refuse';
 }
 
+export type WriteDecision = ReturnType<typeof aiWriteDecision>;
+
+/**
+ * True if a write may go ahead with the decision `now` at invoke time, given the one its prepare step used
+ * (`undefined`: none known). `confirm` now needs the confirmation of the prepare step; if the settings got stricter in
+ * between, the laxer prepare step must not count and the AI is asked to retry instead.
+ */
+export function writeStillApproved(prepared: WriteDecision | undefined, now: WriteDecision): boolean {
+  return now === 'allow' || (now === 'confirm' && prepared === 'confirm');
+}
+
 /** Shape of `WorkspaceConfiguration.inspect()` that matters here. */
 export interface SettingLayers<T> { defaultValue?: T; globalValue?: T; workspaceValue?: T; workspaceFolderValue?: T }
 
