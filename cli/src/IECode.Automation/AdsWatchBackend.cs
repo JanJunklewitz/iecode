@@ -67,7 +67,18 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         for (var i = 0; i < symbols.Count; i++)
         {
             var name = symbols[i];
-            var sym = Lookup(loader, name);
+            IValueSymbol? sym;
+            try
+            {
+                sym = Lookup(loader, name);
+            }
+            catch (AdsFault f) when (!f.ConnectionLost)
+            {
+                // E.g. a path through an invalid reference or pointer: an error of this item, not of the whole list.
+                items[i] = new WatchItem(name, "", false, f.Message);
+                watched[i] = new Watched(null, "", null);
+                continue;
+            }
             var typeName = sym?.DataType?.Name ?? "?";
             if (sym is null) items[i] = new WatchItem(name, "", false, "Symbol not found");
             else if (!AdsValues.IsSingleValue(sym.DataType)) items[i] = new WatchItem(name, typeName, false, $"{typeName} is not a single value; add its members instead");
@@ -231,17 +242,20 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
     /// R2: an unreachable or stopped target also arrives as AdsErrorException, so the code decides (<see cref="AdsCodes"/>).
     /// Without a code, only transport failures mean the connection is gone; symbol, marshalling and type exceptions
     /// (AdsException subclasses, e.g. a read through an invalid reference) stay errors of the request or item.
+    /// Only code-less, connection-lost and dead-handle faults mark the symbol loader stale; an ordinary ADS error code
+    /// (access denied, symbol not found) says nothing about the loader and must not trigger another symbol upload.
     /// </summary>
     private AdsFault Map(Exception e, string what)
     {
-        _stale = true;
-        return e switch
+        var fault = e switch
         {
             AdsFault f => f,
             _ when Code(e) is { } code => new AdsFault(Text(what, code), code, AdsCodes.IsConnectionLost(code)),
             _ when IsTransport(e) => new AdsFault($"{what}: connection lost ({e.Message})", null, true),
             _ => new AdsFault($"{what}: {e.Message}", null, false),
         };
+        if (fault.AdsCode is not { } c || fault.ConnectionLost || AdsCodes.IsDeadHandle(c)) _stale = true;
+        return fault;
     }
 
     private static uint? Code(Exception e)
