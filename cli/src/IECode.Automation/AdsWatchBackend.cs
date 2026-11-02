@@ -118,6 +118,9 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         {
             throw ReadFault(e);
         }
+        // The target answers again: a symbol version that was unreadable (e.g. during a route hiccup) is tried once more
+        // by the SymbolVersionChanged call after this poll, so a later download is noticed by its version again.
+        _versionUnreadable = false;
         for (var k = 0; k < _sumIndex.Length; k++)
         {
             var i = _sumIndex[k];
@@ -207,7 +210,10 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         return sym;
     }
 
-    /// <summary>The 1-byte symbol version; null (warned once) if the target does not answer it, then downloads are noticed by read errors only.</summary>
+    /// <summary>
+    /// The 1-byte symbol version; null (warned once) if the target does not answer it. Until the next successful poll or
+    /// reconnect it is not asked again, and downloads in between are noticed by read errors only.
+    /// </summary>
     private byte? ReadVersion(AdsClient client)
     {
         if (_versionUnreadable) return null;
