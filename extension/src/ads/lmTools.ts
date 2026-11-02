@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
-import { aiWriteDecision, scopeText, watchEdit } from '../core/adswatch';
+import { aiWriteDecision, oneLine, scopeText, watchEdit, workspaceOverrides } from '../core/adswatch';
 import { output } from '../cli/iecode';
 import { sendToAiChat } from '../commands/aiChat';
 import { AdsHost, StartError } from './host';
@@ -21,6 +21,15 @@ const STALE_MS = 2000;
 export function aiWritesSetting(): string {
   return vscode.workspace.getConfiguration('iecode.ads').inspect<string>('aiWrites')?.globalValue ?? 'off';
 }
+
+/** True if the workspace settings point iecode.ads.target or .port somewhere else than the user settings. */
+function workspaceTarget(): boolean {
+  const c = vscode.workspace.getConfiguration('iecode.ads');
+  return workspaceOverrides(c.inspect<string>('target')) || workspaceOverrides(c.inspect<number>('port'));
+}
+
+/** AI-supplied symbol or value, safe for one log line or prompt. */
+const show = (s: unknown) => oneLine(String(s));
 
 const text = (s: string) => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
 
@@ -163,12 +172,15 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
 
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
     prepareInvocation(opts) {
-      const { symbol, value } = opts.input;
-      const decision = aiWriteDecision(aiWritesSetting());
+      const symbol = show(opts.input.symbol), value = show(opts.input.value);
+      const setting = aiWritesSetting();
+      const redirected = workspaceTarget();
+      const decision = aiWriteDecision(setting, redirected);
       if (decision !== 'confirm') return { invocationMessage: decision === 'allow' ? `Writing ${symbol} := ${value}` : undefined };
+      const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
       return {
         invocationMessage: `Writing ${symbol} := ${value}`,
-        confirmationMessages: { title: 'Write PLC variable', message: `Write ${symbol} := ${value} on ${host.target()}?` },
+        confirmationMessages: { title: 'Write PLC variable', message: `Write ${symbol} := ${value} on ${host.target()}?${note}` },
       };
     },
     async invoke(opts) {
@@ -176,12 +188,12 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       if (aiWriteDecision(aiWritesSetting()) === 'refuse') {
         return text('Not written: AI writes are off. The user can allow them with the command "IECode: Set AI Write Access…" (setting iecode.ads.aiWrites in the user settings).');
       }
-      output.info(`AI write ${symbol} := ${value} on ${host.target()}`);
+      output.info(`AI write ${show(symbol)} := ${show(value)} on ${host.target()}`);
       try {
         const back = await host.write(symbol, value);
         return text(`Written. ${symbol} reads back as ${back}.`);
       } catch (e) {
-        output.warn(`AI write ${symbol} failed: ${(e as Error).message}`);
+        output.warn(`AI write ${show(symbol)} failed: ${show((e as Error).message)}`);
         return failure(e);
       }
     },

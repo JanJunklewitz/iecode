@@ -87,7 +87,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | `iecode.ads.port` | `851` | ADS port of the PLC runtime |
 | `iecode.ads.sampleIntervalMs` | `100` | How often watched values are read (10 … 5000 ms; below ~16 ms Windows timers make it slower) |
 | `iecode.ads.bufferSeconds` | `300` | Seconds of values kept for the scope and AI tools (10 … 3600) |
-| `iecode.ads.aiWrites` | `off` | Whether AI tools may write PLC variables: `off`, `confirm` (each write), `auto` (no IECode prompt). User settings only, so a workspace cannot turn it on |
+| `iecode.ads.aiWrites` | `off` | Whether AI tools may write PLC variables: `off`, `confirm` (each write), `auto` (no IECode prompt; asks anyway while the workspace settings change `iecode.ads.target` or `iecode.ads.port`). User settings only, so a workspace cannot turn it on |
 
 ## How it works
 
@@ -152,7 +152,7 @@ Or open this folder in VS Code and press F5.
   as their stored colors, frames from libraries as placeholders). Texts containing `"` can't be edited there.
 - **Save as Independent Project File** edits the `.xti` files directly: close the project in TwinCAT XAE first, or XAE overwrites the change when it saves. Only EtherCAT boxes stored in an `.xti` (not inline in the `.tsproj`) can be moved.
 - The CLI-driven features have not been tested against a real TwinCAT installation yet.
-- AI writes with `iecode.ads.aiWrites` = `confirm` rely on you not choosing **Always Allow** for the `adsWrite` tool in the chat: VS Code then skips the confirmation, and the extension API (1.95) offers no way to keep a tool from being auto-approved. With `auto` IECode asks nothing, but VS Code may still show its own confirmation by its tool approval rules.
+- AI writes with `iecode.ads.aiWrites` = `confirm` rely on you not choosing **Always Allow** for the `adsWrite` tool in the chat: VS Code then skips the confirmation, and the extension API (1.95) offers no way to keep a tool from being auto-approved. With `auto` IECode asks nothing, but VS Code may still show its own confirmation by its tool approval rules. `iecode.ads.target` and `iecode.ads.port` can come from a workspace `.vscode/settings.json`; while they differ from your user settings, `auto` confirms each write (the prompt shows the target), so a cloned repository cannot choose where auto-approved writes go.
 
 ## License and trademarks
 

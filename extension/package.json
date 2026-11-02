@@ -1247,7 +1247,7 @@
           "enumDescriptions": [
             "AI tools cannot write PLC variables.",
             "You confirm each AI write in the chat. This relies on you not choosing \"Always Allow\" for the adsWrite tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
-            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. The ADS Watch view shows \"AI writes: auto\"."
+            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\"."
           ],
           "default": "off",
           "scope": "application",
@@ -1390,7 +1390,7 @@
         "toolReferenceName": "adsWrite",
         "displayName": "ADS Write",
         "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
-        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values use IEC 61131-3 literal syntax as text (TRUE, 42, 3.5, T#1S). Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write (unless the user chose Always Allow for this tool), auto writes without an IECode prompt. Every write is logged.",
+        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (case-sensitive) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write (unless the user chose Always Allow for this tool), auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
         "canBeReferencedInPrompt": true,
         "tags": ["iecode", "twincat", "ads"],
         "inputSchema": {
@@ -1402,7 +1402,7 @@
             },
             "value": {
               "type": "string",
-              "description": "New value as text, e.g. TRUE or 42."
+              "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
             }
           },
           "required": ["symbol","value"]

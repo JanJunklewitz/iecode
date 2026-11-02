@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, parseWatchList } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, parseWatchList, workspaceOverrides, oneLine } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -213,6 +213,29 @@ test('aiWriteDecision refuses anything but confirm and auto', () => {
   assert.equal(aiWriteDecision('auto'), 'allow');
   assert.equal(aiWriteDecision('bogus'), 'refuse');
   assert.equal(aiWriteDecision(''), 'refuse');
+});
+
+test('aiWriteDecision asks instead of auto-approving while the workspace redirects the target', () => {
+  assert.equal(aiWriteDecision('auto', true), 'confirm');
+  assert.equal(aiWriteDecision('auto', false), 'allow');
+  assert.equal(aiWriteDecision('confirm', true), 'confirm');
+  assert.equal(aiWriteDecision('off', true), 'refuse');
+});
+
+test('workspaceOverrides flags workspace values that differ from the user or default value', () => {
+  assert.equal(workspaceOverrides(undefined), false);
+  assert.equal(workspaceOverrides({ defaultValue: 'local' }), false);
+  assert.equal(workspaceOverrides({ defaultValue: 'local', globalValue: '5.1.2.3.1.1' }), false);
+  assert.equal(workspaceOverrides({ defaultValue: 'local', workspaceValue: '5.1.2.3.1.1' }), true);
+  assert.equal(workspaceOverrides({ defaultValue: 'local', workspaceFolderValue: '5.1.2.3.1.1' }), true);
+  assert.equal(workspaceOverrides({ defaultValue: 'local', workspaceValue: 'local' }), false);
+  assert.equal(workspaceOverrides({ defaultValue: 851, globalValue: 852, workspaceValue: 852 }), false);
+  assert.equal(workspaceOverrides({ defaultValue: 851, globalValue: 852, workspaceFolderValue: 851 }), true);
+});
+
+test('oneLine keeps AI text on one log line', () => {
+  assert.equal(oneLine('a\r\nb\nc'), 'a\\r\\nb\\nc');
+  assert.equal(oneLine('MAIN.x'), 'MAIN.x');
 });
 
 test('watchEdit by the user adds without duplicates and removes case-insensitively', () => {

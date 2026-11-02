@@ -254,9 +254,28 @@ export function watchEdit(current: WatchEntry[], add: string[] = [], remove: str
   return out.filter(e => !drop.has(e.symbol.toLowerCase()) || (byAi && !e.ai));
 }
 
-/** What an AI write does per `iecode.ads.aiWrites`; an unknown value refuses, like the default `off`. */
-export function aiWriteDecision(setting: string): 'refuse' | 'confirm' | 'allow' {
-  return setting === 'confirm' ? 'confirm' : setting === 'auto' ? 'allow' : 'refuse';
+/**
+ * What an AI write does per `iecode.ads.aiWrites`; an unknown value refuses, like the default `off`.
+ * `auto` asks anyway while the workspace settings redirect target or port: a cloned repo must not choose
+ * where auto-approved writes go.
+ */
+export function aiWriteDecision(setting: string, workspaceTarget = false): 'refuse' | 'confirm' | 'allow' {
+  return setting === 'confirm' ? 'confirm' : setting === 'auto' ? (workspaceTarget ? 'confirm' : 'allow') : 'refuse';
+}
+
+/** Shape of `WorkspaceConfiguration.inspect()` that matters here. */
+export interface SettingLayers<T> { defaultValue?: T; globalValue?: T; workspaceValue?: T; workspaceFolderValue?: T }
+
+/** True if a workspace or folder value of the setting differs from the user value (or the default without one). */
+export function workspaceOverrides<T>(i: SettingLayers<T> | undefined): boolean {
+  if (!i) return false;
+  const user = i.globalValue ?? i.defaultValue;
+  return [i.workspaceValue, i.workspaceFolderValue].some(v => v !== undefined && v !== user);
+}
+
+/** AI-supplied text for a log line or prompt: line breaks become literal \r / \n so they cannot fake extra lines. */
+export function oneLine(s: string): string {
+  return s.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
 }
 
 /** Why the target / port settings can't be used, or undefined. Checked before spawning the host. */
