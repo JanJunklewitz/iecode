@@ -5,12 +5,12 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 ## Unreleased
 
 ### Editor
-- **Merge conflicts in `.TcPOU/.TcDUT/.TcGVL/.TcIO`**: a conflicted object file gets a conflict bar (editor title and Source Control context menu): **Auto-resolve XML Conflicts**, **Open XML Merge Editor** (VS Code's built-in) and **Open as XML**.
+- **Merge conflicts in `.TcPOU/.TcDUT/.TcGVL/.TcIO`**: a conflicted object file gets a conflict bar (editor title and Source Control context menu): **Auto-resolve XML Conflicts** (also in the Source Control merge context menu), **Open XML Merge Editor** (VS Code's built-in) and **Open as XML**.
 - **Auto-resolve** merges the ST views of git's index stages and writes the result into the XML of the current side (XML-only differences such as `Id` or `FolderPath`: ours wins). It refuses on delete/modify conflicts, structural conflicts and changed graphical implementations, and asks before overwriting hand edits.
 - Remaining code conflicts show in the ST view with colored blocks and **Accept Current / Incoming / Both Changes** CodeLens.
 
 ### System project
-- **Config Changes** for `.xti` files (right-click an `.xti` in the Explorer, editor tab or Source Control: **Compare Config with HEAD / Commitâ€¦**): the changes of a PLC instance `.xti` by meaning instead of by XML line, grouped into tasks, settings, licenses, parameters, symbols, types and more. Checkboxes hide categories (layout, metadata) and noise (GUID churn, build timestamps, whitespace); the choice is the setting `iecode.configDiff.hidden`. **Open as YAML** shows both versions as YAML in the diff editor.
+- **Config Changes** for `.xti` files (right-click an `.xti` in the Explorer, editor tab or Source Control: **Compare Config with HEAD**; pick another version in the panel): the changes of a PLC instance `.xti` by meaning instead of by XML line, grouped into tasks, settings, licenses, parameters, symbols, types and more. Checkboxes hide categories (layout, metadata) and noise (GUID churn, build timestamps, whitespace); the choice is the setting `iecode.configDiff.hidden`. **Open as YAML** shows both versions as YAML in the diff editor.
 - CLI: `iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <ids>]`.
 
 ## 0.2.5

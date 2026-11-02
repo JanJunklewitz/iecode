@@ -22,6 +22,14 @@ The **IECode** view shows libraries, applications, objects and members; **Compar
 
 ![The IECode Projects view expanded down to the members of FB_Motor, then an ST diff of MAIN against HEAD](https://github.com/JanJunklewitz/iecode/raw/HEAD/extension/images/projects-compare.gif)
 
+**Merge conflicts** in a `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` are resolved without touching the XML: the wand in Source Control (or **Auto-resolve XML Conflicts** in the context menu) merges everything outside the ST code, and what is left shows in the ST view as colored blocks with **Accept Current / Incoming / Both Changes**:
+
+![A conflicted FB_Motor.TcPOU under Merge Changes in Source Control with the Auto-resolve wand next to the open and stage buttons](https://github.com/JanJunklewitz/iecode/raw/HEAD/extension/images/merge-conflict-source-control.png)
+
+**Config Changes** compares a PLC `.xti` by meaning instead of by XML line: old values struck through in red, new values in green, grouped by category, with checkboxes for the noise you do not want to see:
+
+![The Config Changes panel for Plc.xti: the task CycleTime changed from 10 ms to 20 ms and a symbol comment changed, layout and metadata hidden](https://github.com/JanJunklewitz/iecode/raw/HEAD/extension/images/config-changes.png)
+
 ```
 FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 ───────────────────────────────              ─────────────────────────────────
