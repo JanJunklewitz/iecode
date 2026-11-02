@@ -4,35 +4,16 @@
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
-import { fromBuild } from '../core/adsinterface';
-import { WriteDecision, aiWriteDecision, oneLine, scopeText, watchEdit, workspaceOverrides, writeStillApproved } from '../core/adswatch';
+import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
+import { WriteDecision, aiWriteDecision, oneLine, scopeText, watchEdit, writeStillApproved } from '../core/adswatch';
 import { output } from '../cli/iecode';
 import { sendToAiChat } from '../commands/aiChat';
+import { aiWritesSetting, workspaceTarget } from './aiSettings';
 import { AdsHost, StartError } from './host';
 
 const MAX_SYMBOLS = 100;
 const SCOPE_SECONDS = 60;
 const STALE_MS = 2000;
-
-/**
- * `iecode.ads.aiWrites` from the user settings only. The setting is application-scoped; reading the global value
- * also keeps a workspace `.vscode/settings.json` from turning on auto-approve should VS Code ever apply one.
- */
-export function aiWritesSetting(): string {
-  return vscode.workspace.getConfiguration('iecode.ads').inspect<string>('aiWrites')?.globalValue ?? 'off';
-}
-
-/**
- * True if the workspace settings, or the settings of any workspace folder (multi-root), point iecode.ads.target or
- * .port somewhere else than the user settings.
- */
-function workspaceTarget(): boolean {
-  const scopes = [undefined, ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri)];
-  return scopes.some(uri => {
-    const c = vscode.workspace.getConfiguration('iecode.ads', uri);
-    return workspaceOverrides(c.inspect<string>('target')) || workspaceOverrides(c.inspect<number>('port'));
-  });
-}
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
 const show = (s: unknown) => oneLine(String(s));
@@ -88,9 +69,11 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
 
   const symbolsTool: vscode.LanguageModelTool<SymbolsInput> = {
     async invoke(opts) {
-      const filter = (opts.input.filter ?? '').trim().toLowerCase();
+      const typed = (opts.input.filter ?? '').trim();
+      const filter = typed.toLowerCase();
       const out: string[] = [];
       const missing: string[] = [];
+      const unreadable: string[] = [];
       let total = 0;
       const units = state.current.units.filter(u => !u.plc.isLibrary);
       for (const u of units) {
@@ -99,13 +82,15 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
             if (filter && !s.name.toLowerCase().includes(filter)) continue;
             if (++total <= MAX_SYMBOLS) out.push(`${s.name} : ${s.type}`);
           }
-        } catch {
-          missing.push(u.plc.name);
+        } catch (e) {
+          if (e instanceof NoBuildOutputError) missing.push(u.plc.name);
+          else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      const lines = [out.length ? out.join('\n') : `No symbols match "${filter}".`];
+      const lines = [out.length ? out.join('\n') : `No symbols match "${typed}".`];
       if (total > MAX_SYMBOLS) lines.push(`(${total - MAX_SYMBOLS} more not listed; use a narrower filter)`);
       if (missing.length) lines.push(`Not built, so not listed (no .tmc): ${missing.join(', ')}`);
+      if (unreadable.length) lines.push(`Build output unreadable, so not listed: ${unreadable.join('; ')}`);
       if (!units.length) lines.push('No PLC projects in this workspace.');
       return text(lines.join('\n'));
     },
@@ -144,7 +129,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
             const w = watchedName(host, s);
             const v = w ? host.value(w) : undefined;
             if (w && v !== undefined) {
-              const item = host.items().find(i => i.symbol === w);
+              const item = host.items().find(i => i.symbol.toLowerCase() === w.toLowerCase());
               rows.push(`${w} : ${item?.type || '?'} = ${v ?? `(read error${item?.error ? `: ${item.error}` : ''})`}`);
             } else {
               others.push(s.trim());
@@ -227,6 +212,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     vscode.commands.registerCommand('iecode.adsWatchAiChat', async () => {
       const symbols = host.watched();
       if (!symbols.length) return vscode.window.showInformationMessage('IECode: the ADS watch list is empty, nothing to send.');
+      if (newest(host, symbols) === undefined) return vscode.window.showInformationMessage('IECode: no ADS samples yet, nothing to send. Values are sampled while the ADS Watch view or the scope is open.');
       await sendToAiChat(scopeSummary(host, symbols, SCOPE_SECONDS));
     }),
     vscode.commands.registerCommand('iecode.adsAiWrites', async () => {

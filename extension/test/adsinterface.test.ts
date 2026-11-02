@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromFile, fromSource, fromSourceAt, fromTmc, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
+import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromFile, fromSource, fromSourceAt, fromTmc, NoBuildOutputError, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
 import { loadPlcProject } from '../src/core/projects';
 
 const fixtures = join(__dirname, '..', '..', 'test', 'fixtures', 'ws');
@@ -202,7 +202,7 @@ test('ADS interface: fixture project from source, build output, stale check, CSV
     const plc = await loadPlcProject(join(dir, 'apps/MachineX/MachineX/PLC1/PLC1.plcproj'));
     const src = await fromSourceAt(plc, undefined, true);
     assert.ok(src.symbols.some(s => s.name === 'MAIN.fbMotor'));
-    await assert.rejects(fromBuild(plc), /Build it first/);
+    await assert.rejects(fromBuild(plc), (e: unknown) => e instanceof NoBuildOutputError && /Build it first/.test(e.message));
 
     const tmc = join(plc.dir, 'PLC1.tmc');
     writeFileSync(tmc, TMC());

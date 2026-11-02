@@ -6,8 +6,8 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError } from '../ads/host';
-import { MAX_WATCHED, WatchItem, symbolAt } from '../core/adswatch';
-import { aiWritesSetting } from '../ads/lmTools';
+import { MAX_WATCHED, WatchItem, symbolAt, watchEdit } from '../core/adswatch';
+import { aiWritesSetting } from '../ads/aiSettings';
 
 const REFRESH_MS = 250;
 const ENTER = 'Enter a name…';
@@ -85,7 +85,8 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
 
   const add = async (symbols: string[]) => {
     try {
-      await host.setWatched([...host.watched(), ...symbols]);
+      // symbols the AI added become the user's when the user adds them
+      await host.setEntries(watchEdit(host.entries(), symbols));
     } catch (e) {
       showError(e);
     }

@@ -64,7 +64,7 @@ export class AdsHost implements vscode.Disposable {
   private idleTimer: NodeJS.Timeout | undefined;
   // a failed start is not retried by itself (view visibility, scope), only by a user action or a settings change
   private failure: StartError | undefined;
-  // value read back by a write, shown until the next sample brings the real one
+  // value read back by a write, shown until the next sample brings the real one; keyed in lower case (ADS names are case-insensitive)
   private written = new Map<string, string>();
   private stopped = new WeakSet<ChildProcessWithoutNullStreams>();
   private readonly disposables: vscode.Disposable[] = [];
@@ -97,7 +97,7 @@ export class AdsHost implements vscode.Disposable {
 
   /** Last value text of a watched symbol (after a write: the value read back until the next sample). */
   value(symbol: string): string | null | undefined {
-    return this.written.get(symbol) ?? this.buffer.latest(symbol)?.value;
+    return this.written.get(symbol.toLowerCase()) ?? this.buffer.latest(symbol)?.value;
   }
 
   watched(): string[] {
@@ -156,11 +156,11 @@ export class AdsHost implements vscode.Disposable {
       await this.ensure(true);
       try {
         const data = await this.request({ op: 'write', symbol, value }) as { symbol: string; value: string };
-        this.written.set(symbol, data.value);
+        this.written.set(symbol.trim().toLowerCase(), data.value);
         this.itemsChanged.fire();
         return data.value;
       } catch (e) {
-        this.written.delete(symbol);
+        this.written.delete(symbol.trim().toLowerCase());
         if (this.timedOut(e)) throw new Error(`Write of ${symbol} timed out; the value may or may not have been written`);
         throw e;
       }

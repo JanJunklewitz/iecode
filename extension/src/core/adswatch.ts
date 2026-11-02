@@ -13,13 +13,17 @@ export type HostMessage =
   | { event: 'items'; gen: number; items: WatchItem[] }
   | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number };
 
-// The CLI may print other text (build output, warnings) on stdout; those lines are not messages.
+// The CLI may print other text (build output, warnings) on stdout; those lines are not messages, and neither is JSON
+// that is neither an event nor a reply.
 export function parseHostLine(line: string): HostMessage | undefined {
   const s = line.trim();
   if (!s.startsWith('{')) return undefined;
   try {
     const o = JSON.parse(s);
-    return o && typeof o === 'object' ? o as HostMessage : undefined;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
+    const event = typeof o.event === 'string';
+    const reply = (o.id === null || typeof o.id === 'number') && typeof o.ok === 'boolean';
+    return event || reply ? o as HostMessage : undefined;
   } catch {
     return undefined;
   }
@@ -164,14 +168,21 @@ export function downsample<T>(rows: T[], max: number): T[] {
   return out;
 }
 
-// A write cannot be retried blindly, so a timeout says the outcome is unknown.
+// A write cannot be retried blindly, so a timeout says the outcome is unknown. An id added again while still open
+// rejects the older request, which could otherwise never settle.
 export class PendingRequests {
   private open = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 
   add(id: number, timeoutMs: number): Promise<unknown> {
+    const old = this.open.get(id);
+    if (old) {
+      this.open.delete(id);
+      clearTimeout(old.timer);
+      old.reject(new Error(`Request ${id} was replaced by a newer one with the same id.`));
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.open.delete(id);
+        if (this.open.get(id)?.timer === timer) this.open.delete(id);
         reject(new Error(`No reply from the ADS host within ${timeoutMs} ms; the outcome is unknown.`));
       }, timeoutMs);
       this.open.set(id, { resolve, reject, timer });
@@ -240,13 +251,18 @@ export function parseWatchList(raw: unknown): WatchEntry[] {
 
 /**
  * Adds and removes symbols (ADS names are case-insensitive), keeping the order. With `byAi` new entries are marked
- * `ai` and `remove` drops only `ai` entries, so the AI cannot take away what the user watches (O10).
+ * `ai` and `remove` drops only `ai` entries, so the AI cannot take away what the user watches (O10). The user adding
+ * a symbol the AI added makes the entry the user's.
  */
 export function watchEdit(current: WatchEntry[], add: string[] = [], remove: string[] = [], byAi = false): WatchEntry[] {
   const out = [...current];
   const seen = new Set(out.map(e => e.symbol.toLowerCase()));
   for (const s of add.map(x => x.trim())) {
-    if (!s || seen.has(s.toLowerCase())) continue;
+    if (!s) continue;
+    if (seen.has(s.toLowerCase())) {
+      if (!byAi) out.forEach((e, i) => { if (e.ai && e.symbol.toLowerCase() === s.toLowerCase()) out[i] = { ...e, ai: false }; });
+      continue;
+    }
     seen.add(s.toLowerCase());
     out.push({ symbol: s, ai: byAi });
   }
@@ -308,7 +324,8 @@ export function symbolAt(text: string, word: string, file: string): { name: stri
   const object = gvl ?? /^\s*PROGRAM\s+([A-Za-z_]\w*)/im.exec(text)?.[1];
   if (!object || !word) return { name: word, qualified: false };
   if (word.toLowerCase().startsWith(object.toLowerCase() + '.')) return { name: word, qualified: true };
-  const first = word.split('.')[0];
+  // the selection is free text (`a(b`, `arr[1]`): matched literally
+  const first = word.split('.')[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // a declaration "x : INT", "x, y : INT" or "x AT %I* : BOOL", not an assignment "x := 1"
   const declared = new RegExp(`^\\s*${first}\\s*(,|:(?!=)|AT\\b)`, 'im').test(text);
   return declared ? { name: `${object}.${word}`, qualified: true } : { name: word, qualified: false };

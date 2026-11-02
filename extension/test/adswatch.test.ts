@@ -15,6 +15,12 @@ test('parseHostLine reads each message kind', () => {
   assert.equal(parseHostLine('Building…'), undefined);
   assert.equal(parseHostLine('42'), undefined);
   assert.equal(parseHostLine(''), undefined);
+  // JSON objects that are neither an event nor a reply
+  assert.equal(parseHostLine('{"foo":1}'), undefined);
+  assert.equal(parseHostLine('{"id":1}'), undefined);
+  assert.equal(parseHostLine('{"event":5}'), undefined);
+  assert.equal(parseHostLine('{"ok":true}'), undefined);
+  assert.deepEqual(parseHostLine('{"id":null,"ok":false,"error":"bad json"}'), { id: null, ok: false, error: 'bad json' });
 });
 
 test('hostStartFailure', () => {
@@ -157,6 +163,15 @@ test('PendingRequests', async () => {
   await assert.rejects(p.add(5, 20), /unknown/);
 });
 
+test('PendingRequests rejects an open request whose id is added again', async () => {
+  const p = new PendingRequests();
+  const old = p.add(1, 1000);
+  const fresh = p.add(1, 1000);
+  await assert.rejects(old, /replaced/);
+  p.settle({ id: 1, ok: true, data: 'new' });
+  assert.equal(await fresh, 'new');
+});
+
 test('settingsError accepts local and AMS NetIds, rejects the rest', () => {
   assert.equal(settingsError({ target: 'local', port: 851 }), undefined);
   assert.equal(settingsError({ target: 'Local', port: 851 }), undefined);
@@ -183,6 +198,11 @@ test('symbolAt qualifies variables declared in PROGRAM and GVL objects', () => {
   const fb = 'FUNCTION_BLOCK FB_Motor\nVAR\n  bEnable : BOOL;\nEND_VAR\n';
   assert.deepEqual(symbolAt(fb, 'bEnable', '/p/FB_Motor.TcPOU'), { name: 'bEnable', qualified: false });
   assert.deepEqual(symbolAt(main, '', '/p/MAIN.TcPOU'), { name: '', qualified: false });
+  // a selection is matched literally, never as a regular expression
+  assert.deepEqual(symbolAt(main, 'a(b', '/p/MAIN.TcPOU'), { name: 'a(b', qualified: false });
+  // unescaped, [1] would be a character class matching the declaration of arr1
+  const arr = 'PROGRAM MAIN\nVAR\n  arr1 : INT;\nEND_VAR\n';
+  assert.deepEqual(symbolAt(arr, 'arr[1]', '/p/MAIN.TcPOU'), { name: 'arr[1]', qualified: false });
 });
 
 test('watchLimitError allows at most 200 symbols', () => {
@@ -257,6 +277,8 @@ test('watchEdit by the user adds without duplicates and removes case-insensitive
   assert.deepEqual(watchEdit([a], [' B ', 'b', '', 'C']), [a, { symbol: 'B', ai: false }, { symbol: 'C', ai: false }]);
   assert.deepEqual(watchEdit([{ symbol: 'x', ai: true }], [], ['X']), []);
   assert.deepEqual(watchEdit([a]), [a]);
+  // the user re-adding what the AI added makes it the user's, so the AI cannot remove it any more
+  assert.deepEqual(watchEdit([{ symbol: 'MAIN.x', ai: true }, a], ['main.X']), [{ symbol: 'MAIN.x', ai: false }, a]);
 });
 
 test('watchEdit by the AI marks its entries and removes only those (O10)', () => {
