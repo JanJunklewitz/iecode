@@ -5,10 +5,6 @@ using IECode.Core;
 using IECode.Core.Ads;
 using TwinCAT;
 using TwinCAT.Ads;
-using TwinCAT.Ads.SumCommand;
-using TwinCAT.Ads.TypeSystem;
-using TwinCAT.TypeSystem;
-using AdsNetId = TwinCAT.Ads.AmsNetId;
 
 namespace IECode.Automation;
 
@@ -17,42 +13,55 @@ namespace IECode.Automation;
 /// sum read per poll. All values are read by instance path, so a download never makes a read return bytes of another variable.
 /// </summary>
 [SupportedOSPlatform("windows")]
-public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<string>? log = null) : IWatchBackend
+public sealed class AdsWatchBackend : IWatchBackend
 {
-    /// <summary>Index group of the symbol version byte; it changes with every download that changes the symbol table.</summary>
-    private const uint SymbolVersionGroup = 0xF008;
-
-    private readonly string _where = $"{target}:{port}";
-    private AdsClient? _client;
-    private ISymbolLoader? _loader;
+    private readonly string _where;
+    private readonly Func<IAdsLink> _newLink;
+    private readonly Action<string>? _log;
+    private IAdsLink? _link;
+    private ISymbolSet? _loader;
+    /// <summary>The symbol version byte (index group 0xF008) changes with every download that changes the symbol table.</summary>
     private byte? _loaderVersion, _watchVersion;
     private bool _stale = true, _versionUnreadable, _versionWarned, _resolved;
     /// <summary>A watched item read 0x710/0x711: the next Resolve uploads a new symbol table, one-off reads and writes do not.</summary>
     private bool _itemsDead;
     private Watched[] _watched = [];
     private int[] _sumIndex = [];
-    private SumSymbolRead? _sum;
+    private ISymbolRead? _sum;
 
-    private sealed record Watched(IValueSymbol? Symbol, string BaseType, IReadOnlyDictionary<long, string>? Members);
+    private sealed record Watched(ILinkSymbol? Symbol, string BaseType, IReadOnlyDictionary<long, string>? Members);
 
-    /// <summary>Opens the ADS port and proves the target is there: AdsClient.Connect alone only opens the local router port.</summary>
+    public AdsWatchBackend(Core.AmsNetId target, int port, Action<string>? log = null)
+        : this($"{target}:{port}", () => new BeckhoffLink(target, port), log)
+    {
+    }
+
+    internal AdsWatchBackend(string where, Func<IAdsLink> newLink, Action<string>? log = null)
+    {
+        _where = where;
+        _newLink = newLink;
+        _log = log;
+    }
+
+    /// <summary>Opens the ADS port and proves the target is there: connecting alone only opens the local router port.</summary>
     public void Connect()
     {
         Drop();
-        var client = new AdsClient();
+        IAdsLink? link = null;
         try
         {
-            client.Connect(new AdsNetId(target.ToString()), port);
-            var code = client.TryReadState(out _);
+            link = _newLink();
+            link.Connect();
+            var code = link.ReadState();
             if (code != AdsErrorCode.NoError) throw new AdsFault(Text($"Cannot reach {_where} over ADS", (uint)code), (uint)code, true);
         }
         catch (Exception e)
         {
-            client.Dispose();
+            link?.Dispose();
             var fault = Map(e, $"Cannot reach {_where} over ADS");
             throw fault.ConnectionLost ? fault : new AdsFault(fault.Message, fault.AdsCode, true);
         }
-        _client = client;
+        _link = link;
     }
 
     /// <summary>Builds a new symbol loader after a fault or a symbol version change, otherwise looks the names up in the old one (O2).</summary>
@@ -61,17 +70,17 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         // Until this resolve succeeds there is nothing valid to read; ReadWatched then asks the host to resolve again.
         _resolved = false;
         _sum = null;
-        var client = Client();
+        var link = Link();
         if (_itemsDead) _stale = true;
         _itemsDead = false;
-        var version = ReadVersion(client);
-        var loader = Loader(client, version, symbols.Count);
+        var version = ReadVersion(link);
+        var loader = Loader(link, version, symbols.Count);
         var watched = new Watched[symbols.Count];
         var items = new WatchItem[symbols.Count];
         for (var i = 0; i < symbols.Count; i++)
         {
             var name = symbols[i];
-            IValueSymbol? sym;
+            ILinkSymbol? sym;
             try
             {
                 sym = Lookup(loader, name);
@@ -83,22 +92,18 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
                 watched[i] = new Watched(null, "", null);
                 continue;
             }
-            var typeName = sym?.DataType?.Name ?? "?";
             if (sym is null) items[i] = new WatchItem(name, "", false, "Symbol not found");
-            else if (!AdsValues.IsSingleValue(sym.DataType)) items[i] = new WatchItem(name, typeName, false, $"{typeName} is not a single value; add its members instead");
+            else if (!sym.IsSingleValue) items[i] = new WatchItem(name, sym.TypeName, false, $"{sym.TypeName} is not a single value; add its members instead");
             else
             {
-                var (baseType, members) = AdsValues.Resolve(sym.DataType);
-                watched[i] = new Watched(sym, baseType, members);
-                items[i] = new WatchItem(name, typeName, PlcValueText.IsNumeric(baseType, members is not null), null);
+                watched[i] = new Watched(sym, sym.BaseType, sym.Members);
+                items[i] = new WatchItem(name, sym.TypeName, PlcValueText.IsNumeric(sym.BaseType, sym.Members is not null), null);
                 continue;
             }
             watched[i] = new Watched(null, "", null);
         }
         var index = Enumerable.Range(0, watched.Length).Where(i => watched[i].Symbol is not null).ToArray();
-        _sum = index.Length == 0
-            ? null
-            : new SumSymbolRead(client, index.Select(i => (ISymbol)watched[i].Symbol!).ToList(), SumAccessMode.ValueByName, SumFallbackMode.All);
+        _sum = index.Length == 0 ? null : link.PrepareRead(index.Select(i => watched[i].Symbol!).ToList());
         _sumIndex = index;
         _watched = watched;
         _watchVersion = version;
@@ -111,12 +116,13 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         if (!_resolved) throw new AdsFault("Watched symbols are not resolved", (uint)AdsErrorCode.DeviceSymbolNotFound, false);
         var row = new (string? Value, long? EnumValue, uint? AdsCode)[_watched.Length];
         if (_sum is null) return row;
-        ResultSumValues2<ISymbol> result;
+        IReadOnlyList<SumItem> results;
         try
         {
-            result = _sum.Read2();
-            if (result.Failed || result.ValueResults is null)
-                throw new AdsFault(Text($"Read from {_where}", (uint)result.ErrorCode), (uint)result.ErrorCode, AdsCodes.IsConnectionLost((uint)result.ErrorCode));
+            var result = _sum.Read();
+            if (result.Items is null || result.Code != AdsErrorCode.NoError)
+                throw new AdsFault(Text($"Read from {_where}", (uint)result.Code), (uint)result.Code, AdsCodes.IsConnectionLost((uint)result.Code));
+            results = result.Items;
         }
         catch (Exception e)
         {
@@ -129,13 +135,13 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         {
             var i = _sumIndex[k];
             var w = _watched[i];
-            var r = result.ValueResults[k];
-            if (r.ErrorCode != AdsErrorCode.NoError)
+            var r = results[k];
+            if (r.Code != AdsErrorCode.NoError)
             {
                 // A symbol in the table but not in the running program reads 0x710 on every poll (the host backs off);
                 // only a resolve should upload the table again for it, not every one-off read or write in between.
-                if (AdsCodes.IsDeadHandle((uint)r.ErrorCode)) _itemsDead = true;
-                row[i] = (null, null, (uint)r.ErrorCode);
+                if (AdsCodes.IsDeadHandle((uint)r.Code)) _itemsDead = true;
+                row[i] = (null, null, (uint)r.Code);
                 continue;
             }
             row[i] = (PlcValueText.Format(w.BaseType, AdsValues.Normalize(w.BaseType, r.Value), w.Members), w.Members is null ? null : ToInt64(r.Value), null);
@@ -149,7 +155,7 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         byte? version;
         try
         {
-            version = ReadVersion(Client());
+            version = ReadVersion(Link());
         }
         catch (AdsFault f) when (!f.ConnectionLost && f.AdsCode is { } c && AdsCodes.IsDeadHandle(c))
         {
@@ -164,27 +170,24 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
     public (string Type, string Value) ReadOnce(string symbol)
     {
         var sym = Find(symbol);
-        var (baseType, members) = AdsValues.Resolve(sym.DataType);
-        var value = Call($"Read {symbol}", () => sym.ReadValue());
-        return (sym.DataType?.Name ?? "?", PlcValueText.Format(baseType, AdsValues.Normalize(baseType, value), members));
+        var value = Call($"Read {symbol}", sym.Read);
+        return (sym.TypeName, PlcValueText.Format(sym.BaseType, AdsValues.Normalize(sym.BaseType, value), sym.Members));
     }
 
     public string Write(string symbol, string text)
     {
         var sym = Find(symbol);
-        var (baseType, members) = AdsValues.Resolve(sym.DataType);
-        var value = AdsValues.ParseForWrite(sym.DataType, text);
-        Call($"Write {symbol}", () => { sym.WriteValue(value); return 0; });
-        var back = Call($"Read {symbol}", () => sym.ReadValue());
-        return PlcValueText.Format(baseType, AdsValues.Normalize(baseType, back), members);
+        Call($"Write {symbol}", () => { sym.Write(text); return 0; });
+        var back = Call($"Read {symbol}", sym.Read);
+        return PlcValueText.Format(sym.BaseType, AdsValues.Normalize(sym.BaseType, back), sym.Members);
     }
 
     public void Dispose() => Drop();
 
     private void Drop()
     {
-        _client?.Dispose();
-        _client = null;
+        _link?.Dispose();
+        _link = null;
         _loader = null;
         _sum = null;
         _resolved = false;
@@ -194,18 +197,18 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         _watchVersion = null;
     }
 
-    private AdsClient Client() => _client ?? throw new AdsFault($"Not connected to {_where}", null, true);
+    private IAdsLink Link() => _link ?? throw new AdsFault($"Not connected to {_where}", null, true);
 
     /// <summary>An empty table while <paramref name="requested"/> symbols are wanted is a lost connection, never cached.</summary>
-    private ISymbolLoader Loader(AdsClient client, byte? version, int requested)
+    private ISymbolSet Loader(IAdsLink link, byte? version, int requested)
     {
         if (_loader is null || _stale || version != _loaderVersion)
         {
             // The table is uploaded on first access of Symbols, so the count is taken inside the mapped call.
             var (loader, count) = Call($"Symbol upload from {_where}", () =>
             {
-                var l = SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default);
-                return (l, l.Symbols.Count);
+                var l = link.UploadSymbols();
+                return (l, l.Count);
             });
             if (SymbolTable.MeansUnreachable(requested, count))
             {
@@ -220,17 +223,16 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
         return _loader;
     }
 
-    private IValueSymbol? Lookup(ISymbolLoader loader, string name) =>
-        Call($"Symbol lookup on {_where}", () => AdsValues.FindSymbol(loader.Symbols, name) as IValueSymbol);
+    private ILinkSymbol? Lookup(ISymbolSet loader, string name) => Call($"Symbol lookup on {_where}", () => loader.Find(name));
 
     /// <summary>A single-value symbol for read / write requests; the loader is refreshed first if the symbol version moved on.</summary>
-    private IValueSymbol Find(string symbol)
+    private ILinkSymbol Find(string symbol)
     {
-        var client = Client();
-        var sym = Lookup(Loader(client, ReadVersion(client), 1), symbol)
+        var link = Link();
+        var sym = Lookup(Loader(link, ReadVersion(link), 1), symbol)
             ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}.");
-        if (!AdsValues.IsSingleValue(sym.DataType))
-            throw new IECodeException(ExitCodes.Usage, $"{sym.DataType?.Name ?? "?"} is not a single value; add its members instead");
+        if (!sym.IsSingleValue)
+            throw new IECodeException(ExitCodes.Usage, $"{sym.TypeName} is not a single value; add its members instead");
         return sym;
     }
 
@@ -240,16 +242,15 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
     /// 0x710/0x711 on the version itself means the symbol table is being replaced (start of a download): a dead-handle
     /// fault, so the host resolves again and a resolve in that window fails instead of storing no version.
     /// </summary>
-    private byte? ReadVersion(AdsClient client)
+    private byte? ReadVersion(IAdsLink link)
     {
         if (_versionUnreadable) return null;
-        var result = Call($"Symbol version read from {_where}", () => client.ReadAsResult(SymbolVersionGroup, 0, 1));
-        var code = result.ErrorCode;
-        var read = code == AdsErrorCode.NoError ? result.Data.Length : 0;
+        var (code, data) = Call($"Symbol version read from {_where}", link.ReadSymbolVersion);
+        var read = code == AdsErrorCode.NoError ? data.Length : 0;
         switch (SymbolVersion.Classify((uint)code, read))
         {
             case SymbolVersionRead.Value:
-                return result.Data.Span[0];
+                return data[0];
             case SymbolVersionRead.ConnectionLost:
                 throw new AdsFault(Text($"Symbol version read from {_where}", (uint)code), (uint)code, true);
             case SymbolVersionRead.Changing:
@@ -257,7 +258,7 @@ public sealed class AdsWatchBackend(Core.AmsNetId target, int port, Action<strin
                 throw new AdsFault(Text($"Symbol version read from {_where}", (uint)code) + " (symbol table is changing)", (uint)code, false);
         }
         _versionUnreadable = true;
-        if (!_versionWarned) log?.Invoke($"Cannot read the symbol version of {_where} (index group 0xF008: {code}, {read} byte(s)); downloads are noticed by read errors only.");
+        if (!_versionWarned) _log?.Invoke($"Cannot read the symbol version of {_where} (index group 0xF008: {code}, {read} byte(s)); downloads are noticed by read errors only.");
         _versionWarned = true;
         return null;
     }

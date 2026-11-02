@@ -6,5 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="..\IECode.Core\IECode.Core.csproj" />
     <PackageReference Include="Beckhoff.TwinCAT.Ads" Version="7.0.389" />
+    <InternalsVisibleTo Include="IECode.Automation.Tests" />
   </ItemGroup>
 </Project>
