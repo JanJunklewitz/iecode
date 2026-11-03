@@ -264,8 +264,9 @@ export class PreparedWrites {
   prepare(key: string, record: { decision: WriteDecision; targetKey: string }): void {
     const old = this.records.get(key);
     if (old && this.now() - old.at <= this.maxAgeMs) {
+      // identical records bind the same decision and target, so either invoke may use it (a declined confirmation leaves one behind)
       old.count++;
-      old.ambiguous = true;
+      if (old.decision !== record.decision || old.targetKey !== record.targetKey) old.ambiguous = true;
       return;
     }
     // writes the user declined never reach invoke; keep the map from growing on them

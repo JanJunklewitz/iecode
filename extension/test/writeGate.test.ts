@@ -482,3 +482,15 @@ test('prepared writes keep at most 100 records', () => {
   assert.equal(p.take('k0'), undefined);
   assert.ok(p.take('new'));
 });
+
+test('prepared writes survive a declined confirmation and a retry', () => {
+  const clock = new FakeClock();
+  const p = new PreparedWrites(150_000, clock.now);
+  // the first confirmation was declined, so its invoke never ran and the record stayed
+  p.prepare('k', { decision: 'confirm', targetKey: 'A:851' });
+  p.prepare('k', { decision: 'confirm', targetKey: 'A:851' });
+  assert.deepEqual(p.take('k'), { decision: 'confirm', targetKey: 'A:851' });
+  // one record is left over from the declined call; it must not poison the next retry either
+  p.prepare('k', { decision: 'confirm', targetKey: 'A:851' });
+  assert.deepEqual(p.take('k'), { decision: 'confirm', targetKey: 'A:851' });
+});
