@@ -122,8 +122,10 @@ canvas{position:absolute;left:0;top:0;width:100%;height:100%}
 </style></head><body>
 <div class="top">
   <label>Time span <select id="span"></select></label>
-  <label>Poll <input id="poll" type="number" min="10" max="5000" step="10" title="Read interval in ms (10 to 5000)"> ms</label>
-  <label>Buffer <input id="buf" type="number" min="10" max="3600" step="10" title="Seconds of values kept (10 to 3600)"> s</label>
+  <label>Poll <input id="poll" type="number" list="polls" min="10" max="5000" step="10" title="Read interval in ms (10 to 5000): pick one or type your own"> ms</label>
+  <datalist id="polls"><option value="10"><option value="20"><option value="50"><option value="100"><option value="200"><option value="500"><option value="1000"><option value="2000"><option value="5000"></datalist>
+  <label>Buffer <input id="buf" type="number" list="bufs" min="10" max="3600" step="10" title="Seconds of values kept (10 to 3600): pick one or type your own"> s</label>
+  <datalist id="bufs"><option value="10" label="10 s"><option value="30" label="30 s"><option value="60" label="1 min"><option value="120" label="2 min"><option value="300" label="5 min"><option value="600" label="10 min"><option value="1800" label="30 min"><option value="3600" label="1 h"></datalist>
   <button id="pause">Pause</button>
   <span id="note"></span>
 </div>
@@ -189,6 +191,7 @@ function draw() {
   if (lo === hi) { lo -= 1; hi += 1; }
   const pad = (hi - lo) * 0.05; lo -= pad; hi += pad;
   const X = t => L + (t + seconds) / seconds * pw, Y = v => T + (1 - (v - lo) / (hi - lo)) * ph;
+  geo = { Y };
   ctx.globalAlpha = 0.25; ctx.lineWidth = 1;
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   for (const v of niceTicks(lo, hi, 5)) {
@@ -231,22 +234,25 @@ function readout(L, pw) {
   if (cursor === null || cursor < L || cursor > L + pw) { $('read').textContent = ''; tip.style.display = 'none'; return; }
   const t = (cursor - L) / pw * seconds - seconds;
   const parts = [t.toFixed(1) + ' s'];
-  // the same values as a tooltip above the mouse pointer
-  tip.textContent = '';
-  const head = document.createElement('div');
-  head.textContent = t.toFixed(1) + ' s';
-  tip.append(head);
+  // the tooltip belongs to the variable whose curve is nearest to the pointer, with a dot on that curve
+  let near = null;
   data.series.forEach((s, i) => {
     if (hidden.has(s.symbol)) return;
     const p = at(s.pts, t);
     if (!p) return;
     parts.push(s.symbol + ' = ' + fmt(p[1]));
-    const row = document.createElement('div'), sw = document.createElement('i');
-    sw.style.background = color(i);
-    row.append(sw, document.createTextNode(s.symbol + ' = ' + fmt(p[1])));
-    tip.append(row);
+    const d = Math.abs(geo.Y(p[1]) - mouse.cy);
+    if (!near || d < near.d) near = { s, i, v: p[1], d };
   });
   $('read').textContent = parts.join('   ');
+  if (!near) { tip.style.display = 'none'; return; }
+  ctx.fillStyle = color(near.i); ctx.beginPath(); ctx.arc(cursor, geo.Y(near.v), 4, 0, 2 * Math.PI); ctx.fill();
+  tip.textContent = '';
+  const head = document.createElement('div'), row = document.createElement('div'), sw = document.createElement('i');
+  head.textContent = t.toFixed(1) + ' s';
+  sw.style.background = color(near.i);
+  row.append(sw, document.createTextNode(near.s.symbol + ' = ' + fmt(near.v)));
+  tip.append(head, row);
   tip.style.display = 'block';
   // above the pointer; below it when there is no room, and kept inside the window
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -255,8 +261,9 @@ function readout(L, pw) {
   tip.style.left = x + 'px'; tip.style.top = y + 'px';
 }
 
-let mouse = { x: 0, y: 0 };
-cv.onmousemove = ev => { cursor = ev.clientX - cv.getBoundingClientRect().left; mouse = { x: ev.clientX, y: ev.clientY }; draw(); };
+// pointer in window coordinates (x, y) and in canvas coordinates (cy); geo.Y maps a value to a canvas y
+let mouse = { x: 0, y: 0, cy: 0 }, geo = { Y: v => 0 };
+cv.onmousemove = ev => { const r = cv.getBoundingClientRect(); cursor = ev.clientX - r.left; mouse = { x: ev.clientX, y: ev.clientY, cy: ev.clientY - r.top }; draw(); };
 cv.onmouseleave = () => { cursor = null; draw(); };
 // the fields follow the settings, except while one is being edited
 function sampling() {
