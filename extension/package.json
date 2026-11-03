@@ -1356,6 +1356,7 @@
           "properties": {
             "filter": {
               "type": "string",
+              "maxLength": 512,
               "description": "Part of the ADS name to search for, e.g. \"MAIN.\" or \"nCounter\"; empty lists the first 100."
             }
           },
@@ -1381,12 +1382,14 @@
           "properties": {
             "add": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "ADS names to watch, e.g. MAIN.nCounter."
             },
             "remove": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "ADS names to stop watching (only entries added by AI)."
             }
           }
@@ -1409,7 +1412,8 @@
           "properties": {
             "symbols": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "ADS names to read; default all watched symbols."
             }
           }
@@ -1432,7 +1436,8 @@
           "properties": {
             "symbols": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "Watched ADS names; default all watched symbols."
             },
             "seconds": {
@@ -1459,10 +1464,12 @@
           "properties": {
             "symbol": {
               "type": "string",
+              "maxLength": 512,
               "description": "ADS name, e.g. MAIN.bStart."
             },
             "value": {
               "type": "string",
+              "maxLength": 4096,
               "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
             }
           },
