@@ -17,12 +17,13 @@ internal static class Runner
         public static Outcome Ok(object? data = null) => new(ExitCodes.Ok, data);
     }
 
-    public static void Action(Command command, Func<Context, Outcome> body, bool windowsOnly = false) =>
-        command.SetAction(parse => Run(parse, command, body, windowsOnly));
+    /// <summary>protocolStdout: stdout belongs to the command's own protocol, so --json never adds a result document there and log lines always go to stderr.</summary>
+    public static void Action(Command command, Func<Context, Outcome> body, bool windowsOnly = false, bool protocolStdout = false) =>
+        command.SetAction(parse => Run(parse, command, body, windowsOnly, protocolStdout));
 
-    private static int Run(ParseResult parse, Command command, Func<Context, Outcome> body, bool windowsOnly)
+    private static int Run(ParseResult parse, Command command, Func<Context, Outcome> body, bool windowsOnly, bool protocolStdout)
     {
-        var log = new Reporter(parse.GetValue(Globals.Json), parse.GetValue(Globals.Verbose));
+        var log = new Reporter(!protocolStdout && parse.GetValue(Globals.Json), parse.GetValue(Globals.Verbose));
         if (parse.GetValue(Globals.NoColor)) log.DisableColor();
         var name = FullName(command);
         int code;

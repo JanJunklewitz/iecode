@@ -312,9 +312,12 @@ export async function findTmc(plcproj: string): Promise<string | undefined> {
 const OBJECT_EXT = /\.(TcPOU|TcGVL|TcDUT)$/i;
 
 /** Interface from the build output (.tmc). Throws if the project hasn't been built. */
+/** The PLC project has no build output (.tmc) yet; other errors of fromBuild mean the output is there but unreadable. */
+export class NoBuildOutputError extends Error {}
+
 export async function fromBuild(plc: PlcProject, members = false): Promise<AdsInterface> {
   const file = await findTmc(plc.file);
-  if (!file) throw new Error(`No build output for ${plc.name}: TwinCAT writes ${plc.name}.tmc next to the .plcproj when it builds the PLC project. Build it first, or show the interface from the source code.`);
+  if (!file) throw new NoBuildOutputError(`No build output for ${plc.name}: TwinCAT writes ${plc.name}.tmc next to the .plcproj when it builds the PLC project. Build it first, or show the interface from the source code.`);
   const built = (await fs.stat(file)).mtimeMs;
   const times = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(f => fs.stat(f).then(s => s.mtimeMs, () => 0)));
   return { origin: 'build', file, stale: times.some(t => t > built), symbols: fromTmc(await fs.readFile(file, 'utf8'), members) };

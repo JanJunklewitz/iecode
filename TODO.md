@@ -2,11 +2,31 @@
 
 ## Open
 
-- [ ] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
-  - Watchlist: tracked variables, added by hand (e.g. from the editor or a symbol picker) or by an AI agent. Read the actual value and write a new value.
-  - Separate window (panel) for the tracked variables, with a mini scope like in the System project: the actual values are recorded and plotted over a configurable time span.
-  - AI interface (e.g. MCP server or CLI) with the same capabilities: define which variables are tracked (add/remove), read the scope data, read the actual value, write variables.
-  - Open: sample rate and buffer size, how writes are guarded (confirmation for AI writes, read-only mode), access to a target when no PLC is connected.
+- [ ] **MCP server for the ADS watch (high priority)**: most of the daily AI work here is done with Claude Code, which cannot call the `vscode.lm` tools (`iecode_ads_*`), so today only Copilot can use the ADS interface.
+  - Must be served by the extension, not the host, because the watch list and the sample history live in the extension. Same tools and the same `iecode.ads.aiWrites` rules (off / confirm / auto, confirm needs a way to ask the user) as the language model tools.
+  - Open: transport (local HTTP or a stdio shim the extension talks to), how Claude Code finds it (registration in `.mcp.json` or by the extension), how a write confirmation reaches the user.
+- [x] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
+  - Plan: [docs/superpowers/plans/2026-11-02-ads-watchlist.md](docs/superpowers/plans/2026-11-02-ads-watchlist.md).
+  - Done: ADS Watch view, ADS Scope, `iecode ads serve`, language model tools `iecode_ads_*`, setting `iecode.ads.aiWrites` (off / confirm / auto).
+  - Left for later:
+    - ADS notifications instead of polling (for a resolution below 10 ms).
+    - AI write allowlist (which variables an AI may write).
+    - Writing structs and arrays.
+    - Live online symbol browser.
+  - Manual checks against a real runtime:
+    - [x] Write of non-ASCII strings (e.g. umlauts) via `serve`: write reply, samples and a separate read return the text unchanged.
+    - [x] Interactive EOF and piped one-shot requests (C3): every request read before EOF gets its reply, exit code 0.
+    - [x] Reads, watch and samples at about 100 ms; item errors for unknown names, function blocks and arrays; DT text.
+    - [x] `interval` clamping (5 -> 10, 9999 -> 5000).
+    - [x] Error codes while the target restarts: 0x6, 0x1D (Secure ADS route) and 0x745 observed; 0x1D now counts as connection lost.
+  - Manual checks still open:
+    - [x] Restart of TwinCAT while watching (`target run`): disconnect (0x745, then 0x1D), `connected:true` again and the same items sample again. The route needs a TCP probe of 8016 / 48898 before it answers after a restart.
+    - [x] Enum values: member name and `e` are shown (INT-based enum `TcEventSeverity`); a write by name is not re-checked.
+    - [x] Poll timing: 21 symbols at `interval` 10 ms give a row about every 17 ms (round trip over the Secure ADS route), about 16 % CPU of the host.
+    - [ ] Download / online change while watching, INT -> REAL. Not possible on TP: the throwaway project failed to start the real-time kernel there (`RTIME: incompatible software detected`, 0x1024), so the original application was put back. Covered by unit tests with a fake link only (`IECode.Automation.Tests`).
+    - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
+    - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
+    - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.

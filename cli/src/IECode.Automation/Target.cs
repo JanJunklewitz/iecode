@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Runtime.Versioning;
 using IECode.Core;
+using IECode.Core.Ads;
 using TwinCAT;
 using TwinCAT.Ads;
 using TwinCAT.Ads.TypeSystem;
@@ -33,52 +33,25 @@ public static class Target
         Try(() => { client.WriteControl(new StateInfo(state, 0)); return 0; }, target);
     }
 
-    /// <summary>Reads a PLC variable by its full symbol name, e.g. MAIN.bStart or GVL.nCount.</summary>
-    public static (string Type, object? Value) Read(Core.AmsNetId target, int port, string symbol)
+    /// <summary>Reads a PLC variable by its full symbol name, e.g. MAIN.bStart or GVL.nCount. Value is the raw value as read, Text is the canonical text.</summary>
+    public static (string Type, object? Value, string Text) Read(Core.AmsNetId target, int port, string symbol)
     {
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
-        return (sym.DataType?.Name ?? "?", Try(() => sym.ReadValue(), target));
+        var (baseType, members) = AdsValues.Resolve(sym.DataType);
+        var value = Try(() => sym.ReadValue(), target);
+        return (sym.DataType?.Name ?? "?", value, PlcValueText.Format(baseType, AdsValues.Normalize(baseType, value), members));
     }
 
-    /// <summary>Writes a PLC variable. The text is converted to the variable's primitive type.</summary>
-    public static object Write(Core.AmsNetId target, int port, string symbol, string text)
+    /// <summary>Writes a PLC variable. The text is converted to the variable's type (enum member names and PlcOpen time / date values included).</summary>
+    public static (object Value, string Text) Write(Core.AmsNetId target, int port, string symbol, string text)
     {
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
-        var value = Convert(text, sym.DataType?.Name ?? "", symbol);
+        var (baseType, members) = AdsValues.Resolve(sym.DataType);
+        var value = AdsValues.ParseForWrite(sym.DataType, text);
         Try(() => { sym.WriteValue(value); return 0; }, target);
-        return value;
-    }
-
-    /// <summary>Converts user input to the .NET type that matches an IEC 61131-3 elementary type.</summary>
-    public static object Convert(string text, string iecType, string symbol)
-    {
-        var inv = CultureInfo.InvariantCulture;
-        var t = iecType.ToUpperInvariant();
-        try
-        {
-            return t switch
-            {
-                "BOOL" => text.Trim().ToUpperInvariant() switch { "TRUE" or "1" => true, "FALSE" or "0" => false, _ => throw new FormatException() },
-                "BYTE" or "USINT" => byte.Parse(text, inv),
-                "SINT" => sbyte.Parse(text, inv),
-                "WORD" or "UINT" => ushort.Parse(text, inv),
-                "INT" => short.Parse(text, inv),
-                "DWORD" or "UDINT" => uint.Parse(text, inv),
-                "DINT" => int.Parse(text, inv),
-                "LWORD" or "ULINT" => ulong.Parse(text, inv),
-                "LINT" => long.Parse(text, inv),
-                "REAL" => float.Parse(text, inv),
-                "LREAL" => double.Parse(text, inv),
-                _ when t.StartsWith("STRING", StringComparison.Ordinal) || t.StartsWith("WSTRING", StringComparison.Ordinal) => text,
-                _ => throw new IECodeException(ExitCodes.Usage, $"Writing variables of type {iecType} is not supported.", "Supported: BOOL, integer types, REAL, LREAL, STRING."),
-            };
-        }
-        catch (Exception e) when (e is FormatException or OverflowException)
-        {
-            throw new IECodeException(ExitCodes.Usage, $"'{text}' is not a valid {iecType} for {symbol}.");
-        }
+        return (value, PlcValueText.Format(baseType, value, members));
     }
 
     private static AdsClient Connect(Core.AmsNetId target, int port)
@@ -99,7 +72,7 @@ public static class Target
     private static IValueSymbol FindSymbol(AdsClient client, string symbol, Core.AmsNetId target)
     {
         var loader = Try(() => SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default), target);
-        return Try(() => loader.Symbols.TryGetInstance(symbol, out var s) ? s : null, target) as IValueSymbol
+        return Try(() => AdsValues.FindSymbol(loader.Symbols, symbol), target) as IValueSymbol
             ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {target}.",
                 "Use the full instance path, e.g. MAIN.fbMotor.bEnable or GVL.nCount, and check the ADS port (--port, default 851).");
     }

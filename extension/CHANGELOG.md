@@ -13,6 +13,14 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - **Config Changes** for `.xti` files (right-click an `.xti` in the Explorer, editor tab or Source Control: **Compare Config with HEAD**; pick another version in the panel): the changes of a PLC instance `.xti` by meaning instead of by XML line, grouped into tasks, settings, licenses, parameters, symbols, types and more. Checkboxes hide categories (layout, metadata) and noise (GUID churn, build timestamps, whitespace); the choice is the setting `iecode.configDiff.hidden`. **Open as YAML** shows both versions as YAML in the diff editor.
 - CLI: `iecode-st config-diff --rev <ref> [--to <ref>] <file.xti> [--all] [--hide <ids>]`.
 
+### ADS watchlist
+- **ADS Watch** view: live values of PLC variables on the local runtime or a remote target (`iecode.ads.target`, `iecode.ads.port`). Add variables from the build output, by name or from the ST editor; write a value (always confirmed) or copy it. Connects only while the view shows variables.
+- **ADS Scope** (graph icon in the view title): a mini scope that plots the numeric watched variables over 10 s to 5 min, with pause, per-variable show/hide and a cursor readout.
+- **AI tools** for GitHub Copilot Chat in agent mode (`iecode_ads_*`: find symbols, watch, read, scope summary, write) and **Add to AI Chat** for the last 60 s of all watched values. AI writes follow `iecode.ads.aiWrites` (`off` by default, `confirm`, `auto`; user settings only). With `auto` IECode asks nothing, but VS Code's own tool approval rules may still ask.
+- Settings: `iecode.ads.target`, `iecode.ads.port`, `iecode.ads.sampleIntervalMs`, `iecode.ads.bufferSeconds`, `iecode.ads.aiWrites`.
+- CLI: `iecode ads serve` is the long-running connection the extension talks to.
+- CLI: `iecode ads read|write` accept TIME, LTIME, TOD, DATE, DT and enum values, `ads read --json` has a new `text` field, and both resolve nested symbol paths such as `MAIN.fb.x` (formerly "not found").
+
 ## 0.2.5
 
 ### Output

@@ -31,7 +31,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "Programming Languages",
@@ -411,6 +411,76 @@
         "title": "Open IO-Link Explorer",
         "category": "IECode",
         "icon": "$(preview)"
+      },
+      {
+        "command": "iecode.adsWatchAdd",
+        "title": "Add Variable to ADS Watch…",
+        "category": "IECode",
+        "icon": "$(add)"
+      },
+      {
+        "command": "iecode.adsTarget",
+        "title": "Change ADS Target…",
+        "category": "IECode",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "iecode.adsWatchAddFromEditor",
+        "title": "Add to ADS Watch",
+        "category": "IECode",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "iecode.adsWatchRemove",
+        "title": "Remove from ADS Watch",
+        "category": "IECode",
+        "icon": "$(close)"
+      },
+      {
+        "command": "iecode.adsWatchClear",
+        "title": "Clear ADS Watch",
+        "category": "IECode",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "iecode.adsWatchWrite",
+        "title": "Write Value…",
+        "category": "IECode",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "iecode.adsWatchCopy",
+        "title": "Copy Value",
+        "category": "IECode",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "iecode.adsWatchCopyPath",
+        "title": "Copy Path",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.adsWatchEdit",
+        "title": "Edit Variable…",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.adsScope",
+        "title": "Open ADS Scope",
+        "category": "IECode",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "iecode.adsWatchAiChat",
+        "title": "Add to AI Chat",
+        "category": "IECode",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "iecode.adsAiWrites",
+        "title": "Set AI Write Access…",
+        "category": "IECode",
+        "icon": "$(shield)"
       }
     ],
     "menus": {
@@ -505,6 +575,11 @@
           "command": "iecode.aiComment",
           "when": "resourceScheme == iecode || editorLangId == twincat-st",
           "group": "1_iecodeAi@2"
+        },
+        {
+          "command": "iecode.adsWatchAddFromEditor",
+          "when": "isWindows && (resourceScheme == iecode || editorLangId == twincat-st)",
+          "group": "2_iecodeAds@1"
         }
       ],
       "webview/context": [
@@ -599,6 +674,36 @@
           "command": "iecode.ioLinkRefresh",
           "when": "view == iecode.ioLink",
           "group": "navigation@2"
+        },
+        {
+          "command": "iecode.adsWatchAdd",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iecode.adsScope",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@2"
+        },
+        {
+          "command": "iecode.adsTarget",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@3"
+        },
+        {
+          "command": "iecode.adsWatchClear",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@9"
+        },
+        {
+          "command": "iecode.adsWatchAiChat",
+          "when": "view == iecode.adsWatch",
+          "group": "ai@1"
+        },
+        {
+          "command": "iecode.adsAiWrites",
+          "when": "view == iecode.adsWatch",
+          "group": "ai@2"
         }
       ],
       "view/item/context": [
@@ -746,6 +851,41 @@
           "command": "iecode.ioLinkExplorer",
           "when": "view == iecode.projects && viewItem == system",
           "group": "0_build@8"
+        },
+        {
+          "command": "iecode.adsWatchWrite",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "inline@1"
+        },
+        {
+          "command": "iecode.adsWatchRemove",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "inline@2"
+        },
+        {
+          "command": "iecode.adsWatchWrite",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "1_value@1"
+        },
+        {
+          "command": "iecode.adsWatchCopy",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "1_value@2"
+        },
+        {
+          "command": "iecode.adsWatchCopyPath",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "1_value@3"
+        },
+        {
+          "command": "iecode.adsWatchEdit",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "2_edit@0"
+        },
+        {
+          "command": "iecode.adsWatchRemove",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "2_edit@1"
         }
       ],
       "commandPalette": [
@@ -836,6 +976,50 @@
         {
           "command": "iecode.ioLinkReveal",
           "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchAdd",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsWatchAddFromEditor",
+          "when": "isWindows && (resourceScheme == iecode || editorLangId == twincat-st)"
+        },
+        {
+          "command": "iecode.adsWatchClear",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsScope",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsWatchRemove",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchWrite",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchCopy",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchCopyPath",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchEdit",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchAiChat",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.adsAiWrites",
+          "when": "isWindows"
         }
       ],
       "iecode.compare": [
@@ -1065,6 +1249,48 @@
           ],
           "default": "always",
           "markdownDescription": "When the **IECode** output channel opens by itself. It lists every CLI run with its progress, the compiler errors, warnings and messages, and the result; filter by level in the Output view."
+        },
+        "iecode.ads.target": {
+          "type": "string",
+          "default": "local",
+          "markdownDescription": "Target of the **ADS Watch** view: `local` or an AMS NetId (six numbers, e.g. `192.168.1.10.1.1`). Changing it reconnects."
+        },
+        "iecode.ads.port": {
+          "type": "integer",
+          "default": 851,
+          "minimum": 1,
+          "maximum": 65535,
+          "markdownDescription": "ADS port of the PLC runtime for the **ADS Watch** view (`851` = first PLC of TwinCAT 3). Changing it reconnects."
+        },
+        "iecode.ads.sampleIntervalMs": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 5000,
+          "markdownDescription": "How often watched ADS values are read, in milliseconds. Windows timers tick about every 15.6 ms, so below ~16 ms the real rate is lower; every sample carries its actual read time."
+        },
+        "iecode.ads.bufferSeconds": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 10,
+          "maximum": 3600,
+          "markdownDescription": "Seconds of watched ADS values kept for the scope and AI tools. Long windows with many variables keep fewer seconds (at most 2 million values)."
+        },
+        "iecode.ads.aiWrites": {
+          "type": "string",
+          "enum": [
+            "off",
+            "confirm",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "AI tools cannot write PLC variables.",
+            "You confirm each AI write in the chat. This relies on you not choosing \"Always Allow\" for the adsWrite tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
+            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\"."
+          ],
+          "default": "off",
+          "scope": "application",
+          "markdownDescription": "Whether AI tools in GitHub Copilot Chat (agent mode) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
         }
       }
     },
@@ -1091,6 +1317,13 @@
           "icon": "resources/iecode.svg",
           "contextualTitle": "IECode",
           "when": "iecode.hasProjects"
+        },
+        {
+          "id": "iecode.adsWatch",
+          "name": "ADS Watch",
+          "icon": "resources/iecode.svg",
+          "contextualTitle": "IECode",
+          "when": "isWindows"
         }
       ]
     },
@@ -1099,6 +1332,145 @@
         "view": "iecode.projects",
         "contents": "No TwinCAT projects found in this workspace.\nOpen a folder with a .sln, .tsproj or .plcproj, or add one to the workspace.\n[Open Folder](command:vscode.openFolder)",
         "when": "!iecode.hasProjects"
+      },
+      {
+        "view": "iecode.adsWatch",
+        "contents": "No variables watched. Add PLC variables to see their live values over ADS (target: iecode.ads.target).\n[Add Variable…](command:iecode.adsWatchAdd)\nOr right-click a variable in the ST editor › Add to ADS Watch."
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "iecode_ads_symbols",
+        "toolReferenceName": "adsSymbols",
+        "displayName": "ADS Symbols",
+        "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), at most 100. Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filter": {
+              "type": "string",
+              "description": "Part of the ADS name to search for, e.g. \"MAIN.\" or \"nCounter\"; empty lists the first 100."
+            }
+          },
+          "required": [
+            "filter"
+          ]
+        }
+      },
+      {
+        "name": "iecode_ads_watch",
+        "toolReferenceName": "adsWatch",
+        "displayName": "ADS Watch",
+        "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for adsRead and adsScope. Returns the resulting list with types and per-symbol errors. Entries you add are marked as added by AI; you can only remove those, not the ones the user added. Watch a variable before asking for its history.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "add": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "ADS names to watch, e.g. MAIN.nCounter."
+            },
+            "remove": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "ADS names to stop watching (only entries added by AI)."
+            }
+          }
+        }
+      },
+      {
+        "name": "iecode_ads_read",
+        "toolReferenceName": "adsRead",
+        "displayName": "ADS Read",
+        "userDescription": "Read current values of PLC variables over ADS.",
+        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "symbols": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "ADS names to read; default all watched symbols."
+            }
+          }
+        }
+      },
+      {
+        "name": "iecode_ads_scope",
+        "toolReferenceName": "adsScope",
+        "displayName": "ADS Scope",
+        "userDescription": "Summarize how watched PLC variables changed over the last seconds.",
+        "modelDescription": "Returns min, max, last value and sample count per watched ADS symbol over the last seconds (default 60), plus a tab-separated table of at most 200 rows (time in seconds relative to the newest sample). Only watched symbols have a history: add them with adsWatch first and wait for samples.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "symbols": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Watched ADS names; default all watched symbols."
+            },
+            "seconds": {
+              "type": "number",
+              "description": "Time span in seconds, default 60."
+            }
+          }
+        }
+      },
+      {
+        "name": "iecode_ads_write",
+        "toolReferenceName": "adsWrite",
+        "displayName": "ADS Write",
+        "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
+        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write (unless the user chose Always Allow for this tool), auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "ADS name, e.g. MAIN.bStart."
+            },
+            "value": {
+              "type": "string",
+              "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
+            }
+          },
+          "required": [
+            "symbol",
+            "value"
+          ]
+        }
       }
     ],
     "submenus": [
@@ -1120,7 +1492,7 @@
   },
   "devDependencies": {
     "@types/node": "20.19.43",
-    "@types/vscode": "1.90.0",
+    "@types/vscode": "1.95.0",
     "typescript": "5.9.3"
   }
 }
