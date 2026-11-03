@@ -67,7 +67,8 @@ class WatchTree implements vscode.TreeDataProvider<WatchItem> {
     const value = this.host.value(n.symbol);
     it.description = n.error ? `⚠ ${n.error}` : value === null ? '⚠ read error' : value ?? '';
     const ai = this.ai.has(n.symbol.toLowerCase());
-    it.tooltip = [n.type, ai ? 'added by AI' : ''].filter(Boolean).join(' · ') || undefined;
+    // the row is cut off in a narrow view, so the tooltip carries the full name and the value
+    it.tooltip = [n.symbol, n.type && `Type: ${n.type}`, n.error ? `Error: ${n.error}` : value === null ? 'Read error' : value !== undefined ? `Value: ${value}` : '', ai ? 'Added by AI' : ''].filter(Boolean).join('\n');
     it.iconPath = new vscode.ThemeIcon(n.error ? 'warning' : ai ? 'sparkle' : 'symbol-variable');
     it.contextValue = 'adsWatch.item';
     it.id = `adsWatch:${n.symbol}`;
