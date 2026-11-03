@@ -205,8 +205,26 @@ export class PendingRequests {
   }
 }
 
-// Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows.
-export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, maxRows = 200): string {
+const STALE_MS = 2000;
+
+/** "<n> s old" for a sample older than 2 s, else undefined (also without a sample time). */
+export function sampleAge(newestMs: number | undefined, nowMs: number): string | undefined {
+  if (newestMs === undefined || nowMs - newestMs < STALE_MS) return undefined;
+  return `${Math.round((nowMs - newestMs) / 1000)} s old`;
+}
+
+/** Tells why values may be missing: samples only arrive while the watch view or the scope keeps the host alive. */
+export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms: number) => string): string | undefined {
+  const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+  if (newestMs === undefined) return `No samples yet: ${tail}`;
+  return nowMs - newestMs < STALE_MS ? undefined : `No samples since ${clock(newestMs)}: ${tail}`;
+}
+
+/** Most symbols that get a column in the scope table (the summaries cover all of them). */
+export const MAX_SCOPE_COLUMNS = 20;
+
+// Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
+export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, maxRows = 200, maxColumns = MAX_SCOPE_COLUMNS): string {
   const lines: string[] = [];
   const maps = symbols.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
   for (const s of symbols) {
@@ -215,12 +233,15 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
       ? `${s}: min=${sum.min} max=${sum.max} last=${sum.last} count=${sum.count}`
       : `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`);
   }
-  const times = [...new Set(maps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
+  const shown = symbols.slice(0, maxColumns);
+  const shownMaps = maps.slice(0, maxColumns);
+  const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
   if (times.length > 0) {
-    lines.push('', ['t[s]', ...symbols].join('\t'));
+    lines.push('', ['t[s]', ...shown].join('\t'));
     for (const t of downsample(times, maxRows)) {
-      lines.push([((t - now) / 1000).toFixed(3), ...maps.map(m => m.get(t) ?? '')].join('\t'));
+      lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => m.get(t) ?? '')].join('\t'));
     }
+    if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);
   }
   return lines.join('\n');
 }

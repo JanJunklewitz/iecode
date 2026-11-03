@@ -106,6 +106,14 @@ export class AdsHost implements vscode.Disposable {
     return this.written.get(symbol.toLowerCase()) ?? this.buffer.latest(symbol)?.value;
   }
 
+  /** Like value(), with the sample time; a value read back by a write has no time. */
+  valueAt(symbol: string): { value: string | null; t?: number } | undefined {
+    const w = this.written.get(symbol.toLowerCase());
+    if (w !== undefined) return { value: w };
+    const l = this.buffer.latest(symbol);
+    return l ? { value: l.value, t: l.t } : undefined;
+  }
+
   watched(): string[] {
     return this.entries().map(e => e.symbol);
   }

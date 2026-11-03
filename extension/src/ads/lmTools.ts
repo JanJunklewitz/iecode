@@ -1,164 +1,49 @@
 // Language model tools (Copilot Chat agent mode) on the ADS host: list symbols, edit the watch list, read values,
 // summarize the sample buffer, and write per iecode.ads.aiWrites. Plus "Add to AI Chat" for the watch view and the
-// AI write access picker. Claude Code cannot call vscode.lm tools; for it the AI path is "Add to AI Chat".
+// AI write access picker. The read-only tools are thin wrappers of adsTools.ts, which the MCP server shares.
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
-import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
-import { WriteDecision, aiWriteDecision, oneLine, scopeText, watchEdit, writeStillApproved } from '../core/adswatch';
+import { WriteDecision, aiWriteDecision, oneLine, writeStillApproved } from '../core/adswatch';
+import { COPILOT_NAMES } from '../core/adsToolText';
 import { output } from '../cli/iecode';
 import { sendToAiChat } from '../commands/aiChat';
 import { aiWritesSetting, workspaceTarget } from './aiSettings';
-import { AdsHost, StartError } from './host';
-
-const MAX_SYMBOLS = 100;
-const SCOPE_SECONDS = 60;
-const STALE_MS = 2000;
+import { SCOPE_SECONDS, adsTools, errorText, newest, scopeSummary } from './adsTools';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
 const show = (s: unknown) => oneLine(String(s));
 
 const text = (s: string) => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
 
-/** Errors of a failed host start were already shown to the user; the model gets the reason as text. */
-const errorText = (e: unknown) => `Error: ${(e as Error).message}${e instanceof StartError ? ' (already shown to the user)' : ''}`;
 const failure = (e: unknown) => text(errorText(e));
 
-/** Keeps the host alive for the duration of a tool call. */
-async function leased<T>(host: AdsHost, fn: () => Promise<T>): Promise<T> {
-  const lease = host.use();
-  try { return await fn(); } finally { lease.dispose(); }
-}
-
-/** The watched spelling of each requested symbol (ADS names are case-insensitive), or undefined if not watched. */
-function watchedName(host: AdsHost, symbol: string): string | undefined {
-  const s = symbol.trim().toLowerCase();
-  return host.watched().find(w => w.toLowerCase() === s);
-}
-
-function list(host: AdsHost): string {
-  const ai = new Set(host.entries().filter(e => e.ai).map(e => e.symbol.toLowerCase()));
-  const items = host.items();
-  if (!items.length) return 'The ADS watch list is empty.';
-  return items.map(i => `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${i.error})` : ''}${ai.has(i.symbol.toLowerCase()) ? ' [added by AI]' : ' [added by the user]'}`).join('\n');
-}
-
-/** Time of the newest sample of the symbols; the host's clock, like the scope view's right edge. */
-function newest(host: AdsHost, symbols: string[]): number | undefined {
-  let t = -Infinity;
-  for (const s of symbols) { const l = host.buffer.latest(s); if (l) t = Math.max(t, l.t); }
-  return t === -Infinity ? undefined : t;
-}
-
-function scopeSummary(host: AdsHost, symbols: string[], seconds: number): string {
-  const end = newest(host, symbols);
-  if (end === undefined) return `No samples yet for ${symbols.join(', ')}. The values are sampled every ${vscode.workspace.getConfiguration('iecode.ads').get<number>('sampleIntervalMs', 100)} ms while the ADS host runs.`;
-  const age = Date.now() - end;
-  const head = `ADS values of the last ${seconds} s up to the newest sample (target ${host.target()})${age > STALE_MS ? `; the newest sample is ${Math.round(age / 1000)} s old, the host may have stopped` : ''}:`;
-  return `${head}\n${scopeText(host.buffer, symbols, seconds, end)}`;
-}
-
-interface SymbolsInput { filter: string }
-interface WatchInput { add?: string[]; remove?: string[] }
-interface ReadInput { symbols?: string[] }
-interface ScopeInput { symbols?: string[]; seconds?: number }
 interface WriteInput { symbol: string; value: string }
+type SymbolsInput = Parameters<ReturnType<typeof adsTools>['symbols']>[0];
+type WatchInput = Parameters<ReturnType<typeof adsTools>['watch']>[0];
+type ReadInput = Parameters<ReturnType<typeof adsTools>['read']>[0];
+type ScopeInput = Parameters<ReturnType<typeof adsTools>['scope']>[0];
 
 export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: WorkspaceState) {
-  const host = AdsHost.get(ctx);
+  const tools = adsTools(ctx, state, COPILOT_NAMES);
+  const host = tools.host;
 
   const symbolsTool: vscode.LanguageModelTool<SymbolsInput> = {
-    async invoke(opts) {
-      const typed = (opts.input.filter ?? '').trim();
-      const filter = typed.toLowerCase();
-      const out: string[] = [];
-      const missing: string[] = [];
-      const unreadable: string[] = [];
-      let total = 0;
-      const units = state.current.units.filter(u => !u.plc.isLibrary);
-      for (const u of units) {
-        try {
-          for (const s of (await fromBuild(u.plc, true)).symbols) {
-            if (filter && !s.name.toLowerCase().includes(filter)) continue;
-            if (++total <= MAX_SYMBOLS) out.push(`${s.name} : ${s.type}`);
-          }
-        } catch (e) {
-          if (e instanceof NoBuildOutputError) missing.push(u.plc.name);
-          else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
-        }
-      }
-      const lines = [out.length ? out.join('\n') : `No symbols match "${typed}".`];
-      if (total > MAX_SYMBOLS) lines.push(`(${total - MAX_SYMBOLS} more not listed; use a narrower filter)`);
-      if (missing.length) lines.push(`Not built, so not listed (no .tmc): ${missing.join(', ')}`);
-      if (unreadable.length) lines.push(`Build output unreadable, so not listed: ${unreadable.join('; ')}`);
-      if (!units.length) lines.push('No PLC projects in this workspace.');
-      return text(lines.join('\n'));
-    },
+    async invoke(opts) { return text((await tools.symbols(opts.input)).text); },
   };
 
   const watchTool: vscode.LanguageModelTool<WatchInput> = {
     prepareInvocation: () => ({ invocationMessage: 'Updating the ADS watch list' }),
-    async invoke(opts) {
-      const { add = [], remove = [] } = opts.input;
-      const before = host.entries();
-      const next = watchEdit(before, add, remove, true);
-      const kept = remove.filter(r => next.some(e => e.symbol.toLowerCase() === r.trim().toLowerCase()));
-      try {
-        await leased(host, () => host.setEntries(next));
-      } catch (e) {
-        // a list over the limit was not saved, one the host could not start for was
-        return text(`${errorText(e)}\nWatch list now:\n${list(host)}`);
-      }
-      const lines = [list(host)];
-      if (kept.length) lines.push(`Not removed (added by the user, only the user can remove them): ${kept.join(', ')}`);
-      if (add.length) lines.push(`New values arrive every ${vscode.workspace.getConfiguration('iecode.ads').get<number>('sampleIntervalMs', 100)} ms; use adsScope for the history.`);
-      return text(lines.join('\n'));
-    },
+    async invoke(opts) { return text((await tools.watch(opts.input)).text); },
   };
 
   const readTool: vscode.LanguageModelTool<ReadInput> = {
     prepareInvocation: () => ({ invocationMessage: 'Reading ADS values' }),
-    async invoke(opts) {
-      const symbols = opts.input.symbols?.length ? opts.input.symbols : host.watched();
-      if (!symbols.length) return text('Nothing to read: no symbols given and the ADS watch list is empty.');
-      try {
-        return await leased(host, async () => {
-          const rows: string[] = [];
-          const others: string[] = [];
-          for (const s of symbols) {
-            const w = watchedName(host, s);
-            const v = w ? host.value(w) : undefined;
-            if (w && v !== undefined) {
-              const item = host.items().find(i => i.symbol.toLowerCase() === w.toLowerCase());
-              rows.push(`${w} : ${item?.type || '?'} = ${v ?? `(read error${item?.error ? `: ${item.error}` : ''})`}`);
-            } else {
-              others.push(s.trim());
-            }
-          }
-          if (others.length) {
-            for (const r of await host.read(others)) rows.push(r.error ? `${r.symbol} : error ${r.error}` : `${r.symbol} : ${r.type || '?'} = ${r.value}`);
-          }
-          return text(`Values on ${host.target()}:\n${rows.join('\n')}`);
-        });
-      } catch (e) {
-        return failure(e);
-      }
-    },
+    async invoke(opts) { return text((await tools.read(opts.input)).text); },
   };
 
   const scopeTool: vscode.LanguageModelTool<ScopeInput> = {
-    invoke(opts) {
-      const seconds = Math.min(3600, Math.max(1, Math.round(opts.input.seconds ?? SCOPE_SECONDS)));
-      const asked = opts.input.symbols?.length ? opts.input.symbols : host.watched();
-      if (!asked.length) return text('The ADS watch list is empty; add symbols with adsWatch first.');
-      const names = asked.map(s => watchedName(host, s));
-      const watched = names.filter((n): n is string => !!n);
-      const lines: string[] = [];
-      const unwatched = asked.filter((_, i) => !names[i]);
-      if (unwatched.length) lines.push(`Not watched, so no history (add them with adsWatch): ${unwatched.join(', ')}`);
-      if (watched.length) lines.push(scopeSummary(host, watched, seconds));
-      return text(lines.join('\n\n'));
-    },
+    invoke(opts) { return text(tools.scope(opts.input).text); },
   };
 
   // The decision each prepared write was shown with; invoke checks it against the settings at that time.

@@ -1,9 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
+
+test('sampleAge formats old samples', () => {
+  assert.equal(sampleAge(1000, 2500), undefined);
+  assert.equal(sampleAge(1000, 13_400), '12 s old');
+  assert.equal(sampleAge(undefined, 5), undefined);
+});
+
+test('gap note when the newest sample is old', () => {
+  const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+  assert.equal(gapNote(0, 61_000, () => '10:00:00'), `No samples since 10:00:00: ${tail}`);
+  assert.equal(gapNote(60_000, 61_000, () => '10:00:00'), undefined);
+  assert.equal(gapNote(undefined, 1, () => '10:00:00'), `No samples yet: ${tail}`);
+});
 
 test('parseHostLine reads each message kind', () => {
   assert.equal(PROTOCOL, 1);
