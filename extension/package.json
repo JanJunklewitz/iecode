@@ -419,6 +419,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "iecode.adsTarget",
+        "title": "Change ADS Target…",
+        "category": "IECode",
+        "icon": "$(plug)"
+      },
+      {
         "command": "iecode.adsWatchAddFromEditor",
         "title": "Add to ADS Watch",
         "category": "IECode",
@@ -668,6 +674,11 @@
           "command": "iecode.adsScope",
           "when": "view == iecode.adsWatch",
           "group": "navigation@2"
+        },
+        {
+          "command": "iecode.adsTarget",
+          "when": "view == iecode.adsWatch",
+          "group": "navigation@3"
         },
         {
           "command": "iecode.adsWatchClear",

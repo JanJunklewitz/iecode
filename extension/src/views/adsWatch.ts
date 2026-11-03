@@ -12,7 +12,9 @@ import { aiWritesSetting } from '../ads/aiSettings';
 const REFRESH_MS = 250;
 const NAME = /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/;
 
-type Pick = vscode.QuickPickItem & { symbol: string };
+const validTarget = (v: string) => /^local$/i.test(v.trim()) || /^(\d{1,3}\.){5}\d{1,3}$/.test(v.trim());
+
+type Pick =vscode.QuickPickItem & { symbol: string };
 
 /** Multi-select list of known symbols; the typed filter text is offered as one more entry, so any name can be watched in a single step. */
 function pickNames(picks: Pick[], placeHolder: string): Promise<string[] | undefined> {
@@ -92,8 +94,8 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     view.message = !s.connected && s.error ? `Disconnected: ${s.error}` : undefined;
   };
   showState();
-  // auto-approved AI writes must never be on unnoticed
-  const showAiWrites = () => { view.description = aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined; };
+  // the target is always shown (a write goes there); auto-approved AI writes must never be on unnoticed
+  const showAiWrites = () => { view.description = [host.target(), aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
   showAiWrites();
 
   // the host runs while the view is visible with a non-empty list; a saved list alone does not connect (O11)
@@ -110,7 +112,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     host.onItems(() => { schedule(); updateLease(); }),
     host.onState(() => { showState(); schedule(); }),
     view.onDidChangeVisibility(updateLease),
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites')) showAiWrites(); }),
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
     new vscode.Disposable(() => { clearTimeout(timer); lease?.dispose(); }),
   );
 
@@ -149,6 +151,22 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
       : 'Variables to watch (from the build output)') + `; ${room} more fit. Type a name to watch any other variable`;
     const names = await pickNames(picks, placeHolder);
     if (names?.length) await add(names);
+  });
+
+  reg('iecode.adsTarget', async () => {
+    const cfg = vscode.workspace.getConfiguration('iecode.ads');
+    const typed = await vscode.window.showInputBox({
+      prompt: 'ADS target: "local" or the AMS NetId of the PLC (six numbers). Changing it reconnects.',
+      value: cfg.get<string>('target', 'local'),
+      placeHolder: 'local, 172.20.30.60.1.1',
+      validateInput: v => validTarget(v) ? undefined : 'Use "local" or six numbers separated by dots, e.g. 172.20.30.60.1.1',
+    });
+    if (typed === undefined) return;
+    // write where the value comes from, otherwise a workspace setting would silently win over the change
+    const i = cfg.inspect<string>('target');
+    const scope = i?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+      : i?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+    try { await cfg.update('target', typed.trim(), scope); } catch (e) { showError(e); }
   });
 
   reg('iecode.adsWatchAddFromEditor', async () => {
