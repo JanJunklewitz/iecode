@@ -23,7 +23,7 @@
     - [x] Poll timing: 21 symbols at `interval` 10 ms give a row about every 17 ms (round trip over the Secure ADS route), about 16 % CPU of the host.
     - [ ] Download / online change while watching, INT -> REAL. Not possible on TP: the throwaway project failed to start the real-time kernel there (`RTIME: incompatible software detected`, 0x1024), so the original application was put back. Covered by unit tests with a fake link only (`IECode.Automation.Tests`).
     - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
-    - [ ] F5 checks of the view, the scope and the connection lease.
+    - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
     - [ ] Copilot agent mode: `iecode.ads.aiWrites` off / confirm / auto, whether VS Code still asks on auto, whether "Always Allow" bypasses confirm.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
