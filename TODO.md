@@ -2,11 +2,13 @@
 
 ## Open
 
+- [ ] **MCP server for the ADS watch (high priority)**: most of the daily AI work here is done with Claude Code, which cannot call the `vscode.lm` tools (`iecode_ads_*`), so today only Copilot can use the ADS interface.
+  - Must be served by the extension, not the host, because the watch list and the sample history live in the extension. Same tools and the same `iecode.ads.aiWrites` rules (off / confirm / auto, confirm needs a way to ask the user) as the language model tools.
+  - Open: transport (local HTTP or a stdio shim the extension talks to), how Claude Code finds it (registration in `.mcp.json` or by the extension), how a write confirmation reaches the user.
 - [x] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
   - Plan: [docs/superpowers/plans/2026-11-02-ads-watchlist.md](docs/superpowers/plans/2026-11-02-ads-watchlist.md).
   - Done: ADS Watch view, ADS Scope, `iecode ads serve`, language model tools `iecode_ads_*`, setting `iecode.ads.aiWrites` (off / confirm / auto).
   - Left for later:
-    - MCP server: must be served by the extension, not the host, because the watch list and the sample history live in the extension. Claude Code cannot call `vscode.lm` tools, so with `iecode.aiChat` on Claude Code the AI path stays "Add to AI Chat".
     - ADS notifications instead of polling (for a resolution below 10 ms).
     - AI write allowlist (which variables an AI may write).
     - Writing structs and arrays.
@@ -24,7 +26,7 @@
     - [ ] Download / online change while watching, INT -> REAL. Not possible on TP: the throwaway project failed to start the real-time kernel there (`RTIME: incompatible software detected`, 0x1024), so the original application was put back. Covered by unit tests with a fake link only (`IECode.Automation.Tests`).
     - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
     - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
-    - [ ] Copilot agent mode: `iecode.ads.aiWrites` off / confirm / auto, whether VS Code still asks on auto, whether "Always Allow" bypasses confirm.
+    - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.
