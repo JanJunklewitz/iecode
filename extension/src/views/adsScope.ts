@@ -116,6 +116,8 @@ input[type=number]{width:64px}
 #legend i{display:inline-block;width:10px;height:10px}
 #wrap{flex:1;min-height:200px;position:relative}
 canvas{position:absolute;left:0;top:0;width:100%;height:100%}
+#tip{position:fixed;display:none;pointer-events:none;z-index:10;padding:4px 8px;font-size:12px;line-height:1.5;white-space:nowrap;background:var(--vscode-editorHoverWidget-background);color:var(--vscode-editorHoverWidget-foreground,var(--vscode-foreground));border:1px solid var(--vscode-editorHoverWidget-border,var(--vscode-panel-border))}
+#tip i{display:inline-block;width:8px;height:8px;margin-right:6px}
 #read{padding:6px 14px;font-family:var(--vscode-editor-font-family);font-size:12px;min-height:1.4em;border-top:1px solid var(--vscode-panel-border)}
 </style></head><body>
 <div class="top">
@@ -128,6 +130,7 @@ canvas{position:absolute;left:0;top:0;width:100%;height:100%}
 <div id="legend"></div>
 <div id="wrap"><canvas id="cv"></canvas></div>
 <div id="read"></div>
+<div id="tip"></div>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const $ = id => document.getElementById(id);
@@ -224,18 +227,36 @@ function at(pts, t) {
 }
 
 function readout(L, pw) {
-  if (cursor === null || cursor < L || cursor > L + pw) { $('read').textContent = ''; return; }
+  const tip = $('tip');
+  if (cursor === null || cursor < L || cursor > L + pw) { $('read').textContent = ''; tip.style.display = 'none'; return; }
   const t = (cursor - L) / pw * seconds - seconds;
   const parts = [t.toFixed(1) + ' s'];
+  // the same values as a tooltip above the mouse pointer
+  tip.textContent = '';
+  const head = document.createElement('div');
+  head.textContent = t.toFixed(1) + ' s';
+  tip.append(head);
   data.series.forEach((s, i) => {
     if (hidden.has(s.symbol)) return;
     const p = at(s.pts, t);
-    if (p) parts.push(s.symbol + ' = ' + fmt(p[1]));
+    if (!p) return;
+    parts.push(s.symbol + ' = ' + fmt(p[1]));
+    const row = document.createElement('div'), sw = document.createElement('i');
+    sw.style.background = color(i);
+    row.append(sw, document.createTextNode(s.symbol + ' = ' + fmt(p[1])));
+    tip.append(row);
   });
   $('read').textContent = parts.join('   ');
+  tip.style.display = 'block';
+  // above the pointer; below it when there is no room, and kept inside the window
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  const x = Math.max(4, Math.min(mouse.x + 14, window.innerWidth - w - 4));
+  const y = mouse.y - h - 12 < 4 ? mouse.y + 18 : mouse.y - h - 12;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
 }
 
-cv.onmousemove = ev => { cursor = ev.clientX - cv.getBoundingClientRect().left; draw(); };
+let mouse = { x: 0, y: 0 };
+cv.onmousemove = ev => { cursor = ev.clientX - cv.getBoundingClientRect().left; mouse = { x: ev.clientX, y: ev.clientY }; draw(); };
 cv.onmouseleave = () => { cursor = null; draw(); };
 // the fields follow the settings, except while one is being edited
 function sampling() {
