@@ -7,7 +7,7 @@ import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
 import { oneLine, sampleAge, watchEdit } from '../core/adswatch';
 import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, scopeSummaryText, scopeToolText, symbolsText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
-import { AdsHost, StartError } from './host';
+import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
@@ -25,7 +25,7 @@ const show = (s: unknown) => oneLine(String(s));
 const clock = (ms: number) => new Date(ms).toLocaleTimeString();
 
 /** Errors of a failed host start were already shown to the user; the model gets the reason as text. */
-export const errorText = (e: unknown) => `Error: ${(e as Error).message}${e instanceof StartError ? ' (already shown to the user)' : ''}`;
+export const errorText = (e: unknown) => `Error: ${(e as Error).message}${e instanceof StartError || (e instanceof WriteNotSent && e.alreadyShown) ? ' (already shown to the user)' : ''}`;
 
 const ok = (text: string): ToolText => ({ text: capText(text) });
 const failure = (e: unknown): ToolText => ({ text: capText(errorText(e)), isError: true });

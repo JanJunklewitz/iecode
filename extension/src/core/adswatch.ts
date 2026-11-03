@@ -11,7 +11,7 @@ export type HostMessage =
   | { event: 'samples'; gen: number; rows: Row[] }
   | { event: 'state'; connected: boolean; error?: string }
   | { event: 'items'; gen: number; items: WatchItem[] }
-  | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number };
+  | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number; written?: string };
 
 // The CLI may print other text (build output, warnings) on stdout; those lines are not messages, and neither is JSON
 // that is neither an event nor a reply.
@@ -112,6 +112,13 @@ export class ScopeBuffer {
     this.trim();
   }
 
+  /** Drops all samples (the target changed); the items and the gen stay, so the host's next rows are stored again. */
+  clear(): void {
+    this.series_.clear();
+    this.latest_.clear();
+    this.newest = -Infinity;
+  }
+
   latest(symbol: string): { t: number; value: string | null } | undefined {
     return this.latest_.get(symbol);
   }
@@ -168,6 +175,38 @@ export function downsample<T>(rows: T[], max: number): T[] {
   return out;
 }
 
+/** No reply within the time limit; for a write that was sent, the outcome is unknown. */
+export class RequestTimeout extends Error {}
+
+/** The host exited or was stopped while a request was open. */
+export class HostGone extends Error {}
+
+/** The host answered ok:false. `written: "no"` is its proof that a write was not sent (cli/README.md, "Live values"). */
+export class HostError extends Error {
+  constructor(message: string, readonly written?: string) { super(message); }
+}
+
+export type WriteStage =
+  | { kind: 'written'; value: string | null; readBackError?: string }
+  | { kind: 'notSent'; reason: string }
+  | { kind: 'unknown'; reason: string };
+
+/**
+ * How far a write got, from the host's reply data or from the rejection of the request. "Not sent" needs the host's proof
+ * (`written: "no"`); everything else that failed is unknown, so an older CLI without the field never yields "not sent".
+ */
+export function writeStage(outcome: { data: unknown } | { error: unknown }): WriteStage {
+  if ('data' in outcome) {
+    const d = (outcome.data ?? {}) as { value?: unknown; readBackError?: unknown };
+    const stage: WriteStage = { kind: 'written', value: typeof d.value === 'string' ? d.value : null };
+    if (typeof d.readBackError === 'string') stage.readBackError = d.readBackError;
+    return stage;
+  }
+  const e = outcome.error;
+  const reason = e instanceof Error ? e.message : String(e);
+  return e instanceof HostError && e.written === 'no' ? { kind: 'notSent', reason } : { kind: 'unknown', reason };
+}
+
 // A write cannot be retried blindly, so a timeout says the outcome is unknown. An id added again while still open
 // rejects the older request, which could otherwise never settle.
 export class PendingRequests {
@@ -183,24 +222,24 @@ export class PendingRequests {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.open.get(id)?.timer === timer) this.open.delete(id);
-        reject(new Error(`No reply from the ADS host within ${timeoutMs} ms; the outcome is unknown.`));
+        reject(new RequestTimeout(`No reply from the ADS host within ${timeoutMs} ms; the outcome is unknown.`));
       }, timeoutMs);
       this.open.set(id, { resolve, reject, timer });
     });
   }
 
-  settle(msg: { id: number | null; ok: boolean; data?: unknown; error?: string }): void {
+  settle(msg: { id: number | null; ok: boolean; data?: unknown; error?: string; written?: string }): void {
     if (msg.id === null) return;
     const p = this.open.get(msg.id);
     if (!p) return;
     this.open.delete(msg.id);
     clearTimeout(p.timer);
     if (msg.ok) p.resolve(msg.data);
-    else p.reject(new Error(msg.error ?? 'request failed'));
+    else p.reject(new HostError(msg.error ?? 'request failed', msg.written));
   }
 
   rejectAll(reason: string): void {
-    for (const p of this.open.values()) { clearTimeout(p.timer); p.reject(new Error(reason)); }
+    for (const p of this.open.values()) { clearTimeout(p.timer); p.reject(new HostGone(reason)); }
     this.open.clear();
   }
 }

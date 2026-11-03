@@ -80,7 +80,9 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       output.info(`AI write ${show(symbol)} := ${show(value)} on ${host.target()}`);
       try {
         const back = await host.write(symbol, value);
-        return text(`Written. ${symbol} reads back as ${back}.`);
+        return text(back.value === null
+          ? `Written, but ${symbol} could not be read back: ${back.readBackError ?? 'unknown error'}. Read it before acting on the value.`
+          : `Written. ${symbol} reads back as ${back.value}.`);
       } catch (e) {
         output.warn(`AI write ${show(symbol)} failed: ${show((e as Error).message)}`);
         return failure(e);
