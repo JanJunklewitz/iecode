@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { loadSolution, loadPlcProject, listMembers, findFiles } from '../src/core/projects';
+import { loadSolution, loadTwinCatProject, loadPlcProject, listMembers, findFiles } from '../src/core/projects';
 import { newObjectXml, addSections, methodSection, propertySection, actionSection, interfaceStubs, declaration } from '../src/core/templates';
 import { addCompile, addFolder, removeCompile, removeFolder, renamePath, renameObjectXml, hasCompile, readProjectSettings, setProjectSettings } from '../src/core/plcproj';
 import { decode, encode } from '../src/model';
@@ -16,6 +16,23 @@ function tempCopy(): string {
   cpSync(fixtures, dir, { recursive: true });
   return dir;
 }
+
+test('finds a PLC project kept in an independent .xti file', async () => {
+  const dir = tempCopy();
+  try {
+    const proj = join(dir, 'apps/MachineX/MachineX');
+    const tsproj = join(proj, 'MachineX.tsproj');
+    // XAE 4024: the .tsproj only names the file; the .xti in _Config/PLC holds the plcproj path relative to itself
+    writeFileSync(tsproj, '<?xml version="1.0"?><TcSmProject TcVersion="3.1.4024.66"><Project><Plc><Project File="PLC1.xti"/></Plc></Project></TcSmProject>');
+    mkdirSync(join(proj, '_Config', 'PLC'), { recursive: true });
+    writeFileSync(join(proj, '_Config', 'PLC', 'PLC1.xti'), '<?xml version="1.0"?><TcSmItem><Project Name="PLC1" PrjFilePath="..\\..\\PLC1\\PLC1.plcproj"/></TcSmItem>');
+    const p = await loadTwinCatProject(tsproj);
+    assert.deepEqual(p.plcs.map(x => x.name), ['PLC1']);
+    assert.equal(p.tcVersion, '3.1.4024.66');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('loads solution, PLC project, objects with types and references', async () => {
   const sln = await loadSolution(join(fixtures, 'apps/MachineX/MachineX.sln'));

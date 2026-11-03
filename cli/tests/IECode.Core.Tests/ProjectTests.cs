@@ -19,6 +19,42 @@ public sealed class ProjectTests : IDisposable
     }
 
     [Fact]
+    public void FindsAPlcProjectKeptInAnIndependentXtiFile()
+    {
+        // XAE 4024 layout: the .tsproj only names the file, the .xti (in _Config\PLC) holds the plcproj path relative to itself
+        var dir = _ws["Machine/Machine"];
+        File.WriteAllText(Path.Combine(dir, "Machine.tsproj"), """
+            <?xml version="1.0"?>
+            <TcSmProject TcSmVersion="1.0" TcVersion="3.1.4024.66">
+              <Project ProjectGUID="{22222222-0000-0000-0000-000000000001}" Target64Bit="true">
+                <Plc>
+                  <Project File="PLC1.xti"/>
+                </Plc>
+              </Project>
+            </TcSmProject>
+            """);
+        Directory.CreateDirectory(Path.Combine(dir, "_Config", "PLC"));
+        File.WriteAllText(Path.Combine(dir, "_Config", "PLC", "PLC1.xti"), """
+            <?xml version="1.0"?>
+            <TcSmItem TcSmVersion="1.0" ClassName="CNestedPlcProjDef">
+              <Project GUID="{22222222-0000-0000-0000-000000000002}" Name="PLC1" PrjFilePath="..\..\PLC1\PLC1.plcproj" AmsPort="851"/>
+            </TcSmItem>
+            """);
+        var project = TwinCatProjectFile.Load(Path.Combine(dir, "Machine.tsproj"));
+        Assert.Equal(["PLC1"], project.PlcProjects.Select(p => p.Name));
+    }
+
+    [Fact]
+    public void AnXtiThatPointsToNoPlcProjectIsSkipped()
+    {
+        var dir = _ws["Machine/Machine"];
+        File.WriteAllText(Path.Combine(dir, "Machine.tsproj"), "<TcSmProject><Project><Plc><Project File=\"Missing.xti\"/><Project File=\"Safety.xti\"/></Plc></Project></TcSmProject>");
+        Directory.CreateDirectory(Path.Combine(dir, "_Config", "PLC"));
+        File.WriteAllText(Path.Combine(dir, "_Config", "PLC", "Safety.xti"), "<TcSmItem><Project Name=\"S\" PrjFilePath=\"..\\..\\S\\S.splcproj\"/></TcSmItem>");
+        Assert.Empty(TwinCatProjectFile.Load(Path.Combine(dir, "Machine.tsproj")).PlcProjects);
+    }
+
+    [Fact]
     public void FindsSolutionInFolder() =>
         Assert.Equal(_ws["Machine/Machine.sln"], SolutionFile.Find(_ws["Machine"]));
 

@@ -67,16 +67,26 @@ public sealed class TwinCatProjectFile
     public string Name => System.IO.Path.GetFileNameWithoutExtension(Path);
     public bool IsPlcOnly => Path.EndsWith(".tspproj", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The .plcproj paths of the <c>&lt;Project PrjFilePath=…&gt;</c> elements, made absolute against <paramref name="baseDir"/>.</summary>
+    private static IEnumerable<string> PlcProjectPaths(XDocument doc, string baseDir) => doc.Descendants()
+        // PLC projects only: a TwinSAFE project (.splcproj) is also a <Project PrjFilePath=…>
+        .Where(e => e.Name.LocalName == "Project"
+            && e.Attribute("PrjFilePath")?.Value.EndsWith(".plcproj", StringComparison.OrdinalIgnoreCase) == true)
+        .Select(e => System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir,
+            e.Attribute("PrjFilePath")!.Value.Replace('\\', System.IO.Path.DirectorySeparatorChar))));
+
     public static TwinCatProjectFile Load(string path)
     {
         var dir = System.IO.Path.GetDirectoryName(path)!;
         var doc = XDocument.Load(path);
-        var plc = doc.Descendants()
-            // PLC projects only: a TwinSAFE project (.splcproj) is also a <Project PrjFilePath=…>
-            .Where(e => e.Name.LocalName == "Project"
-                && e.Attribute("PrjFilePath")?.Value.EndsWith(".plcproj", StringComparison.OrdinalIgnoreCase) == true)
-            .Select(e => System.IO.Path.GetFullPath(System.IO.Path.Combine(dir,
-                e.Attribute("PrjFilePath")!.Value.Replace('\\', System.IO.Path.DirectorySeparatorChar))))
+        // inline: <Project PrjFilePath="…"> in the .tsproj itself; independent: <Plc><Project File="X.xti"/> names a file in _Config\PLC
+        // whose own <Project PrjFilePath="…"> is relative to that file
+        var plc = PlcProjectPaths(doc, dir)
+            .Concat(doc.Descendants()
+                .Where(e => e.Name.LocalName == "Project" && e.Parent?.Name.LocalName == "Plc" && e.Attribute("File") is not null)
+                .Select(e => System.IO.Path.Combine(dir, "_Config", "PLC", e.Attribute("File")!.Value.Replace('\\', System.IO.Path.DirectorySeparatorChar)))
+                .Where(File.Exists)
+                .SelectMany(xti => PlcProjectPaths(XDocument.Load(xti), System.IO.Path.GetDirectoryName(xti)!)))
             .Where(File.Exists)
             .Distinct()
             .Select(PlcProjectFile.Load)

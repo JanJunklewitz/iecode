@@ -82,17 +82,32 @@ export async function loadSolution(file: string): Promise<Solution> {
   return { file, name: path.basename(file, '.sln'), projects };
 }
 
+/** The .plcproj paths of the <Project PrjFilePath="..."> elements. PLC projects only: a TwinSAFE project (.splcproj) is also one. */
+function plcProjectPaths(root: XNode, baseDir: string): string[] {
+  return [...walk(root)]
+    .filter(n => n.name === 'Project' && /\.plcproj$/i.test(n.attrs.PrjFilePath ?? ''))
+    .map(n => path.resolve(baseDir, toPosix(n.attrs.PrjFilePath)));
+}
+
 export async function loadTwinCatProject(file: string): Promise<TwinCatProject> {
   const text = await read(file);
   const root = parseXml(text);
   const dir = path.dirname(file);
   const tcVersion = [...walk(root)].find(n => n.attrs.TcVersion)?.attrs.TcVersion;
   const plcs: PlcProject[] = [];
+  // inline: <Project PrjFilePath="..."> in the .tsproj; independent: <Plc><Project File="X.xti"/> names a file in _Config/PLC
+  // whose own <Project PrjFilePath="..."> is relative to that file
+  const paths = plcProjectPaths(root, dir);
   for (const n of walk(root)) {
-    // PLC projects only: a TwinSAFE project (.splcproj) is also a <Project PrjFilePath=…>
-    if (n.name !== 'Project' || !/\.plcproj$/i.test(n.attrs.PrjFilePath ?? '')) continue;
-    const p = path.resolve(dir, toPosix(n.attrs.PrjFilePath));
-    if (await exists(p)) plcs.push({ ...(await loadPlcProject(p)), tcVersion });
+    if (n.name !== 'Project' || !n.attrs.File || n.attrs.PrjFilePath || !/\.xti$/i.test(n.attrs.File)) continue;
+    const xti = path.join(dir, '_Config', 'PLC', toPosix(n.attrs.File));
+    if (await exists(xti)) paths.push(...plcProjectPaths(parseXml(await read(xti)), path.dirname(xti)));
+  }
+  const seen = new Set<string>();
+  for (const p of paths) {
+    if (seen.has(p.toLowerCase()) || !(await exists(p))) continue;
+    seen.add(p.toLowerCase());
+    plcs.push({ ...(await loadPlcProject(p)), tcVersion });
   }
   return { file, name: path.basename(file).replace(/\.tsp?proj$/i, ''), plcOnly: /\.tspproj$/i.test(file), tcVersion, plcs };
 }
