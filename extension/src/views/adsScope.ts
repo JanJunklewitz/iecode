@@ -121,11 +121,9 @@ canvas{position:absolute;left:0;top:0;width:100%;height:100%}
 #read{padding:6px 14px;font-family:var(--vscode-editor-font-family);font-size:12px;min-height:1.4em;border-top:1px solid var(--vscode-panel-border)}
 </style></head><body>
 <div class="top">
-  <label>Time span <select id="span"></select></label>
-  <label>Poll <input id="poll" type="number" list="polls" min="10" max="5000" step="10" title="Read interval in ms (10 to 5000): pick one or type your own"> ms</label>
-  <datalist id="polls"><option value="10"><option value="20"><option value="50"><option value="100"><option value="200"><option value="500"><option value="1000"><option value="2000"><option value="5000"></datalist>
-  <label>Buffer <input id="buf" type="number" list="bufs" min="10" max="3600" step="10" title="Seconds of values kept (10 to 3600): pick one or type your own"> s</label>
-  <datalist id="bufs"><option value="10" label="10 s"><option value="30" label="30 s"><option value="60" label="1 min"><option value="120" label="2 min"><option value="300" label="5 min"><option value="600" label="10 min"><option value="1800" label="30 min"><option value="3600" label="1 h"></datalist>
+  <label>Time span <select id="span"></select><input id="spanc" type="number" hidden title="Seconds shown, up to the buffer length; Enter applies"></label>
+  <label>Poll <select id="poll"></select><input id="pollc" type="number" hidden title="Read interval in ms (10 to 5000); Enter applies"></label>
+  <label>Buffer <select id="buf"></select><input id="bufc" type="number" hidden title="Seconds of values kept (10 to 3600); Enter applies"></label>
   <button id="pause">Pause</button>
   <span id="note"></span>
 </div>
@@ -140,12 +138,14 @@ const COLORS = ['#4e9de0', '#e5694e', '#4fb477', '#d9a93a', '#a678d6', '#3fb6c4'
 // hidden series and the span survive a reload of the webview
 const saved = vscode.getState() || {};
 let hidden = new Set(saved.hidden || []), seconds = saved.seconds || 10, paused = false;
+// a span typed in by the user (not one of the offered ones)
+const customSpans = new Set(saved.customSpans || []);
 let data = { series: [], spans: [10] }, cursor = null;
 // replies still owed to control changes; while paused only those redraw
 let waiting = 0;
 const cv = $('cv'), ctx = cv.getContext('2d');
 
-function save() { vscode.setState({ hidden: [...hidden], seconds }); }
+function save() { vscode.setState({ hidden: [...hidden], seconds, customSpans: [...customSpans] }); }
 function send() { waiting++; vscode.postMessage({ type: 'view', width: Math.round(cv.clientWidth) || 600, seconds, hidden: [...hidden], paused }); }
 const color = i => COLORS[i % COLORS.length];
 const fmt = v => Math.abs(v) >= 1e6 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(2) : String(Number(v.toPrecision(6)));
@@ -164,15 +164,54 @@ function legend() {
   });
 }
 
+const secs = v => v >= 3600 && v % 3600 === 0 ? v / 3600 + ' h' : v >= 60 && v % 60 === 0 ? v / 60 + ' min' : v + ' s';
+const POLLS = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000], BUFFERS = [10, 30, 60, 120, 300, 600, 1800, 3600];
+
+// A dropdown with fixed values plus "Custom...": that choice turns it into a number field until Enter (applies),
+// Escape (cancels) or leaving the field (applies). Returns the function that fills it; it only rebuilds the list
+// when the values changed, so an open dropdown is not closed by the steady stream of data.
+function combo(id, min, max, fmt, apply) {
+  const sel = $(id), num = $(id + 'c');
+  let current = 0, key = '';
+  const finish = ok => {
+    if (num.hidden) return;
+    const v = Number(num.value);
+    num.hidden = true; sel.hidden = false;
+    if (ok && num.value !== '' && isFinite(v)) apply(Math.min(max(), Math.max(min, Math.round(v))));
+    else sel.value = String(current);
+  };
+  sel.onchange = () => {
+    if (sel.value !== 'custom') { apply(Number(sel.value)); return; }
+    sel.hidden = true; num.hidden = false; num.min = min; num.max = max(); num.value = current; num.focus(); num.select();
+  };
+  num.onkeydown = e => { if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); };
+  num.onblur = () => finish(true);
+  return (values, now) => {
+    current = now;
+    const all = [...new Set([...values, now])].sort((a, b) => a - b);
+    const k = all.join() + '|' + now;
+    if (k === key) return;
+    key = k;
+    sel.innerHTML = all.map(v => '<option value="' + v + '">' + fmt(v) + '</option>').join('') + '<option value="custom">Custom...</option>';
+    sel.value = String(now);
+  };
+}
+const bufferCap = () => (data.sampling ? data.sampling.bufferSeconds : 3600);
+const renderSpan = combo('span', 1, bufferCap, secs, v => {
+  seconds = v; customSpans.clear();
+  if (!data.spans.includes(v)) customSpans.add(v);
+  save(); send(); spans();
+});
+const renderPoll = combo('poll', 10, () => 5000, v => v + ' ms', v => { data.sampling.intervalMs = v; vscode.postMessage({ type: 'sampling', intervalMs: v }); sampling(); });
+const renderBuf = combo('buf', 10, () => 3600, secs, v => { data.sampling.bufferSeconds = v; vscode.postMessage({ type: 'sampling', bufferSeconds: v }); sampling(); spans(); });
+
 function spans() {
-  const sel = $('span'), opts = data.spans.length ? data.spans : [10];
-  // a span the buffer cannot cover (yet) is not offered; the choice falls back to the largest offered
-  const have = [...sel.options].map(o => Number(o.value)).join();
-  if (have !== opts.join()) {
-    sel.innerHTML = opts.map(s => '<option value="' + s + '">' + (s < 60 ? s + ' s' : s / 60 + ' min') + '</option>').join('');
-  }
-  if (!opts.includes(seconds)) { const keep = seconds; seconds = opts.filter(s => s <= keep).pop() || opts[0]; send(); }
-  sel.value = String(seconds);
+  const opts = data.spans.length ? data.spans : [10];
+  // offered spans depend on how much the buffer holds so far; a custom span stays, up to the buffer length
+  for (const c of [...customSpans]) if (c > bufferCap()) customSpans.delete(c);
+  const ok = [...opts, ...customSpans];
+  if (!ok.includes(seconds)) { const keep = seconds; seconds = ok.filter(s => s <= keep).sort((a, b) => a - b).pop() || opts[0]; send(); }
+  renderSpan(ok, seconds);
 }
 
 function draw() {
@@ -265,16 +304,13 @@ function readout(L, pw) {
 let mouse = { x: 0, y: 0, cy: 0 }, geo = { Y: v => 0 };
 cv.onmousemove = ev => { const r = cv.getBoundingClientRect(); cursor = ev.clientX - r.left; mouse = { x: ev.clientX, y: ev.clientY, cy: ev.clientY - r.top }; draw(); };
 cv.onmouseleave = () => { cursor = null; draw(); };
-// the fields follow the settings, except while one is being edited
+// the dropdowns follow the settings (also when they are changed in the settings page)
 function sampling() {
   const s = data.sampling;
   if (!s) return;
-  if (document.activeElement !== $('poll')) $('poll').value = s.intervalMs;
-  if (document.activeElement !== $('buf')) $('buf').value = s.bufferSeconds;
+  renderPoll(POLLS, s.intervalMs);
+  renderBuf(BUFFERS, s.bufferSeconds);
 }
-$('poll').onchange = () => { if ($('poll').value !== '') vscode.postMessage({ type: 'sampling', intervalMs: Number($('poll').value) }); };
-$('buf').onchange = () => { if ($('buf').value !== '') vscode.postMessage({ type: 'sampling', bufferSeconds: Number($('buf').value) }); };
-$('span').onchange = () => { seconds = Number($('span').value); save(); send(); };
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; send(); };
 new ResizeObserver(() => { send(); draw(); }).observe($('wrap'));
 window.addEventListener('message', ev => {
