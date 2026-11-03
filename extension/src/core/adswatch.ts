@@ -230,6 +230,11 @@ const NETID = /^\d{1,3}(\.\d{1,3}){5}$/;
 /** The host (WatchHost.MaxSymbols) rejects longer lists. */
 export const MAX_WATCHED = 200;
 
+/** Sample interval in ms, as the host accepts it (the setting has the same bounds). */
+export const clampInterval = (ms: number): number => Math.min(5000, Math.max(10, Math.round(Number(ms) || 100)));
+/** Scope buffer length in seconds (the setting has the same bounds). */
+export const clampBufferSeconds = (s: number): number => Math.min(3600, Math.max(10, Math.round(Number(s) || 300)));
+
 /** Why a watch list of `count` symbols can't be watched, or undefined. Checked before the list is saved. */
 export function watchLimitError(count: number): string | undefined {
   return count > MAX_WATCHED ? `At most ${MAX_WATCHED} variables can be watched (this list has ${count}). Remove some first.` : undefined;

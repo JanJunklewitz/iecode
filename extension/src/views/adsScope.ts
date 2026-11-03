@@ -4,13 +4,15 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
 import { AdsHost } from '../ads/host';
-import { minMaxBuckets, niceTicks, spanOptions } from '../core/adswatch';
+import { clampBufferSeconds, clampInterval, minMaxBuckets, niceTicks, spanOptions } from '../core/adswatch';
+import { writeAdsSetting } from '../ads/settingsWrite';
 
 const POST_MS = 100;
 const MAX_WIDTH = 4000;
 
 type Msg =
-  | { type: 'view'; width: number; seconds: number; hidden: string[]; paused: boolean };
+  | { type: 'view'; width: number; seconds: number; hidden: string[]; paused: boolean }
+  | { type: 'sampling'; intervalMs?: number; bufferSeconds?: number };
 
 let panel: vscode.WebviewPanel | undefined;
 
@@ -43,6 +45,7 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
     p.webview.postMessage({
       type: 'data',
       spans: spanOptions(host.buffer.span()),
+      sampling: host.sampling(),
       note: !s.connected && s.error ? `Disconnected: ${s.error}` : host.watched().length === 0 ? 'No variables watched.' : syms.length === 0 ? 'No numeric variables to plot.' : '',
       series: items.map(i => ({
         symbol: i.symbol,
@@ -56,7 +59,18 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
   // at most 10 posts per second, however fast samples arrive
   const schedule = () => { if (!timer && !view.paused) timer = setTimeout(() => { timer = undefined; post(); }, POST_MS); };
 
-  panel.webview.onDidReceiveMessage((m: Msg) => {
+  panel.webview.onDidReceiveMessage(async (m: Msg) => {
+    if (m.type === 'sampling') {
+      // the host applies the setting live (config change event); the next post shows the new values
+      try {
+        if (m.intervalMs !== undefined) await writeAdsSetting('sampleIntervalMs', clampInterval(m.intervalMs));
+        if (m.bufferSeconds !== undefined) await writeAdsSetting('bufferSeconds', clampBufferSeconds(m.bufferSeconds));
+      } catch (e) {
+        void vscode.window.showErrorMessage(`IECode: cannot save the scope setting: ${e instanceof Error ? e.message : e}`);
+      }
+      post();
+      return;
+    }
     if (m.type === 'view') {
       const was = view.paused;
       view = {
@@ -92,9 +106,10 @@ export function html(nonce: string, csp: string): string {
 html,body{height:100%}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;display:flex;flex-direction:column}
 .top{display:flex;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--vscode-panel-border);flex-wrap:wrap}
-select{background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,transparent);padding:3px 6px;font:inherit}
+select,input{background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,transparent);padding:3px 6px;font:inherit}
 button{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0;padding:4px 12px;cursor:pointer;font:inherit}
 label{font-size:12px}
+input[type=number]{width:64px}
 #note{opacity:.8;font-size:12px}
 #legend{display:flex;gap:14px;flex-wrap:wrap;padding:6px 14px}
 #legend label{display:flex;align-items:center;gap:4px;white-space:nowrap}
@@ -105,6 +120,8 @@ canvas{position:absolute;left:0;top:0;width:100%;height:100%}
 </style></head><body>
 <div class="top">
   <label>Time span <select id="span"></select></label>
+  <label>Poll <input id="poll" type="number" min="10" max="5000" step="10" title="Read interval in ms (10 to 5000)"> ms</label>
+  <label>Buffer <input id="buf" type="number" min="10" max="3600" step="10" title="Seconds of values kept (10 to 3600)"> s</label>
   <button id="pause">Pause</button>
   <span id="note"></span>
 </div>
@@ -220,6 +237,15 @@ function readout(L, pw) {
 
 cv.onmousemove = ev => { cursor = ev.clientX - cv.getBoundingClientRect().left; draw(); };
 cv.onmouseleave = () => { cursor = null; draw(); };
+// the fields follow the settings, except while one is being edited
+function sampling() {
+  const s = data.sampling;
+  if (!s) return;
+  if (document.activeElement !== $('poll')) $('poll').value = s.intervalMs;
+  if (document.activeElement !== $('buf')) $('buf').value = s.bufferSeconds;
+}
+$('poll').onchange = () => { if ($('poll').value !== '') vscode.postMessage({ type: 'sampling', intervalMs: Number($('poll').value) }); };
+$('buf').onchange = () => { if ($('buf').value !== '') vscode.postMessage({ type: 'sampling', bufferSeconds: Number($('buf').value) }); };
 $('span').onchange = () => { seconds = Number($('span').value); save(); send(); };
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; send(); };
 new ResizeObserver(() => { send(); draw(); }).observe($('wrap'));
@@ -233,6 +259,7 @@ window.addEventListener('message', ev => {
   $('note').textContent = m.note;
   if (!same) legend();
   spans();
+  sampling();
   draw();
 });
 send();

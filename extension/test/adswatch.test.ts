@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -303,4 +303,9 @@ test('watchRename keeps the position, hands the entry to the user and merges wit
   assert.deepEqual(watchRename(l, 'MAIN.a', 'main.C'), [l[1], l[2]]);
   assert.equal(watchRename(l, 'MAIN.a', '  '), l);
   assert.equal(watchRename(l, 'nope', 'GVL.x'), l);
+});
+
+test('the scope sampling fields are clamped to the bounds of the settings', () => {
+  assert.deepEqual([5, 9999, 100.4, NaN].map(clampInterval), [10, 5000, 100, 100]);
+  assert.deepEqual([1, 99999, 300, NaN].map(clampBufferSeconds), [10, 3600, 300, 300]);
 });

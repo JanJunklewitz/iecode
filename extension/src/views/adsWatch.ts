@@ -8,6 +8,7 @@ import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError } from '../ads/host';
 import { MAX_WATCHED, WatchItem, symbolAt, watchEdit, watchRename } from '../core/adswatch';
 import { aiWritesSetting } from '../ads/aiSettings';
+import { writeAdsSetting } from '../ads/settingsWrite';
 
 const REFRESH_MS = 250;
 const NAME = /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/;
@@ -162,11 +163,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
       validateInput: v => validTarget(v) ? undefined : 'Use "local" or six numbers separated by dots, e.g. 172.20.30.60.1.1',
     });
     if (typed === undefined) return;
-    // write where the value comes from, otherwise a workspace setting would silently win over the change
-    const i = cfg.inspect<string>('target');
-    const scope = i?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
-      : i?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
-    try { await cfg.update('target', typed.trim(), scope); } catch (e) { showError(e); }
+    try { await writeAdsSetting('target', typed.trim()); } catch (e) { showError(e); }
   });
 
   reg('iecode.adsWatchAddFromEditor', async () => {

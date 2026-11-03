@@ -4,7 +4,7 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchEntry, WatchItem, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError } from '../core/adswatch';
+import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError } from '../core/adswatch';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -71,7 +71,7 @@ export class AdsHost implements vscode.Disposable {
 
   private constructor(private readonly ctx: vscode.ExtensionContext) {
     const s = settings();
-    this.buffer = new ScopeBuffer(Math.min(3600, Math.max(10, s.bufferSeconds)));
+    this.buffer = new ScopeBuffer(clampBufferSeconds(s.bufferSeconds));
     this.intervalMs = s.intervalMs;
     this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
     this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, vscode.workspace.onDidChangeConfiguration(e => {
@@ -80,9 +80,15 @@ export class AdsHost implements vscode.Disposable {
         if (this.proc) this.restart();
         else if (this.leases > 0) void this.ensure().catch(() => undefined);
       }
-      if (e.affectsConfiguration('iecode.ads.bufferSeconds')) this.buffer.setSeconds(Math.min(3600, Math.max(10, settings().bufferSeconds)));
+      if (e.affectsConfiguration('iecode.ads.bufferSeconds')) this.buffer.setSeconds(clampBufferSeconds(settings().bufferSeconds));
       if (e.affectsConfiguration('iecode.ads.sampleIntervalMs')) void this.setInterval(settings().intervalMs).catch(() => undefined);
     }));
+  }
+
+  /** Sample interval (ms) and buffer length (s) as configured, within the allowed bounds. */
+  sampling(): { intervalMs: number; bufferSeconds: number } {
+    const s = settings();
+    return { intervalMs: clampInterval(s.intervalMs), bufferSeconds: clampBufferSeconds(s.bufferSeconds) };
   }
 
   /** The configured target as shown to the user (write confirmations). */
@@ -168,7 +174,7 @@ export class AdsHost implements vscode.Disposable {
   }
 
   async setInterval(ms: number): Promise<void> {
-    this.intervalMs = Math.min(5000, Math.max(10, Math.round(ms)));
+    this.intervalMs = clampInterval(ms);
     if (this.proc && this.ready) {
       await this.ready;
       await this.request({ op: 'interval', ms: this.intervalMs });
