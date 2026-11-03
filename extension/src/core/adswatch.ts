@@ -271,6 +271,19 @@ export function watchEdit(current: WatchEntry[], add: string[] = [], remove: str
 }
 
 /**
+ * Renames one watched symbol in place (user edit): the entry keeps its position and becomes the user's. If the new
+ * name is already watched, the old entry just goes away. An empty new name changes nothing.
+ */
+export function watchRename(current: WatchEntry[], from: string, to: string): WatchEntry[] {
+  const next = to.trim();
+  if (!next) return current;
+  const at = current.findIndex(e => e.symbol.toLowerCase() === from.trim().toLowerCase());
+  if (at < 0) return current;
+  const exists = current.some((e, i) => i !== at && e.symbol.toLowerCase() === next.toLowerCase());
+  return exists ? current.filter((_, i) => i !== at) : current.map((e, i) => (i === at ? { symbol: next, ai: false } : e));
+}
+
+/**
  * What an AI write does per `iecode.ads.aiWrites`; an unknown value refuses, like the default `off`.
  * `auto` asks anyway while the workspace settings redirect target or port: a cloned repo must not choose
  * where auto-approved writes go.

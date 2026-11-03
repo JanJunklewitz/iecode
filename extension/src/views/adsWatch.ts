@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError } from '../ads/host';
-import { MAX_WATCHED, WatchItem, symbolAt, watchEdit } from '../core/adswatch';
+import { MAX_WATCHED, WatchItem, symbolAt, watchEdit, watchRename } from '../core/adswatch';
 import { aiWritesSetting } from '../ads/aiSettings';
 
 const REFRESH_MS = 250;
@@ -210,6 +210,19 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     } catch (e) {
       showError(e);
     }
+  });
+
+  reg('iecode.adsWatchCopyPath', async (n?: WatchItem, all?: WatchItem[]) => {
+    const symbols = selected(n, all);
+    if (symbols.length) await vscode.env.clipboard.writeText(symbols.join('\n'));
+  });
+
+  reg('iecode.adsWatchEdit', async (n?: WatchItem) => {
+    const symbol = n?.symbol ?? view.selection[0]?.symbol;
+    if (!symbol) return;
+    const typed = await vscode.window.showInputBox({ prompt: 'ADS name to watch (full path, e.g. MAIN.fbMotor.bEnable)', value: symbol, validateInput: v => (v.trim() ? undefined : 'Enter a name') });
+    if (typed === undefined || typed.trim() === symbol) return;
+    try { await host.setEntries(watchRename(host.entries(), symbol, typed)); } catch (e) { showError(e); }
   });
 
   reg('iecode.adsWatchCopy', async (n?: WatchItem) => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -295,4 +295,12 @@ test('parseWatchList reads old string lists and entry lists', () => {
   assert.deepEqual(parseWatchList(undefined), []);
   assert.deepEqual(parseWatchList({}), []);
   assert.deepEqual(parseWatchList([42, null, { ai: true }]), []);
+});
+
+test('watchRename keeps the position, hands the entry to the user and merges with an existing name', () => {
+  const l = [{ symbol: 'MAIN.a', ai: true }, { symbol: 'MAIN.b', ai: false }, { symbol: 'MAIN.c', ai: false }];
+  assert.deepEqual(watchRename(l, 'main.a', 'GVL.x'), [{ symbol: 'GVL.x', ai: false }, l[1], l[2]]);
+  assert.deepEqual(watchRename(l, 'MAIN.a', 'main.C'), [l[1], l[2]]);
+  assert.equal(watchRename(l, 'MAIN.a', '  '), l);
+  assert.equal(watchRename(l, 'nope', 'GVL.x'), l);
 });

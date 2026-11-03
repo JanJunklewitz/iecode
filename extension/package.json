@@ -455,6 +455,16 @@
         "icon": "$(copy)"
       },
       {
+        "command": "iecode.adsWatchCopyPath",
+        "title": "Copy Path",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.adsWatchEdit",
+        "title": "Edit Variable…",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.adsScope",
         "title": "Open ADS Scope",
         "category": "IECode",
@@ -863,6 +873,16 @@
           "group": "1_value@2"
         },
         {
+          "command": "iecode.adsWatchCopyPath",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "1_value@3"
+        },
+        {
+          "command": "iecode.adsWatchEdit",
+          "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
+          "group": "2_edit@0"
+        },
+        {
           "command": "iecode.adsWatchRemove",
           "when": "view == iecode.adsWatch && viewItem == adsWatch.item",
           "group": "2_edit@1"
@@ -983,6 +1003,14 @@
         },
         {
           "command": "iecode.adsWatchCopy",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchCopyPath",
+          "when": "false"
+        },
+        {
+          "command": "iecode.adsWatchEdit",
           "when": "false"
         },
         {
