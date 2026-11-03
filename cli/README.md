@@ -114,6 +114,12 @@ watched; structs, function blocks, arrays, pointers and references get an item e
 After a download the symbols are resolved again; changed types start a new `gen` with an `items` event. At most 200 symbols per watch.
 A symbol that is in the symbol table but not readable on the target gets an item error and is retried every 5 s; the others keep streaming.
 
+A `write` reply tells how far the write got:
+`ok:true` with `data.value` is written and read back; `ok:true` with `data.value:null` and `data.readBackError` is written, but the
+read-back failed; `ok:false` with `"written":"no"` was not sent (unknown symbol, not a single value, value text does not parse);
+`ok:false` without a `written` field failed in the ADS call itself, so the value may or may not have reached the PLC (a client
+must treat a missing `written` as "outcome unknown", also when talking to an older CLI).
+
 Good to know: the value a `write` replies with is read right after the write, not proof that it stays; a PLC program
 may overwrite or reset it within ~200 ms. The first failing call to a target that stopped answering
 blocks for the 5 s ADS client timeout, so a request on stdin can wait up to 5 s. Reading by name sends every name in

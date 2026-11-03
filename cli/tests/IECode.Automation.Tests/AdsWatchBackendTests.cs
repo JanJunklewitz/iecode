@@ -222,8 +222,61 @@ public class AdsWatchBackendTests
         var sym = Int("MAIN.nWatch");
         var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
         b.Connect();
-        Assert.Equal("42", b.Write("MAIN.nWatch", "42"));
+        Assert.Equal(("42", (string?)null), b.Write("MAIN.nWatch", "42"));
         Assert.Equal("42", sym.Written);
+    }
+
+    [Fact]
+    public void Write_reports_a_failed_read_back()
+    {
+        var sym = Int("MAIN.nWatch");
+        sym.ReadThrow = new AdsFault("Read MAIN.nWatch: connection lost", null, true);
+        var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
+        b.Connect();
+        var (value, error) = b.Write("MAIN.nWatch", "42");
+        Assert.Equal("42", sym.Written);
+        Assert.Null(value);
+        Assert.Contains("connection lost", error);
+    }
+
+    [Fact]
+    public void Write_of_an_unknown_symbol_is_not_sent()
+    {
+        var sym = Int("MAIN.nWatch");
+        var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
+        b.Connect();
+        Assert.Throws<WriteNotSentException>(() => b.Write("MAIN.nope", "42"));
+        Assert.Null(sym.Written);
+    }
+
+    [Fact]
+    public void Write_of_a_value_that_is_not_a_single_value_is_not_sent()
+    {
+        var sym = new FakeSymbol("MAIN.fb", "FB_X", "", single: false);
+        var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
+        b.Connect();
+        Assert.Throws<WriteNotSentException>(() => b.Write("MAIN.fb", "1"));
+        Assert.Null(sym.Written);
+    }
+
+    [Fact]
+    public void Write_of_an_unparsable_value_is_not_sent()
+    {
+        var sym = Int("MAIN.nWatch", 7);
+        var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
+        b.Connect();
+        Assert.Throws<WriteNotSentException>(() => b.Write("MAIN.nWatch", "zz"));
+        Assert.Null(sym.Written);
+    }
+
+    [Fact]
+    public void Write_that_fails_in_the_ads_call_stays_an_ads_fault()
+    {
+        var sym = Int("MAIN.nWatch");
+        sym.WriteThrow = new AdsFault("Write MAIN.nWatch: timeout", null, false);
+        var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
+        b.Connect();
+        Assert.Throws<AdsFault>(() => b.Write("MAIN.nWatch", "42"));
     }
 }
 

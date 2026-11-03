@@ -58,6 +58,10 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         {
             emit(WatchJson.Serialize(new WatchReply(id, false, null, "Invalid JSON: " + ex.Message, null)));
         }
+        catch (WriteNotSentException ex)
+        {
+            emit(WatchJson.Serialize(new WatchReply(id, false, null, ex.Message, null, "no")));
+        }
         catch (AdsFault f)
         {
             if (f.ConnectionLost) MarkLost(f.Message, null);
@@ -317,7 +321,11 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         return result;
     }
 
-    private object DoWrite(string symbol, string value) => new WatchWriteData(symbol, backend.Write(symbol, value));
+    private object DoWrite(string symbol, string value)
+    {
+        var (back, readBackError) = backend.Write(symbol, value);
+        return new WatchWriteData(symbol, back, readBackError);
+    }
 
     private object DoInterval(JsonElement root)
     {

@@ -16,7 +16,7 @@ public sealed class WatchHostTests
             s => s.Select(x => new WatchItem(x, "INT", true, null)).ToArray();
         public Func<IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)>> ReadFn = () => [];
         public Func<bool> VersionFn = () => false;
-        public Func<string, string, string> WriteFn = (_, t) => t;
+        public Func<string, string, (string? Value, string? ReadBackError)> WriteFn = (_, t) => (t, null);
 
         public void Connect()
         {
@@ -32,7 +32,7 @@ public sealed class WatchHostTests
         public IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> ReadWatched() => ReadFn();
         public bool SymbolVersionChanged() => VersionFn();
         public (string Type, string Value) ReadOnce(string symbol) => ("INT", "1");
-        public string Write(string symbol, string text) => WriteFn(symbol, text);
+        public (string? Value, string? ReadBackError) Write(string symbol, string text) => WriteFn(symbol, text);
         public void Dispose() { }
     }
 
@@ -257,13 +257,42 @@ public sealed class WatchHostTests
     public void Write_ReturnsReadBack()
     {
         var r = new Rig();
-        r.Backend.WriteFn = (_, _) => "5";
+        r.Backend.WriteFn = (_, _) => ("5", null);
         r.Host.Start();
         r.Host.Handle("""{"id":3,"op":"write","symbol":"MAIN.x","value":"05"}""");
         var d = r.Last().GetProperty("data");
         Assert.True(r.Last().GetProperty("ok").GetBoolean());
         Assert.Equal("MAIN.x", d.GetProperty("symbol").GetString());
         Assert.Equal("5", d.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Write_reply_says_not_written_only_before_sending()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.WriteFn = (_, _) => throw new WriteNotSentException("Symbol 'MAIN.x' not found.");
+        r.Host.Handle("""{"id":3,"op":"write","symbol":"MAIN.x","value":"1"}""");
+        Assert.False(r.Last().GetProperty("ok").GetBoolean());
+        Assert.Equal("no", r.Last().GetProperty("written").GetString());
+        r.Backend.WriteFn = (_, _) => throw new AdsFault("Write MAIN.x: timeout", 0x745, false);
+        r.Host.Handle("""{"id":4,"op":"write","symbol":"MAIN.x","value":"1"}""");
+        Assert.False(r.Last().GetProperty("ok").GetBoolean());
+        Assert.False(r.Last().TryGetProperty("written", out _));
+        Assert.Equal(0x745u, r.Last().GetProperty("adsCode").GetUInt32());
+    }
+
+    [Fact]
+    public void Write_reply_carries_the_read_back_error()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.WriteFn = (_, _) => (null, "Read MAIN.x: connection lost");
+        r.Host.Handle("""{"id":3,"op":"write","symbol":"MAIN.x","value":"1"}""");
+        var d = r.Last().GetProperty("data");
+        Assert.True(r.Last().GetProperty("ok").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, d.GetProperty("value").ValueKind);
+        Assert.Equal("Read MAIN.x: connection lost", d.GetProperty("readBackError").GetString());
     }
 
     [Fact]

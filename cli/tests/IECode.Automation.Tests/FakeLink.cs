@@ -1,3 +1,4 @@
+using IECode.Core.Ads;
 using TwinCAT.Ads;
 
 namespace IECode.Automation.Tests;
@@ -51,17 +52,24 @@ internal sealed class FakeSymbol(string name, string type, string baseType, IRea
 {
     public string Name => name;
     public Exception? Throw;
+    /// <summary>Makes Read fail, e.g. the read-back after a write.</summary>
+    public Exception? ReadThrow;
+    /// <summary>Makes the ADS write call itself fail (the value was parsed, whether it reached the PLC is unknown).</summary>
+    public Exception? WriteThrow;
     public object? Value;
     public string? Written;
     public string TypeName => type;
     public bool IsSingleValue => single;
     public string BaseType => baseType;
     public IReadOnlyDictionary<long, string>? Members => members;
-    public object? Read() => Value;
+    public object? Read() => ReadThrow is { } e ? throw e : Value;
 
+    /// <summary>Like the real link: a value that does not parse is not sent; a failing write call is not told apart.</summary>
     public void Write(string text)
     {
+        if (!short.TryParse(text, out var parsed)) throw new WriteNotSentException($"'{text}' is not a valid {TypeName}.");
+        if (WriteThrow is { } e) throw e;
         Written = text;
-        Value = short.Parse(text);
+        Value = parsed;
     }
 }
