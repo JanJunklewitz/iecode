@@ -4,19 +4,17 @@
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
-import { WriteDecision, aiWriteDecision, oneLine, writeStillApproved } from '../core/adswatch';
+import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
-import { output } from '../cli/iecode';
+import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
 import { sendToAiChat } from '../commands/aiChat';
 import { aiWritesSetting, workspaceTarget } from './aiSettings';
-import { SCOPE_SECONDS, adsTools, errorText, newest, scopeSummary } from './adsTools';
+import { SCOPE_SECONDS, adsTools, newest, scopeSummary } from './adsTools';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
 const show = (s: unknown) => oneLine(String(s));
 
 const text = (s: string) => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
-
-const failure = (e: unknown) => text(errorText(e));
 
 interface WriteInput { symbol: string; value: string }
 type SymbolsInput = Parameters<ReturnType<typeof adsTools>['symbols']>[0];
@@ -24,7 +22,10 @@ type WatchInput = Parameters<ReturnType<typeof adsTools>['watch']>[0];
 type ReadInput = Parameters<ReturnType<typeof adsTools>['read']>[0];
 type ScopeInput = Parameters<ReturnType<typeof adsTools>['scope']>[0];
 
-export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: WorkspaceState) {
+/** A prepared write older than this (the gate's operation deadline) is not matched to an invoke any more. */
+const WRITE_PREPARE_MAX_AGE_MS = 150_000;
+
+export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: WorkspaceState, gate: WriteGate) {
   const tools = adsTools(ctx, state, COPILOT_NAMES);
   const host = tools.host;
 
@@ -46,8 +47,8 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     invoke(opts) { return text(tools.scope(opts.input).text); },
   };
 
-  // The decision each prepared write was shown with; invoke checks it against the settings at that time.
-  const prepared = new Map<string, WriteDecision>();
+  // The decision and target each prepared write was shown with; the gate checks them against the settings at send time.
+  const prepared = new PreparedWrites(WRITE_PREPARE_MAX_AGE_MS);
   const writeKey = (input: WriteInput) => JSON.stringify([input.symbol, input.value]);
 
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
@@ -56,9 +57,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       const setting = aiWritesSetting();
       const redirected = workspaceTarget();
       const decision = aiWriteDecision(setting, redirected);
-      // writes the user declined never reach invoke; keep the map from growing on them
-      if (prepared.size >= 100) prepared.clear();
-      prepared.set(writeKey(opts.input), decision);
+      prepared.prepare(writeKey(opts.input), { decision, targetKey: host.targetKey() });
       if (decision !== 'confirm') return { invocationMessage: decision === 'allow' ? `Writing ${symbol} := ${value}` : undefined };
       const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
       return {
@@ -66,26 +65,18 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
         confirmationMessages: { title: 'Write PLC variable', message: `Write ${symbol} := ${value} on ${host.target()}?${note}` },
       };
     },
-    async invoke(opts) {
+    async invoke(opts, token) {
       const { symbol, value } = opts.input;
-      const before = prepared.get(writeKey(opts.input));
-      prepared.delete(writeKey(opts.input));
-      const now = aiWriteDecision(aiWritesSetting(), workspaceTarget());
-      if (now === 'refuse') {
-        return text('Not written: AI writes are off. The user can allow them with the command "IECode: Set AI Write Access…" (setting iecode.ads.aiWrites in the user settings).');
-      }
-      if (!writeStillApproved(before, now)) {
-        return text('Not written: the AI write access or the ADS target settings changed after this write was prepared, so it now needs the user\'s confirmation. Call adsWrite again to ask for it.');
-      }
-      output.info(`AI write ${show(symbol)} := ${show(value)} on ${host.target()}`);
+      // the confirmation Copilot showed in prepareInvocation; none (or an ambiguous one) makes the gate refuse
+      const record = prepared.take(writeKey(opts.input));
+      const op: WriteOp = { symbol, value, targetKey: record?.targetKey ?? host.targetKey(), via: 'Copilot', prepared: record && { decision: record.decision } };
+      const abort = new AbortController();
+      const cancelled = token.onCancellationRequested(() => abort.abort());
+      if (token.isCancellationRequested) abort.abort();
       try {
-        const back = await host.write(symbol, value);
-        return text(back.value === null
-          ? `Written, but ${symbol} could not be read back: ${back.readBackError ?? 'unknown error'}. Read it before acting on the value.`
-          : `Written. ${symbol} reads back as ${back.value}.`);
-      } catch (e) {
-        output.warn(`AI write ${show(symbol)} failed: ${show((e as Error).message)}`);
-        return failure(e);
+        return text(writeResultText(await gate.run(op, abort.signal), op));
+      } finally {
+        cancelled.dispose();
       }
     },
   };

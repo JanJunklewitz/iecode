@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
+import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -32,15 +33,10 @@ export class StartError extends Error {
   constructor(message: string, readonly action?: 'install' | 'settings', readonly setting = 'iecode.ads') { super(message); }
 }
 
-/** The write was not sent: refused before the request left, or the host proved it did not send it. `alreadyShown`: a failed host start. */
-export class WriteNotSent extends Error {
-  constructor(message: string, readonly alreadyShown = false) { super(message); }
-}
+export { WriteNotSent, WriteOutcomeUnknown };
 
-/** The write request was sent and the outcome is not known (no reply, host gone, or an error that does not prove "not sent"). */
-export class WriteOutcomeUnknown extends Error {}
-
-export interface WriteResult { value: string | null; readBackError?: string }
+/** What `AdsHost.write` returns when the write went through; `value` is null when only the read-back failed. */
+export interface HostWriteResult { value: string | null; readBackError?: string }
 
 export class AdsHost implements vscode.Disposable {
   private static instance: AdsHost | undefined;
@@ -195,7 +191,7 @@ export class AdsHost implements vscode.Disposable {
    * `beforeSend` runs right before the request is written, with no await in between; a returned string refuses the
    * write. Failures are `WriteNotSent` (nothing was sent) or `WriteOutcomeUnknown`; a failed read-back is a result.
    */
-  async write(symbol: string, value: string, beforeSend?: () => string | undefined): Promise<WriteResult> {
+  async write(symbol: string, value: string, beforeSend?: () => string | undefined): Promise<HostWriteResult> {
     return this.leased(async () => {
       try {
         await this.ensure(true);
