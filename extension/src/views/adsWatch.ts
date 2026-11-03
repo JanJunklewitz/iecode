@@ -10,8 +10,39 @@ import { MAX_WATCHED, WatchItem, symbolAt, watchEdit } from '../core/adswatch';
 import { aiWritesSetting } from '../ads/aiSettings';
 
 const REFRESH_MS = 250;
-const ENTER = 'Enter a name…';
 const NAME = /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/;
+
+type Pick = vscode.QuickPickItem & { symbol: string };
+
+/** Multi-select list of known symbols; the typed filter text is offered as one more entry, so any name can be watched in a single step. */
+function pickNames(picks: Pick[], placeHolder: string): Promise<string[] | undefined> {
+  return new Promise(resolve => {
+    const qp = vscode.window.createQuickPick<Pick>();
+    qp.canSelectMany = true;
+    qp.matchOnDescription = true;
+    qp.placeholder = placeHolder;
+    qp.items = picks;
+    qp.onDidChangeValue(value => {
+      const typed = value.split(',').map(s => s.trim()).filter(Boolean);
+      const known = new Set(picks.map(p => p.symbol.toLowerCase()));
+      const extra: Pick[] = typed.length && !typed.every(t => known.has(t.toLowerCase()))
+        ? [{ label: `Watch ${typed.join(', ')}`, symbol: typed.join(','), alwaysShow: true }]
+        : [];
+      const keep = qp.selectedItems;
+      qp.items = [...extra, ...picks];
+      qp.selectedItems = keep.filter(k => picks.includes(k));
+    });
+    qp.onDidAccept(() => {
+      const names = qp.selectedItems.flatMap(i => i.symbol.split(',')).filter(Boolean);
+      // Enter without a tick takes the typed name
+      const typed = qp.value.split(',').map(s => s.trim()).filter(Boolean);
+      resolve(names.length ? names : typed);
+      qp.hide();
+    });
+    qp.onDidHide(() => { resolve(undefined); qp.dispose(); });
+    qp.show();
+  });
+}
 
 class WatchTree implements vscode.TreeDataProvider<WatchItem> {
   private readonly changed = new vscode.EventEmitter<void>();
@@ -100,7 +131,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     if (room <= 0) return void vscode.window.showWarningMessage(`IECode: the ADS watch already has ${MAX_WATCHED} variables, the most it can hold. Remove some first.`);
     const watched = new Set(host.watched().map(s => s.toLowerCase()));
     const units = state.current.units.filter(u => !u.plc.isLibrary);
-    const picks: (vscode.QuickPickItem & { symbol?: string })[] = [{ label: ENTER, alwaysShow: true }];
+    const picks: Pick[] = [];
     const missing: string[] = [];
     for (const u of units) {
       try {
@@ -115,15 +146,9 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     }
     const placeHolder = (missing.length
       ? `Variables to watch (not built, so not listed: ${missing.join(', ')})`
-      : 'Variables to watch (from the build output)') + `; ${room} more fit`;
-    const chosen = await vscode.window.showQuickPick(picks, { canPickMany: true, matchOnDescription: true, placeHolder });
-    if (!chosen?.length) return;
-    const names = chosen.filter(c => c.symbol).map(c => c.symbol!);
-    if (chosen.some(c => c.label === ENTER)) {
-      const typed = await vscode.window.showInputBox({ prompt: 'ADS names to watch, separated by commas', placeHolder: 'MAIN.bStart, GVL.nCount' });
-      if (typed) names.push(...typed.split(',').map(s => s.trim()).filter(Boolean));
-    }
-    if (names.length) await add(names);
+      : 'Variables to watch (from the build output)') + `; ${room} more fit. Type a name to watch any other variable`;
+    const names = await pickNames(picks, placeHolder);
+    if (names?.length) await add(names);
   });
 
   reg('iecode.adsWatchAddFromEditor', async () => {
