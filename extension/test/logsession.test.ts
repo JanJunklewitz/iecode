@@ -369,6 +369,26 @@ test('user formats are tried before the built-in ones', async () => {
   }
 });
 
+test('invalid user formats are skipped with a warning instead of failing the load', async () => {
+  const s = LogSession.open([path.join(fixtures, 'logger-lf.log')], [
+    { id: 'broken', name: 'Broken', entry: '(' },
+    { id: 'badLevel', name: 'Bad level', entry: '^(?<level>\\w+) (?<message>.*)$', levels: { F: 'fatal' as never } },
+    // An invalid format does not hide the built-in one of the same id.
+    { id: 'twincat-logger', name: 'Shadow', entry: '(' },
+  ], OPTS);
+  try {
+    await s.load();
+    const st = s.state();
+    assert.deepEqual(st.formats, ['twincat-logger']);
+    assert.equal(st.total, 3);
+    assert.match(st.warning ?? '', /'broken'/);
+    assert.match(st.warning ?? '', /'badLevel'/);
+    assert.match(st.warning ?? '', /'twincat-logger'/);
+  } finally {
+    await s.dispose();
+  }
+});
+
 test('load of a UTF-16 file rejects with a clear message', async () => {
   const s = LogSession.open([path.join(fixtures, 'utf16.log')], [], OPTS);
   await assert.rejects(s.load(), /UTF-16/);

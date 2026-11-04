@@ -104,7 +104,16 @@ export function compileFormat(def: LogFormatDef): LogFormat {
   }
   const f: LogFormat = { def, entry };
   if (def.ignore) f.ignore = make(def.ignore, 'ignore');
-  if (def.levels) f.levelMap = new Map(Object.entries(def.levels).map(([k, v]) => [k.toLowerCase(), v]));
+  if (def.levels) {
+    if (typeof def.levels !== 'object') throw new LogFormatError(`The levels of log format '${def.id}' must be an object`);
+    for (const [k, v] of Object.entries(def.levels)) {
+      // The scan stores the level as an index into LEVELS; any other value would show as a wrong level.
+      if (!LEVELS.includes(v)) {
+        throw new LogFormatError(`Log format '${def.id}' maps level '${k}' to '${String(v)}'; use one of ${LEVELS.join(', ')}`);
+      }
+    }
+    f.levelMap = new Map(Object.entries(def.levels).map(([k, v]) => [k.toLowerCase(), v]));
+  }
   if (def.timeFormat) {
     try {
       f.time = compileTime(def.timeFormat);
