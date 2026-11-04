@@ -412,6 +412,8 @@
     if (note) parts.push(note);
     status.textContent = parts.join('  ');
     if (transientError) showMessage(transientError, 'error');
+    // A live-tail failure goes here, not under the text query (state.error belongs to the query).
+    else if (state.liveError) showMessage(`Live: ${state.liveError}`, 'error');
     else if (state.warning) showMessage(state.warning, 'warning');
     else showMessage('', '');
   }
@@ -420,11 +422,8 @@
   const rowCount = () => (state ? state.rowCount : 0);
   const viewport = () => scroller.clientHeight;
   const currentRange = () => renderRange(scroller.scrollTop, rowCount(), viewport(), MARGIN);
-  const inWin = (w, pos) => (w && pos >= w.pos && pos < w.pos + w.count ? w.rows[pos - w.pos] : null);
   /** Row of the current revision at pos, or null. */
-  const rowAt = (pos) => inWin(win, pos);
-  /** Row to draw at pos: the current one, else the previous revision's until the new window arrives. */
-  const drawAt = (pos) => rowAt(pos) || (win ? null : inWin(shownWin, pos));
+  const rowAt = (pos) => (win && pos >= win.pos && pos < win.pos + win.count ? win.rows[pos - win.pos] : null);
 
   /** Row position of entry `index` in the received window, or null. */
   function findPos(index) {
@@ -507,7 +506,10 @@
         continue;
       }
       s.el.hidden = false;
-      fillSlot(s, r.start + i, drawAt(r.start + i));
+      const d = rowForDraw(win, shownWin, r.start + i);
+      fillSlot(s, r.start + i, d.row);
+      // Rows of the previous revision are only drawn; a click on them is ignored.
+      s.el.classList.toggle('previous', !d.current);
     }
     rowsEl.style.transform = `translateY(${r.top}px)`;
     // Never let the drawn rows grow the scroll area (proportional mode draws them at the viewport top).
@@ -517,7 +519,7 @@
   rowsEl.addEventListener('click', ev => {
     const target = ev.target instanceof Element ? ev.target : null;
     const el = target && target.closest('.row');
-    if (!el || !state) return;
+    if (!el || !state || el.classList.contains('previous')) return;
     const pos = Number(el.dataset.pos);
     if (!rowAt(pos)) return;
     if (target.closest('.mark')) return toggleBookmark(pos);

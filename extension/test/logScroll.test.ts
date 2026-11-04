@@ -25,6 +25,7 @@ interface LogScroll {
   centerScrollTop(row: number, rowCount: number, viewportPx: number): number;
   navFrom(selected: number | null, firstVisible: number, dir: 1 | -1): number;
   atBottom(scrollTop: number, rowCount: number, viewportPx: number): boolean;
+  rowForDraw(win: { pos: number; count: number; rows: string[] } | null, prev: { pos: number; count: number; rows: string[] } | null, pos: number): { row: string | null; current: boolean };
 }
 
 // The webview script is plain JS in media/; out/test/*.js sits two levels below the extension folder.
@@ -175,4 +176,14 @@ test('the view is at the bottom only near the highest scrollTop, and always when
   }
   assert.equal(ls.atBottom(0, 3, VIEWPORT), true);
   assert.equal(ls.atBottom(0, 0, VIEWPORT), true);
+});
+
+test('rows of the previous revision are drawn only until a current window arrives, and never count as current', () => {
+  const prev = { pos: 10, count: 2, rows: ['p10', 'p11'] };
+  const win = { pos: 0, count: 2, rows: ['c0', 'c1'] };
+  assert.deepEqual(ls.rowForDraw(null, prev, 11), { row: 'p11', current: false });
+  assert.deepEqual(ls.rowForDraw(null, prev, 3), { row: null, current: true });
+  assert.deepEqual(ls.rowForDraw(null, null, 3), { row: null, current: true });
+  assert.deepEqual(ls.rowForDraw(win, prev, 1), { row: 'c1', current: true });
+  assert.deepEqual(ls.rowForDraw(win, prev, 11), { row: null, current: true });
 });
