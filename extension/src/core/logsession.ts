@@ -283,8 +283,8 @@ export class LogSession {
           this.search = undefined;
           this.filters = { ...this.filters, text: undefined };
           this.textFlags = undefined;
-          this.publish();
           this.error = (e as Error).message;
+          this.publish();
         }
         continue;
       } finally {
@@ -329,9 +329,7 @@ export class LogSession {
     this.scanning = 1;
     onProgress?.(1);
     this.loaded = true;
-    const error = this.error;
     this.publish();
-    this.error = error;
   }
 
   /** The query the next published text flags are for: a running search's, else the applied one. */
@@ -370,14 +368,15 @@ export class LogSession {
     }
     const hasRest = Object.keys(rest).length > 0;
     if (hasRest) this.filters = { ...this.filters, ...rest };
+    // The query error belongs to the text: only a change of the text sets or clears it, other changes keep it.
+    if (textGiven) this.error = invalid;
 
     if (invalid !== undefined) {
-      // Keep the applied query and its flags, drop a pending search, apply the other parts; the error survives publish.
+      // Keep the applied query and its flags, drop a pending search, apply the other parts.
       this.search?.ac.abort();
       this.search = undefined;
       this.restartLoadSearch();
       this.publish();
-      this.error = invalid;
       return;
     }
     if (!this.loaded) {
@@ -653,10 +652,7 @@ export class LogSession {
     this.order = timelineOrder(store, this.paths.length);
     this.identity = now;
     this.commits++;
-    // An error of the text query (invalid regex) still belongs to the query box.
-    const error = this.error;
     this.publish();
-    this.error = error;
     return true;
   }
 
@@ -741,10 +737,12 @@ export class LogSession {
     return { file: store.file[i], offset: store.offset[i], length: store.length[i], firstLength: store.firstLength[i] };
   }
 
-  /** Rebuilds filter result and view from the current state and publishes them in one synchronous step. */
+  /**
+   * Rebuilds filter result and view from the current state and publishes them in one synchronous step. The query
+   * error is left alone: only a change of the text (setFilters) sets or clears it.
+   */
   private publish(): void {
     this.revision++;
-    this.error = undefined;
     this.snap = this.build();
   }
 
