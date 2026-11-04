@@ -170,6 +170,23 @@ test('LogFiles.close waits for released readers', async () => {
   assert.throws(() => files.acquire());
 });
 
+test('a reader may acquire files another reader holds after close was requested; close waits for both', async () => {
+  const p = path.join(fixtures, 'logger-lf.log');
+  const s = await scan([p]);
+  const files = new LogFiles([p]);
+  const release = files.acquire();
+  let closed = false;
+  const c = files.close().then(() => { closed = true; });
+  const chunks: Buffer[] = [];
+  await exportRaw(files, [ref(s, 0)], async chunk => { chunks.push(chunk); });
+  assert.equal(Buffer.concat(chunks).toString('utf8'), fs.readFileSync(p, 'utf8').split('\n')[1] + '\n');
+  assert.equal(closed, false);
+  release();
+  await c;
+  assert.equal(closed, true);
+  assert.throws(() => files.acquire(), /closed/);
+});
+
 test('searchText plain search is case-insensitive and covers source, message and continuation lines only', async () => {
   const p = path.join(fixtures, 'multiline.log');
   const s = await scan([p]);

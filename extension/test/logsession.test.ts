@@ -6,6 +6,7 @@ import * as path from 'path';
 import { LogFormatError } from '../src/core/logformat';
 import { LogLimitError } from '../src/core/logstore';
 import { LogSession, StaleError } from '../src/core/logsession';
+import { LogFiles } from '../src/core/logrows';
 import { writeSyntheticLog } from './logGen';
 
 const fixtures = path.join(__dirname, '..', '..', 'test', 'fixtures', 'logs');
@@ -1159,6 +1160,23 @@ test('an existing destination is replaced after a successful export', async () =
     assert.equal(await s.exportTo(dest), 5);
     assert.equal(fs.readFileSync(dest, 'utf8'), repeats());
     assert.deepEqual(tmpEntries(), []);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an export finishes when a reload closes its files while it runs', async () => {
+  const p = tmpFile(repeats());
+  const s = await opened([p]);
+  try {
+    // What a reload does to the files of the old snapshot (old.close()), right after the export took the snapshot.
+    const files = (s as unknown as { files: LogFiles }).files;
+    const dest = path.join(tmp, 'closing.log');
+    const run = s.exportTo(dest);
+    const closing = files.close();
+    assert.equal(await run, 5);
+    await closing;
+    assert.equal(fs.readFileSync(dest, 'utf8'), repeats());
   } finally {
     await s.dispose();
   }

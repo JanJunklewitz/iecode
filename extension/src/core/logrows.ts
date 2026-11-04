@@ -23,7 +23,11 @@ function abortError(): Error {
   return e;
 }
 
-/** Keeps one read handle per file open; close() waits until every acquire() has been released. */
+/**
+ * Keeps one read handle per file open; close() waits until every acquire() has been released. While a reader still
+ * holds the files, another acquire() succeeds even after close() (a reader that took a snapshot before a reload may
+ * acquire again inside, as exportTo does through exportRaw); once all are released, acquire() throws.
+ */
 export class LogFiles {
   private handles: Array<Promise<fsp.FileHandle> | undefined>;
   private active = 0;
@@ -36,7 +40,7 @@ export class LogFiles {
 
   /** Marks the files as in use; call the returned function once when the read is done. */
   acquire(): () => void {
-    if (this.closing) throw new Error('The log files are closed');
+    if (this.closing && this.active === 0) throw new Error('The log files are closed');
     this.active++;
     let released = false;
     return () => {
