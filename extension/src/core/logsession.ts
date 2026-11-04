@@ -1,11 +1,12 @@
 // Stateful core of the log viewer: load, live tail, filters, text search, snapshots, rows, bookmarks. No vscode imports.
 import { promises as fsp } from 'fs';
 import * as path from 'path';
-import { BUILT_IN_FORMATS, LEVELS, Level, LogFormat, LogFormatDef, compileFormat, detectFormat } from './logformat';
+import { randomBytes } from 'crypto';
+import { BUILT_IN_FORMATS, LEVELS, Level, LogFormat, LogFormatDef, LogFormatError, compileFormat, detectFormat } from './logformat';
 import { EntryStore } from './logstore';
 import { scanFile, sniff } from './logscan';
 import { FilterResult, applyFilters, timelineOrder } from './logfilter';
-import { EntryRef, LogFiles, TextQuery, compileQuery, readDetail, readPreviews, searchText } from './logrows';
+import { EntryRef, LogFiles, TextQuery, compileQuery, exportRaw, readDetail, readPreviews, searchText } from './logrows';
 import { LogView, ViewOptions } from './logview';
 
 export { ViewOptions } from './logview';
@@ -123,6 +124,25 @@ function rewrittenFile(old: FileIdentity, now: FileIdentity): boolean {
 function sameExtent(a: EntryStore, i: number, b: EntryStore, j: number): boolean {
   return a.offset[i] === b.offset[j] && a.length[i] === b.length[j] && a.lines[i] === b.lines[j] &&
     a.terminated[i] === b.terminated[j];
+}
+
+function abortErrorOf(): Error {
+  const e = new Error('The operation was aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
+/** Real path of the destination; the file itself may not exist yet, then its folder's real path plus the base name. */
+async function resolvedTarget(dest: string): Promise<string> {
+  try {
+    return await fsp.realpath(dest);
+  } catch {
+    return path.join(await fsp.realpath(path.dirname(path.resolve(dest))), path.basename(dest));
+  }
+}
+
+function sameFile(a: string, b: string): boolean {
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 export class LogSession {
@@ -621,6 +641,50 @@ export class LogSession {
     if (this.error !== undefined) st.error = this.error;
     if (this.liveError !== undefined) st.liveError = this.liveError;
     return st;
+  }
+
+  /**
+   * Writes every matched entry (all members of grouped rows) in view order, as original bytes plus "\n" each, to a
+   * temp file next to `dest` and renames it over `dest` after success; abort or failure deletes the temp file and
+   * leaves `dest` alone. The snapshot is taken synchronously, so later filter changes or live commits do not affect a
+   * running export. Resolves with the number of entries written.
+   */
+  async exportTo(dest: string, signal?: AbortSignal): Promise<number> {
+    const snap = this.snap;
+    // Copied and acquired before the first await.
+    const release = snap.files.acquire();
+    try {
+      const indices = snap.result.indices;
+      const refs: EntryRef[] = new Array(indices.length);
+      for (let j = 0; j < indices.length; j++) refs[j] = this.ref(snap.store, indices[j]);
+
+      const target = await resolvedTarget(dest);
+      for (const p of this.paths) {
+        if (sameFile(target, await fsp.realpath(p))) throw new LogFormatError('Cannot export into a file that is open in the viewer');
+      }
+      if (signal?.aborted) throw abortErrorOf();
+
+      const tmp = `${dest}.${randomBytes(6).toString('hex')}.tmp`;
+      const fh = await fsp.open(tmp, 'wx');
+      try {
+        try {
+          await exportRaw(snap.files, refs, async chunk => {
+            let done = 0;
+            while (done < chunk.length) done += (await fh.write(chunk, done, chunk.length - done)).bytesWritten;
+          }, signal);
+        } finally {
+          await fh.close();
+        }
+        if (signal?.aborted) throw abortErrorOf();
+        await fsp.rename(tmp, dest);
+      } catch (e) {
+        await fsp.unlink(tmp).catch(() => undefined);
+        throw e;
+      }
+      return refs.length;
+    } finally {
+      release();
+    }
   }
 
   /** Aborts a load, refresh or search; resolves once in-flight reads are done and the files are closed. */

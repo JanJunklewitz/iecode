@@ -13,6 +13,8 @@ export interface SearchResult { flags: Uint8Array; from: number; bytesRead: numb
 const MAX_PREVIEW_BYTES = 8192;
 const DEFAULT_DETAIL_BYTES = 1024 * 1024;
 const EXPORT_CHUNK = 1024 * 1024;
+/** Largest gap between two entries that one export read still spans. */
+const EXPORT_SPAN_GAP = 64 * 1024;
 const NEWLINE = 0x0a;
 
 function abortError(): Error {
@@ -182,7 +184,11 @@ export async function searchText(
   });
 }
 
-/** Writes the original bytes of each entry followed by one "\n" (never re-encoded, no BOM) in chunks of at most 1 MB. */
+/**
+ * Writes the original bytes of each entry followed by one "\n" (never re-encoded, no BOM). Small entries of one file
+ * that lie close together are read with one read and batched into output chunks of up to 1 MB; an entry of 1 MB or
+ * more is read and written in chunks of its own.
+ */
 export async function exportRaw(
   files: LogFiles,
   refs: EntryRef[] | Iterable<EntryRef>,
@@ -191,30 +197,80 @@ export async function exportRaw(
 ): Promise<void> {
   const release = files.acquire();
   try {
-    for (const r of refs) {
+    const list = Array.isArray(refs) ? refs : [...refs];
+    // A chunk handed to out() is never reused, so the caller may keep it.
+    let pending = Buffer.allocUnsafe(EXPORT_CHUNK);
+    let used = 0;
+    const flush = async (): Promise<void> => {
+      if (used === 0) return;
+      const chunk = pending.subarray(0, used);
+      pending = Buffer.allocUnsafe(EXPORT_CHUNK);
+      used = 0;
+      await out(chunk);
+    };
+    let i = 0;
+    while (i < list.length) {
+      if (signal?.aborted) throw abortError();
+      const r = list[i];
+      if (r.length >= EXPORT_CHUNK) {
+        await flush();
+        await exportLarge(files, r, out, signal);
+        i++;
+        continue;
+      }
+      // Extend the span over following small entries of the same file that are close by (offsets rising).
+      let j = i;
+      const start = r.offset;
+      let end = r.offset + r.length;
+      while (j + 1 < list.length) {
+        const n = list[j + 1];
+        const nEnd = Math.max(end, n.offset + n.length);
+        if (n.file !== r.file || n.length >= EXPORT_CHUNK || n.offset < start || n.offset > end + EXPORT_SPAN_GAP ||
+          nEnd - start > EXPORT_CHUNK) break;
+        end = nEnd;
+        j++;
+      }
+      const span = Buffer.allocUnsafe(end - start);
       const fh = await files.handle(r.file);
-      let done = 0;
-      do {
-        if (signal?.aborted) throw abortError();
-        const n = Math.min(EXPORT_CHUNK, r.length - done);
-        const last = done + n >= r.length;
-        const buf = Buffer.allocUnsafe(n + (last ? 1 : 0));
-        const { bytesRead } = n > 0 ? await fh.read(buf, 0, n, r.offset + done) : { bytesRead: 0 };
-        if (last) {
-          // A shorter read means the file shrank since the scan; emit what exists.
-          buf[bytesRead] = NEWLINE;
-          await out(buf.subarray(0, bytesRead + 1));
-          break;
-        }
-        if (bytesRead === 0) {
-          await out(Buffer.from([NEWLINE]));
-          break;
-        }
-        await out(buf.subarray(0, bytesRead));
-        done += bytesRead;
-      } while (done < r.length);
+      const { bytesRead } = await fh.read(span, 0, span.length, start);
+      for (let k = i; k <= j; k++) {
+        const e = list[k];
+        const rel = e.offset - start;
+        // A shorter read means the file shrank since the scan; emit what exists.
+        const avail = Math.max(0, Math.min(e.length, bytesRead - rel));
+        if (used + avail + 1 > EXPORT_CHUNK) await flush();
+        span.copy(pending, used, rel, rel + avail);
+        pending[used + avail] = NEWLINE;
+        used += avail + 1;
+      }
+      i = j + 1;
     }
+    if (signal?.aborted) throw abortError();
+    await flush();
   } finally {
     release();
   }
+}
+
+async function exportLarge(files: LogFiles, r: EntryRef, out: (chunk: Buffer) => Promise<void>, signal?: AbortSignal): Promise<void> {
+  const fh = await files.handle(r.file);
+  let done = 0;
+  do {
+    if (signal?.aborted) throw abortError();
+    const n = Math.min(EXPORT_CHUNK, r.length - done);
+    const last = done + n >= r.length;
+    const buf = Buffer.allocUnsafe(n + (last ? 1 : 0));
+    const { bytesRead } = n > 0 ? await fh.read(buf, 0, n, r.offset + done) : { bytesRead: 0 };
+    if (last) {
+      buf[bytesRead] = NEWLINE;
+      await out(buf.subarray(0, bytesRead + 1));
+      break;
+    }
+    if (bytesRead === 0) {
+      await out(Buffer.from([NEWLINE]));
+      break;
+    }
+    await out(buf.subarray(0, bytesRead));
+    done += bytesRead;
+  } while (done < r.length);
 }

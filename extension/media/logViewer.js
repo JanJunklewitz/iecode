@@ -195,9 +195,10 @@
   }, 'follow');
 
   const status = h('span', 'status');
+  const exportButton = button('Export', 'Save the filtered entries to a file', () => post({ type: 'export' }), 'export');
   const openRaw = button('Open as text', 'Open this file in the text editor', () => post({ type: 'openRaw' }), 'openRaw');
   const toolRow = h('div', 'tools');
-  toolRow.append(timeSelect, groupLabel, nav, liveLabel, followButton, status, openRaw);
+  toolRow.append(timeSelect, groupLabel, nav, liveLabel, followButton, status, exportButton, openRaw);
 
   const bar = h('div', 'bar');
   bar.append(filterRow, toolRow);
@@ -383,6 +384,7 @@
     if (multi && fileButtons.length !== state.files.length) buildFileToggles(state.files);
     fileButtons.forEach((b, i) => setPressed(b, !f.files || f.files.includes(i)));
     openRaw.title = multi ? 'Open the files in the text editor' : 'Open this file in the text editor';
+    exportButton.disabled = state.scanning < 1;
     // Merged views stay static.
     liveLabel.hidden = multi;
     liveBox.checked = !!state.live;
