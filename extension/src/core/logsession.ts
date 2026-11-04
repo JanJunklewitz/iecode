@@ -29,7 +29,11 @@ export interface SessionState {
   revision: number; fileGeneration: number; files: string[]; formats: string[];
   filters: SessionFilters; options: ViewOptions; total: number; matched: number; rowCount: number;
   hiddenBy: FilterResult['hiddenBy']; levelCounts: Record<Level, number>; viewFirstTimeMs?: number;
-  firstTimeMs?: number; lastTimeMs?: number; scanning: number; live: boolean; warning?: string; error?: string;
+  firstTimeMs?: number; lastTimeMs?: number; scanning: number; live: boolean; warning?: string;
+  /** Error of the text query (invalid regex, failed search). */
+  error?: string;
+  /** Why the live tail could not ingest the file's changes (limit, UTF-16 after a rewrite, read error). */
+  liveError?: string;
 }
 
 /** Immutable once published; readers take it synchronously and never see a later change. */
@@ -156,6 +160,8 @@ export class LogSession {
   private refreshNext?: Promise<boolean>;
   private refreshAbort?: AbortController;
   private lastTailSearchBytes = 0;
+  /** Why the last refresh failed; cleared by the next commit or reload. Separate from error (the text query's). */
+  private liveError?: string;
 
   private constructor(
     private readonly paths: string[],
@@ -509,17 +515,22 @@ export class LogSession {
       if (reload) {
         await this.loadFiles(ac.signal, undefined, true);
         this.needsReload = false;
-        return !this.disposed;
+        if (this.disposed) return false;
+        this.liveError = undefined;
+        return true;
       }
-      return await this.appendTail(now, ac.signal);
+      const changed = await this.appendTail(now, ac.signal);
+      // Committed or reloaded: an earlier refresh failure is over.
+      if (changed) this.liveError = undefined;
+      return changed;
     } catch (e) {
       if (this.disposed || (e as Error).name === 'AbortError') return false;
       // Not retried until the file changes again; a failed reload leaves entries that no longer match the file.
       if (now) this.identity = now;
       if (reload) this.needsReload = true;
       const message = (e as Error).message;
-      const changed = this.error !== message;
-      this.error = message;
+      const changed = this.liveError !== message;
+      this.liveError = message;
       return changed;
     } finally {
       if (this.refreshAbort === ac) this.refreshAbort = undefined;
@@ -588,7 +599,10 @@ export class LogSession {
     this.order = timelineOrder(store, this.paths.length);
     this.identity = now;
     this.commits++;
+    // An error of the text query (invalid regex) still belongs to the query box.
+    const error = this.error;
     this.publish();
+    this.error = error;
     return true;
   }
 
@@ -605,6 +619,7 @@ export class LogSession {
     if (this.lastTimeMs !== undefined) st.lastTimeMs = this.lastTimeMs;
     if (this.warning !== undefined) st.warning = this.warning;
     if (this.error !== undefined) st.error = this.error;
+    if (this.liveError !== undefined) st.liveError = this.liveError;
     return st;
   }
 

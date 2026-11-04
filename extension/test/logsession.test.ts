@@ -864,17 +864,44 @@ test('a text query changed during a refresh also covers the appended entries', a
   }
 });
 
-test('a limit error during refresh shows as state().error and keeps the published entries', async () => {
+test('a limit error during refresh sets liveError, keeps the entries and the query error; a later reload clears it', async () => {
   const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
   const s = LogSession.open([p], [], OPTS, { maxEntries: 3 });
   await s.load();
   try {
+    await s.setFilters({ text: { query: '(', regex: true, caseSensitive: false } });
     grow(p, [PUMP(3), PUMP(4)].join('\n') + '\n');
     assert.equal(await s.refresh(), true);
-    const st = s.state();
-    assert.match(st.error ?? '', /Too many entries/);
+    let st = s.state();
+    assert.match(st.liveError ?? '', /Too many entries/);
+    assert.match(st.error ?? '', /^Invalid regular expression/);
     assert.equal(st.total, 2);
     assert.deepEqual((await s.rows(st.revision, 0, 5)).map(x => x.seq), [1, 2]);
+    // The same failure again changes nothing.
+    assert.equal(await s.refresh(), false);
+    fs.writeFileSync(p, PUMP(1) + '\n');
+    assert.equal(await s.refresh(), true);
+    st = s.state();
+    assert.equal(st.liveError, undefined);
+    assert.equal(st.fileGeneration, 1);
+    assert.equal(st.total, 1);
+    assert.match(st.error ?? '', /^Invalid regular expression/);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an invalid query error survives a live append', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ text: { query: '(', regex: true, caseSensitive: false } });
+    grow(p, PUMP(3) + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.total, 3);
+    assert.match(st.error ?? '', /^Invalid regular expression/);
+    assert.equal(st.liveError, undefined);
   } finally {
     await s.dispose();
   }

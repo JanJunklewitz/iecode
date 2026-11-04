@@ -75,6 +75,8 @@ class LogSessionHost {
   failure?: string;
   private watch?: vscode.Disposable;
   private disposed = false;
+  /** The user switched Live on or off; the mtime default after the load is skipped then. */
+  private liveChosen = false;
 
   /** Without paths, `failure` says why nothing is shown; `label` names the content in a load failure. */
   constructor(private readonly paths: string[] | undefined, private readonly label: string, failure?: string) {
@@ -100,14 +102,18 @@ class LogSessionHost {
     }
     if (this.disposed) return;
     this.changed.fire();
-    if (this.failure === undefined && this.paths?.length === 1) {
-      // Live by default only for a file that is still being written.
-      try {
-        const { mtimeMs } = await fsp.stat(this.paths[0]);
-        if (Date.now() - mtimeMs < LIVE_RECENT_MS) this.setLive(true);
-      } catch {
-        // Gone since the load; stays static.
-      }
+    if (this.failure !== undefined || this.paths?.length !== 1) return;
+    if (this.liveChosen) {
+      // The user's choice during the load stands; its refresh then found nothing loaded yet.
+      if (session.state().live) void this.refresh();
+      return;
+    }
+    // Live by default only for a file that is still being written.
+    try {
+      const { mtimeMs } = await fsp.stat(this.paths[0]);
+      if (!this.liveChosen && Date.now() - mtimeMs < LIVE_RECENT_MS) this.setLive(true, false);
+    } catch {
+      // Gone since the load; stays static.
     }
   }
 
@@ -115,10 +121,14 @@ class LogSessionHost {
     if (!this.disposed) this.changed.fire();
   }
 
-  /** Live (ingest new entries) on or off; single-file sessions only. Turning it on looks at the file at once. */
-  setLive(on: boolean) {
+  /**
+   * Live (ingest new entries) on or off; single-file sessions only. Turning it on looks at the file at once. Once the
+   * user chose (byUser), the default after the load no longer applies.
+   */
+  setLive(on: boolean, byUser = true) {
     const s = this.session;
     if (!s || this.disposed || this.failure !== undefined || this.paths?.length !== 1) return;
+    if (byUser) this.liveChosen = true;
     s.setLive(on);
     this.watch?.dispose();
     this.watch = undefined;

@@ -100,6 +100,18 @@ function centerScrollTop(row, rowCount, viewportPx) {
   return rowToScrollTop(Math.max(0, row - half), rowCount, viewportPx);
 }
 
+/**
+ * Row to draw at `pos`: from the current revision's window `win`, else (only while no window of the current revision
+ * has arrived yet) from the previous revision's window `prev`. `current` is false for a row of the previous revision;
+ * such a row is only drawn, never clicked or bookmarked, because its position may mean another row now.
+ */
+function rowForDraw(win, prev, pos) {
+  const at = (w) => (w && pos >= w.pos && pos < w.pos + w.count ? w.rows[pos - w.pos] : null);
+  if (win) return { row: at(win), current: true };
+  const row = at(prev);
+  return { row, current: !row };
+}
+
 /** True when the view shows the last row: within half a row of the highest scrollTop, or when every row fits. */
 function atBottom(scrollTop, rowCount, viewportPx) {
   return scrollTop >= maxScrollTop(rowCount, viewportPx) - ROW_HEIGHT / 2;
@@ -150,6 +162,6 @@ function createRequests() {
 if (typeof module === 'object') {
   module.exports = {
     ROW_HEIGHT, MAX_HEIGHT, scrollHeight, rowToScrollTop, scrollTopToRow, renderRange, windowFor, needsWindow, nextWindow,
-    createRequests, centerScrollTop, navFrom, atBottom,
+    createRequests, centerScrollTop, navFrom, atBottom, rowForDraw,
   };
 }
