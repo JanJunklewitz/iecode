@@ -23,6 +23,7 @@ import { registerVisuEditor } from './views/visuEditor';
 import { registerAiChat } from './commands/aiChat';
 import { showProjectSettings } from './views/projectSettings';
 import { registerPlcArchiveEditor } from './views/plcArchiveEditor';
+import { registerLogViewer } from './views/logViewer';
 import { registerAdsWatch } from './views/adsWatch';
 import { showAdsScope } from './views/adsScope';
 import { registerAdsLmTools } from './ads/lmTools';
@@ -126,6 +127,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerVisuEditor(ctx);
   registerAiChat(ctx);
   registerPlcArchiveEditor(ctx);
+  registerLogViewer(ctx);
   // one gate per window: every AI write (Copilot and MCP) queues here and is bound to the confirmed target. The deadlines end
   // before Claude Code gives up on a call (it waited at least 300 s in the spike); no room for a dialog refuses every AI write.
   const policy = gatePolicyFor(CLAUDE_TOOL_TIMEOUT_MS) ?? { dialogMs: 0, operationMs: 0, maxQueued: 0 };
