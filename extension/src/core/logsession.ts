@@ -225,8 +225,18 @@ export class LogSession {
    * close once the readers of the old snapshot are done. Load progress is reported for the first load only.
    */
   private async loadFiles(signal: AbortSignal, onProgress?: (f: number) => void, reload = false): Promise<void> {
-    const userIds = new Set(this.userFormats.map(f => f.id));
-    const candidates = [...this.userFormats, ...BUILT_IN_FORMATS.filter(f => !userIds.has(f.id))].map(compileFormat);
+    // An invalid user format is skipped and reported; it must not keep every log file from opening.
+    const user: LogFormat[] = [];
+    const formatErrors: string[] = [];
+    for (const def of this.userFormats) {
+      try {
+        user.push(compileFormat(def));
+      } catch (e) {
+        formatErrors.push(`Ignored an invalid log format: ${(e as Error).message}`);
+      }
+    }
+    const userIds = new Set(user.map(f => f.def.id));
+    const candidates = [...user, ...BUILT_IN_FORMATS.filter(f => !userIds.has(f.id)).map(compileFormat)];
 
     const formats: LogFormat[] = [];
     const tentative: boolean[] = [];
@@ -301,7 +311,6 @@ export class LogSession {
       void old.close();
       this.fileGeneration++;
       this.bookmarks.clear();
-      this.warning = undefined;
     }
     // A search still running belongs to the old entries; its query is applied here.
     this.search?.ac.abort();
@@ -324,8 +333,10 @@ export class LogSession {
     }
     this.firstTimeMs = first === Infinity ? undefined : first;
     this.lastTimeMs = last === -Infinity ? undefined : last;
-    if (invalid.length === 1 && n === 1) this.warning = 'This file is not valid UTF-8';
-    else if (invalid.length > 0) this.warning = `These files are not valid UTF-8: ${invalid.join(', ')}`;
+    const warnings = [...formatErrors];
+    if (invalid.length === 1 && n === 1) warnings.push('This file is not valid UTF-8');
+    else if (invalid.length > 0) warnings.push(`These files are not valid UTF-8: ${invalid.join(', ')}`);
+    this.warning = warnings.length > 0 ? warnings.join('. ') : undefined;
     this.scanning = 1;
     onProgress?.(1);
     this.loaded = true;

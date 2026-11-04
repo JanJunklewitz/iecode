@@ -92,6 +92,9 @@ test('compileFormat rejects bad definitions', () => {
   assert.throws(() => compileFormat({ id: 'x', name: 'x', entry: '(' }), LogFormatError);
   assert.throws(() => compileFormat({ id: 'x', name: 'x', entry: '^(?<level>.*)$' }), LogFormatError);
   assert.throws(() => compileFormat({ id: 'x', name: 'x', entry: '^(?<message>.*)$', ignore: '(' }), LogFormatError);
+  // A level value outside error, warning, info, debug, other would be stored as a wrong level.
+  assert.throws(() => compileFormat({ id: 'x', name: 'x', entry: '^(?<level>\\w+) (?<message>.*)$', levels: { F: 'fatal' as never } }),
+    (e: Error) => e instanceof LogFormatError && /'x'/.test(e.message) && /'fatal'/.test(e.message));
 });
 
 test('plain format', () => {
