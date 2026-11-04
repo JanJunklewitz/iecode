@@ -54,8 +54,6 @@
     "onFileSystem:iecode-io",
     "onFileSystem:iecode-config",
     "onFileSystem:iecode-lib",
-    "onCustomEditor:iecode.visuEditor",
-    "onCustomEditor:iecode.plcArchiveEditor",
     "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,TcGTLO,TcIPO,TcVMO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
