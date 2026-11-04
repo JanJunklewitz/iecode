@@ -22,15 +22,22 @@ async function run(d: Input): Promise<{ flags: Uint8Array; bytesRead: number }> 
   const n = d.file.length;
   const flags = new Uint8Array(n);
   // Entries of one file in offset order; the entries of different files may be interleaved in the columns.
-  const perFile = new Map<number, number[]>();
-  for (let i = 0; i < n; i++) {
-    const f = d.file[i];
-    const list = perFile.get(f);
-    if (list) list.push(i); else perFile.set(f, [i]);
-  }
+  // Counting sort into one typed array (a JS array per file cost ~8 bytes per entry plus its growth copies).
+  const files = d.paths.length;
+  const begin = new Uint32Array(files + 1);
+  for (let i = 0; i < n; i++) begin[d.file[i] + 1]++;
+  for (let f = 0; f < files; f++) begin[f + 1] += begin[f];
+  const fill = begin.slice(0, files);
+  const byFile = new Uint32Array(n);
+  for (let i = 0; i < n; i++) byFile[fill[d.file[i]]++] = i;
   let bytesRead = 0;
-  for (const [f, list] of perFile) {
-    list.sort((a, b) => d.offset[a] - d.offset[b]);
+  for (let f = 0; f < files; f++) {
+    const list = byFile.subarray(begin[f], begin[f + 1]);
+    if (list.length === 0) continue;
+    // Scan order is offset order already; sort only if it is not.
+    let sorted = true;
+    for (let k = 1; k < list.length && sorted; k++) sorted = d.offset[list[k - 1]] <= d.offset[list[k]];
+    if (!sorted) list.sort((a, b) => d.offset[a] - d.offset[b]);
     const format = formats[f];
     const start = d.offset[list[0]];
     let p = 0;                       // position in list of the entry the current line may belong to
