@@ -1,0 +1,69 @@
+// Worker thread of searchText: streams the files with readLines and flags matching entries. No vscode imports.
+import { parentPort, workerData } from 'worker_threads';
+import { LogFormatDef, compileFormat, parseLine } from './logformat';
+import { readLines } from './logscan';
+import { TextQuery, compileQuery } from './logrows';
+
+interface Input {
+  paths: string[];
+  file: Uint16Array;
+  offset: Float64Array;
+  length: Float64Array;
+  formats: LogFormatDef[];
+  q: TextQuery;
+}
+
+const MAX_TEXT_CHARS = 8192;
+const MAX_TEXT_BYTES = MAX_TEXT_CHARS * 3;
+
+async function run(d: Input): Promise<{ flags: Uint8Array; bytesRead: number }> {
+  const re = compileQuery(d.q);
+  const formats = d.formats.map(compileFormat);
+  const n = d.file.length;
+  const flags = new Uint8Array(n);
+  // Entries of one file in offset order; the entries of different files may be interleaved in the columns.
+  const perFile = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const f = d.file[i];
+    const list = perFile.get(f);
+    if (list) list.push(i); else perFile.set(f, [i]);
+  }
+  let bytesRead = 0;
+  for (const [f, list] of perFile) {
+    list.sort((a, b) => d.offset[a] - d.offset[b]);
+    const format = formats[f];
+    const start = d.offset[list[0]];
+    let p = 0;                       // position in list of the entry the current line may belong to
+    let end = start;
+    for await (const batch of readLines(d.paths[f], { startOffset: start })) {
+      for (const l of batch) {
+        while (p < list.length && l.offset >= d.offset[list[p]] + d.length[list[p]]) p++;
+        if (p >= list.length) break;
+        const i = list[p];
+        end = l.physEnd + l.terminator;
+        if (l.offset < d.offset[i] || flags[i]) continue;
+        let text = l.buf.toString('utf8', l.start, Math.min(l.end, l.start + MAX_TEXT_BYTES));
+        if (l.offset === 0 && text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+        if (text.length > MAX_TEXT_CHARS) text = text.slice(0, MAX_TEXT_CHARS);
+        let hit: boolean;
+        if (l.offset === d.offset[i]) {
+          const r = parseLine(format, text);
+          hit = r.kind === 'entry'
+            ? re.test(r.entry.source) || re.test(r.entry.message)
+            : re.test(text);
+        } else {
+          hit = re.test(text);
+        }
+        if (hit) flags[i] = 1;
+      }
+      if (p >= list.length) break;
+    }
+    bytesRead += Math.max(0, end - start);
+  }
+  return { flags, bytesRead };
+}
+
+run(workerData as Input).then(
+  r => parentPort!.postMessage(r, [r.flags.buffer as ArrayBuffer]),
+  e => parentPort!.postMessage({ error: (e as Error).message }),
+);
