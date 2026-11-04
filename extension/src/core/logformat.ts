@@ -18,6 +18,8 @@ export interface LogFormat {
   entry: RegExp;
   ignore?: RegExp;
   time?: { re: RegExp; order: string[] };
+  /** def.levels with lower-cased keys, built once by compileFormat for the scan hot path. */
+  levelMap?: Map<string, Level>;
 }
 
 export interface ParsedLine {
@@ -102,6 +104,7 @@ export function compileFormat(def: LogFormatDef): LogFormat {
   }
   const f: LogFormat = { def, entry };
   if (def.ignore) f.ignore = make(def.ignore, 'ignore');
+  if (def.levels) f.levelMap = new Map(Object.entries(def.levels).map(([k, v]) => [k.toLowerCase(), v]));
   if (def.timeFormat) {
     try {
       f.time = compileTime(def.timeFormat);
@@ -150,12 +153,8 @@ function mapLevel(f: LogFormat, levelText: string, message: string): Level {
     const w = m[1].toLowerCase();
     return w === 'warn' || w === 'warning' ? 'warning' : (w as Level);
   }
-  if (!levelText || !f.def.levels) return 'other';
-  const key = levelText.toLowerCase();
-  for (const k of Object.keys(f.def.levels)) {
-    if (k.toLowerCase() === key) return f.def.levels[k];
-  }
-  return 'other';
+  if (!levelText) return 'other';
+  return f.levelMap?.get(levelText.toLowerCase()) ?? 'other';
 }
 
 export function parseLine(f: LogFormat, line: string): LineKind {
