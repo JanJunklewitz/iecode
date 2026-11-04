@@ -936,6 +936,62 @@ test('a text query set before load is applied by load', async () => {
   }
 });
 
+/** Rejects when p has not settled after ms milliseconds, so a hang fails the test instead of stalling it. */
+async function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const PUMP_QUERY = { query: 'pump', regex: false, caseSensitive: false };
+
+test('a newer query aborts the text search of a running load', async () => {
+  const s = LogSession.open([tmpFile(catastrophic())], [], OPTS);
+  try {
+    await s.setFilters({ text: SLOW });
+    const loading = s.load();
+    // Long enough for the scan to end and the search of SLOW to start.
+    await new Promise(r => setTimeout(r, 300));
+    await s.setFilters({ text: PUMP_QUERY });
+    await within(loading, 3000, 'load');
+    const st = s.state();
+    assert.equal(st.filters.text?.query, 'pump');
+    assert.equal(st.total, 3);
+    assert.equal(st.matched, 2);
+    assert.equal(st.error, undefined);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a newer query aborts the text search of a running reload', async () => {
+  const p = tmpFile(catastrophic());
+  const s = await opened([p]);
+  try {
+    // Never finishes on its own; the reload below then searches its new entries for SLOW as well.
+    const slow = s.setFilters({ text: SLOW });
+    fs.writeFileSync(p, PUMP(1) + '\n' + catastrophic());
+    const refresh = s.refresh();
+    await new Promise(r => setTimeout(r, 300));
+    const pump = s.setFilters({ text: PUMP_QUERY });
+    assert.equal(await within(refresh, 3000, 'refresh'), true);
+    await within(Promise.all([slow, pump]), 3000, 'the searches');
+    const st = s.state();
+    assert.equal(st.fileGeneration, 1);
+    assert.equal(st.total, 4);
+    assert.equal(st.filters.text?.query, 'pump');
+    assert.equal(st.matched, 3);
+  } finally {
+    await s.dispose();
+  }
+});
+
 function tmpEntries(): string[] {
   return fs.readdirSync(tmp).filter(f => f.endsWith('.tmp'));
 }

@@ -157,6 +157,8 @@ export class LogSession {
   private filters: SessionFilters = { levels: [...LEVELS] };
   private textFlags?: Uint8Array;
   private search?: { ac: AbortController; query: TextQuery };
+  /** The text search of a running load or reload, over its new entries; aborted when the latest query changes. */
+  private loadSearch?: { ac: AbortController; query: TextQuery };
   private options: ViewOptions;
   /** Entry indices of the current fileGeneration. */
   private bookmarks = new Set<number>();
@@ -249,22 +251,29 @@ export class LogSession {
       });
     }
     // Before the load, setFilters only records the query (filters.text); during a reload a search may be running on
-    // the old entries. Search the new entries until the latest query is stable.
-    const latest = () => (this.search ? this.search.query : this.filters.text);
+    // the old entries. Search the new entries until the latest query is stable. Each search has its own controller,
+    // which setFilters aborts when the latest query changes (a catastrophic regex must not hold up the load).
     let flags: Uint8Array | undefined;
     let applied: TextQuery | undefined;
     for (;;) {
-      const q = latest();
+      const q = this.latestQuery();
       applied = q;
       if (!q) {
         flags = undefined;
         break;
       }
+      const ac = new AbortController();
+      const onAbort = () => ac.abort();
+      signal.addEventListener('abort', onAbort);
+      if (signal.aborted) ac.abort();
+      this.loadSearch = { ac, query: q };
       try {
-        flags = (await this.searchStore(store, formats, q, signal)).flags;
+        flags = (await this.searchStore(store, formats, q, ac.signal)).flags;
       } catch (e) {
-        if (this.disposed || (e as Error).name === 'AbortError') throw e;
-        if (sameQuery(q, latest())) {
+        if (this.disposed || signal.aborted) throw e;
+        // Aborted by setFilters: search for the newer query.
+        if ((e as Error).name === 'AbortError') continue;
+        if (sameQuery(q, this.latestQuery())) {
           this.search?.ac.abort();
           this.search = undefined;
           this.filters = { ...this.filters, text: undefined };
@@ -273,8 +282,11 @@ export class LogSession {
           this.error = (e as Error).message;
         }
         continue;
+      } finally {
+        signal.removeEventListener('abort', onAbort);
+        if (this.loadSearch?.ac === ac) this.loadSearch = undefined;
       }
-      if (sameQuery(q, latest())) break;
+      if (sameQuery(q, this.latestQuery())) break;
     }
     if (this.disposed) return;
 
@@ -316,6 +328,16 @@ export class LogSession {
     this.error = error;
   }
 
+  /** The query the next published text flags are for: a running search's, else the applied one. */
+  private latestQuery(): TextQuery | undefined {
+    return this.search ? this.search.query : this.filters.text;
+  }
+
+  /** A load or reload searching for another query than the latest one starts over with the latest. */
+  private restartLoadSearch(): void {
+    if (this.loadSearch && !sameQuery(this.loadSearch.query, this.latestQuery())) this.loadSearch.ac.abort();
+  }
+
   /** Flags of the entries from `from` on; the columns are copied synchronously, before the first await. */
   private searchStore(store: EntryStore, formats: LogFormat[], q: TextQuery, signal: AbortSignal, from = 0) {
     const count = store.count;
@@ -347,6 +369,7 @@ export class LogSession {
       // Keep the applied query and its flags, drop a pending search, apply the other parts; the error survives publish.
       this.search?.ac.abort();
       this.search = undefined;
+      this.restartLoadSearch();
       this.publish();
       this.error = invalid;
       return;
@@ -354,12 +377,12 @@ export class LogSession {
     if (!this.loaded) {
       // load() runs the recorded query once the entries exist.
       if (textGiven) this.filters = { ...this.filters, text: target };
+      this.restartLoadSearch();
       this.publish();
       return;
     }
-    const latest = this.search ? this.search.query : this.filters.text;
-    if (!textGiven || sameQuery(target, latest)) {
-      // A valid text equal to the latest query still publishes, so an earlier error is cleared.
+    if (!textGiven || sameQuery(target, this.latestQuery())) {
+      // A valid text equal to the latest query still publishes, so the cleared error goes out.
       if (hasRest || textGiven) this.publish();
       return;
     }
@@ -371,6 +394,7 @@ export class LogSession {
         this.textFlags = undefined;
         this.filters = { ...this.filters, text: undefined };
       }
+      this.restartLoadSearch();
       this.publish();
       return;
     }
@@ -378,6 +402,7 @@ export class LogSession {
     if (hasRest) this.publish();
     const job = { ac: new AbortController(), query: target };
     this.search = job;
+    this.restartLoadSearch();
     const generation = this.fileGeneration;
     try {
       // Live-tail commits during the search replace the last entry and append more; search those again until none came.
