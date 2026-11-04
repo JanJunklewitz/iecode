@@ -53,6 +53,8 @@ interface Snapshot {
 
 const MAX_MESSAGE = 2000;
 const ERROR_LEVEL = LEVELS.indexOf('error');
+/** Highest scan progress before the load publishes; 1 means the entries are shown. */
+const SCAN_PROGRESS_MAX = 0.99;
 
 function pad(n: number, w: number): string {
   return String(n).padStart(w, '0');
@@ -259,8 +261,9 @@ export class LogSession {
     for (let i = 0; i < n; i++) {
       await scanFile(this.paths[i], i, formats[i], store, {
         signal,
+        // Stays below 1 until the publish below: the text search may still run after the last chunk.
         onProgress: reload ? undefined : f => {
-          this.scanning = (i + f) / n;
+          this.scanning = Math.min(SCAN_PROGRESS_MAX, (i + f) / n);
           onProgress?.(this.scanning);
         },
       });
