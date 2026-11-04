@@ -45,7 +45,8 @@ function lineExtents(buf: Buffer): Array<[number, number]> {
 
 async function collect(p: string, o = {}): Promise<RawLine[]> {
   const lines: RawLine[] = [];
-  for await (const b of readLines(p, o)) lines.push(...b);
+  // readLines reuses its read buffer: keep a copy of each line's bytes.
+  for await (const b of readLines(p, o)) lines.push(...b.map(l => ({ ...l, buf: Buffer.from(l.buf) })));
   return lines;
 }
 

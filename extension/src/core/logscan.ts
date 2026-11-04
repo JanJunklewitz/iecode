@@ -29,6 +29,7 @@ export interface RawLine { buf: Buffer; start: number; end: number; offset: numb
 
 const DEFAULT_CHUNK = 1024 * 1024;
 const MAX_LINE_BYTES = 1024 * 1024;
+const MAX_BATCH_LINES = 1024;
 const MAX_FIRST_LENGTH = 8192;
 const MAX_HASH_CHARS = 8192;
 /** Enough bytes to hold MAX_HASH_CHARS characters of any UTF-8 text (3 bytes per BMP char). */
@@ -43,7 +44,10 @@ function abortError(): Error {
   return e;
 }
 
-/** The only line splitter: reads the file in chunks and yields the complete lines of each chunk. */
+/**
+ * The only line splitter: reads the file in chunks and yields the complete lines of each chunk. The read buffer is
+ * reused, so a line's buf is valid only until the consumer asks for the next batch.
+ */
 export async function* readLines(path: string, o: ScanOptions = {}): AsyncGenerator<RawLine[]> {
   const chunkSize = o.chunkSize ?? DEFAULT_CHUNK;
   const fh = await fsp.open(path, 'r');
@@ -75,14 +79,16 @@ export async function* readLines(path: string, o: ScanOptions = {}): AsyncGenera
       last = 0;
     };
 
+    // One buffer for every chunk: a fresh 1 MB buffer per chunk piled up ~100 MB of dead buffers per 100 MB file
+    // before the GC freed them.
+    const chunk = Buffer.allocUnsafe(chunkSize);
     for (;;) {
       if (o.signal?.aborted) throw abortError();
-      const chunk = Buffer.allocUnsafe(chunkSize);
       const { bytesRead } = await fh.read(chunk, 0, chunkSize, pos);
       if (bytesRead === 0) break;
       const data = bytesRead < chunkSize ? chunk.subarray(0, bytesRead) : chunk;
       pos += bytesRead;
-      const batch: RawLine[] = [];
+      let batch: RawLine[] = [];
       let from = 0;
       for (;;) {
         const nl = data.indexOf(LF, from);
@@ -118,6 +124,13 @@ export async function* readLines(path: string, o: ScanOptions = {}): AsyncGenera
         });
         reset(lineStart + total + 1);
         from = nl + 1;
+        // Hand the lines over in small parts: a chunk of 2-byte lines holds half a million of them, and the consumer
+        // yields to the event loop between parts. Fewer lines alive at each scavenge also keep V8's young generation
+        // small (it grows with the survivors; 16384 lines per part cost ~80 MB of rss on a 5 M-entry file).
+        if (batch.length >= MAX_BATCH_LINES) {
+          yield batch;
+          batch = [];
+        }
       }
       o.onProgress?.(size > 0 ? Math.min(1, pos / size) : 1);
       if (batch.length > 0) yield batch;
@@ -160,7 +173,9 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
   const levelIndex = new Map(LEVELS.map((l, i) => [l, i]));
 
   // Boot entries (no time) get the time of the next dated entry, or of the previous one at the end.
-  const undated: number[] = [];
+  // A dated entry patches all undated ones before it, so the pending ones are always the run from undatedFrom to the
+  // last appended entry (a range, not a list: a plain file has millions of undated entries).
+  let undatedFrom = -1;
   let lastTime = NaN;
   // Resume only looks back for the previous dated time. Entries already in the store are never re-patched:
   // committed entries are immutable, so trailing boot entries keep the previous dated entry as sortTime even when
@@ -172,8 +187,9 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
     }
   }
   const patchUndated = (t: number): void => {
-    for (const i of undated) store.sortTime[i] = t;
-    undated.length = 0;
+    if (undatedFrom < 0) return;
+    store.sortTime.fill(t, undatedFrom, store.count);
+    undatedFrom = -1;
   };
 
   let cur: Pending | undefined;
@@ -189,7 +205,7 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
     });
     lastEntryStart = p.offset;
     if (Number.isNaN(p.time)) {
-      undated.push(i);
+      if (undatedFrom < 0) undatedFrom = i;
     } else {
       patchUndated(p.time);
       lastTime = p.time;
@@ -224,7 +240,7 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
     await new Promise<void>(resolve => setImmediate(resolve));
   }
   flush();
-  if (undated.length > 0) patchUndated(Number.isNaN(lastTime) ? -Infinity : lastTime);
+  if (undatedFrom >= 0) patchUndated(Number.isNaN(lastTime) ? -Infinity : lastTime);
   return { size, lastEntryStart };
 }
 
