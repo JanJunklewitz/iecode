@@ -93,7 +93,7 @@ export async function* readLines(path: string, o: ScanOptions = {}): AsyncGenera
         let buf: Buffer;
         let start: number;
         let end: number;
-        let total: number;      // physical bytes of the line including a trailing 
+        let total: number;      // physical bytes of the line including a trailing CR
         let cr: boolean;
         let content: number;    // physical bytes of the line without its line break
         if (parts.length === 0) {
@@ -162,6 +162,10 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
   // Boot entries (no time) get the time of the next dated entry, or of the previous one at the end.
   const undated: number[] = [];
   let lastTime = NaN;
+  // Resume only looks back for the previous dated time. Entries already in the store are never re-patched:
+  // committed entries are immutable, so trailing boot entries keep the previous dated entry as sortTime even when
+  // the grown file now has a later dated one. That differs from a full scan, but live tails are single-file
+  // (file order), where sortTime is not used.
   if (startOffset > 0) {
     for (let i = store.count - 1; i >= 0 && store.file[i] === fileId; i--) {
       if (!Number.isNaN(store.time[i])) { lastTime = store.time[i]; break; }
@@ -233,17 +237,19 @@ export async function sniff(path: string): Promise<{ lines: string[]; encoding: 
     const data = buf.subarray(0, bytesRead);
     const head = Buffer.from(data.subarray(0, 64));
     const utf16 = data.length >= 2 && ((data[0] === 0xff && data[1] === 0xfe) || (data[0] === 0xfe && data[1] === 0xff));
-    // stream: true keeps a multi-byte character cut by the 64 KB boundary from counting as invalid.
+    // Only a full sample can end inside a character because of the 64 KB cut (stream: true tolerates that);
+    // a shorter sample is the whole file, so a dangling multi-byte sequence at its end is invalid.
+    const cut = bytesRead === SNIFF_BYTES;
     let validUtf8 = true;
     try {
-      new TextDecoder('utf-8', { fatal: true }).decode(data, { stream: true });
+      new TextDecoder('utf-8', { fatal: true }).decode(data, { stream: cut });
     } catch {
       validUtf8 = false;
     }
     if (utf16) return { lines: [], encoding: 'utf16', validUtf8, head };
-    const lines = new TextDecoder('utf-8').decode(data, { stream: true }).split(/\r?\n/);
+    const lines = new TextDecoder('utf-8').decode(data, { stream: cut }).split(/\r?\n/);
     // A full sample ends mid-line; drop the cut line. A short sample is the whole file.
-    if (bytesRead === SNIFF_BYTES) lines.pop();
+    if (cut) lines.pop();
     else if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
     return { lines, encoding: 'utf8', validUtf8, head };
   } finally {

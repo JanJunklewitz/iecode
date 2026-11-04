@@ -230,6 +230,22 @@ test('resume keeps the sort time of trailing boot entries', async () => {
   assert.equal(part.sortTime[1], part.time[0]);
 });
 
+test('resume on a grown file does not re-patch stored boot entries', async () => {
+  const first = [entryLine(1, T1, 'INFO', 'x', 'a'), entryLine(2, BOOT, 'INFO', 'boot', 'b'), entryLine(3, BOOT, 'INFO', 'boot', 'c')].join('\n') + '\n';
+  const p = tmpFile(first);
+  const store = new EntryStore();
+  const r = await scanFile(p, 0, logger, store);
+  const t1 = Date.UTC(2026, 0, 15, 10, 0, 1, 123);
+  const t2 = Date.UTC(2026, 0, 15, 10, 0, 2, 456);
+  assert.deepEqual(Array.from(store.sortTime.subarray(0, 3)), [t1, t1, t1]);
+  fs.appendFileSync(p, entryLine(4, T2, 'INFO', 'x', 'd') + '\n');
+  store.truncate(store.count - 1);
+  await scanFile(p, 0, logger, store, { startOffset: r.lastEntryStart });
+  assert.equal(store.count, 4);
+  // Entry 1 was committed before the resume point and keeps t1 (a full scan would give it t2); the rescanned entry 2 gets t2.
+  assert.deepEqual(Array.from(store.sortTime.subarray(0, 4)), [t1, t1, t2, t2]);
+});
+
 test('live scan leaves an unterminated last line unread', async () => {
   const p = tmpFile(`${entryLine(1, T1, 'INFO', 'x', 'a')}\n${entryLine(2, T2, 'INFO', 'x', 'half writt')}`);
   const store = new EntryStore();
@@ -268,6 +284,8 @@ test('sniff: lines, encoding and UTF-8 validity', async () => {
   assert.equal(s.head.length, 64);
   assert.deepEqual((await sniff(path.join(fixtures, 'empty.log'))).lines, []);
   assert.equal((await sniff(tmpFile(Buffer.from([0x61, 0xe4, 0x0a])))).validUtf8, false);
+  assert.equal((await sniff(tmpFile(Buffer.from([0xe4])))).validUtf8, false);
+  assert.equal((await sniff(tmpFile(Buffer.from([0x61, 0x62, 0xe4])))).validUtf8, false);
 });
 
 test('sniff: a 64 KB boundary inside a valid multi-byte character is not invalid', async () => {
