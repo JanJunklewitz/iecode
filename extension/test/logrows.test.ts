@@ -70,7 +70,8 @@ test('readPreviews parses the first line of refs from two files in the requested
 });
 
 test('readPreviews strips a BOM and a CR and survives a cut multi-byte character', async () => {
-  const long = 'x'.repeat(8190) + 'ä€';
+  // 'ä' (2 bytes) starts at byte 8191 of the line, so the 8 KB cap cuts it in half.
+  const long = 'x'.repeat(8191 - entryLine(2, 'INFO', 'fbMain.b', '').length) + 'ä€';
   const p = tmpFile(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(entryLine(1, 'INFO', 'fbMain.a', 'first') + '\r\n' + entryLine(2, 'INFO', 'fbMain.b', long) + '\r\n')]));
   const s = await scan([p]);
   const files = new LogFiles([p]);
@@ -79,6 +80,7 @@ test('readPreviews strips a BOM and a CR and survives a cut multi-byte character
     assert.equal(r[0].message, 'first');
     assert.equal(r[0].seq, 1);
     assert.equal(r[1].source, 'fbMain.b');
+    assert.ok(r[1].message.length > 8000);
   } finally {
     await files.close();
   }
@@ -113,6 +115,31 @@ test('readDetail returns the full text of a multi-line entry', async () => {
     assert.equal(d.truncated, false);
     assert.equal(d.text, '0000000001 - 2026-01-15-10:00:01.123 - INFO - fbMain.fbPump - Pump started\n  detail line one\n  detail line two');
     assert.equal(d.first.source, 'fbMain.fbPump');
+  } finally {
+    await files.close();
+  }
+});
+
+test('LogFiles.close called twice resolves both calls after the release', async () => {
+  const files = new LogFiles([path.join(fixtures, 'logger-lf.log')]);
+  const release = files.acquire();
+  const a = files.close();
+  const b = files.close();
+  release();
+  await Promise.all([a, b]);
+});
+
+test('readDetail parses first from at most 8 KB of a long first line but returns the full text', async () => {
+  const msg = 'y'.repeat(20000);
+  const p = tmpFile(entryLine(1, 'ERROR', 'fbMain.long', msg) + '\n  tail line\n');
+  const s = await scan([p]);
+  const files = new LogFiles([p]);
+  try {
+    const d = await readDetail(files, [logger], ref(s, 0));
+    assert.ok(d.text.includes('y'.repeat(20000)));
+    assert.ok(d.text.endsWith('  tail line'));
+    assert.equal(d.first.source, 'fbMain.long');
+    assert.ok(d.first.message.length <= 8192 && d.first.message.length > 8000);
   } finally {
     await files.close();
   }
