@@ -2,9 +2,9 @@
 
 ## Open
 
-- [ ] **MCP server for the ADS watch (high priority)**: most of the daily AI work here is done with Claude Code, which cannot call the `vscode.lm` tools (`iecode_ads_*`), so today only Copilot can use the ADS interface.
-  - Must be served by the extension, not the host, because the watch list and the sample history live in the extension. Same tools and the same `iecode.ads.aiWrites` rules (off / confirm / auto, confirm needs a way to ask the user) as the language model tools.
-  - Open: transport (local HTTP or a stdio shim the extension talks to), how Claude Code finds it (registration in `.mcp.json` or by the extension), how a write confirmation reaches the user.
+- [x] **MCP server for the ADS watch**: Claude Code reaches the five ADS tools through a user-scope stdio bridge (`iecode mcp`) to the window that serves its folder.
+  - Spec: [docs/superpowers/specs/2026-11-03-ads-mcp-server-design.md](docs/superpowers/specs/2026-11-03-ads-mcp-server-design.md). Plan: [docs/superpowers/plans/2026-11-03-ads-mcp-bridge.md](docs/superpowers/plans/2026-11-03-ads-mcp-bridge.md) (with the earlier [plan](docs/superpowers/plans/2026-11-03-ads-mcp-server.md) for the shared tool logic and the write gate).
+  - Done: bridge, extension server, Connect / Disconnect. Open: the manual end-to-end checks of the plan's Task 8 against a real PLC target.
 - [x] **ADS variable access: watchlist, mini scope and AI interface**: an ADS interface to read and write PLC variables, usable by the user and by AI agents.
   - Plan: [docs/superpowers/plans/2026-11-02-ads-watchlist.md](docs/superpowers/plans/2026-11-02-ads-watchlist.md).
   - Done: ADS Watch view, ADS Scope, `iecode ads serve`, language model tools `iecode_ads_*`, setting `iecode.ads.aiWrites` (off / confirm / auto).
