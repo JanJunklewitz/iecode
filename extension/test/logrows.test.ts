@@ -238,6 +238,8 @@ test('searchText works over two files with interleaved entries', async () => {
 
 test('compileQuery throws LogFormatError for an invalid regex', () => {
   assert.throws(() => compileQuery({ query: '(', regex: true, caseSensitive: false }), (e: Error) => e instanceof LogFormatError && e.message.startsWith('Invalid regular expression'));
+  // The engine's message already starts with the prefix; it appears once.
+  assert.throws(() => compileQuery({ query: '(', regex: true, caseSensitive: false }), (e: Error) => !/Invalid regular expression.*Invalid regular expression/.test(e.message));
 });
 
 test('searchText from k flags only later entries, equals the full search there and reads less', async () => {
