@@ -199,6 +199,15 @@
   const openRaw = button('Open as text', 'Open this file in the text editor', () => post({ type: 'openRaw' }), 'openRaw');
   const toolRow = h('div', 'tools');
   toolRow.append(timeSelect, groupLabel, nav, liveLabel, followButton, status, exportButton, openRaw);
+  /** Tool row controls that need a session; after a fatal error only "Open as text" stays. */
+  const sessionTools = [timeSelect, groupLabel, nav, liveLabel, followButton, status, exportButton];
+  // Enabled by a state whose scan is done (syncControls), never before.
+  exportButton.disabled = true;
+  /** Shows or hides the session controls; Live, Follow and Export are then set by syncControls from the state. */
+  function showSessionTools(on) {
+    for (const el of sessionTools) el.hidden = !on;
+    if (!on) exportButton.disabled = true;
+  }
 
   const bar = h('div', 'bar');
   bar.append(filterRow, toolRow);
@@ -293,6 +302,7 @@
         transientError = '';
         table.hidden = false;
         filterRow.hidden = false;
+        showSessionTools(true);
         syncControls();
         renderStatus();
         render();
@@ -352,6 +362,7 @@
           win = null;
           table.hidden = true;
           filterRow.hidden = true;
+          showSessionTools(false);
           closeDetail();
           showMessage(m.message, 'error');
           status.textContent = '';
