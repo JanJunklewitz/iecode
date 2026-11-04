@@ -32,30 +32,41 @@ export function fnv1a(h: number, text: string): number {
 }
 
 const INITIAL_CAPACITY = 1024;
+/**
+ * Up to this many entries a column is a plain array that grows by copying (the dead copies stay small). Past it the
+ * column reserves address space up to the entry limit and grows in place; a reservation for every small store (the
+ * empty one of a new session, each live-tail store) would cost ~277 MB of address space each.
+ */
+const PLAIN_CAPACITY = 1 << 16;
 /** Most entries a column reserves address space for; a higher limit grows by copying past it. */
 const MAX_RESERVED = 1 << 24;
 
 type Column = Float64Array | Uint32Array | Uint16Array | Uint8Array;
 type ColumnType<T extends Column> = { new (buffer: ArrayBuffer): T; readonly BYTES_PER_ELEMENT: number };
-type ResizableArrayBuffer = ArrayBuffer & { readonly maxByteLength: number; resize(byteLength: number): void };
+type ResizableArrayBuffer = ArrayBuffer & { readonly resizable: boolean; readonly maxByteLength: number; resize(byteLength: number): void };
 // ES2024 resizable buffers (Node 20+); the ES2022 lib does not declare the options argument.
 const ResizableBuffer = ArrayBuffer as unknown as new (byteLength: number, o: { maxByteLength: number }) => ResizableArrayBuffer;
 
-/** A length-tracking column over a resizable buffer that can grow to `max` elements in place. */
+/**
+ * Up to PLAIN_CAPACITY entries a plain column of exactly `capacity` elements; past it a length-tracking column over a
+ * resizable buffer that can grow to `max` elements in place.
+ */
 function column<T extends Column>(type: ColumnType<T>, capacity: number, max: number): T {
   const size = type.BYTES_PER_ELEMENT;
+  if (capacity <= PLAIN_CAPACITY) return new type(new ArrayBuffer(capacity * size));
   const reserved = Math.max(capacity, Math.min(max, MAX_RESERVED));
   return new type(new ResizableBuffer(capacity * size, { maxByteLength: reserved * size }));
 }
 
 /**
- * Grows in place, so a 5 M-entry store never holds an old and a new copy of its columns at once (copying left
- * hundreds of MB of dead buffers until the next full GC). Past the reserved size (a raised limit) it copies.
+ * Grows in place once the column is resizable, so a 5 M-entry store never holds an old and a new copy of its columns
+ * at once (copying left hundreds of MB of dead buffers until the next full GC). A plain column, or one past its
+ * reserved size (a raised limit), is copied.
  */
 function grow<T extends Column>(a: T, capacity: number, max: number): T {
   const buffer = a.buffer as ResizableArrayBuffer;
   const bytes = capacity * a.BYTES_PER_ELEMENT;
-  if (bytes <= buffer.maxByteLength) {
+  if (buffer.resizable && bytes <= buffer.maxByteLength) {
     buffer.resize(bytes);
     return a;
   }
