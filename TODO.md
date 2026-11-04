@@ -29,12 +29,20 @@
     - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Plan: [docs/superpowers/plans/2026-11-04-log-viewer.md](docs/superpowers/plans/2026-11-04-log-viewer.md) (files up to 100 MB; TwinCAT logger text format first).
-  - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
-  - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.
-  - Ideas: live tail with pause / auto-scroll, jump between errors, bookmarks, merge several log files on a common timeline, group repeated messages with a counter, export the filtered view, "ask AI about this entry" using the same interface as the ADS item above.
-  - First format: the TwinCAT logger. Other formats (PLC application logs, iecode CLI output, custom logs) come later.
-  - Format-agnostic by design: the viewer works on a generic entry model (time, severity, source, message, extra fields). A format is a configurable definition (e.g. a regex or field mapping, severity mapping, timestamp format, multi-line rule) that can be added in the settings without code changes. The TwinCAT logger is the first built-in definition.
-  - Open: exact TwinCAT logger source and file format, how format definitions are stored and shared (settings vs. files in the repo), handling of very large files (streaming, virtual scrolling).
+  - [x] Viewer (read-only custom editor for `.log`) with parsed columns, color per level, detail pane for multi-line entries, time deltas and gap marks, virtual scrolling.
+  - [x] Filters: level, time range, source, free text and regex, with the number of hidden entries per filter.
+  - [x] Jump between errors, bookmarks, grouped repeats with a counter, export of the filtered view.
+  - [x] Live tail (also across a replaced or rewritten file) and several files merged on one timeline.
+  - [x] Formats: generic entry model, built-in TwinCAT logger, tab-separated and plain text, own formats as regex definitions in `iecode.logViewer.formats`.
+  - [x] Large files: chunked scan and a search worker; checked on 100 MB files with `IECODE_PERF=1` (`extension/test/logPerf.test.ts`), limit 5,000,000 entries / 1,000,000 sources.
+  - Left:
+    - [ ] "Ask AI about this entry" using the same interface as the ADS item above.
+    - [ ] Source tree filter (pick sources from a tree instead of typing a substring).
+    - [ ] Editor UI for custom formats (today only the JSON setting).
+    - [ ] Notes on formats other than the two built-ins (PLC application logs, iecode CLI output, other custom logs).
+    - [ ] The viewer in Restricted Mode: the extension declares `untrustedWorkspaces.supported: false`, so logs opened from an untrusted folder such as Downloads get no viewer.
+    - [ ] Restore the merged panel after a reload (no webview serializer yet).
+  - [ ] Manual UI checks not yet run: the F5 checks under "Manual checks (not yet run)" in the commit bodies of "Add log viewer editor with virtual-scrolled table", "Add filters, detail pane and navigation to the log viewer", "Merge several log files on one timeline", "Follow growing log files in the log viewer" and "Export the filtered log view" (`git log --grep="Manual checks"`).
 - [x] **SYS folders not detected correctly**: some SYS folders are not recognized correctly by the extension (project view).
   - Not reproducible any more: all 12 `*.Sys` repos were opened one by one and show up under "System Projects" (fixed earlier by the system projects change). Not fixed: the dependency graph still says "No TwinCAT projects in this workspace." when only system projects exist (`extension/src/views/graph.ts`).
 - [x] **PLC projects in independent `.xti` files are not found**: `TwinCatProjectFile.Load` (`cli/src/IECode.Core/Projects/SolutionFile.cs`) only looks for an inline `<Project PrjFilePath="….plcproj">` in the `.tsproj`. XAE 4024 can keep a PLC project in its own file (`<Plc><Project File="X.xti"/></Plc>` in the `.tsproj`, `PrjFilePath` in `_Config/PLC/X.xti`); then `.sln`-based commands such as `iecode ads symbols` (probably also `info`) report "No PLC project found", while the project folder path works.

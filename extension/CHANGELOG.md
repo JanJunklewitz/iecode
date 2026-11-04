@@ -8,6 +8,13 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - **Claude Code** can use the ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_scope`, `ads_write`): **Connect Claude Code** registers the CLI's `iecode mcp` bridge once per user, and each VS Code window serves its folders over a named pipe with a per-window secret. The bridge picks the window per call; no window, a window that does not answer, or two windows on one folder give an error, never a guess. Writes always show IECode's confirmation dialog. **Disconnect Claude Code** undoes it.
 - CLI: `iecode mcp` is the stdio MCP bridge Claude Code starts.
 
+### Log viewer
+- **Log Viewer** for `.log` files (right-click a file: **Open in Log Viewer**, or **Reopen Editor Withâ€¦**): a read-only table with time, level, source and message, colors per level, a detail pane for multi-line entries, gap marks between entries (`iecode.logViewer.gapSeconds`) and repeated entries grouped into one row with a count (`iecode.logViewer.groupRepeats`).
+- Filters for level, time range, source and free text or regex, each with the number of entries it hides; next / previous error, bookmarks and **Export** of the filtered view as the original lines.
+- Formats: the TwinCAT logger, tab-separated logs and plain text are built in and detected per file; add your own with a regular expression in `iecode.logViewer.formats`.
+- **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
+- Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
+
 ## 0.2.7
 
 Requires VS Code 1.95 or later (language model tools).
