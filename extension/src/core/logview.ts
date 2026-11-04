@@ -56,18 +56,21 @@ export class LogView {
     return this.indices.slice(this.start(pos), this.start(pos + 1));
   }
 
-  /** Time of the row before pos (its first member); undefined for the first row or an entry without a time. */
+  /**
+   * Time of the row before pos, taken from its last member (a long group must not make the next row look like a gap);
+   * undefined for the first row or an entry without a time.
+   */
   previousTime(pos: number): number | undefined {
     if (pos <= 0 || pos > this.rowCount) return undefined;
-    const t = this.store.time[this.indices[this.start(pos - 1)]];
+    const t = this.store.time[this.indices[this.start(pos) - 1]];
     return Number.isNaN(t) ? undefined : t;
   }
 
-  /** First row after `from` (dir 1) or before it (dir -1) whose first member matches; -1 when there is none. */
-  find(from: number, dir: 1 | -1, pred: (index: number) => boolean): number {
+  /** First row after `from` (dir 1) or before it (dir -1) whose first member (and position) match; -1 when there is none. */
+  find(from: number, dir: 1 | -1, pred: (index: number, pos: number) => boolean): number {
     let p = Math.max(-1, Math.min(this.rowCount, from)) + dir;
     for (; p >= 0 && p < this.rowCount; p += dir) {
-      if (pred(this.indices[this.start(p)])) return p;
+      if (pred(this.indices[this.start(p)], p)) return p;
     }
     return -1;
   }
