@@ -25,7 +25,7 @@ function abortError(): Error {
 export class LogFiles {
   private handles: Array<Promise<fsp.FileHandle> | undefined>;
   private active = 0;
-  private closing = false;
+  private closing?: Promise<void>;
   private idle?: () => void;
 
   constructor(private paths: string[]) {
@@ -55,19 +55,22 @@ export class LogFiles {
     return h;
   }
 
-  async close(): Promise<void> {
-    this.closing = true;
-    if (this.active > 0) await new Promise<void>(resolve => { this.idle = resolve; });
-    const open = this.handles;
-    this.handles = this.paths.map(() => undefined);
-    for (const p of open) {
-      if (!p) continue;
-      try {
-        await (await p).close();
-      } catch {
-        // Never opened or already closed.
+  /** Safe to call more than once; every call resolves after the readers are released and the handles closed. */
+  close(): Promise<void> {
+    this.closing ??= (async () => {
+      if (this.active > 0) await new Promise<void>(resolve => { this.idle = resolve; });
+      const open = this.handles;
+      this.handles = this.paths.map(() => undefined);
+      for (const p of open) {
+        if (!p) continue;
+        try {
+          await (await p).close();
+        } catch {
+          // Never opened or already closed.
+        }
       }
-    }
+    })();
+    return this.closing;
   }
 }
 
