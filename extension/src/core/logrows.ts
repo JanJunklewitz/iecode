@@ -117,8 +117,9 @@ export async function readDetail(files: LogFiles, formats: LogFormat[], ref: Ent
     const fh = await files.handle(ref.file);
     const { bytesRead } = await fh.read(buf, 0, want, ref.offset);
     const text = decode(buf, bytesRead, ref.offset).replace(/\r\n/g, '\n');
-    const nl = text.indexOf('\n');
-    return { first: parseFirst(formats[ref.file], nl < 0 ? text : text.slice(0, nl)), text, truncated: ref.length > maxBytes };
+    // The entry regex only sees the first 8 KB of the first line, decoded on its own (BOM/CR handled as in readPreviews).
+    const head = Math.min(ref.firstLength, MAX_PREVIEW_BYTES, bytesRead);
+    return { first: parseFirst(formats[ref.file], decode(buf, head, ref.offset)), text, truncated: ref.length > maxBytes };
   } finally {
     release();
   }
