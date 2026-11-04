@@ -186,6 +186,37 @@ export function trackLogPanel(panel: vscode.WebviewPanel): vscode.Disposable {
 const PANEL_COMMANDS = ['nextError', 'previousError', 'toggleBookmark', 'nextBookmark', 'previousBookmark'] as const;
 
 /**
+ * Save dialog (default `<first file>.filtered.log` next to the first input), then the export with a cancellable
+ * progress notification; the result is reported with an information or error message.
+ */
+async function exportFiltered(session: LogSession): Promise<void> {
+  const first = session.state().files[0];
+  const target = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(`${first}.filtered.log`),
+    filters: { 'Log files': ['log'], 'All files': ['*'] },
+    title: 'Export the filtered entries',
+  });
+  if (!target) return;
+  if (target.scheme !== 'file') {
+    void vscode.window.showErrorMessage('The log viewer exports to local files only.');
+    return;
+  }
+  const ac = new AbortController();
+  try {
+    const n = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: 'Exporting the filtered log entries', cancellable: true },
+      (_progress, token) => {
+        token.onCancellationRequested(() => ac.abort());
+        return session.exportTo(target.fsPath, ac.signal);
+      });
+    void vscode.window.showInformationMessage(`Exported ${n.toLocaleString('en-US')} entries to ${path.basename(target.fsPath)}.`);
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return;
+    void vscode.window.showErrorMessage(`Export failed: ${(e as Error).message}`);
+  }
+}
+
+/**
  * Puts the log viewer webview into a panel and answers its messages from `doc`'s session until the panel closes.
  * `openRaw` serves the "Open as text" button.
  */
@@ -269,7 +300,7 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
           case 'live':
             return doc.setLive(m.on);
           case 'export':
-            return post({ type: 'error', message: 'Export is not available yet.' });
+            return void (await exportFiltered(s));
         }
       } catch (e) {
         return fail(e, 'rev' in m ? m.rev : undefined);

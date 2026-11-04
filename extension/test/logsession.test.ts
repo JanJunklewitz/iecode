@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { LogFormatError } from '../src/core/logformat';
 import { LogLimitError } from '../src/core/logstore';
 import { LogSession, StaleError } from '../src/core/logsession';
 import { writeSyntheticLog } from './logGen';
@@ -930,6 +931,150 @@ test('a text query set before load is applied by load', async () => {
     assert.equal(st.matched, 2);
     assert.equal(st.hiddenBy.text, 1);
     assert.equal(st.filters.text?.query, 'valve');
+  } finally {
+    await s.dispose();
+  }
+});
+
+function tmpEntries(): string[] {
+  return fs.readdirSync(tmp).filter(f => f.endsWith('.tmp'));
+}
+
+test('exportTo writes exactly the matched entries, each with its continuation lines', async () => {
+  const p = tmpFile(repeats());
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ levels: ['error'] });
+    const dest = path.join(tmp, 'errors.log');
+    const n = await s.exportTo(dest);
+    assert.equal(n, 1);
+    assert.equal(fs.readFileSync(dest, 'utf8'), entry(3, 5100, 'ERROR', 'fbMain.fbPump.fbValve', 'Valve stuck') + '\n  detail line\n');
+    assert.deepEqual(tmpEntries(), []);
+    // The export opens as a log with total equal to the matched count.
+    const re = await opened([dest]);
+    try {
+      assert.equal(re.state().total, s.state().matched);
+    } finally {
+      await re.dispose();
+    }
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('exportTo writes every member of a grouped row', async () => {
+  const lines = [0, 1, 2].map(i => entry(i + 1, i * 10, 'INFO', 'fbMain.fbPump', 'Cycle done'));
+  const p = tmpFile(lines.join('\n') + '\n');
+  const s = await opened([p], { groupRepeats: true, gapMs: 1000 });
+  try {
+    assert.equal(s.state().rowCount, 1);
+    const dest = path.join(tmp, 'group.log');
+    assert.equal(await s.exportTo(dest), 3);
+    assert.equal(fs.readFileSync(dest, 'utf8'), lines.map(l => l + '\n').join(''));
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('exportTo refuses an input file as destination and leaves it unchanged', async () => {
+  const content = repeats();
+  const p = tmpFile(content);
+  const s = await opened([p]);
+  try {
+    const rejects = (d: string) => assert.rejects(s.exportTo(d),
+      (e: Error) => e instanceof LogFormatError && e.message === 'Cannot export into a file that is open in the viewer');
+    await rejects(p);
+    await rejects(path.join(path.dirname(p), '.', path.basename(p)));
+    if (process.platform === 'win32') await rejects(path.join(path.dirname(p), path.basename(p).toUpperCase()));
+    assert.equal(fs.readFileSync(p, 'utf8'), content);
+    assert.deepEqual(tmpEntries(), []);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('exportTo of a merged session refuses any of its inputs', async () => {
+  const a = tmpFile(repeats());
+  const b = tmpFile(repeats());
+  const s = await opened([a, b]);
+  try {
+    await assert.rejects(s.exportTo(b), (e: Error) => e instanceof LogFormatError);
+  } finally {
+    await s.dispose();
+  }
+});
+
+/** So many entries that the export needs several chunks, so an abort can land in the middle. */
+function manyEntries(n: number): string {
+  const lines: string[] = [];
+  for (let i = 0; i < n; i++) lines.push(entry(i + 1, i, 'INFO', 'fbMain.fbPump', 'x'.repeat(200) + i));
+  return lines.join('\n') + '\n';
+}
+
+test('an aborted export leaves neither destination nor temp file', async () => {
+  const p = tmpFile(manyEntries(20000));
+  const s = await opened([p]);
+  try {
+    const dest = path.join(tmp, 'aborted.log');
+    const ac = new AbortController();
+    const run = s.exportTo(dest, ac.signal);
+    setImmediate(() => ac.abort());
+    await assert.rejects(run, (e: Error) => e.name === 'AbortError');
+    assert.equal(fs.existsSync(dest), false);
+    assert.deepEqual(tmpEntries(), []);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an aborted export keeps the old content of an existing destination', async () => {
+  const p = tmpFile(repeats());
+  const s = await opened([p]);
+  try {
+    const dest = tmpFile('old content\n', 'keep.log');
+    const ac = new AbortController();
+    ac.abort();
+    await assert.rejects(s.exportTo(dest, ac.signal), (e: Error) => e.name === 'AbortError');
+    assert.equal(fs.readFileSync(dest, 'utf8'), 'old content\n');
+    assert.deepEqual(tmpEntries(), []);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an existing destination is replaced after a successful export', async () => {
+  const p = tmpFile(repeats());
+  const s = await opened([p]);
+  try {
+    const dest = tmpFile('old content\n', 'replace.log');
+    assert.equal(await s.exportTo(dest), 5);
+    assert.equal(fs.readFileSync(dest, 'utf8'), repeats());
+    assert.deepEqual(tmpEntries(), []);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a failing export (missing folder) leaves nothing behind', async () => {
+  const p = tmpFile(repeats());
+  const s = await opened([p]);
+  try {
+    await assert.rejects(s.exportTo(path.join(tmp, 'no-such-folder', 'x.log')));
+    assert.deepEqual(tmpEntries(), []);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an export is not affected by filters that change while it runs', async () => {
+  const p = tmpFile(repeats());
+  const s = await opened([p]);
+  try {
+    const dest = path.join(tmp, 'snapshot.log');
+    const run = s.exportTo(dest);
+    await s.setFilters({ levels: ['error'] });
+    assert.equal(await run, 5);
+    assert.equal(fs.readFileSync(dest, 'utf8'), repeats());
   } finally {
     await s.dispose();
   }

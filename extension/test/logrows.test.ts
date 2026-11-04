@@ -353,3 +353,37 @@ test('exportRaw stops with AbortError between chunks', async () => {
     await files.close();
   }
 });
+
+test('exportRaw coalesces many small entries into few output chunks without changing the bytes', async () => {
+  const lines: string[] = [];
+  for (let i = 0; i < 20000; i++) lines.push(entryLine(i, 'INFO', 'fbMain.fbPump', `message ${i}`));
+  const p = tmpFile(lines.join('\r\n') + '\r\n');
+  const s = await scan([p]);
+  const files = new LogFiles([p]);
+  try {
+    const refs: EntryRef[] = [];
+    for (let i = 0; i < s.count; i++) refs.push(ref(s, i));
+    const chunks: Buffer[] = [];
+    await exportRaw(files, refs, async c => { chunks.push(c); });
+    assert.ok(chunks.length <= 5, `out was called ${chunks.length} times for ${refs.length} entries`);
+    assert.ok(chunks.every(c => c.length <= 1024 * 1024));
+    assert.equal(Buffer.concat(chunks).toString('utf8'), lines.map(l => l + '\n').join(''));
+  } finally {
+    await files.close();
+  }
+});
+
+test('exportRaw keeps the given order over two files and out-of-order entries', async () => {
+  const a = tmpFile([1, 2, 3, 4].map(i => entryLine(i, 'INFO', 's.a', `a${i}`)).join('\n') + '\n');
+  const b = tmpFile([1, 2].map(i => entryLine(i, 'INFO', 's.b', `b${i}`)).join('\n') + '\n');
+  const s = await scan([a, b]);
+  const files = new LogFiles([a, b]);
+  try {
+    const got = await collect(files, [ref(s, 3), ref(s, 0), ref(s, 4), ref(s, 1), ref(s, 5)]);
+    const want = [entryLine(4, 'INFO', 's.a', 'a4'), entryLine(1, 'INFO', 's.a', 'a1'), entryLine(1, 'INFO', 's.b', 'b1'),
+      entryLine(2, 'INFO', 's.a', 'a2'), entryLine(2, 'INFO', 's.b', 'b2')];
+    assert.equal(got.toString('utf8'), want.map(l => l + '\n').join(''));
+  } finally {
+    await files.close();
+  }
+});
