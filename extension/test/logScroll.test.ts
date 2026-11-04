@@ -22,6 +22,8 @@ interface LogScroll {
   needsWindow(have: Win | undefined, start: number, end: number, rowCount: number): boolean;
   nextWindow(r: { first: number; start: number; end: number }, rowCount: number, have: Win | undefined, pending: Win | undefined, force: boolean): Win | null;
   createRequests(): Requests;
+  centerScrollTop(row: number, rowCount: number, viewportPx: number): number;
+  navFrom(selected: number | null, firstVisible: number, dir: 1 | -1): number;
 }
 
 // The webview script is plain JS in media/; out/test/*.js sits two levels below the extension folder.
@@ -140,4 +142,24 @@ test('the request tracker drops older ids and replies for another revision', () 
   const d = r.next(4);
   assert.equal(d.rev, 4);
   assert.equal(r.accept({ id: d.id, rev: 4 }), true);
+});
+
+test('a jump target lies in the middle of the view', () => {
+  for (const n of [100, 100_000, 5_000_000]) {
+    for (const row of [0, 10, Math.floor(n / 2), n - 1]) {
+      const top = ls.centerScrollTop(row, n, VIEWPORT);
+      const r = ls.renderRange(top, n, VIEWPORT);
+      assert.ok(row >= r.first && row < r.first + Math.ceil(VIEWPORT / ls.ROW_HEIGHT), `rows ${n}: row ${row} is visible`);
+      if (row >= 10 && row <= n - 11) assert.equal(row - r.first, 10, `rows ${n}: row ${row} is in the middle`);
+    }
+  }
+});
+
+test('navigation starts at the selected row, else around the first visible row', () => {
+  assert.equal(ls.navFrom(42, 7, 1), 42);
+  assert.equal(ls.navFrom(42, 7, -1), 42);
+  // Without a selection the first visible row itself is a candidate going down; going up searches above it.
+  assert.equal(ls.navFrom(null, 7, 1), 6);
+  assert.equal(ls.navFrom(null, 7, -1), 7);
+  assert.equal(ls.navFrom(null, 0, 1), -1);
 });

@@ -144,6 +144,13 @@ export function parseFilterTime(text: string): number {
   return utc(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), m[6] ? Number(m[6]) : 0, 0);
 }
 
+/** Text of a time filter input: {} when empty (open end), {ms} when valid, {error} for the webview otherwise. */
+export function parseFilterTimeInput(text: string): { ms?: number; error?: string } {
+  if (text.trim() === '') return {};
+  const ms = parseFilterTime(text);
+  return Number.isNaN(ms) ? { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' } : { ms };
+}
+
 export type LineKind = { kind: 'entry'; entry: ParsedLine } | { kind: 'continuation' } | { kind: 'ignored' };
 
 function mapLevel(f: LogFormat, levelText: string, message: string): Level {

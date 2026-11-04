@@ -5,16 +5,21 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { LogFormatDef } from '../core/logformat';
+import { LogFormatDef, parseFilterTimeInput } from '../core/logformat';
 import { LogSession, SessionFilters, StaleError } from '../core/logsession';
 import { ViewOptions } from '../core/logview';
 
 export const LOG_VIEW_TYPE = 'iecode.logViewer';
 
+/**
+ * Webview -> host. In `filters`, the time bounds come as the raw input text (fromText / toText; '' = open end); the
+ * host parses them and answers each one with {type: 'filterError', field: 'from' | 'to', message} ('' = valid), and
+ * an invalid bound leaves the applied one unchanged.
+ */
 type Msg =
   | { type: 'ready' }
   | { type: 'rows'; rev: number; pos: number; count: number; id: number }
-  | ({ type: 'filters' } & Partial<SessionFilters>)
+  | ({ type: 'filters'; fromText?: string; toText?: string } & Partial<Omit<SessionFilters, 'from' | 'to'>>)
   | ({ type: 'options' } & Partial<ViewOptions>)
   | { type: 'detail'; rev: number; pos: number }
   | { type: 'jump'; rev: number; from: number; dir: 1 | -1; what: 'error' | 'bookmark' }
@@ -84,6 +89,18 @@ class LogDocument implements vscode.CustomDocument {
   }
 }
 
+/** Open log viewer panels (custom editors and the merged view); the key commands go to the active one. */
+const panels = new Set<vscode.WebviewPanel>();
+
+/** Registers a log viewer panel for the key commands until the returned disposable is disposed. */
+export function trackLogPanel(panel: vscode.WebviewPanel): vscode.Disposable {
+  panels.add(panel);
+  return new vscode.Disposable(() => panels.delete(panel));
+}
+
+/** Key commands; each one posts {type: 'command', command} to the active log viewer webview. */
+const PANEL_COMMANDS = ['nextError', 'previousError', 'toggleBookmark', 'nextBookmark', 'previousBookmark'] as const;
+
 class LogViewerProvider implements vscode.CustomReadonlyEditorProvider<LogDocument> {
   constructor(private ctx: vscode.ExtensionContext) {}
 
@@ -102,6 +119,7 @@ class LogViewerProvider implements vscode.CustomReadonlyEditorProvider<LogDocume
 <link rel="stylesheet" href="${res('logViewer.css')}"></head><body>
 <div id="app"></div>
 <script nonce="${nonce}" src="${res('logScroll.js')}"></script>
+<script nonce="${nonce}" src="${res('logDisplay.js')}"></script>
 <script nonce="${nonce}" src="${res('logViewer.js')}"></script></body></html>`;
 
     let closed = false;
@@ -134,7 +152,16 @@ class LogViewerProvider implements vscode.CustomReadonlyEditorProvider<LogDocume
               return post({ type: 'rows', rev: m.rev, id: m.id, pos: m.pos, rows });
             }
             case 'filters': {
-              const { type: _type, ...f } = m;
+              const { type: _type, fromText, toText, ...rest } = m;
+              const f: Partial<SessionFilters> = rest;
+              for (const [field, text] of [['from', fromText], ['to', toText]] as const) {
+                if (text === undefined) continue;
+                const t = parseFilterTimeInput(text);
+                post({ type: 'filterError', field, message: t.error ?? '' });
+                // An own undefined member opens the bound (setFilters spreads the patch over the filters).
+                if (t.error === undefined) f[field] = t.ms;
+              }
+              if (Object.keys(f).length === 0) return;
               // Level, time and source changes publish before the first await; a text search publishes later,
               // and a failing search only sets state.error, so the state goes out after both steps.
               const done = s.setFilters(f);
@@ -168,6 +195,7 @@ class LogViewerProvider implements vscode.CustomReadonlyEditorProvider<LogDocume
         }
       }),
     ];
+    subs.push(trackLogPanel(panel));
     panel.onDidDispose(() => {
       closed = true;
       subs.forEach(d => d.dispose());
@@ -195,5 +223,10 @@ export function registerLogViewer(ctx: vscode.ExtensionContext) {
       if (!uri) return vscode.window.showInformationMessage('Open a log file first.');
       return vscode.commands.executeCommand('vscode.openWith', uri, LOG_VIEW_TYPE);
     }),
+    // Keybindings instead of keydown handlers in the webview: its key presses reach the workbench too, so F8 would
+    // also run "Go to Next Problem".
+    ...PANEL_COMMANDS.map(command => vscode.commands.registerCommand(`iecode.logViewer.${command}`, () => {
+      for (const p of panels) if (p.active) return p.webview.postMessage({ type: 'command', command });
+    })),
   );
 }
