@@ -82,7 +82,7 @@ function showError(e: unknown) {
   vscode.window.showErrorMessage(`IECode: ${(e as Error).message}`);
 }
 
-export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceState) {
+export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceState, mcp?: { serving(): boolean; onState: vscode.Event<void> }) {
   const host = AdsHost.get(ctx);
   const tree = new WatchTree(host);
   const view = vscode.window.createTreeView('iecode.adsWatch', { treeDataProvider: tree, canSelectMany: true });
@@ -97,7 +97,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   };
   showState();
   // the target is always shown (a write goes there); auto-approved AI writes must never be on unnoticed
-  const showAiWrites = () => { view.description = [host.target(), aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
+  const showAiWrites = () => { view.description = [host.target(), mcp?.serving() ? 'MCP: on' : undefined, aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
   showAiWrites();
 
   // the host runs while the view is visible with a non-empty list; a saved list alone does not connect (O11)
@@ -113,6 +113,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     host.onSamples(schedule),
     host.onItems(() => { schedule(); updateLease(); }),
     host.onState(() => { showState(); schedule(); }),
+    ...(mcp ? [mcp.onState(showAiWrites)] : []),
     view.onDidChangeVisibility(updateLease),
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
     new vscode.Disposable(() => { clearTimeout(timer); lease?.dispose(); }),

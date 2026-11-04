@@ -97,7 +97,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       const current = aiWritesSetting();
       const picks: (vscode.QuickPickItem & { value: string })[] = [
         { value: 'off', label: 'Off', detail: 'AI tools cannot write PLC variables.' },
-        { value: 'confirm', label: 'Confirm each write', detail: 'You confirm every AI write, unless you chose "Always Allow" for the adsWrite tool in the chat.' },
+        { value: 'confirm', label: 'Confirm each write', detail: 'You confirm every AI write (in Copilot Chat unless you chose "Always Allow" for the ADS Write tool).' },
         { value: 'auto', label: 'Auto-approve', detail: 'IECode writes without asking; VS Code may still ask by its own tool approval rules.' },
       ];
       for (const p of picks) if (p.value === current) p.description = '(current)';
