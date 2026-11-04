@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILT_IN_FORMATS, LEVELS, LogFormat, LogFormatError, compileFormat, detectFormat, parseFilterTime, parseFilterTimeInput, parseLine, parseTime } from '../src/core/logformat';
+import { BUILT_IN_FORMATS, LEVELS, LogFormat, LogFormatError, compileFormat, detectFormat, detectFormatInfo, parseFilterTime, parseFilterTimeInput, parseLine, parseTime } from '../src/core/logformat';
 
 function fmt(id: string): LogFormat {
   const def = BUILT_IN_FORMATS.find(d => d.id === id);
@@ -122,6 +122,25 @@ test('detectFormat picks the logger, tabs, and falls back to plain', () => {
   assert.equal(detectFormat(['\u0000\u0001garbage', 'x'], all).def.id, 'plain');
   assert.equal(detectFormat([], all).def.id, 'plain');
 });
+
+test('detectFormatInfo marks a choice that no entry line confirmed as tentative', () => {
+  const header = 'Sequence   - Timestamp - Category - Source - Message';
+  const lines = [header];
+  for (let i = 0; i < 20; i++) lines.push(loggerLine(i));
+  assert.deepEqual(summary(detectFormatInfo(lines, all)), ['twincat-logger', false]);
+  // Header only: the format whose ignore regex took the lines, not plain.
+  assert.deepEqual(summary(detectFormatInfo([header], all)), ['twincat-logger', true]);
+  assert.equal(detectFormat([header], all).def.id, 'twincat-logger');
+  // Empty file: plain, but tentative.
+  assert.deepEqual(summary(detectFormatInfo([], all)), ['plain', true]);
+  assert.deepEqual(summary(detectFormatInfo(['', '  '], all)), ['plain', true]);
+  // Plain lines are entries of plain: settled.
+  assert.deepEqual(summary(detectFormatInfo(['some text'], all)), ['plain', false]);
+});
+
+function summary(r: { format: LogFormat; tentative: boolean }): [string, boolean] {
+  return [r.format.def.id, r.tentative];
+}
 
 test('detectFormat tolerates many continuation lines', () => {
   const lines: string[] = [];

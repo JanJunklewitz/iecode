@@ -2,7 +2,7 @@
 import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { BUILT_IN_FORMATS, LEVELS, Level, LogFormat, LogFormatDef, LogFormatError, compileFormat, detectFormat } from './logformat';
+import { BUILT_IN_FORMATS, LEVELS, Level, LogFormat, LogFormatDef, LogFormatError, compileFormat, detectFormatInfo } from './logformat';
 import { EntryStore } from './logstore';
 import { scanFile, sniff } from './logscan';
 import { FilterResult, applyFilters, timelineOrder } from './logfilter';
@@ -159,6 +159,8 @@ export class LogSession {
   private search?: { ac: AbortController; query: TextQuery };
   /** The text search of a running load or reload, over its new entries; aborted when the latest query changes. */
   private loadSearch?: { ac: AbortController; query: TextQuery };
+  /** Per file: the format was chosen without an entry line confirming it (empty or header-only file). */
+  private tentative: boolean[] = [];
   private options: ViewOptions;
   /** Entry indices of the current fileGeneration. */
   private bookmarks = new Set<number>();
@@ -227,6 +229,7 @@ export class LogSession {
     const candidates = [...this.userFormats, ...BUILT_IN_FORMATS.filter(f => !userIds.has(f.id))].map(compileFormat);
 
     const formats: LogFormat[] = [];
+    const tentative: boolean[] = [];
     const invalid: string[] = [];
     for (const p of this.paths) {
       const s = await sniff(p);
@@ -234,7 +237,9 @@ export class LogSession {
         throw new Error(`${path.basename(p)} is UTF-16 encoded; the log viewer reads UTF-8 only. Save the file as UTF-8 or open it as text.`);
       }
       if (!s.validUtf8) invalid.push(path.basename(p));
-      formats.push(detectFormat(s.lines, candidates));
+      const d = detectFormatInfo(s.lines, candidates);
+      formats.push(d.format);
+      tentative.push(d.tentative);
     }
 
     // Taken before the scan, so growth during the scan shows up as an append in the next refresh.
@@ -306,6 +311,7 @@ export class LogSession {
     this.textFlags = flags;
     this.store = store;
     this.formats = formats;
+    this.tentative = tentative;
     this.order = timelineOrder(store, n);
     this.levelCounts = emptyLevelCounts();
     let first = Infinity;
@@ -517,7 +523,8 @@ export class LogSession {
 
   /**
    * Live tail of a single-file session (merged sessions stay static and resolve false): ingests what was appended, or
-   * reloads the file when it was replaced or rewritten. Resolves true when the state changed (also for a new error)
+   * reloads the file when it was replaced or rewritten, or when it grew while its format was still a guess (it was
+   * empty or held only ignored lines, such as a header). Resolves true when the state changed (also for a new error)
    * and never rejects. Calls are coalesced: at most one refresh runs and at most one more is pending.
    */
   refresh(): Promise<boolean> {
@@ -557,6 +564,8 @@ export class LogSession {
       const old = this.identity;
       if (replacedFile(old, now) || rewrittenFile(old, now)) reload = true;
       else if (now.size === old.size) return false;
+      // The format was a guess (empty or header-only file): detect it again from the grown file.
+      else if (this.tentative[0]) reload = true;
       if (reload) {
         await this.loadFiles(ac.signal, undefined, true);
         this.needsReload = false;
