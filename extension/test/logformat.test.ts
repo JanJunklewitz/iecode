@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILT_IN_FORMATS, LEVELS, LogFormat, LogFormatError, compileFormat, detectFormat, parseFilterTime, parseLine, parseTime } from '../src/core/logformat';
+import { BUILT_IN_FORMATS, LEVELS, LogFormat, LogFormatError, compileFormat, detectFormat, parseFilterTime, parseFilterTimeInput, parseLine, parseTime } from '../src/core/logformat';
 
 function fmt(id: string): LogFormat {
   const def = BUILT_IN_FORMATS.find(d => d.id === id);
@@ -135,4 +135,12 @@ test('detectFormat tolerates a rotated file that starts with continuations', () 
   for (let i = 0; i < 8; i++) lines.push('    at frame ' + i);
   for (let i = 0; i < 20; i++) lines.push(loggerLine(i));
   assert.equal(detectFormat(lines, all).def.id, 'twincat-logger');
+});
+
+test('filter time input: empty is open, invalid text gets a message', () => {
+  assert.deepEqual(parseFilterTimeInput(''), {});
+  assert.deepEqual(parseFilterTimeInput('   '), {});
+  assert.deepEqual(parseFilterTimeInput('2026-10-19 08:00'), { ms: Date.UTC(2026, 9, 19, 8, 0, 0) });
+  assert.deepEqual(parseFilterTimeInput('2026-10-19 8:00'), { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' });
+  assert.deepEqual(parseFilterTimeInput('2026-02-30 00:00'), { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' });
 });

@@ -94,6 +94,21 @@ function nextWindow(r, rowCount, have, pending, force) {
   return w.count > 0 ? w : null;
 }
 
+/** scrollTop that shows `row` in the middle of the view (as far as the ends allow). */
+function centerScrollTop(row, rowCount, viewportPx) {
+  const half = Math.floor(Math.floor(viewportPx / ROW_HEIGHT) / 2);
+  return rowToScrollTop(Math.max(0, row - half), rowCount, viewportPx);
+}
+
+/**
+ * Row a jump starts from (jump looks at the rows after / before it): the selected row, else the first visible row
+ * counts when going down and the search goes above it when going up.
+ */
+function navFrom(selected, firstVisible, dir) {
+  if (selected !== null && selected !== undefined) return selected;
+  return dir === 1 ? firstVisible - 1 : firstVisible;
+}
+
 /**
  * Tracks row requests: only the reply to the latest request for the current revision is used. A reply with an
  * older id or for another revision than the last state's is dropped. `pending` is the window of the request in
@@ -130,6 +145,6 @@ function createRequests() {
 if (typeof module === 'object') {
   module.exports = {
     ROW_HEIGHT, MAX_HEIGHT, scrollHeight, rowToScrollTop, scrollTopToRow, renderRange, windowFor, needsWindow, nextWindow,
-    createRequests,
+    createRequests, centerScrollTop, navFrom,
   };
 }

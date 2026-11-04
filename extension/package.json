@@ -505,6 +505,31 @@
         "title": "Open in Log Viewer",
         "category": "IECode",
         "icon": "$(list-flat)"
+      },
+      {
+        "command": "iecode.logViewer.nextError",
+        "title": "Log Viewer: Next Error",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.previousError",
+        "title": "Log Viewer: Previous Error",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.toggleBookmark",
+        "title": "Log Viewer: Toggle Bookmark",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.nextBookmark",
+        "title": "Log Viewer: Next Bookmark",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.previousBookmark",
+        "title": "Log Viewer: Previous Bookmark",
+        "category": "IECode"
       }
     ],
     "menus": {
@@ -929,6 +954,26 @@
       ],
       "commandPalette": [
         {
+          "command": "iecode.logViewer.nextError",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.previousError",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.toggleBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.nextBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.previousBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
           "command": "iecode.aiAdd",
           "when": "resourceScheme == iecode || editorLangId == twincat-st"
         },
@@ -1168,6 +1213,32 @@
         "command": "iecode.build",
         "key": "ctrl+shift+b",
         "when": "resourceScheme == iecode"
+      },
+      {
+        "command": "iecode.logViewer.nextError",
+        "key": "f8",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.previousError",
+        "key": "shift+f8",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.toggleBookmark",
+        "key": "ctrl+f2",
+        "mac": "cmd+f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.nextBookmark",
+        "key": "f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.previousBookmark",
+        "key": "shift+f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
       }
     ],
     "configuration": {
