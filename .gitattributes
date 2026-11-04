@@ -14,3 +14,6 @@
 
 # shell scripts must keep LF so Git Bash on Windows can run them
 *.sh text eol=lf
+
+# log viewer fixtures: byte offsets are asserted, so no line-ending conversion
+extension/test/fixtures/logs/** -text
