@@ -140,6 +140,17 @@ test('readDetail parses first from at most 8 KB of a long first line but returns
     assert.ok(d.text.endsWith('  tail line'));
     assert.equal(d.first.source, 'fbMain.long');
     assert.ok(d.first.message.length <= 8192 && d.first.message.length > 8000);
+    // 2-byte characters: the 8 KB byte cut leaves about 4000 characters, parseLine's own 8192-character cap would leave more.
+    const wide = tmpFile(entryLine(1, 'ERROR', 'fbMain.long', 'ä'.repeat(10000)) + '\n  tail line\n');
+    const ws = await scan([wide]);
+    const wf = new LogFiles([wide]);
+    try {
+      const w = await readDetail(wf, [logger], ref(ws, 0));
+      assert.ok(w.first.message.length < 4500, `message has ${w.first.message.length} chars`);
+      assert.ok(w.text.includes('ä'.repeat(10000)));
+    } finally {
+      await wf.close();
+    }
   } finally {
     await files.close();
   }
