@@ -507,6 +507,11 @@
         "icon": "$(list-flat)"
       },
       {
+        "command": "iecode.logViewer.openMerged",
+        "title": "Open Logs Merged on One Timeline",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.logViewer.nextError",
         "title": "Log Viewer: Next Error",
         "category": "IECode"
@@ -582,6 +587,11 @@
         {
           "command": "iecode.logViewer.open",
           "when": "resourceExtname =~ /\\\\.log$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.logViewer.openMerged",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /\\\\.log$/i",
           "group": "navigation"
         }
       ],

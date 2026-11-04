@@ -13,12 +13,14 @@ export interface Filters {
   source?: string;
   /** Match flag per entry (indexed by entry), undefined = no text filter. */
   text?: Uint8Array;
+  /** Visible file indices; undefined = every file. */
+  files?: number[];
 }
 
 export interface FilterResult {
   indices: Uint32Array;
   /** Entries that pass every other filter but fail this one. */
-  hiddenBy: { level: number; time: number; source: number; text: number };
+  hiddenBy: { level: number; time: number; source: number; text: number; file: number };
 }
 
 /**
@@ -83,6 +85,7 @@ const FAIL_LEVEL = 1;
 const FAIL_TIME = 2;
 const FAIL_SOURCE = 4;
 const FAIL_TEXT = 8;
+const FAIL_FILE = 16;
 
 export function applyFilters(store: EntryStore, order: Uint32Array, f: Filters): FilterResult {
   const levelOk = new Uint8Array(LEVELS.length);
@@ -100,15 +103,23 @@ export function applyFilters(store: EntryStore, order: Uint32Array, f: Filters):
     }
   }
 
+  let fileOk: Uint8Array | undefined;
+  if (f.files) {
+    // Indexed by file id; ids past the end read as undefined and fail.
+    const valid = f.files.filter(i => Number.isInteger(i) && i >= 0 && i <= 0xffff);
+    fileOk = new Uint8Array(valid.length > 0 ? Math.max(...valid) + 1 : 0);
+    for (const i of valid) fileOk[i] = 1;
+  }
+
   const from = f.from ?? -Infinity;
   const to = f.to ?? Infinity;
   const timeFilter = f.from !== undefined || f.to !== undefined;
-  const { level, time, source } = store;
+  const { level, time, source, file } = store;
   const text = f.text;
 
   const kept = new Uint32Array(order.length);
   let k = 0;
-  let hLevel = 0, hTime = 0, hSource = 0, hText = 0;
+  let hLevel = 0, hTime = 0, hSource = 0, hText = 0, hFile = 0;
   for (let j = 0; j < order.length; j++) {
     const i = order[j];
     let mask = 0;
@@ -119,13 +130,15 @@ export function applyFilters(store: EntryStore, order: Uint32Array, f: Filters):
     }
     if (sourceOk && !sourceOk[source[i]]) mask |= FAIL_SOURCE;
     if (text && !text[i]) mask |= FAIL_TEXT;
+    if (fileOk && !fileOk[file[i]]) mask |= FAIL_FILE;
     switch (mask) {
       case 0: kept[k++] = i; break;
       case FAIL_LEVEL: hLevel++; break;
       case FAIL_TIME: hTime++; break;
       case FAIL_SOURCE: hSource++; break;
       case FAIL_TEXT: hText++; break;
+      case FAIL_FILE: hFile++; break;
     }
   }
-  return { indices: kept.slice(0, k), hiddenBy: { level: hLevel, time: hTime, source: hSource, text: hText } };
+  return { indices: kept.slice(0, k), hiddenBy: { level: hLevel, time: hTime, source: hSource, text: hText, file: hFile } };
 }

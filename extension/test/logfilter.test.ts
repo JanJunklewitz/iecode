@@ -82,7 +82,7 @@ test('levels filter keeps matching levels and counts what switching it off would
   const r = applyFilters(s, order, { levels: ['error'] });
   assert.deepEqual(Array.from(r.indices), [1, 5, 7]);
   assert.equal(r.hiddenBy.level, 5);
-  assert.deepEqual(r.hiddenBy, { level: 5, time: 0, source: 0, text: 0 });
+  assert.deepEqual(r.hiddenBy, { level: 5, time: 0, source: 0, text: 0, file: 0 });
 });
 
 test('time range drops dated entries outside it and keeps the boot entry', () => {
@@ -117,8 +117,35 @@ test('an entry failing two filters counts in neither hiddenBy value', () => {
   assert.deepEqual(Array.from(r.indices), [1]);
   assert.equal(r.hiddenBy.level, 2);
   assert.equal(r.hiddenBy.source, 2);
-  const sum = r.hiddenBy.level + r.hiddenBy.time + r.hiddenBy.source + r.hiddenBy.text;
+  const sum = r.hiddenBy.level + r.hiddenBy.time + r.hiddenBy.source + r.hiddenBy.text + r.hiddenBy.file;
   assert.ok(r.indices.length + sum <= s.count);
+});
+
+test('files filter keeps the listed file indices and counts the hidden entries', () => {
+  const s = eight();
+  const r = applyFilters(s, timelineOrder(s, 2), { levels: ALL, files: [1] });
+  assert.deepEqual(Array.from(r.indices), [4, 5, 6, 7]);
+  assert.deepEqual(r.hiddenBy, { level: 0, time: 0, source: 0, text: 0, file: 4 });
+});
+
+test('an empty files list hides every entry, undefined shows every file', () => {
+  const s = eight();
+  const order = timelineOrder(s, 2);
+  const none = applyFilters(s, order, { levels: ALL, files: [] });
+  assert.equal(none.indices.length, 0);
+  assert.equal(none.hiddenBy.file, 8);
+  const all = applyFilters(s, order, { levels: ALL, files: undefined });
+  assert.equal(all.indices.length, 8);
+  assert.equal(all.hiddenBy.file, 0);
+});
+
+test('an entry failing the files filter and another one counts in neither hiddenBy value', () => {
+  const s = eight();
+  // Errors only + file 0 visible: entry 1 passes; 5 and 7 fail file only; 0, 2, 3 fail level only; 4 and 6 fail both.
+  const r = applyFilters(s, timelineOrder(s, 2), { levels: ['error'], files: [0] });
+  assert.deepEqual(Array.from(r.indices), [1]);
+  assert.equal(r.hiddenBy.file, 2);
+  assert.equal(r.hiddenBy.level, 3);
 });
 
 test('empty levels returns no entries', () => {
