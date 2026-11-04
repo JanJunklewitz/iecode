@@ -105,6 +105,7 @@ export class LogSession {
   private warning?: string;
   private error?: string;
   private loadAbort?: AbortController;
+  private loaded = false;
   private disposed = false;
 
   private constructor(
@@ -124,10 +125,22 @@ export class LogSession {
     return new LogSession([...paths], [...formats], o, limits);
   }
 
-  /** Sniffs, detects the format per file, scans and orders. Rejects for UTF-16 files and with LogLimitError. */
+  /**
+   * Sniffs, detects the format per file, scans, orders and runs a text query set before or during the load.
+   * Rejects for UTF-16 files and with LogLimitError; resolves quietly when dispose() interrupts it.
+   */
   async load(onProgress?: (f: number) => void): Promise<void> {
     const ac = new AbortController();
     this.loadAbort = ac;
+    try {
+      await this.loadFiles(ac.signal, onProgress);
+    } catch (e) {
+      if (this.disposed) return;
+      throw e;
+    }
+  }
+
+  private async loadFiles(signal: AbortSignal, onProgress?: (f: number) => void): Promise<void> {
     const userIds = new Set(this.userFormats.map(f => f.id));
     const candidates = [...this.userFormats, ...BUILT_IN_FORMATS.filter(f => !userIds.has(f.id))].map(compileFormat);
 
@@ -146,15 +159,37 @@ export class LogSession {
     const n = this.paths.length;
     for (let i = 0; i < n; i++) {
       await scanFile(this.paths[i], i, formats[i], store, {
-        signal: ac.signal,
+        signal,
         onProgress: f => {
           this.scanning = (i + f) / n;
           onProgress?.(this.scanning);
         },
       });
     }
+    // Before the load, setFilters only records the query (filters.text); search until the recorded query is stable.
+    let flags: Uint8Array | undefined;
+    for (;;) {
+      const q = this.filters.text;
+      if (!q) {
+        flags = undefined;
+        break;
+      }
+      try {
+        flags = (await this.searchStore(store, formats, q, signal)).flags;
+      } catch (e) {
+        if (this.disposed || (e as Error).name === 'AbortError') throw e;
+        if (sameQuery(q, this.filters.text)) {
+          this.filters = { ...this.filters, text: undefined };
+          this.publish();
+          this.error = (e as Error).message;
+        }
+        continue;
+      }
+      if (sameQuery(q, this.filters.text)) break;
+    }
     if (this.disposed) return;
 
+    this.textFlags = flags;
     this.store = store;
     this.formats = formats;
     this.order = timelineOrder(store, n);
@@ -173,29 +208,56 @@ export class LogSession {
     else if (invalid.length > 0) this.warning = `These files are not valid UTF-8: ${invalid.join(', ')}`;
     this.scanning = 1;
     onProgress?.(1);
+    this.loaded = true;
+    const error = this.error;
     this.publish();
+    this.error = error;
+  }
+
+  private searchStore(store: EntryStore, formats: LogFormat[], q: TextQuery, signal: AbortSignal) {
+    const count = store.count;
+    return searchText(
+      this.paths,
+      { file: store.file.subarray(0, count), offset: store.offset.subarray(0, count), length: store.length.subarray(0, count) },
+      formats.map(fm => fm.def),
+      q, 0, signal,
+    );
   }
 
   /** Only a change of the text query aborts the running search; everything else publishes synchronously. */
   async setFilters(f: Partial<SessionFilters>): Promise<void> {
     const { text, ...rest } = f;
+    const textGiven = 'text' in f;
     const target = normalizeQuery(text);
-    const latest = this.search ? this.search.query : this.filters.text;
-    const textChanged = 'text' in f && !sameQuery(target, latest);
-
-    if (textChanged && target) {
+    let invalid: string | undefined;
+    if (textGiven && target) {
       try {
         compileQuery(target);
       } catch (e) {
-        // Keep the previous result (and the running search) as is.
-        this.error = (e as Error).message;
-        return;
+        invalid = (e as Error).message;
       }
     }
     const hasRest = Object.keys(rest).length > 0;
     if (hasRest) this.filters = { ...this.filters, ...rest };
-    if (!textChanged) {
-      if (hasRest) this.publish();
+
+    if (invalid !== undefined) {
+      // Keep the applied query and its flags, drop a pending search, apply the other parts; the error survives publish.
+      this.search?.ac.abort();
+      this.search = undefined;
+      this.publish();
+      this.error = invalid;
+      return;
+    }
+    if (!this.loaded) {
+      // load() runs the recorded query once the entries exist.
+      if (textGiven) this.filters = { ...this.filters, text: target };
+      this.publish();
+      return;
+    }
+    const latest = this.search ? this.search.query : this.filters.text;
+    if (!textGiven || sameQuery(target, latest)) {
+      // A valid text equal to the latest query still publishes, so an earlier error is cleared.
+      if (hasRest || textGiven) this.publish();
       return;
     }
 
@@ -213,16 +275,9 @@ export class LogSession {
     if (hasRest) this.publish();
     const job = { ac: new AbortController(), query: target };
     this.search = job;
-    const { store, paths } = this;
-    const count = store.count;
     const generation = this.fileGeneration;
     try {
-      const r = await searchText(
-        paths,
-        { file: store.file.subarray(0, count), offset: store.offset.subarray(0, count), length: store.length.subarray(0, count) },
-        this.formats.map(fm => fm.def),
-        target, 0, job.ac.signal,
-      );
+      const r = await this.searchStore(this.store, this.formats, target, job.ac.signal);
       if (this.search !== job || this.disposed || generation !== this.fileGeneration) return;
       this.search = undefined;
       this.textFlags = r.flags;
@@ -248,21 +303,21 @@ export class LogSession {
     const start = Math.max(0, pos);
     const entries = view.rowEntries(start, count);
     const refs: EntryRef[] = entries.map(e => this.ref(store, e.index));
-    const meta = entries.map(e => {
+    const meta = entries.map((e, k) => {
       const i = e.index;
       return {
         index: i, repeat: e.repeat, file: store.file[i], seq: store.seq[i], time: store.time[i], level: LEVELS[store.level[i]],
-        source: store.sources[store.source[i]], lines: store.lines[i], bookmarked: this.bookmarks.has(i),
+        source: store.sources[store.source[i]], lines: store.lines[i], bookmarked: this.rowBookmarked(view, start + k),
+        // Delta of this row is measured from the previous row's last member.
+        prev: view.previousTime(start + k),
       };
     });
-    let prev = view.previousTime(start);
     const gapMs = this.options.gapMs;
     const parsed = await readPreviews(snap.files, snap.formats, refs);
     return meta.map((m, k) => {
       const t = m.time;
       const dated = !Number.isNaN(t);
-      const deltaMs = dated && prev !== undefined ? t - prev : undefined;
-      prev = dated ? t : undefined;
+      const deltaMs = dated && m.prev !== undefined ? t - m.prev : undefined;
       const message = parsed[k].message;
       const row: LogRow = {
         pos: start + k, index: m.index, file: path.basename(this.paths[m.file]),
@@ -285,19 +340,27 @@ export class LogSession {
     return { text: d.text, truncated: d.truncated };
   }
 
-  /** Bookmarks the first member of the row's group; a second call clears it. */
+  /** Clears every bookmark of the row's group if it has one, otherwise bookmarks the group's first member. */
   toggleBookmark(revision: number, pos: number): void {
-    const e = this.current(revision).view.rowEntries(pos, 1)[0];
-    if (!e) return;
-    if (!this.bookmarks.delete(e.index)) this.bookmarks.add(e.index);
+    const members = this.current(revision).view.members(pos);
+    if (members.length === 0) return;
+    let had = false;
+    for (const i of members) if (this.bookmarks.delete(i)) had = true;
+    if (!had) this.bookmarks.add(members[0]);
   }
 
-  /** Next (dir 1) or previous (dir -1) row after `from` with an error or a bookmark; -1 when there is none. */
+  /** Next (dir 1) or previous (dir -1) row after `from` with an error or a bookmark (on any member); -1 when there is none. */
   jump(revision: number, from: number, dir: 1 | -1, what: 'error' | 'bookmark'): number {
-    const snap = this.current(revision);
-    const level = snap.store.level;
-    const pred = what === 'error' ? (i: number) => level[i] === ERROR_LEVEL : (i: number) => this.bookmarks.has(i);
-    return snap.view.find(from, dir, pred);
+    const { store, view } = this.current(revision);
+    if (what === 'error') return view.find(from, dir, i => store.level[i] === ERROR_LEVEL);
+    if (this.bookmarks.size === 0) return -1;
+    return view.find(from, dir, (_i, p) => this.rowBookmarked(view, p));
+  }
+
+  private rowBookmarked(view: LogView, pos: number): boolean {
+    if (this.bookmarks.size === 0) return false;
+    for (const i of view.members(pos)) if (this.bookmarks.has(i)) return true;
+    return false;
   }
 
   /** Ingestion on/off; the refresh itself comes with the live tail. */

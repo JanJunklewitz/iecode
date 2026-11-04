@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { LogLimitError } from '../src/core/logstore';
 import { LogSession, StaleError } from '../src/core/logsession';
+import { writeSyntheticLog } from './logGen';
 
 const fixtures = path.join(__dirname, '..', '..', 'test', 'fixtures', 'logs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'iecode-logsession-'));
@@ -208,7 +209,7 @@ test('an invalid regex sets the error and keeps the previous result, a valid cha
     assert.match(st.error ?? '', /^Invalid regular expression/);
     assert.equal(st.matched, 3);
     assert.equal(st.filters.text?.query, 'pump');
-    assert.equal(st.revision, rev);
+    assert.ok(st.revision > rev);
     await s.setFilters({ levels: ['error', 'warning'] });
     assert.equal(s.state().error, undefined);
     assert.equal(s.state().matched, 2);
@@ -449,4 +450,122 @@ test('dispose during a rows read closes the files after the read', async () => {
   assert.equal(rowsDone, true);
   assert.equal((await read).length, 3);
   await assert.rejects(s.rows(rev, 0, 1));
+});
+
+test('a valid query equal to the applied one clears the error of an invalid one', async () => {
+  const s = await opened([path.join(fixtures, 'logger-lf.log')]);
+  try {
+    await s.setFilters({ text: { query: 'pump', regex: true, caseSensitive: false } });
+    await s.setFilters({ text: { query: 'pump(', regex: true, caseSensitive: false } });
+    assert.match(s.state().error ?? '', /^Invalid regular expression/);
+    const rev = s.state().revision;
+    await s.setFilters({ text: { query: 'pump', regex: true, caseSensitive: false } });
+    assert.equal(s.state().error, undefined);
+    assert.ok(s.state().revision > rev);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an invalid query still applies the other filter parts and keeps the applied text', async () => {
+  const s = await opened([tmpFile(repeats())]);
+  try {
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    assert.equal(s.state().matched, 2);
+    await s.setFilters({ levels: ['error'], text: { query: '(', regex: true, caseSensitive: false } });
+    const st = s.state();
+    assert.match(st.error ?? '', /^Invalid regular expression/);
+    assert.deepEqual(st.filters.levels, ['error']);
+    assert.equal(st.filters.text?.query, 'valve');
+    assert.equal(st.matched, 1);
+    assert.equal(st.hiddenBy.level, 1);
+    // The applied flags are still in use once all levels show again.
+    await s.setFilters({ levels: ['error', 'warning', 'info', 'debug', 'other'] });
+    assert.equal(s.state().matched, 2);
+    assert.equal(s.state().hiddenBy.text, 3);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a running search interrupted by an invalid query never wipes the error later', async () => {
+  const s = await opened([tmpFile(catastrophic())]);
+  try {
+    const search = s.setFilters({ text: SLOW });
+    await s.setFilters({ text: { query: '(', regex: true, caseSensitive: false } });
+    await search;
+    await new Promise(r => setTimeout(r, 50));
+    assert.match(s.state().error ?? '', /^Invalid regular expression/);
+    assert.equal(s.state().filters.text, undefined);
+    assert.equal(s.state().matched, 3);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('with grouping the delta after a group counts from its last member', async () => {
+  const lines: string[] = [];
+  for (let k = 0; k < 10; k++) lines.push(entry(k + 1, k * 1000, 'INFO', 'fbMain.fbPump', 'Cycle done'));
+  lines.push(entry(11, 10000, 'INFO', 'fbMain.fbPump', 'Cycle end'));
+  const s = await opened([tmpFile(lines.join('\n') + '\n')], { groupRepeats: true, gapMs: 5000 });
+  try {
+    const rev = s.state().revision;
+    const r = await s.rows(rev, 0, 2);
+    assert.deepEqual(r.map(x => x.repeat), [10, 1]);
+    assert.equal(r[1].deltaMs, 1000);
+    assert.equal(r[1].gap, false);
+    const w = await s.rows(rev, 1, 1);
+    assert.equal(w[0].deltaMs, 1000);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a bookmark on a later group member shows on the row, is found by jump and cleared by toggling', async () => {
+  const s = await opened([tmpFile(repeats())]);
+  try {
+    s.toggleBookmark(s.state().revision, 4);
+    s.setOptions({ groupRepeats: true });
+    const rev = s.state().revision;
+    const r = await s.rows(rev, 3, 1);
+    assert.equal(r[0].repeat, 2);
+    assert.equal(r[0].bookmarked, true);
+    assert.equal(s.jump(rev, -1, 1, 'bookmark'), 3);
+    assert.equal(s.jump(rev, s.state().rowCount, -1, 'bookmark'), 3);
+    s.toggleBookmark(rev, 3);
+    assert.equal((await s.rows(rev, 3, 1))[0].bookmarked, false);
+    assert.equal(s.jump(rev, -1, 1, 'bookmark'), -1);
+    s.toggleBookmark(rev, 3);
+    s.toggleBookmark(rev, 3);
+    s.setOptions({ groupRepeats: false });
+    const all = await s.rows(s.state().revision, 0, 5);
+    assert.deepEqual(all.map(x => x.bookmarked), [false, false, false, false, false]);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('dispose during load makes load resolve quietly', async () => {
+  const p = path.join(tmp, 'big.log');
+  writeSyntheticLog(p, 3 * 1024 * 1024);
+  const s = LogSession.open([p], [], OPTS);
+  const loading = s.load();
+  await new Promise(r => setImmediate(r));
+  await s.dispose();
+  await loading;
+});
+
+test('a text query set before load is applied by load', async () => {
+  const s = LogSession.open([path.join(fixtures, 'logger-lf.log')], [], OPTS);
+  try {
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    await s.load();
+    const st = s.state();
+    assert.equal(st.total, 3);
+    assert.equal(st.matched, 2);
+    assert.equal(st.hiddenBy.text, 1);
+    assert.equal(st.filters.text?.query, 'valve');
+  } finally {
+    await s.dispose();
+  }
 });

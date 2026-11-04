@@ -103,8 +103,15 @@ test('previousTime gives the time of the row before, for the delta of the first 
   const s = runs();
   const v = new LogView(s, all(s), { groupRepeats: true, gapMs: 0 });
   assert.equal(v.previousTime(0), undefined);
-  assert.equal(v.previousTime(1), T);
+  // The row before is the group [a a a]; the delta counts from its last member.
+  assert.equal(v.previousTime(1), T + 2);
   assert.equal(v.previousTime(3), T + 4);
+});
+
+test('find passes the row position to the predicate', () => {
+  const s = runs();
+  const v = new LogView(s, all(s), { groupRepeats: true, gapMs: 0 });
+  assert.equal(v.find(-1, 1, (_i, pos) => v.members(pos).includes(6)), 3);
 });
 
 test('previousTime is undefined when the row before has no time', () => {
