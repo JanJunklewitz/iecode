@@ -92,6 +92,19 @@ test('load reports progress', async () => {
   await s.dispose();
 });
 
+test('scanning reaches 1 only when the load publishes, not while its text search runs', async () => {
+  const s = LogSession.open([path.join(fixtures, 'logger-lf.log')], [], OPTS);
+  try {
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    const seen: number[] = [];
+    await s.load(() => seen.push(s.state().scanning));
+    assert.equal(seen[seen.length - 1], 1);
+    assert.ok(seen.slice(0, -1).every(f => f < 1), `scanning during the load: ${seen.join(', ')}`);
+  } finally {
+    await s.dispose();
+  }
+});
+
 test('rows parse the first line and report deltas and gaps', async () => {
   const s = await opened([tmpFile(repeats(), 'repeats.log')]);
   try {
