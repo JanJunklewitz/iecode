@@ -908,6 +908,54 @@ test('an invalid query error survives a live append', async () => {
   }
 });
 
+const HEADER = 'Sequence   - Timestamp - Category - Source - Message';
+
+/** The two entries PUMP(1), VALVE(2) as rows: time, source, level. */
+const PUMP_VALVE_ROWS = [
+  ['2026-01-15 10:00:00.100', 'fbMain.fbPump', 'info'],
+  ['2026-01-15 10:00:00.200', 'fbMain.fbPump.fbValve', 'error'],
+];
+
+test('a header-only file gets the logger format at load and parses appended entries', async () => {
+  const p = tmpFile(HEADER + '\n');
+  const s = await opened([p]);
+  try {
+    assert.deepEqual(s.state().formats, ['twincat-logger']);
+    assert.equal(s.state().total, 0);
+    grow(p, [PUMP(1), VALVE(2)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.deepEqual(st.formats, ['twincat-logger']);
+    assert.equal(st.total, 2);
+    assert.deepEqual((await s.rows(st.revision, 0, 2)).map(r => [r.time, r.source, r.level]), PUMP_VALVE_ROWS);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('an empty file detects its format once entries are appended, then appends without reloading', async () => {
+  const p = tmpFile('');
+  const s = await opened([p]);
+  try {
+    assert.equal(s.state().total, 0);
+    grow(p, [PUMP(1), VALVE(2)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    let st = s.state();
+    assert.deepEqual(st.formats, ['twincat-logger']);
+    assert.equal(st.total, 2);
+    assert.deepEqual((await s.rows(st.revision, 0, 2)).map(r => [r.time, r.source, r.level]), PUMP_VALVE_ROWS);
+    // The format is settled now: the next growth is an append, not another reload.
+    const generation = st.fileGeneration;
+    grow(p, PUMP(3) + '\n');
+    assert.equal(await s.refresh(), true);
+    st = s.state();
+    assert.equal(st.total, 3);
+    assert.equal(st.fileGeneration, generation);
+  } finally {
+    await s.dispose();
+  }
+});
+
 test('refresh of a merged session does nothing', async () => {
   const a = tmpFile(PUMP(1) + '\n');
   const b = tmpFile(PUMP(2) + '\n');

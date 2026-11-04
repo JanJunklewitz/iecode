@@ -190,13 +190,25 @@ const MIN_RATIO = 0.3;
 
 /** Picks the format that matches most sampled lines (at least 30 %); falls back to 'plain'. Never throws. */
 export function detectFormat(lines: string[], formats: LogFormat[]): LogFormat {
+  return detectFormatInfo(lines, formats).format;
+}
+
+/**
+ * detectFormat plus whether the choice is tentative: no sampled line was an entry of the chosen format. Without an
+ * entry line, a format whose ignore regex took sampled lines (a header-only file) wins over 'plain'; an empty or blank
+ * file falls back to 'plain'. A tentative choice is made again once the file has grown.
+ */
+export function detectFormatInfo(lines: string[], formats: LogFormat[]): { format: LogFormat; tentative: boolean } {
   const fallback = formats.find(f => f.def.id === 'plain') ?? compileFormat(BUILT_IN_FORMATS[2]);
   let best: LogFormat | undefined;
   let bestRatio = 0;
+  let ignoring: LogFormat | undefined;
+  let mostIgnored = 0;
   for (const f of formats) {
     if (f.def.id === 'plain') continue;
     let sampled = 0;
     let hits = 0;
+    let ignored = 0;
     for (const line of lines) {
       if (sampled >= SAMPLE_LINES) break;
       if (line.trim() === '') continue;
@@ -206,16 +218,28 @@ export function detectFormat(lines: string[], formats: LogFormat[]): LogFormat {
       } catch {
         continue;
       }
-      if (r.kind === 'ignored') continue;
+      if (r.kind === 'ignored') {
+        ignored++;
+        continue;
+      }
       sampled++;
       if (r.kind === 'entry') hits++;
     }
-    if (sampled === 0) continue;
+    if (sampled === 0) {
+      if (ignored > mostIgnored) {
+        ignoring = f;
+        mostIgnored = ignored;
+      }
+      continue;
+    }
     const ratio = hits / sampled;
     if (ratio >= MIN_RATIO && ratio > bestRatio) {
       best = f;
       bestRatio = ratio;
     }
   }
-  return best ?? fallback;
+  if (best) return { format: best, tentative: false };
+  if (ignoring) return { format: ignoring, tentative: true };
+  // Every non-blank line is a plain entry; only a blank sample leaves plain unconfirmed.
+  return { format: fallback, tentative: !lines.some(l => l.trim() !== '') };
 }
