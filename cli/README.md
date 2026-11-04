@@ -42,6 +42,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `ads serve [-t <netid>] [--port 851]` | Live values for tools: JSON requests on stdin, JSON events and replies on stdout, until stdin closes (see [Live values](#live-values)) | ADS |
 | `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
 | `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
+| `mcp` | MCP stdio server for Claude Code: relays the ADS tools to the VS Code window that serves the working directory, until stdin closes (see [MCP bridge](#mcp-bridge-for-claude-code)) | VS Code with IECode |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
 
 ### Global options
@@ -124,6 +125,22 @@ Good to know: the value a `write` replies with is read right after the write, no
 may overwrite or reset it within ~200 ms. The first failing call to a target that stopped answering
 blocks for the 5 s ADS client timeout, so a request on stdin can wait up to 5 s. Reading by name sends every name in
 every cycle, so the load grows with symbols × rate; until measured on your network, keep 200 symbols at 100 ms or slower.
+
+### MCP bridge for Claude Code
+
+`iecode mcp` is not meant to be typed: Claude Code starts it (the IECode extension's **Connect Claude Code** command registers it with
+`claude mcp add -s user iecode -- <path to iecode.exe> mcp`). It speaks MCP over stdin and stdout (newline-delimited JSON-RPC, protocol
+version 2025-11-25), logs to stderr and ends when stdin closes. It has no ADS code: it answers `initialize` and `ping` itself and forwards
+`tools/list`, `tools/call` and cancels to the VS Code window whose workspace folder contains its working directory (longest folder wins).
+
+- **Discovery:** each serving window writes `%LOCALAPPDATA%iecodemcp1instances<id>.json` (folders, pipe name, a per-window secret, the
+  protocol range it speaks) and listens on `\.pipeiecode-mcp-<id>`. The bridge proves it knows the secret in a mutual HMAC-SHA256
+  handshake before any MCP line; the secret is never sent. `tools.json` next to it lets the tools stay listed while no window is open.
+- **Which window:** chosen again for every tool call. No window: a tool error naming the folder (and the call works once the window opens, no
+  restart of Claude). Two windows on the same folder: a conflict error, nothing is sent. A window that does not answer (for example paused
+  in a debugger): "did not answer", nothing is sent, also not to a shorter folder.
+- **A call that loses its window** is reported as "may or may not have run" and never sent again.
+- Frames are at most 1 048 576 bytes per line; at most 32 calls are open at once.
 
 ## JSON output
 

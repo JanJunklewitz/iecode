@@ -50,7 +50,10 @@ public abstract record Selection
 
         foreach (var (_, members) in groups.OrderByDescending(g => g.Length))
         {
-            var probes = Task.WhenAll(members.Select(m => Task.Run(() => SafeConnect(connect, m)))).GetAwaiter().GetResult();
+            // a lone window is probed on this thread (no nested pool work); several are probed in parallel so paused ones do not add their timeouts up
+            var probes = members.Count == 1
+                ? [SafeConnect(connect, members[0])]
+                : Task.WhenAll(members.Select(m => Task.Run(() => SafeConnect(connect, m)))).GetAwaiter().GetResult();
             var ok = new List<(InstanceInfo Instance, Stream Link)>();
             var silent = new List<InstanceInfo>();
             for (var i = 0; i < members.Count; i++)

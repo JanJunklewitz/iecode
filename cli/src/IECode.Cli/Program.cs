@@ -22,6 +22,7 @@ internal static class Program
         root.Subcommands.Add(TargetCommands.Target());
         root.Subcommands.Add(TargetCommands.Ads());
         root.Subcommands.Add(DoctorCommand.Create());
+        root.Subcommands.Add(McpCommand.Create());
 
         var parse = root.Parse(args);
         var code = parse.Invoke();
