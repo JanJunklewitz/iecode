@@ -24,6 +24,7 @@ interface LogScroll {
   createRequests(): Requests;
   centerScrollTop(row: number, rowCount: number, viewportPx: number): number;
   navFrom(selected: number | null, firstVisible: number, dir: 1 | -1): number;
+  atBottom(scrollTop: number, rowCount: number, viewportPx: number): boolean;
 }
 
 // The webview script is plain JS in media/; out/test/*.js sits two levels below the extension folder.
@@ -162,4 +163,16 @@ test('navigation starts at the selected row, else around the first visible row',
   assert.equal(ls.navFrom(null, 7, 1), 6);
   assert.equal(ls.navFrom(null, 7, -1), 7);
   assert.equal(ls.navFrom(null, 0, 1), -1);
+});
+
+test('the view is at the bottom only near the highest scrollTop, and always when everything fits', () => {
+  for (const rowCount of [100, 5_000_000]) {
+    const max = ls.scrollHeight(rowCount) - VIEWPORT;
+    assert.equal(ls.atBottom(max, rowCount, VIEWPORT), true);
+    assert.equal(ls.atBottom(max - 5, rowCount, VIEWPORT), true);
+    assert.equal(ls.atBottom(max - ls.ROW_HEIGHT, rowCount, VIEWPORT), false);
+    assert.equal(ls.atBottom(0, rowCount, VIEWPORT), false);
+  }
+  assert.equal(ls.atBottom(0, 3, VIEWPORT), true);
+  assert.equal(ls.atBottom(0, 0, VIEWPORT), true);
 });

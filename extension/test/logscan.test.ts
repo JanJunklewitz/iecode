@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { BUILT_IN_FORMATS, compileFormat } from '../src/core/logformat';
+import { BUILT_IN_FORMATS, LEVELS, compileFormat } from '../src/core/logformat';
 import { EntryStore, LogLimitError } from '../src/core/logstore';
 import { RawLine, readLines, scanFile, sniff } from '../src/core/logscan';
 import { writeSyntheticLog } from './logGen';
@@ -399,4 +399,33 @@ test('appendFrom copies entries and re-interns sources', async () => {
   assert.equal(a.count, 2);
   assert.equal(a.sources[a.source[1]], 'second');
   assert.equal(a.file[1], 1);
+});
+
+test('appendFrom at an index replaces the entries from there on', async () => {
+  const a = new EntryStore();
+  const b = new EntryStore();
+  await scanFile(tmpFile([entryLine(1, T1, 'INFO', 'one', 'm'), entryLine(2, T1, 'INFO', 'two', 'm')].join('\n') + '\n'), 0, logger, a);
+  await scanFile(tmpFile([entryLine(2, T1, 'ERROR', 'two', 'm'), entryLine(3, T1, 'INFO', 'three', 'm')].join('\n') + '\n'), 0, logger, b);
+  a.appendFrom(b, 1);
+  assert.equal(a.count, 3);
+  assert.deepEqual([0, 1, 2].map(i => a.sources[a.source[i]]), ['one', 'two', 'three']);
+  assert.equal(a.level[1], LEVELS.indexOf('error'));
+});
+
+test('appendFrom past a limit throws LogLimitError and leaves the store unchanged', async () => {
+  const lines = (n: number, src: (k: number) => string) =>
+    Array.from({ length: n }, (_, k) => entryLine(k + 1, T1, 'INFO', src(k), 'm')).join('\n') + '\n';
+  const a = new EntryStore({ maxEntries: 3, maxSources: 2 });
+  await scanFile(tmpFile(lines(2, () => 'one')), 0, logger, a);
+  const many = new EntryStore();
+  await scanFile(tmpFile(lines(2, () => 'one')), 0, logger, many);
+  assert.throws(() => a.appendFrom(many), LogLimitError);
+  assert.equal(a.count, 2);
+  // Fits the entry limit at index 1, but brings two new sources.
+  const sources = new EntryStore();
+  await scanFile(tmpFile(lines(2, k => `s${k}`)), 0, logger, sources);
+  assert.throws(() => a.appendFrom(sources, 1), LogLimitError);
+  assert.equal(a.count, 2);
+  assert.deepEqual(a.sources, ['one']);
+  assert.equal(a.sources[a.source[1]], 'one');
 });

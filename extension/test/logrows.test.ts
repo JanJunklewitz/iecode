@@ -238,6 +238,16 @@ test('searchText from k flags only later entries, equals the full search there a
   assert.ok(part.bytesRead < full.bytesRead);
 });
 
+test('searchText from the end returns no flags and reads nothing', async () => {
+  const p = path.join(fixtures, 'logger-lf.log');
+  const s = await scan([p]);
+  // A missing file proves that nothing is opened.
+  const r = await searchText([path.join(tmp, 'missing.log')], cols(s), defs, Q('pump'), s.count);
+  assert.equal(r.from, s.count);
+  assert.equal(r.flags.length, 0);
+  assert.equal(r.bytesRead, 0);
+});
+
 test('searchText leaves the caller arrays usable, also after an abort', async () => {
   const p = path.join(fixtures, 'multiline.log');
   const s = await scan([p]);

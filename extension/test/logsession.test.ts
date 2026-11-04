@@ -597,6 +597,302 @@ test('dispose during load makes load resolve quietly', async () => {
   await loading;
 });
 
+// ---------- live tail (refresh) ----------
+
+const PUMP = (seq: number) => entry(seq, seq * 100, 'INFO', 'fbMain.fbPump', `Pump cycle ${seq}`);
+const VALVE = (seq: number) => entry(seq, seq * 100, 'ERROR', 'fbMain.fbPump.fbValve', `Valve stuck ${seq}`);
+
+function grow(p: string, text: string): void {
+  fs.appendFileSync(p, text);
+}
+
+test('refresh after appending two entries adds exactly them and keeps the earlier rows', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2), PUMP(3)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    const before = await s.rows(s.state().revision, 0, 3);
+    grow(p, [PUMP(4), VALVE(5)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.total, 5);
+    assert.equal(st.rowCount, 5);
+    assert.equal(st.fileGeneration, 0);
+    assert.deepEqual(st.levelCounts, { error: 1, warning: 0, info: 4, debug: 0, other: 0 });
+    assert.equal(st.lastTimeMs, T0 + 500);
+    const r = await s.rows(st.revision, 0, 10);
+    assert.deepEqual(r.slice(0, 3).map(x => [x.pos, x.index, x.message]), before.map(x => [x.pos, x.index, x.message]));
+    assert.deepEqual(r.map(x => x.message), ['Pump cycle 1', 'Pump cycle 2', 'Pump cycle 3', 'Pump cycle 4', 'Valve stuck 5']);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('refresh after a continuation line updates the last entry without a duplicate', async () => {
+  const p = tmpFile([PUMP(1), VALVE(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    grow(p, '  detail of the stuck valve\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.total, 2);
+    assert.deepEqual(st.levelCounts, { error: 1, warning: 0, info: 1, debug: 0, other: 0 });
+    const r = await s.rows(st.revision, 0, 5);
+    assert.equal(r.length, 2);
+    assert.equal(r[1].extraLines, 1);
+    assert.match((await s.detail(st.revision, 1)).text, /Valve stuck 2\n {2}detail of the stuck valve/);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('refresh without a change returns false and keeps the revision', async () => {
+  const s = await opened([tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n')]);
+  try {
+    const rev = s.state().revision;
+    assert.equal(await s.refresh(), false);
+    assert.equal(s.state().revision, rev);
+    assert.equal(s.state().total, 2);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a half-written last line appears only once it is complete', async () => {
+  const p = tmpFile(PUMP(1) + '\n');
+  const s = await opened([p]);
+  try {
+    const line = PUMP(2);
+    grow(p, line.slice(0, 20));
+    assert.equal(await s.refresh(), false);
+    assert.equal(s.state().total, 1);
+    assert.equal((await s.rows(s.state().revision, 0, 5))[0].extraLines, 0);
+    grow(p, line.slice(20) + '\n');
+    assert.equal(await s.refresh(), true);
+    const r = await s.rows(s.state().revision, 0, 5);
+    assert.deepEqual(r.map(x => x.message), ['Pump cycle 1', 'Pump cycle 2']);
+    assert.equal(r[0].extraLines, 0);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a shorter file reloads with a new fileGeneration, clears bookmarks and searches the new content', async () => {
+  const p = tmpFile([PUMP(1), VALVE(2), VALVE(3)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    assert.equal(s.state().matched, 2);
+    s.toggleBookmark(s.state().revision, 0);
+    fs.writeFileSync(p, [VALVE(1), PUMP(2)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.fileGeneration, 1);
+    assert.equal(st.total, 2);
+    assert.equal(st.matched, 1);
+    assert.equal(st.filters.text?.query, 'valve');
+    const r = await s.rows(st.revision, 0, 5);
+    assert.deepEqual(r.map(x => x.message), ['Valve stuck 1']);
+    assert.equal(r[0].bookmarked, false);
+    assert.equal(s.jump(st.revision, -1, 1, 'bookmark'), -1);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a file deleted and recreated with the same start and size reloads', async t => {
+  const p = tmpFile([PUMP(1), entry(2, 200, 'INFO', 'fbMain.fbPump', 'one')].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    const old = fs.statSync(p);
+    fs.unlinkSync(p);
+    fs.writeFileSync(p, [PUMP(1), entry(2, 200, 'INFO', 'fbMain.fbPump', 'six')].join('\n') + '\n');
+    const now = fs.statSync(p);
+    assert.equal(now.size, old.size);
+    if (now.ino === old.ino && now.birthtimeMs === old.birthtimeMs) {
+      t.skip('the file system reports neither a new inode nor a new birth time for the recreated file');
+      return;
+    }
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.fileGeneration, 1);
+    assert.deepEqual((await s.rows(st.revision, 0, 5)).map(x => x.message), ['Pump cycle 1', 'six']);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a file rewritten in place with a different start reloads', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    const rev = s.state().revision;
+    s.toggleBookmark(rev, 1);
+    fs.writeFileSync(p, [entry(7, 100, 'INFO', 'fbMain.fbPump', 'Pump cycle 7'), PUMP(2), PUMP(3)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.fileGeneration, 1);
+    const r = await s.rows(st.revision, 0, 5);
+    assert.deepEqual(r.map(x => x.seq), [7, 2, 3]);
+    assert.deepEqual(r.map(x => x.bookmarked), [false, false, false]);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a rows read started before a reload finishes and answers from its snapshot', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2), PUMP(3)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    const rev = s.state().revision;
+    await s.rows(rev, 0, 1);
+    fs.writeFileSync(p, PUMP(1) + '\n');
+    const read = s.rows(rev, 0, 3);
+    const refresh = s.refresh();
+    const r = await read;
+    assert.deepEqual(r.map(x => x.pos), [0, 1, 2]);
+    assert.equal(await refresh, true);
+    assert.equal(s.state().fileGeneration, 1);
+    assert.deepEqual((await s.rows(s.state().revision, 0, 5)).map(x => x.message), ['Pump cycle 1']);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('rows during a refresh answer from the previous snapshot', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    const rev = s.state().revision;
+    grow(p, PUMP(3) + '\n');
+    const refresh = s.refresh();
+    const r = await s.rows(rev, 0, 5);
+    assert.equal(r.length, 2);
+    assert.equal(await refresh, true);
+    assert.ok(s.state().revision > rev);
+    await assert.rejects(s.rows(rev, 0, 1), StaleError);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('setOptions during a refresh keeps both effects', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    grow(p, [entry(3, 300, 'INFO', 'fbMain.x', 'same'), entry(4, 400, 'INFO', 'fbMain.x', 'same')].join('\n') + '\n');
+    const refresh = s.refresh();
+    s.setOptions({ groupRepeats: true });
+    assert.equal(await refresh, true);
+    const st = s.state();
+    assert.equal(st.total, 4);
+    assert.equal(st.options.groupRepeats, true);
+    assert.equal(st.rowCount, 3);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('ten refresh calls in a row run at most two refreshes', async () => {
+  const p = tmpFile(PUMP(1) + '\n');
+  const s = await opened([p]);
+  try {
+    grow(p, PUMP(2) + '\n');
+    const calls = Array.from({ length: 10 }, () => s.refresh());
+    assert.ok(new Set(calls).size <= 2, `${new Set(calls).size} refreshes`);
+    const results = await Promise.all(calls);
+    assert.equal(results[0], true);
+    assert.equal(s.state().total, 2);
+    // A refresh requested after these ran starts anew.
+    grow(p, PUMP(3) + '\n');
+    assert.equal(await s.refresh(), true);
+    assert.equal(s.state().total, 3);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('dispose during a refresh resolves without errors', async () => {
+  const p = tmpFile(PUMP(1) + '\n');
+  const s = await opened([p]);
+  grow(p, PUMP(2) + '\n');
+  const refresh = s.refresh();
+  await s.dispose();
+  assert.equal(typeof (await refresh), 'boolean');
+});
+
+test('with a text filter refresh flags the new matching entry, keeps the earlier flags and searches only the tail', async () => {
+  const lines: string[] = [];
+  for (let k = 1; k <= 200; k++) lines.push(k % 10 === 0 ? VALVE(k) : PUMP(k));
+  const p = tmpFile(lines.join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    assert.equal(s.state().matched, 20);
+    const lastLength = Buffer.byteLength(lines[lines.length - 1] + '\n');
+    const added = [PUMP(201), VALVE(202)].join('\n') + '\n';
+    grow(p, added);
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.equal(st.total, 202);
+    assert.equal(st.matched, 21);
+    assert.equal(st.hiddenBy.text, 181);
+    const r = await s.rows(st.revision, 0, 30);
+    assert.equal(r[0].message, 'Valve stuck 10');
+    assert.equal(r[20].message, 'Valve stuck 202');
+    assert.ok(s.tailSearchBytes > 0);
+    assert.ok(s.tailSearchBytes <= Buffer.byteLength(added) + lastLength, `tail search read ${s.tailSearchBytes} bytes`);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a text query changed during a refresh also covers the appended entries', async () => {
+  const p = tmpFile([PUMP(1), VALVE(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    grow(p, [PUMP(3), VALVE(4)].join('\n') + '\n');
+    const refresh = s.refresh();
+    const search = s.setFilters({ text: { query: 'pump cycle', regex: false, caseSensitive: false } });
+    await Promise.all([refresh, search]);
+    const st = s.state();
+    assert.equal(st.total, 4);
+    assert.equal(st.filters.text?.query, 'pump cycle');
+    assert.deepEqual((await s.rows(st.revision, 0, 5)).map(x => x.seq), [1, 3]);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a limit error during refresh shows as state().error and keeps the published entries', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = LogSession.open([p], [], OPTS, { maxEntries: 3 });
+  await s.load();
+  try {
+    grow(p, [PUMP(3), PUMP(4)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.match(st.error ?? '', /Too many entries/);
+    assert.equal(st.total, 2);
+    assert.deepEqual((await s.rows(st.revision, 0, 5)).map(x => x.seq), [1, 2]);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('refresh of a merged session does nothing', async () => {
+  const a = tmpFile(PUMP(1) + '\n');
+  const b = tmpFile(PUMP(2) + '\n');
+  const s = await opened([a, b]);
+  try {
+    grow(a, PUMP(3) + '\n');
+    assert.equal(await s.refresh(), false);
+    assert.equal(s.state().total, 2);
+  } finally {
+    await s.dispose();
+  }
+});
+
 test('a text query set before load is applied by load', async () => {
   const s = LogSession.open([path.join(fixtures, 'logger-lf.log')], [], OPTS);
   try {

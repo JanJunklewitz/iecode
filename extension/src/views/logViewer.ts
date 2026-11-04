@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { promises as fsp } from 'fs';
 import { randomBytes } from 'crypto';
 import { LogFormatDef, parseFilterTimeInput } from '../core/logformat';
 import { LogSession, SessionFilters, StaleError } from '../core/logsession';
@@ -42,6 +43,10 @@ const MERGE_CONFIRM_BYTES = 500 * 1024 * 1024;
 /** Most workspace files the command palette offers. */
 const MAX_PICK_FILES = 5000;
 const LOG_FILE = /\.log$/i;
+/** A file changed within this time opens live. */
+const LIVE_RECENT_MS = 60 * 1000;
+/** Poll interval while live, as a fallback for a file system watcher that misses changes. */
+const LIVE_POLL_MS = 2000;
 
 function userFormats(): LogFormatDef[] {
   const v = vscode.workspace.getConfiguration('iecode.logViewer').get<unknown>('formats');
@@ -56,17 +61,23 @@ function viewOptions(): ViewOptions {
   return { groupRepeats: c.get<boolean>('groupRepeats', false), gapMs: Math.max(0, Number(gapSeconds) || 0) * 1000 };
 }
 
-/** Owns the session behind one log viewer webview: the custom editor's document or the merged panel. */
+/**
+ * Owns the session behind one log viewer webview: the custom editor's document or the merged panel. A single-file
+ * session can be live: then the host watches the file (watcher plus poll) and feeds the changes to session.refresh().
+ * Merged sessions stay static.
+ */
 class LogSessionHost {
   private readonly changed = new vscode.EventEmitter<void>();
-  /** Fires when the session state changed (load progress, load end, filters, options, bookmarks). */
+  /** Fires when the session state changed (load progress, load end, filters, options, bookmarks, live tail). */
   readonly onDidChangeState = this.changed.event;
   readonly session?: LogSession;
   /** Set when nothing can be shown at all (scheme, load failure). */
   failure?: string;
+  private watch?: vscode.Disposable;
+  private disposed = false;
 
   /** Without paths, `failure` says why nothing is shown; `label` names the content in a load failure. */
-  constructor(paths: string[] | undefined, private readonly label: string, failure?: string) {
+  constructor(private readonly paths: string[] | undefined, private readonly label: string, failure?: string) {
     if (!paths) {
       this.failure = failure;
       return;
@@ -87,14 +98,55 @@ class LogSessionHost {
     } catch (e) {
       this.failure = `Cannot show ${this.label}: ${(e as Error).message}`;
     }
+    if (this.disposed) return;
     this.changed.fire();
+    if (this.failure === undefined && this.paths?.length === 1) {
+      // Live by default only for a file that is still being written.
+      try {
+        const { mtimeMs } = await fsp.stat(this.paths[0]);
+        if (Date.now() - mtimeMs < LIVE_RECENT_MS) this.setLive(true);
+      } catch {
+        // Gone since the load; stays static.
+      }
+    }
   }
 
   notify() {
-    this.changed.fire();
+    if (!this.disposed) this.changed.fire();
+  }
+
+  /** Live (ingest new entries) on or off; single-file sessions only. Turning it on looks at the file at once. */
+  setLive(on: boolean) {
+    const s = this.session;
+    if (!s || this.disposed || this.failure !== undefined || this.paths?.length !== 1) return;
+    s.setLive(on);
+    this.watch?.dispose();
+    this.watch = undefined;
+    if (on) {
+      const file = this.paths[0];
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), path.basename(file)));
+      const refresh = () => void this.refresh();
+      // The watcher misses changes on some file systems (network shares); the poll catches those.
+      const poll = setInterval(refresh, LIVE_POLL_MS);
+      this.watch = vscode.Disposable.from(
+        watcher, watcher.onDidChange(refresh), watcher.onDidCreate(refresh), watcher.onDidDelete(refresh),
+        new vscode.Disposable(() => clearInterval(poll)),
+      );
+      refresh();
+    }
+    this.notify();
+  }
+
+  /** session.refresh() coalesces the calls of watcher and poll. */
+  private async refresh() {
+    if (await this.session?.refresh()) this.notify();
   }
 
   dispose() {
+    this.disposed = true;
+    this.watch?.dispose();
+    this.watch = undefined;
     this.changed.dispose();
     // Nothing waits for the close; a failing one must not become an unhandled rejection.
     this.session?.dispose().catch(() => undefined);
@@ -205,8 +257,7 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
             s.toggleBookmark(m.rev, m.pos);
             return doc.notify();
           case 'live':
-            s.setLive(m.on);
-            return doc.notify();
+            return doc.setLive(m.on);
           case 'export':
             return post({ type: 'error', message: 'Export is not available yet.' });
         }
