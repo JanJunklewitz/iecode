@@ -131,6 +131,12 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 
 ### Build output
 - **Module class viewer**: `.tmc` files (the build output of PLC projects and TcCOM modules) open in a read-only viewer (**Open as XML** or **Reopen Editor With…** for the text). **Overview**: tasks with cycle times, data areas with their sizes, parameters, interfaces, properties and licenses. **Symbols** and **Data types**: filter, expand members, enum values and methods, jump from a type name to its definition. Reloads after each build.
+### Log viewer
+- **Log Viewer** for `.log` files (right-click a file: **Open in Log Viewer**, or **Reopen Editor With…**): a read-only table with time, level, source and message, colors per level, a detail pane for multi-line entries, gap marks between entries (`iecode.logViewer.gapSeconds`) and repeated entries grouped into one row with a count (`iecode.logViewer.groupRepeats`).
+- Filters for level, time range, source and free text or regex, each with the number of entries it hides; next / previous error, bookmarks and **Export** of the filtered view as the original lines.
+- Formats: the TwinCAT logger, tab-separated logs and plain text are built in and detected per file; add your own with a regular expression in `iecode.logViewer.formats`.
+- **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
+- Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
 
 ## 0.2.7
 
