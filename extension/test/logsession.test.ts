@@ -211,9 +211,14 @@ test('an invalid regex sets the error and keeps the previous result, a valid cha
     assert.equal(st.matched, 3);
     assert.equal(st.filters.text?.query, 'pump');
     assert.ok(st.revision > rev);
+    // Only a change of the text clears the query error.
     await s.setFilters({ levels: ['error', 'warning'] });
-    assert.equal(s.state().error, undefined);
+    assert.match(s.state().error ?? '', /^Invalid regular expression/);
     assert.equal(s.state().matched, 2);
+    s.setOptions({ groupRepeats: true });
+    assert.match(s.state().error ?? '', /^Invalid regular expression/);
+    await s.setFilters({ text: { query: 'valve', regex: false, caseSensitive: false } });
+    assert.equal(s.state().error, undefined);
   } finally {
     await s.dispose();
   }
