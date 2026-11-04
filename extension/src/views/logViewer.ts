@@ -253,7 +253,11 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
   const subs = [
     doc.onDidChangeState(() => void sendState()),
     panel.webview.onDidReceiveMessage(async (m: Msg) => {
-      if (m.type === 'openRaw') return openRaw();
+      if (m.type === 'openRaw') {
+        // Also after a fatal error, when the webview has no state to show a message in: report it as a notification.
+        return Promise.resolve().then(openRaw).catch(e =>
+          void vscode.window.showErrorMessage(`Cannot open as text: ${(e as Error).message}`));
+      }
       if (m.type === 'ready') return sendState();
       const s = doc.session;
       if (!s || doc.failure !== undefined) return;
