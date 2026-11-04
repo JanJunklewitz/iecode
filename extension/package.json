@@ -481,6 +481,16 @@
         "title": "Set AI Write Access…",
         "category": "IECode",
         "icon": "$(shield)"
+      },
+      {
+        "command": "iecode.mcpConnect",
+        "title": "Connect Claude Code",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.mcpDisconnect",
+        "title": "Disconnect Claude Code",
+        "category": "IECode"
       }
     ],
     "menus": {
@@ -704,6 +714,16 @@
           "command": "iecode.adsAiWrites",
           "when": "view == iecode.adsWatch",
           "group": "ai@2"
+        },
+        {
+          "command": "iecode.mcpConnect",
+          "when": "view == iecode.adsWatch",
+          "group": "ai@3"
+        },
+        {
+          "command": "iecode.mcpDisconnect",
+          "when": "view == iecode.adsWatch",
+          "group": "ai@4"
         }
       ],
       "view/item/context": [
@@ -1020,6 +1040,14 @@
         {
           "command": "iecode.adsAiWrites",
           "when": "isWindows"
+        },
+        {
+          "command": "iecode.mcpConnect",
+          "when": "isWindows && !isRemote"
+        },
+        {
+          "command": "iecode.mcpDisconnect",
+          "when": "isWindows && !isRemote"
         }
       ],
       "iecode.compare": [

@@ -7,6 +7,7 @@ import { existsSync } from 'fs';
 import * as path from 'path';
 import { CliDiagnostic } from '../core/diagnostics';
 import { LogLevel, countLine, diagnosticLine, progressLine } from '../core/clilog';
+import { findOnPath } from '../core/claudeRegistration';
 
 export interface CliResult<T = unknown> {
   command: string;
@@ -129,6 +130,18 @@ export function useInstallDir() {
 
 /** The iecode.cliPath setting, when set (installing doesn't fix a wrong one). */
 export const customCliPath = () => vscode.workspace.getConfiguration('iecode').get<string>('cliPath', '').trim() || undefined;
+
+/**
+ * The absolute path of the iecode.exe to register with Claude Code: the iecode.cliPath setting (machine scope, so a workspace cannot
+ * set it), else the install folder, else an absolute PATH entry. Undefined when none is found; a bare name is never returned.
+ */
+export function resolveIecodeExe(): string | undefined {
+  const custom = customCliPath();
+  if (custom) return path.isAbsolute(custom) && existsSync(custom) ? custom : undefined;
+  const installed = path.join(INSTALL_DIR, 'iecode.exe');
+  if (existsSync(installed)) return installed;
+  return findOnPath(process.env.PATH ?? '', existsSync, 'iecode').exe;
+}
 
 /** True if the configured CLI starts (`iecode --version`). */
 export function cliInstalled(): Promise<boolean> {

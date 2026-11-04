@@ -29,6 +29,7 @@ import { registerAdsLmTools } from './ads/lmTools';
 import { adsWriteGate } from './ads/adsWrite';
 import { AdsHost } from './ads/host';
 import { AdsMcpServer } from './ads/mcpServer';
+import { registerClaudeConnect } from './ads/claudeConnect';
 import { CLAUDE_TOOL_TIMEOUT_MS, gatePolicyFor } from './core/mcpTools';
 import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
@@ -134,6 +135,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   const mcpServer = new AdsMcpServer(ctx, state, writeGate);
   ctx.subscriptions.push(mcpServer);
   mcpServer.init();
+  registerClaudeConnect(ctx, mcpServer);
   registerAdsWatch(ctx, state, mcpServer);
   registerAdsLmTools(ctx, state, writeGate);
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsScope', () => showAdsScope(ctx)));
