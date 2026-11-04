@@ -8,6 +8,8 @@ public sealed record InstanceInfo(string Id, int Pid, string ExtensionVersion, i
 
 public static class Instances
 {
+    private static readonly System.Text.RegularExpressions.Regex PipeName = new("^[A-Za-z0-9._-]{1,128}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     /// <summary>Reads every <c>*.json</c> of the instances directory; an unreadable file or one that is not format 1 is skipped.</summary>
     public static IReadOnlyList<InstanceInfo> Load(string instancesDir)
     {
@@ -23,14 +25,18 @@ public static class Instances
                 var r = doc.RootElement;
                 if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("format", out var f) || f.ValueKind != JsonValueKind.Number || f.GetInt32() != 1) continue;
                 var proto = r.GetProperty("bridgeProtocol");
+                var pipe = r.GetProperty("pipe").GetString() ?? "";
+                var roots = r.GetProperty("roots").EnumerateArray().Select(x => x.GetString() ?? "").ToList();
+                // the pipe name becomes a path and a search pattern, a root goes to the path matcher: a malformed file is not an instance
+                if (!PipeName.IsMatch(pipe) || roots.Any(string.IsNullOrWhiteSpace)) continue;
                 result.Add(new InstanceInfo(
                     r.GetProperty("id").GetString()!,
                     r.GetProperty("pid").GetInt32(),
                     r.GetProperty("extensionVersion").GetString() ?? "",
                     proto.GetProperty("min").GetInt32(),
                     proto.GetProperty("max").GetInt32(),
-                    r.GetProperty("pipe").GetString()!,
-                    r.GetProperty("roots").EnumerateArray().Select(x => x.GetString()!).ToList(),
+                    pipe,
+                    roots,
                     r.TryGetProperty("workspaceName", out var w) ? w.GetString() ?? "" : "",
                     r.GetProperty("secret").GetString()!));
             }

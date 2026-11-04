@@ -51,6 +51,21 @@ public sealed class McpWireTests
         Assert.Throws<FrameTooLongException>(() => new LineFramer(10).Push(Encoding.UTF8.GetBytes(new string('ä', 6))));
     }
 
+    [Fact]
+    public void Framer_CanDropAnOversizedLineAndGoOn()
+    {
+        var f = new LineFramer(10, discardOversized: true);
+        Assert.Equal(["ok"], f.Push(Encoding.UTF8.GetBytes(new string('x', 11) + "\nok\n")));
+        Assert.Equal(1, f.TakeOversized());
+        Assert.Equal(0, f.TakeOversized());
+        // a long line that arrives in pieces without a newline: dropped up to its newline, the next line survives
+        Assert.Empty(f.Push(Encoding.UTF8.GetBytes(new string('y', 8))));
+        Assert.Empty(f.Push(Encoding.UTF8.GetBytes(new string('y', 8))));
+        Assert.Empty(f.Push(Encoding.UTF8.GetBytes(new string('y', 8))));
+        Assert.Equal(["after"], f.Push(Encoding.UTF8.GetBytes("zz\nafter\n")));
+        Assert.Equal(1, f.TakeOversized());
+    }
+
     // ---- handshake: a fake extension on the other end of an in-memory link ----
 
     private static readonly InstanceInfo Info = McpTestData.Instance("a1", ["c:\\work"], secret: Convert.ToBase64String(new byte[32]));

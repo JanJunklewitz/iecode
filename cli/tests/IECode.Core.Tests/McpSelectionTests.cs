@@ -150,11 +150,32 @@ public sealed class McpSelectionTests
     public void AProtocolRangeWithoutOne_GivesVersionMismatch()
     {
         var old = McpTestData.Instance("n", ["c:\\work\\plant"], min: 2, max: 3);
-        var mismatch = Assert.IsType<Selection.VersionMismatch>(Choose("c:\\work\\plant", new Probes(), old));
+        var pn = new Probes().Ok("n");
+        var mismatch = Assert.IsType<Selection.VersionMismatch>(Choose("c:\\work\\plant", pn, old));
         Assert.Equal("n", mismatch.Instance.Id);
-        // a usable window wins over the mismatching one
-        var chosen = Assert.IsType<Selection.Chosen>(Choose("c:\\work\\plant", new Probes().Ok("a"), old, I("a", "c:\\work")));
-        Assert.Equal("a", chosen.Instance.Id);
+        Assert.All(pn.Links, l => Assert.True(l.Disposed));
+    }
+
+    [Fact]
+    public void AMismatchingWindowWithTheLongestRoot_BlocksTheFallback()
+    {
+        // the window that owns the folder speaks another protocol: nothing may go to the shorter root
+        var newer = McpTestData.Instance("n", ["c:\\work\\plant"], min: 2, max: 3);
+        var p = new Probes().Ok("n").Ok("outer");
+        Assert.IsType<Selection.VersionMismatch>(Choose("c:\\work\\plant", p, newer, I("outer", "c:\\work")));
+        Assert.DoesNotContain("outer", p.Called);
+    }
+
+    [Fact]
+    public void AMismatchingWindowThatIsGone_FallsBack_AndAShorterMismatchDoesNotBlock()
+    {
+        var newer = McpTestData.Instance("n", ["c:\\work\\plant"], min: 2, max: 3);
+        var gone = Assert.IsType<Selection.Chosen>(Choose("c:\\work\\plant", new Probes().Absent("n").Ok("outer"), newer, I("outer", "c:\\work")));
+        Assert.Equal("outer", gone.Instance.Id);
+        var shorter = McpTestData.Instance("m", ["c:\\work"], min: 2, max: 3);
+        var usable = Assert.IsType<Selection.Chosen>(Choose("c:\\work\\plant", new Probes().Ok("a").Ok("m"), I("a", "c:\\work\\plant"), shorter));
+        Assert.Equal("a", usable.Instance.Id);
+        Assert.IsType<Selection.None>(Choose("c:\\work\\plant", new Probes().Absent("n"), newer));
     }
 
     // ---- Instances.Load ----
@@ -180,6 +201,22 @@ public sealed class McpSelectionTests
             var a = Assert.Single(all);
             Assert.Equal(("a1", "iecode-mcp-a1", "plant", "AAAA"), (a.Id, a.Pipe, a.WorkspaceName, a.Secret));
             Assert.Equal(["c:\\work\\plant"], a.Roots);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Load_SkipsAFileWithAMalformedPipeNameOrRoot()
+    {
+        var dir = TempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "a.json"), GoodFile.Replace("iecode-mcp-a1", "..\\evil"));
+            File.WriteAllText(Path.Combine(dir, "b.json"), GoodFile.Replace("iecode-mcp-a1", "a*b"));
+            File.WriteAllText(Path.Combine(dir, "c.json"), GoodFile.Replace("\"roots\":[\"c:\\\\work\\\\plant\"]", "\"roots\":[\"\"]"));
+            File.WriteAllText(Path.Combine(dir, "d.json"), GoodFile.Replace("\"roots\":[\"c:\\\\work\\\\plant\"]", "\"roots\":[null]"));
+            File.WriteAllText(Path.Combine(dir, "good.json"), GoodFile);
+            Assert.Equal(["a1"], Instances.Load(dir).Select(i => i.Id));
         }
         finally { Directory.Delete(dir, true); }
     }

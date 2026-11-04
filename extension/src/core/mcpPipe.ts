@@ -1,6 +1,7 @@
 // The extension's named-pipe listener for the MCP bridge. Free of the VS Code API, so it runs under node --test.
 // Every connection runs the handshake first; `onSession` fires only for a client that proved it knows the secret.
 
+import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { ExtHandshake, FrameTooLong, LineFramer, MAX_FRAME } from './mcpWire';
 
@@ -60,6 +61,20 @@ class Connection implements PipeConnection {
   deliver(line: string): void {
     if (this.lineHandlers.length === 0) this.queued.push(line);
     else for (const fn of this.lineHandlers) fn(line);
+  }
+}
+
+/**
+ * Whether a pipe exists, by the pipe directory listing: it does not open the pipe, so it uses up none of the server's instances
+ * (a window paused in a debugger has few). A listing that fails counts as "exists": unknown is not gone, so the sweep of stale
+ * instance files never erases the file of a window that merely does not answer.
+ */
+export function pipeExists(pipePath: string, list: () => string[] = () => fs.readdirSync('\\\\.\\pipe\\')): boolean {
+  const name = pipePath.replace(/^\\\\\.\\pipe\\/i, '').toLowerCase();
+  try {
+    return list().some(n => n.toLowerCase() === name);
+  } catch {
+    return true;
   }
 }
 

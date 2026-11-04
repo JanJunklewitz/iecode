@@ -4,7 +4,6 @@
 
 import * as vscode from 'vscode';
 import * as fs from 'node:fs';
-import * as net from 'node:net';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -14,7 +13,7 @@ import { WriteGate } from '../core/writeGate';
 import { McpSession } from '../core/mcp';
 import { buildMcpTools, descriptorsFromManifest } from '../core/mcpTools';
 import { InstanceFile, canonicalRoot, toolsFile } from '../core/mcpWire';
-import { PipeConnection, PipeServer, servePipe } from '../core/mcpPipe';
+import { PipeConnection, PipeServer, pipeExists, servePipe } from '../core/mcpPipe';
 import { FsOps, aclAllowsOthers, connectedMarker, removeInstance, setConnectedMarker, sweepStaleInstances, writeInstance } from '../core/instanceFiles';
 import { LifecycleQueue } from '../core/lifecycleQueue';
 import { output } from '../cli/iecode';
@@ -44,16 +43,8 @@ function discoveryDir(): string | undefined {
 const run = (file: string, args: string[]): Promise<string> =>
   new Promise((resolve, reject) => execFile(file, args, { windowsHide: true }, (e, out) => (e ? reject(e) : resolve(out))));
 
-/** True when something answers on the pipe within a short time. */
-function pipeAnswers(pipePath: string): Promise<boolean> {
-  return new Promise(resolve => {
-    const s = net.connect(pipePath);
-    const done = (ok: boolean) => { s.destroy(); resolve(ok); };
-    s.setTimeout(500, () => done(false));
-    s.once('connect', () => done(true));
-    s.once('error', () => done(false));
-  });
-}
+/** icacls from System32, not from whatever the search path finds first. */
+const icacls = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
 
 interface Live {
   id: string;
@@ -68,6 +59,7 @@ export class AdsMcpServer implements vscode.Disposable {
   readonly onState = this.changed.event;
   private live: Live | undefined;
   private warned = false;
+  private aclWarned = false;
   private poll: NodeJS.Timeout | undefined;
   private readonly subscriptions: vscode.Disposable[] = [];
 
@@ -138,13 +130,16 @@ export class AdsMcpServer implements vscode.Disposable {
   /** Makes sure only this user can read the discovery directory, since it holds the handshake secrets. */
   private async ensurePrivate(dir: string): Promise<boolean> {
     realFs.mkdir(dir);
-    if (!aclAllowsOthers(await run('icacls', [dir]))) return true;
+    if (!aclAllowsOthers(await run(icacls, [dir]))) return true;
     const user = process.env.USERNAME;
     if (user) {
-      try { await run('icacls', [dir, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)F`]); } catch { /* checked again below */ }
+      try { await run(icacls, [dir, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)F`]); } catch { /* checked again below */ }
     }
-    if (!aclAllowsOthers(await run('icacls', [dir]))) return true;
-    void vscode.window.showWarningMessage(`IECode: the discovery folder ${dir} is readable by other users, so the MCP server stays off.`);
+    if (!aclAllowsOthers(await run(icacls, [dir]))) return true;
+    if (!this.aclWarned) {
+      this.aclWarned = true;
+      void vscode.window.showWarningMessage(`IECode: the discovery folder ${dir} is readable by other users, so the MCP server stays off.`);
+    }
     return false;
   }
 
@@ -180,7 +175,7 @@ export class AdsMcpServer implements vscode.Disposable {
     if (!(await this.ensurePrivate(dir)) || gen.stale()) return;
     const instances = path.join(dir, 'instances');
     realFs.mkdir(instances);
-    await sweepStaleInstances(instances, realFs, Date.now(), STALE_MS, pipeAnswers);
+    await sweepStaleInstances(instances, realFs, Date.now(), STALE_MS, async pipePath => pipeExists(pipePath));
     if (gen.stale()) return;
 
     const tools = this.descriptors();

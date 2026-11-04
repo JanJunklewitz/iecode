@@ -214,12 +214,12 @@ public sealed class McpBridgeTests : IAsyncDisposable
     [Fact]
     public async Task VersionMismatch_NamesTheSideToUpdate()
     {
-        AddInstance("new", min: 2, max: 3);
+        AddInstance("new", min: 2, max: 3); WindowUp("new");
         Start();
         await Send(Call(1));
         Assert.Contains("Update the iecode CLI", ToolText(await FromBridge()));
         File.Delete(Path.Combine(_instances, "new.json"));
-        AddInstance("old", min: 0, max: 0);
+        AddInstance("old", min: 0, max: 0); WindowUp("old");
         await Send(Call(2));
         Assert.Contains("Update the IECode extension", ToolText(await FromBridge()));
     }
@@ -459,6 +459,48 @@ public sealed class McpBridgeTests : IAsyncDisposable
         await SendRaw("this is not json");
         var lines = new List<JsonElement> { await FromBridge(), await FromBridge() };
         Assert.All(lines, l => Assert.Equal("2.0", l.GetProperty("jsonrpc").GetString()));
+    }
+
+    [Fact]
+    public async Task ALineOverTheFrameLimit_IsAnsweredAndTheSessionGoesOn()
+    {
+        Start();
+        await _claude.WriteAsync(System.Text.Encoding.UTF8.GetBytes(new string('x', Wire.MaxFrame + 100) + "\n"), TestContext.Current.CancellationToken);
+        Assert.Equal(-32600, (await FromBridge()).GetProperty("error").GetProperty("code").GetInt32());
+        await Send(new { jsonrpc = "2.0", id = "alive", method = "ping" });
+        Assert.Equal("alive", (await FromBridge()).GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task InvalidJson_GetsAParseError()
+    {
+        Start();
+        await SendRaw("{not json");
+        var r = await FromBridge();
+        Assert.Equal(-32700, r.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Equal(JsonValueKind.Null, r.GetProperty("id").ValueKind);
+    }
+
+    [Fact]
+    public async Task ADuplicateIdIsRefused_EvenWhen32CallsAreOpen()
+    {
+        AddInstance("a"); WindowUp("a");
+        Start();
+        for (var i = 1; i <= 32; i++) await Send(Call(i));
+        var ext = await Ext("a");
+        for (var i = 1; i <= 32; i++) await Read(ext);
+        await Send(Call(7)); // id 7 is still open
+        Assert.Equal(-32600, (await FromBridge()).GetProperty("error").GetProperty("code").GetInt32());
+    }
+
+    [Fact]
+    public async Task ToolsList_IsAnsweredEvenWhenAnInstanceFileIsBroken()
+    {
+        File.WriteAllText(_tools, """{"tools":[{"name":"ads_scope"}]}""");
+        File.WriteAllText(Path.Combine(_instances, "bad.json"), """{"format":1,"id":"x","pid":1,"extensionVersion":"1","bridgeProtocol":{"min":1,"max":1},"pipe":"iecode-mcp-x","roots":[""],"workspaceName":"w","secret":"AAAA"}""");
+        Start();
+        await Send(List(1));
+        Assert.Equal("ads_scope", (await FromBridge()).GetProperty("result").GetProperty("tools")[0].GetProperty("name").GetString());
     }
 
     [Fact]

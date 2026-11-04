@@ -133,8 +133,8 @@ every cycle, so the load grows with symbols × rate; until measured on your netw
 version 2025-11-25), logs to stderr and ends when stdin closes. It has no ADS code: it answers `initialize` and `ping` itself and forwards
 `tools/list`, `tools/call` and cancels to the VS Code window whose workspace folder contains its working directory (longest folder wins).
 
-- **Discovery:** each serving window writes `%LOCALAPPDATA%iecodemcp1instances<id>.json` (folders, pipe name, a per-window secret, the
-  protocol range it speaks) and listens on `\.pipeiecode-mcp-<id>`. The bridge proves it knows the secret in a mutual HMAC-SHA256
+- **Discovery:** each serving window writes `%LOCALAPPDATA%\iecode\mcp\v1\instances\<id>.json` (folders, pipe name, a per-window secret, the
+  protocol range it speaks) and listens on `\\.\pipe\iecode-mcp-<id>`. The bridge proves it knows the secret in a mutual HMAC-SHA256
   handshake before any MCP line; the secret is never sent. `tools.json` next to it lets the tools stay listed while no window is open.
 - **Which window:** chosen again for every tool call. No window: a tool error naming the folder (and the call works once the window opens, no
   restart of Claude). Two windows on the same folder: a conflict error, nothing is sent. A window that does not answer (for example paused

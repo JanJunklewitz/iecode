@@ -18,6 +18,7 @@ public sealed class McpBridge
 
     private const int MaxOpenCalls = 32;
     private const string TooLarge = "The result is too large to send. Ask for less.";
+    private const string NotSent = "The connection to the IECode window was closed before the call was sent. Nothing was sent; retry.";
     private const string LostConnection = "The connection to IECode was lost during the call, so it may or may not have run. Read the state before acting; for a write, read the variable and ask the user.";
     private static readonly TimeSpan AbsentCache = TimeSpan.FromSeconds(5);
 
@@ -61,7 +62,7 @@ public sealed class McpBridge
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var search = SearchLoop(linked.Token);
-        var framer = new LineFramer();
+        var framer = new LineFramer(Wire.MaxFrame, discardOversized: true);
         var buf = new byte[8192];
         try
         {
@@ -69,16 +70,23 @@ public sealed class McpBridge
             {
                 var n = await _stdin.ReadAsync(buf, linked.Token).ConfigureAwait(false);
                 if (n == 0) break;
-                foreach (var line in framer.Push(buf.AsSpan(0, n)))
+                var lines = framer.Push(buf.AsSpan(0, n));
+                // Claude Code never restarts a dead server: a line over the limit is answered and dropped, the session goes on
+                for (var dropped = framer.TakeOversized(); dropped > 0; dropped--)
+                {
+                    _log("mcp: a line from the client is over the frame limit; dropped");
+                    Reply(RpcError("null", -32600, "A line was longer than the frame limit and was dropped"));
+                }
+                foreach (var line in lines)
                 {
                     if (line.Length == 0) continue;
                     try { Dispatch(line); }
+                    catch (JsonException) { Reply(RpcError("null", -32700, "Parse error")); }
                     catch (Exception e) { _log($"mcp: could not handle a line: {e.Message}"); }
                 }
             }
         }
         catch (OperationCanceledException) { }
-        catch (FrameTooLongException) { _log("mcp: a line from the client is over the frame limit; closing"); }
         finally
         {
             linked.Cancel();
@@ -144,6 +152,11 @@ public sealed class McpBridge
             return;
         }
         var state = new CallState(key, raw);
+        if (_calls.ContainsKey(key))
+        {
+            Reply(RpcError(raw, -32600, "A call with this id is already running"));
+            return;
+        }
         if (_calls.Count >= MaxOpenCalls)
         {
             Reply(ToolError(raw, "Too many calls are running at once."));
@@ -173,12 +186,18 @@ public sealed class McpBridge
 
     private async Task ListAsync(string key, string raw, string line)
     {
-        var selection = await ChooseAsync().ConfigureAwait(false);
+        Selection selection;
+        try { selection = await ChooseAsync().ConfigureAwait(false); }
+        catch (Exception e)
+        {
+            _log($"mcp: window selection failed: {e.Message}");
+            selection = new Selection.None();
+        }
         if (selection is Selection.Chosen c && TryLink(c.Instance.Id) is { } link)
         {
             _pending[key] = new Pending(link, false, raw);
             if (link.Enqueue(line)) return;
-            _pending.TryRemove(key, out _);
+            if (!_pending.TryRemove(key, out _)) return; // the link-lost handler already answered
         }
         _listedWithoutWindow = true;
         Reply(Result(raw, ToolsFromFile()));
@@ -209,7 +228,7 @@ public sealed class McpBridge
             {
                 case Selection.Chosen c:
                     link = TryLink(c.Instance.Id);
-                    if (link is null) error = "The connection to the IECode window was closed before the call was sent. Nothing was sent; retry.";
+                    if (link is null) error = NotSent;
                     break;
                 case Selection.None:
                     error = $"No VS Code window with IECode is open for {_cwd}. Ask the user to open the folder in VS Code.";
@@ -239,9 +258,9 @@ public sealed class McpBridge
                     _pending[state.Key] = new Pending(link!, true, state.Raw);
                     state.Link = link;
                     if (link!.Enqueue(line)) return;
-                    _pending.TryRemove(state.Key, out _);
+                    if (!_pending.TryRemove(state.Key, out _)) return; // the link-lost handler already answered
                     state.Link = null;
-                    error = LostConnection;
+                    error = NotSent;
                 }
             }
             _calls.TryRemove(state.Key, out _);
@@ -254,7 +273,8 @@ public sealed class McpBridge
         }
     }
 
-    private static string Name(InstanceInfo i) => string.IsNullOrEmpty(i.WorkspaceName) ? i.Id : i.WorkspaceName;
+    /// <summary>Two windows on one folder usually share the workspace name, so the id tells them apart.</summary>
+    private static string Name(InstanceInfo i) => (string.IsNullOrEmpty(i.WorkspaceName) ? "window" : i.WorkspaceName) + " [" + i.Id[..Math.Min(8, i.Id.Length)] + "]";
 
     // ---- window selection and links ----
 

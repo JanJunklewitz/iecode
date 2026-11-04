@@ -29,7 +29,6 @@ public abstract record Selection
     public static Selection Choose(string cwd, IReadOnlyList<InstanceInfo> all, Func<InstanceInfo, Probe> connect)
     {
         var groups = new List<(int Length, List<InstanceInfo> Members)>();
-        InstanceInfo? wrongVersion = null;
         foreach (var inst in all)
         {
             var best = -1;
@@ -38,11 +37,7 @@ public abstract record Selection
                 if (PathMatch.Contains(root, cwd)) best = Math.Max(best, PathMatch.Canonical(root).Length);
             }
             if (best < 0) continue;
-            if (inst.ProtocolMin > Wire.Protocol || inst.ProtocolMax < Wire.Protocol)
-            {
-                wrongVersion ??= inst;
-                continue;
-            }
+            // a window that speaks another protocol version still takes part in its group: it may own the folder, so nothing goes past it
             var group = groups.FirstOrDefault(g => g.Length == best);
             if (group.Members is null) groups.Add((best, new List<InstanceInfo> { inst }));
             else group.Members.Add(inst);
@@ -56,11 +51,14 @@ public abstract record Selection
                 : Task.WhenAll(members.Select(m => Task.Run(() => SafeConnect(connect, m)))).GetAwaiter().GetResult();
             var ok = new List<(InstanceInfo Instance, Stream Link)>();
             var silent = new List<InstanceInfo>();
+            InstanceInfo? mismatch = null;
             for (var i = 0; i < members.Count; i++)
             {
+                var compatible = members[i].ProtocolMin <= Wire.Protocol && Wire.Protocol <= members[i].ProtocolMax;
                 switch (probes[i])
                 {
-                    case Probe.Ok o: ok.Add((members[i], o.Link)); break;
+                    case Probe.Ok o when compatible: ok.Add((members[i], o.Link)); break;
+                    case Probe.Ok o: o.Link.Dispose(); mismatch ??= members[i]; break;
                     case Probe.Silent: silent.Add(members[i]); break;
                 }
             }
@@ -68,6 +66,11 @@ public abstract record Selection
             {
                 foreach (var o in ok) o.Link.Dispose();
                 return new Unsure(silent);
+            }
+            if (mismatch is not null)
+            {
+                foreach (var o in ok) o.Link.Dispose();
+                return new VersionMismatch(mismatch);
             }
             if (ok.Count == 1) return new Chosen(ok[0].Instance, ok[0].Link);
             if (ok.Count > 1)
@@ -77,7 +80,7 @@ public abstract record Selection
             }
             // only absent windows: the folder is not served by this group, try the shorter roots
         }
-        return wrongVersion is not null ? new VersionMismatch(wrongVersion) : new None();
+        return new None();
     }
 
     /// <summary>A probe that throws is unknown, not gone.</summary>

@@ -32,7 +32,7 @@ function runProcess(file: string, args: string[], verbatim = false): Promise<Ran
 /** `claude.exe` is spawned directly; `claude.cmd` only through cmd.exe with one verified line (R1). */
 function runClaude(claude: Claude, args: string[]): Promise<Ran> {
   if (claude.exe) return runProcess(claude.exe, args);
-  return runProcess('cmd.exe', ['/d', '/s', '/c', `""${claude.cmd}" ${cmdLine(args)}"`], true);
+  return runProcess(process.env.ComSpec ?? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe'), ['/d', '/s', '/c', `""${claude.cmd}" ${cmdLine(args)}"`], true);
 }
 
 /** `claude` from an absolute PATH entry, else the native and npm install locations. */

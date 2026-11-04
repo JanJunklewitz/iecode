@@ -1,4 +1,3 @@
-using System.IO.Pipes;
 using System.CommandLine;
 using IECode.Core.Mcp;
 using static IECode.Cli.Runner;
@@ -23,37 +22,10 @@ internal static class McpCommand
             using var stdin = Console.OpenStandardInput();
             using var stdout = Console.OpenStandardOutput();
             var bridge = new McpBridge(Directory.GetCurrentDirectory(), Path.Combine(root, "instances"), Path.Combine(root, "tools.json"),
-                Connect, stdin, stdout, text => Console.Error.WriteLine(text));
+                inst => PipeConnector.Connect(inst, ConnectTimeout, HandshakeTimeout), stdin, stdout, text => Console.Error.WriteLine(text));
             bridge.RunAsync(CancellationToken.None).GetAwaiter().GetResult();
             return Outcome.Ok();
         }, windowsOnly: true, protocolStdout: true);
         return cmd;
-    }
-
-    /// <summary>
-    /// Connect and authenticate. A pipe that does not exist or refuses is proof the window is gone; every timeout, early close or wrong
-    /// proof is silence, never "gone", so a paused window is not mistaken for a closed one.
-    /// </summary>
-    private static Probe Connect(InstanceInfo inst)
-    {
-        if (!File.Exists(@"\\.\pipe\" + inst.Pipe)) return new Probe.Absent();
-        var pipe = new NamedPipeClientStream(".", inst.Pipe, PipeDirection.InOut, PipeOptions.Asynchronous);
-        try
-        {
-            pipe.Connect((int)ConnectTimeout.TotalMilliseconds);
-            if (BridgeHandshake.Run(pipe, inst, HandshakeTimeout)) return new Probe.Ok(pipe);
-            pipe.Dispose();
-            return new Probe.Silent();
-        }
-        catch (TimeoutException)
-        {
-            pipe.Dispose();
-            return new Probe.Silent();
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            pipe.Dispose();
-            return new Probe.Absent();
-        }
     }
 }

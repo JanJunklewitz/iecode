@@ -34,31 +34,59 @@ public sealed class FrameTooLongException : Exception
     public FrameTooLongException() : base("a frame is longer than the limit") { }
 }
 
-/// <summary>Splits a byte stream into newline-delimited UTF-8 lines; a partial line (and a multibyte character) survives chunk borders.</summary>
+/// <summary>
+/// Splits a byte stream into newline-delimited UTF-8 lines; a partial line (and a multibyte character) survives chunk borders.
+/// A line over the limit throws <see cref="FrameTooLongException"/>, or with <c>discardOversized</c> is dropped up to its newline and
+/// counted (<see cref="TakeOversized"/>), so one huge line from a client does not end the session.
+/// </summary>
 public sealed class LineFramer
 {
     private readonly int _max;
+    private readonly bool _discard;
     private byte[] _buf = new byte[256];
     private int _len;
+    private bool _skipping;
+    private int _oversized;
 
-    public LineFramer(int max = Wire.MaxFrame) => _max = max;
+    public LineFramer(int max = Wire.MaxFrame, bool discardOversized = false)
+    {
+        _max = max;
+        _discard = discardOversized;
+    }
+
+    /// <summary>How many oversized lines were dropped since the last call.</summary>
+    public int TakeOversized() => Interlocked.Exchange(ref _oversized, 0);
 
     public IReadOnlyList<string> Push(ReadOnlySpan<byte> chunk)
     {
+        var lines = new List<string>();
+        if (_skipping)
+        {
+            var nl0 = chunk.IndexOf((byte)'\n');
+            if (nl0 < 0) return lines; // still inside the dropped line
+            _skipping = false;
+            chunk = chunk[(nl0 + 1)..];
+        }
         if (_len + chunk.Length > _buf.Length) Array.Resize(ref _buf, Math.Max(_buf.Length * 2, _len + chunk.Length));
         chunk.CopyTo(_buf.AsSpan(_len));
         _len += chunk.Length;
 
-        var lines = new List<string>();
         var start = 0;
         for (; ; )
         {
             var nl = Array.IndexOf(_buf, (byte)'\n', start, _len - start);
             if (nl < 0) break;
             var end = nl;
-            if (end - start > _max) throw new FrameTooLongException();
-            if (end > start && _buf[end - 1] == '\r') end--;
-            lines.Add(Encoding.UTF8.GetString(_buf, start, end - start));
+            if (end - start > _max)
+            {
+                if (!_discard) throw new FrameTooLongException();
+                _oversized++;
+            }
+            else
+            {
+                if (end > start && _buf[end - 1] == '\r') end--;
+                lines.Add(Encoding.UTF8.GetString(_buf, start, end - start));
+            }
             start = nl + 1;
         }
         if (start > 0)
@@ -66,7 +94,13 @@ public sealed class LineFramer
             Buffer.BlockCopy(_buf, start, _buf, 0, _len - start);
             _len -= start;
         }
-        if (_len > _max) throw new FrameTooLongException();
+        if (_len > _max)
+        {
+            if (!_discard) throw new FrameTooLongException();
+            _oversized++;
+            _skipping = true;
+            _len = 0;
+        }
         return lines;
     }
 }
