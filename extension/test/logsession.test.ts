@@ -290,6 +290,48 @@ test('two files merge by time and rows name the file by its base name', async ()
   }
 });
 
+test('three files with interleaving times merge into one timeline with every entry', async () => {
+  const lines = (f: number, n: number) =>
+    Array.from({ length: n }, (_, k) => entry(k + 1, k * 300 + f * 100, 'INFO', `fbMain.f${f}`, `f${f}e${k}`)).join('\n') + '\n';
+  const paths = [tmpFile(lines(0, 4)), tmpFile(lines(1, 3)), tmpFile(lines(2, 5))];
+  const s = await opened(paths);
+  try {
+    const st = s.state();
+    assert.equal(st.total, 12);
+    const r = await s.rows(st.revision, 0, 20);
+    assert.equal(r.length, 12);
+    const times = r.map(x => x.timeMs);
+    assert.deepEqual(times, [...times].sort((a, b) => a - b));
+    assert.deepEqual(r.slice(0, 4).map(x => x.message), ['f0e0', 'f1e0', 'f2e0', 'f0e1']);
+    assert.deepEqual(r.slice(0, 4).map(x => x.fileIndex), [0, 1, 2, 0]);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a file filter changes matched and reports hiddenBy.file; undefined shows every file again', async () => {
+  const a = tmpFile([entry(1, 1000, 'INFO', 'fbMain.a', 'a1'), entry(2, 3000, 'ERROR', 'fbMain.a', 'a2')].join('\n') + '\n');
+  const b = tmpFile(entry(1, 2000, 'INFO', 'fbMain.b', 'b1') + '\n');
+  const s = await opened([a, b]);
+  try {
+    await s.setFilters({ files: [1] });
+    let st = s.state();
+    assert.equal(st.matched, 1);
+    assert.equal(st.hiddenBy.file, 2);
+    assert.deepEqual(st.filters.files, [1]);
+    const r = await s.rows(st.revision, 0, 3);
+    assert.deepEqual(r.map(x => x.message), ['b1']);
+    assert.deepEqual(r.map(x => x.fileIndex), [1]);
+    await s.setFilters({ files: undefined });
+    st = s.state();
+    assert.equal(st.matched, 3);
+    assert.equal(st.hiddenBy.file, 0);
+    assert.equal('files' in st.filters, false);
+  } finally {
+    await s.dispose();
+  }
+});
+
 test('mixed formats are detected per file and each entry is parsed with its file format', async () => {
   const a = tmpFile([entry(1, 1000, 'INFO', 'fbMain.a', 'logger one'), entry(2, 3000, 'ERROR', 'fbMain.a', 'logger two')].join('\n') + '\n');
   const b = tmpFile('15.01.2026 10:00:02\tWARNING\tTab message\n');

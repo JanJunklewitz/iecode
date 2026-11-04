@@ -11,6 +11,10 @@
   const DEBOUNCE_MS = 250;
   const LEVELS = ['error', 'warning', 'info', 'debug', 'other'];
   const TIME_MODES = [['absolute', 'Absolute'], ['relative', 'Relative to first'], ['delta', 'Delta to previous']];
+  /** Stripe colors of a merged view (logViewer.css .file-0 … .file-5); file i gets color i mod 6. */
+  const FILE_COLORS = 6;
+  const fileClass = (i) => `file-${i % FILE_COLORS}`;
+  const baseName = (p) => p.split(/[\\/]/).pop();
 
   /** Webview-only settings, kept across a reload of the webview. */
   const saved = vscode.getState() || {};
@@ -57,7 +61,7 @@
   const post = (m) => vscode.postMessage(m);
 
   // ---------- filter bar ----------
-  const hidden = { level: h('span', 'hiddenCount'), time: h('span', 'hiddenCount'), source: h('span', 'hiddenCount'), text: h('span', 'hiddenCount') };
+  const hidden = { level: h('span', 'hiddenCount'), time: h('span', 'hiddenCount'), source: h('span', 'hiddenCount'), text: h('span', 'hiddenCount'), file: h('span', 'hiddenCount') };
 
   const levelButtons = {};
   for (const level of LEVELS) {
@@ -118,6 +122,24 @@
     input.addEventListener('keydown', ev => { if (ev.key === 'Enter') d.flush(); });
   }
 
+  // One toggle per file of a merged view, built from the first state (the files of a session never change).
+  let fileButtons = [];
+  const fileField = field('files', [hidden.file]);
+  fileField.hidden = true;
+  function buildFileToggles(files) {
+    fileButtons = files.map((p, i) => {
+      const b = button(baseName(p), `Show the entries of ${p}`, () => {
+        setPressed(b, !pressed(b));
+        const on = [];
+        fileButtons.forEach((x, j) => { if (pressed(x)) on.push(j); });
+        // null = every file, so the filter goes away instead of listing all of them.
+        post({ type: 'filters', files: on.length === fileButtons.length ? null : on });
+      }, `toggle fileToggle ${fileClass(i)}`);
+      return b;
+    });
+    fileField.querySelector('.line').replaceChildren(...fileButtons, hidden.file);
+  }
+
   const filterRow = h('div', 'filters');
   filterRow.append(
     field('levels', [...LEVELS.map(l => levelButtons[l]), hidden.level]),
@@ -126,6 +148,7 @@
       button('Last', 'Show the last N minutes of the file', () => preset('last')), hidden.time], timeErrors),
     field('source', [sourceInput, hidden.source]),
     field('text', [textQuery, regexToggle, caseToggle, hidden.text], textError),
+    fileField,
   );
 
   // ---------- tool row ----------
@@ -172,7 +195,7 @@
 
   // ---------- table ----------
   const head = h('div', 'row head');
-  for (const [cls, text] of [['mark', ''], ['time', 'Time'], ['level', 'Level'], ['source', 'Source'], ['msg', 'Message']]) head.append(h('span', cls, text));
+  for (const [cls, text] of [['mark', ''], ['time', 'Time'], ['file', 'File'], ['level', 'Level'], ['source', 'Source'], ['msg', 'Message']]) head.append(h('span', cls, text));
 
   const scroller = h('div', 'scroller');
   scroller.tabIndex = 0;
@@ -314,6 +337,13 @@
       levelButtons[l].textContent = `${l} ${(state.levelCounts[l] || 0).toLocaleString('en-US')}`;
     }
     for (const k of Object.keys(hidden)) hidden[k].textContent = hiddenLabel(state.hiddenBy[k] || 0);
+    // The file column and the file toggles exist only in a merged view.
+    const multi = state.files.length > 1;
+    app.classList.toggle('multiFile', multi);
+    fileField.hidden = !multi;
+    if (multi && fileButtons.length !== state.files.length) buildFileToggles(state.files);
+    fileButtons.forEach((b, i) => setPressed(b, !f.files || f.files.includes(i)));
+    openRaw.title = multi ? 'Open the files in the text editor' : 'Open this file in the text editor';
     groupBox.checked = !!state.options.groupRepeats;
     textError.textContent = state.error || '';
     textQuery.classList.toggle('invalid', !!state.error);
@@ -364,10 +394,10 @@
   const slots = [];
 
   function makeSlot() {
-    const s = { el: h('div', 'row'), mark: h('span', 'mark'), time: h('span', 'time'), level: h('span', 'level'),
-      source: h('span', 'source'), msg: h('span', 'msg'), pos: -1, row: undefined, sig: '' };
+    const s = { el: h('div', 'row'), mark: h('span', 'mark'), time: h('span', 'time'), file: h('span', 'file'),
+      level: h('span', 'level'), source: h('span', 'source'), msg: h('span', 'msg'), pos: -1, row: undefined, sig: '' };
     s.mark.title = 'Toggle bookmark';
-    s.el.append(s.mark, s.time, s.level, s.source, s.msg);
+    s.el.append(s.mark, s.time, s.file, s.level, s.source, s.msg);
     rowsEl.append(s.el);
     return s;
   }
@@ -384,7 +414,7 @@
       (row && row.bookmarked ? ' bookmarked' : '') + (selected ? ' selected' : '');
     s.mark.textContent = row && row.bookmarked ? '◆' : '';
     if (!row) {
-      for (const k of ['time', 'level', 'source']) {
+      for (const k of ['time', 'file', 'level', 'source']) {
         s[k].textContent = '';
         s[k].className = k;
       }
@@ -395,6 +425,9 @@
     s.time.textContent = t.text;
     s.time.className = t.warn ? 'time warn' : 'time';
     s.time.title = row.time;
+    s.file.textContent = row.file;
+    s.file.title = state ? state.files[row.fileIndex] || row.file : row.file;
+    s.file.className = `file ${fileClass(row.fileIndex)}`;
     s.level.textContent = row.level === 'other' ? '' : row.level;
     s.level.className = `level level-${row.level}`;
     s.source.textContent = row.source;

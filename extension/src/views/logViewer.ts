@@ -1,6 +1,7 @@
 // Read-only viewer for log files: a virtual-scrolled table on top of LogSession (src/core/logsession.ts).
 // A readonly custom editor with its own document, because VS Code does not hand 100 MB files to a text editor.
 // The document owns the session; the panel owns only its subscriptions (one panel per document).
+// The merged view (several files on one timeline) is a plain webview panel that owns its session itself.
 
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -10,16 +11,20 @@ import { LogSession, SessionFilters, StaleError } from '../core/logsession';
 import { ViewOptions } from '../core/logview';
 
 export const LOG_VIEW_TYPE = 'iecode.logViewer';
+/** The merged view has no single document, so it is a webview panel of its own type. */
+export const MERGED_VIEW_TYPE = 'iecode.logViewer.merged';
 
 /**
  * Webview -> host. In `filters`, the time bounds come as the raw input text (fromText / toText; '' = open end); the
  * host parses them and answers each one with {type: 'filterError', field: 'from' | 'to', message} ('' = valid), and
- * an invalid bound leaves the applied one unchanged.
+ * an invalid bound leaves the applied one unchanged. `files: null` shows every file again (the message is JSON, which
+ * drops an undefined member).
  */
 type Msg =
   | { type: 'ready' }
   | { type: 'rows'; rev: number; pos: number; count: number; id: number }
-  | ({ type: 'filters'; fromText?: string; toText?: string } & Partial<Omit<SessionFilters, 'from' | 'to'>>)
+  | ({ type: 'filters'; fromText?: string; toText?: string; files?: number[] | null } &
+    Partial<Omit<SessionFilters, 'from' | 'to' | 'files'>>)
   | ({ type: 'options' } & Partial<ViewOptions>)
   | { type: 'detail'; rev: number; pos: number }
   | { type: 'jump'; rev: number; from: number; dir: 1 | -1; what: 'error' | 'bookmark' }
@@ -32,6 +37,11 @@ type Msg =
 const MAX_ROWS_PER_REQUEST = 1000;
 /** Least time between two state messages while the file is scanned. */
 const PROGRESS_INTERVAL_MS = 100;
+/** Above this total size the merge asks before it reads the files. */
+const MERGE_CONFIRM_BYTES = 500 * 1024 * 1024;
+/** Most workspace files the command palette offers. */
+const MAX_PICK_FILES = 5000;
+const LOG_FILE = /\.log$/i;
 
 function userFormats(): LogFormatDef[] {
   const v = vscode.workspace.getConfiguration('iecode.logViewer').get<unknown>('formats');
@@ -46,7 +56,7 @@ function viewOptions(): ViewOptions {
   return { groupRepeats: c.get<boolean>('groupRepeats', false), gapMs: Math.max(0, Number(gapSeconds) || 0) * 1000 };
 }
 
-/** Owns the session behind one log viewer webview. */
+/** Owns the session behind one log viewer webview: the custom editor's document or the merged panel. */
 class LogSessionHost {
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when the session state changed (load progress, load end, filters, options, bookmarks). */
@@ -161,8 +171,9 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
             return post({ type: 'rows', rev: m.rev, id: m.id, pos: m.pos, rows });
           }
           case 'filters': {
-            const { type: _type, fromText, toText, ...rest } = m;
+            const { type: _type, fromText, toText, files, ...rest } = m;
             const f: Partial<SessionFilters> = rest;
+            if (files !== undefined) f.files = Array.isArray(files) ? files : undefined;
             for (const [field, text] of [['from', fromText], ['to', toText]] as const) {
               if (text === undefined) continue;
               const t = parseFilterTimeInput(text);
@@ -233,6 +244,96 @@ function targetUri(arg: unknown): vscode.Uri | undefined {
   return undefined;
 }
 
+function openAsText(uris: vscode.Uri[]) {
+  for (const uri of uris) void vscode.commands.executeCommand('vscode.openWith', uri, 'default', { preview: false });
+}
+
+/** Explorer selection: the selected .log files and the .log files directly inside selected folders, without repeats. */
+async function explorerLogFiles(uris: vscode.Uri[]): Promise<vscode.Uri[]> {
+  const out = new Map<string, vscode.Uri>();
+  for (const uri of uris) {
+    const st = await vscode.workspace.fs.stat(uri);
+    if (st.type & vscode.FileType.Directory) {
+      const names = (await vscode.workspace.fs.readDirectory(uri))
+        .filter(([name, type]) => (type & vscode.FileType.File) !== 0 && LOG_FILE.test(name))
+        .map(([name]) => name)
+        .sort((a, b) => a.localeCompare(b));
+      for (const name of names) {
+        const u = vscode.Uri.joinPath(uri, name);
+        out.set(u.toString(), u);
+      }
+    } else if (LOG_FILE.test(uri.path)) {
+      out.set(uri.toString(), uri);
+    }
+  }
+  return [...out.values()];
+}
+
+/** Command palette: a multi-select pick of the workspace's .log files; undefined when cancelled or none exist. */
+async function pickLogFiles(): Promise<vscode.Uri[] | undefined> {
+  const found = await vscode.workspace.findFiles('**/*.log', '**/node_modules/**', MAX_PICK_FILES);
+  if (found.length === 0) {
+    void vscode.window.showInformationMessage('No .log files found in the workspace.');
+    return undefined;
+  }
+  const items = found
+    .map(uri => ({ label: path.basename(uri.fsPath), description: vscode.workspace.asRelativePath(uri), uri }))
+    .sort((a, b) => a.description.localeCompare(b.description));
+  const picked = await vscode.window.showQuickPick(items, {
+    canPickMany: true, matchOnDescription: true, placeHolder: 'Select the log files to merge on one timeline',
+  });
+  return picked && picked.length > 0 ? picked.map(p => p.uri) : undefined;
+}
+
+/**
+ * Opens several log files in one panel, merged by time. From the explorer: the selection (files and folders); from the
+ * command palette: a pick of workspace files. One file opens in the regular log viewer.
+ */
+async function openMerged(ctx: vscode.ExtensionContext, arg?: unknown, selection?: unknown): Promise<void> {
+  const selected = Array.isArray(selection) ? selection.filter((u): u is vscode.Uri => u instanceof vscode.Uri) : [];
+  let uris = selected.length > 0 ? selected : arg instanceof vscode.Uri ? [arg] : await pickLogFiles();
+  if (!uris) return;
+  const foreign = uris.filter(u => u.scheme !== 'file');
+  if (foreign.length > 0) {
+    const choice = await vscode.window.showErrorMessage(
+      `The log viewer reads local files only; ${foreign[0].scheme}: resources are not supported.`, 'Open as text');
+    if (choice === 'Open as text') openAsText(foreign.filter(u => LOG_FILE.test(u.path)));
+    return;
+  }
+
+  let total = 0;
+  try {
+    uris = await explorerLogFiles(uris);
+    for (const u of uris) total += (await vscode.workspace.fs.stat(u)).size;
+  } catch (e) {
+    void vscode.window.showErrorMessage(`Cannot read the selected files: ${(e as Error).message}`);
+    return;
+  }
+  if (uris.length === 0) {
+    void vscode.window.showInformationMessage('No .log files selected.');
+    return;
+  }
+  if (uris.length === 1) {
+    await vscode.commands.executeCommand('vscode.openWith', uris[0], LOG_VIEW_TYPE);
+    return;
+  }
+  if (total > MERGE_CONFIRM_BYTES) {
+    const mb = Math.round(total / (1024 * 1024)).toLocaleString('en-US');
+    const choice = await vscode.window.showWarningMessage(
+      `The ${uris.length} files total ${mb} MB. Merging them can take a while and use a lot of memory.`,
+      { modal: true }, 'Open');
+    if (choice !== 'Open') return;
+  }
+
+  const files = uris;
+  // showLogWebview sets the webview options (scripts, resource roots).
+  const panel = vscode.window.createWebviewPanel(MERGED_VIEW_TYPE, `Logs (${files.length} files)`, vscode.ViewColumn.Active,
+    { retainContextWhenHidden: true });
+  const host = new LogSessionHost(files.map(u => u.fsPath), 'the merged logs');
+  showLogWebview(ctx.extensionUri, panel, host, () => openAsText(files));
+  panel.onDidDispose(() => host.dispose());
+}
+
 export function registerLogViewer(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     vscode.window.registerCustomEditorProvider(LOG_VIEW_TYPE, new LogViewerProvider(ctx), {
@@ -243,6 +344,9 @@ export function registerLogViewer(ctx: vscode.ExtensionContext) {
       if (!uri) return vscode.window.showInformationMessage('Open a log file first.');
       return vscode.commands.executeCommand('vscode.openWith', uri, LOG_VIEW_TYPE);
     }),
+    // The explorer passes the clicked resource and the whole selection.
+    vscode.commands.registerCommand('iecode.logViewer.openMerged', (arg?: unknown, selection?: unknown) =>
+      openMerged(ctx, arg, selection)),
     // Keybindings instead of keydown handlers in the webview: its key presses reach the workbench too, so F8 would
     // also run "Go to Next Problem".
     ...PANEL_COMMANDS.map(command => vscode.commands.registerCommand(`iecode.logViewer.${command}`, () => {

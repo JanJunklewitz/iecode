@@ -10,10 +10,11 @@ import { LogView, ViewOptions } from './logview';
 export { ViewOptions } from './logview';
 
 export interface LogRow {
-  pos: number; index: number; file: string; seq?: number; time: string; timeMs: number; level: Level; source: string;
+  pos: number; index: number; file: string; fileIndex: number; seq?: number; time: string; timeMs: number; level: Level; source: string;
   message: string; extraLines: number; repeat: number; deltaMs?: number; gap: boolean; bookmarked: boolean;
 }
-export interface SessionFilters { levels: Level[]; from?: number; to?: number; source?: string; text?: TextQuery }
+/** files: visible file indices (into SessionState.files); undefined = every file. */
+export interface SessionFilters { levels: Level[]; from?: number; to?: number; source?: string; text?: TextQuery; files?: number[] }
 
 /** A request was made for an older revision; the caller re-requests with the current one. */
 export class StaleError extends Error {
@@ -75,6 +76,7 @@ function cleanFilters(f: SessionFilters): SessionFilters {
   if (f.to !== undefined) out.to = f.to;
   if (f.source !== undefined && f.source !== '') out.source = f.source;
   if (f.text !== undefined) out.text = { ...f.text };
+  if (f.files !== undefined) out.files = [...f.files];
   return out;
 }
 
@@ -320,7 +322,7 @@ export class LogSession {
       const deltaMs = dated && m.prev !== undefined ? t - m.prev : undefined;
       const message = parsed[k].message;
       const row: LogRow = {
-        pos: start + k, index: m.index, file: path.basename(this.paths[m.file]),
+        pos: start + k, index: m.index, file: path.basename(this.paths[m.file]), fileIndex: m.file,
         time: dated ? formatTime(t) : parsed[k].timeText, timeMs: t, level: m.level, source: m.source,
         message: message.length > MAX_MESSAGE ? message.slice(0, MAX_MESSAGE) : message,
         extraLines: m.lines - 1, repeat: m.repeat, gap: deltaMs !== undefined && gapMs > 0 && deltaMs > gapMs,

@@ -45,6 +45,10 @@ input.invalid { border-color: var(--vscode-inputValidation-errorBorder, var(--vs
 /* Fixed row height of 20 px: logScroll.js ROW_HEIGHT depends on it. */
 .row { display: grid; grid-template-columns: 18px 13em 5em 14em minmax(0, 1fr); column-gap: 8px; height: 20px; line-height: 20px; box-sizing: border-box; padding: 0 8px 0 2px; white-space: nowrap; }
 .row > span { overflow: hidden; text-overflow: ellipsis; }
+/* The file column shows only in a merged view (#app.multiFile). */
+.row > .file { display: none; }
+.multiFile .row { grid-template-columns: 18px 13em 10em 5em 14em minmax(0, 1fr); }
+.multiFile .row > .file { display: block; }
 .row.head { color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
 .rows .row { cursor: default; }
 .rows .row:hover { background: var(--vscode-list-hoverBackground); }
@@ -58,6 +62,16 @@ input.invalid { border-color: var(--vscode-inputValidation-errorBorder, var(--vs
 .time { color: var(--vscode-descriptionForeground); }
 .time.warn { color: var(--vscode-editorWarning-foreground); }
 .source { color: var(--vscode-textLink-foreground); }
+/* One stripe color per file of a merged view (logViewer.js FILE_COLORS). */
+.file-0 { --file-color: var(--vscode-charts-blue, #3794ff); }
+.file-1 { --file-color: var(--vscode-charts-orange, #d18616); }
+.file-2 { --file-color: var(--vscode-charts-green, #89d185); }
+.file-3 { --file-color: var(--vscode-charts-purple, #b180d7); }
+.file-4 { --file-color: var(--vscode-charts-red, #f14c4c); }
+.file-5 { --file-color: var(--vscode-charts-yellow, #cca700); }
+/* .toggle.fileToggle outranks the border color of a pressed .toggle. */
+.rows .file, .toggle.fileToggle { border-left: 4px solid var(--file-color); }
+.rows .file { padding-left: 4px; }
 .level-error { color: var(--vscode-errorForeground); font-weight: 600; }
 .level-warning { color: var(--vscode-editorWarning-foreground); }
 .level-info { color: var(--vscode-editorInfo-foreground); }
