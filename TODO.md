@@ -28,6 +28,7 @@
     - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
     - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
+  - Plan: [docs/superpowers/plans/2026-11-04-log-viewer.md](docs/superpowers/plans/2026-11-04-log-viewer.md) (files up to 100 MB; TwinCAT logger text format first).
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.
   - Ideas: live tail with pause / auto-scroll, jump between errors, bookmarks, merge several log files on a common timeline, group repeated messages with a counter, export the filtered view, "ask AI about this entry" using the same interface as the ADS item above.
