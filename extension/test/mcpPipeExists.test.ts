@@ -5,7 +5,7 @@ import { pipeExists, servePipe } from '../src/core/mcpPipe';
 
 const name = () => `iecode-test-${randomBytes(6).toString('hex')}`;
 
-test('pipeExists finds a pipe in the listing and does not connect to it', async () => {
+test('pipeExists finds a pipe in the listing and does not connect to it', { skip: process.platform !== 'win32' }, async () => {
   const n = name();
   let accepted = 0;
   const server = await servePipe(`\\\\.\\pipe\\${n}`, 'AAAA', () => { accepted++; });

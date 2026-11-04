@@ -27,7 +27,7 @@ public sealed class McpSelectionTests
 
     private static Selection Choose(string cwd, Probes p, params InstanceInfo[] all) => Selection.Choose(cwd, all, p.Connect);
 
-    [Fact]
+    [Fact(Skip = "Windows only", SkipUnless = nameof(WindowsOnly.IsWindows), SkipType = typeof(WindowsOnly))]
     public void CanonicalPath_IgnoresDriveCaseAndTrailingSeparator()
     {
         Assert.Equal(PathMatch.Canonical("c:\\Work\\Plant"), PathMatch.Canonical("C:\\Work\\Plant\\"));
@@ -35,7 +35,7 @@ public sealed class McpSelectionTests
         Assert.True(PathMatch.Contains("C:\\Work\\Plant\\", "c:\\work\\plant"));
     }
 
-    [Fact]
+    [Fact(Skip = "Windows only", SkipUnless = nameof(WindowsOnly.IsWindows), SkipType = typeof(WindowsOnly))]
     public void CanonicalPath_ResolvesAJunction()
     {
         var dir = Path.Combine(Path.GetTempPath(), "iecode-mcp-" + Guid.NewGuid().ToString("N"));

@@ -39,13 +39,13 @@ public sealed class McpPipeConnectorTests
         return (server, done);
     }
 
-    [Fact]
+    [Fact(Skip = "Windows only", SkipUnless = nameof(WindowsOnly.IsWindows), SkipType = typeof(WindowsOnly))]
     public void APipeThatDoesNotExist_IsAbsent()
     {
         Assert.IsType<Probe.Absent>(PipeConnector.Connect(Instance(NewName()), Connect, Handshake));
     }
 
-    [Fact]
+    [Fact(Skip = "Windows only", SkipUnless = nameof(WindowsOnly.IsWindows), SkipType = typeof(WindowsOnly))]
     public void PipeExists_DoesNotConnect()
     {
         var name = NewName();
