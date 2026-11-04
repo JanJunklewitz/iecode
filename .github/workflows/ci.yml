@@ -26,6 +26,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run package
+      - name: Check the log viewer files are packaged
+        run: |
+          files=$(npx @vscode/vsce@4.0.0 ls --no-dependencies)
+          for f in out/src/core/logsearchWorker.js media/logScroll.js media/logDisplay.js media/logViewer.js; do
+            echo "$files" | grep -qFx "$f" || { echo "Missing from the package: $f"; exit 1; }
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: vsix
