@@ -354,6 +354,32 @@ test('maxEntries and maxSources reject with LogLimitError and leave the store co
   assert.deepEqual(sources.sources, ['a', 'b']);
 });
 
+type Buf = ArrayBuffer & { resizable: boolean; maxByteLength: number };
+const bufOf = (a: ArrayBufferView): Buf => a.buffer as Buf;
+
+test('a small store reserves no address space for the entry limit; a large one grows in place', () => {
+  const s = new EntryStore();
+  for (const c of [s.time, s.sortTime, s.level, s.source, s.seq, s.file, s.offset, s.length, s.firstLength, s.terminated, s.lines, s.hash]) {
+    assert.ok(bufOf(c).maxByteLength <= 1024 * 8, `a fresh column reserves ${bufOf(c).maxByteLength} bytes`);
+  }
+  const add = (i: number) => s.append({
+    time: i, sortTime: i, level: 2, source: 'fbMain.fbPump', seq: i, file: 0, offset: i * 10, length: 9,
+    firstLength: 9, terminated: 1, lines: 1, hash: i,
+  });
+  for (let i = 0; i < 70_000; i++) add(i);
+  // Past the threshold every column is a resizable buffer that keeps growing in place.
+  assert.equal(bufOf(s.offset).resizable, true);
+  const offset = s.offset;
+  for (let i = 70_000; i < 140_000; i++) add(i);
+  assert.equal(s.offset, offset);
+  assert.equal(s.count, 140_000);
+  for (const i of [0, 1023, 1024, 65_535, 65_536, 69_999, 139_999]) {
+    assert.equal(s.offset[i], i * 10);
+    assert.equal(s.seq[i], i);
+  }
+  assert.equal(s.sources.length, 1);
+});
+
 test('hash differs when only the level or only a continuation line differs', async () => {
   const store = new EntryStore();
   const lines = [
