@@ -80,28 +80,56 @@ function needsWindow(have, start, end, rowCount) {
 }
 
 /**
+ * The window to request for the drawn rows `r` (from renderRange), or null: when there are no rows, or (unless
+ * forced) when the rows held (`have`) or the request in flight (`pending`) already cover them. The window is built
+ * around r.start..r.end, the same rows needsWindow checks, so a received window never asks for itself again.
+ */
+function nextWindow(r, rowCount, have, pending, force) {
+  if (rowCount <= 0) return null;
+  if (!force) {
+    if (!needsWindow(have, r.start, r.end, rowCount)) return null;
+    if (pending && !needsWindow(pending, r.start, r.end, rowCount)) return null;
+  }
+  const w = windowFor(r.start, r.end - r.start, rowCount);
+  return w.count > 0 ? w : null;
+}
+
+/**
  * Tracks row requests: only the reply to the latest request for the current revision is used. A reply with an
- * older id or for another revision than the last state's is dropped.
+ * older id or for another revision than the last state's is dropped. `pending` is the window of the request in
+ * flight; an accepted reply, a state message and clear() (error or stale reply) forget it.
  */
 function createRequests() {
   let rev = -1;
   let last = 0;
+  let pending;
   return {
     get rev() { return rev; },
-    /** A new request for revision `r`; send its id and rev with the message. */
-    next(r) { return { id: ++last, rev: r }; },
-    accept(reply) { return reply.id === last && reply.rev === rev; },
+    get pending() { return pending; },
+    /** A new request for revision `r` and window `win`; send its id and rev with the message. */
+    next(r, win) {
+      pending = win;
+      return { id: ++last, rev: r };
+    },
+    accept(reply) {
+      if (reply.id !== last || reply.rev !== rev) return false;
+      pending = undefined;
+      return true;
+    },
     /** Records the revision of a state message; true when it changed. */
     onState(r) {
       const changed = r !== rev;
       rev = r;
+      pending = undefined;
       return changed;
     },
+    clear() { pending = undefined; },
   };
 }
 
 if (typeof module === 'object') {
   module.exports = {
-    ROW_HEIGHT, MAX_HEIGHT, scrollHeight, rowToScrollTop, scrollTopToRow, renderRange, windowFor, needsWindow, createRequests,
+    ROW_HEIGHT, MAX_HEIGHT, scrollHeight, rowToScrollTop, scrollTopToRow, renderRange, windowFor, needsWindow, nextWindow,
+    createRequests,
   };
 }
