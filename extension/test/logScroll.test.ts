@@ -5,9 +5,11 @@ import * as path from 'path';
 interface Win { pos: number; count: number }
 interface Requests {
   readonly rev: number;
-  next(rev: number): { id: number; rev: number };
+  readonly pending: Win | undefined;
+  next(rev: number, win?: Win): { id: number; rev: number };
   accept(reply: { id: number; rev: number }): boolean;
   onState(rev: number): boolean;
+  clear(): void;
 }
 interface LogScroll {
   ROW_HEIGHT: number;
@@ -18,6 +20,7 @@ interface LogScroll {
   renderRange(scrollTop: number, rowCount: number, viewportPx: number, margin?: number): { first: number; start: number; end: number; top: number };
   windowFor(firstRow: number, visibleRows: number, rowCount: number): Win;
   needsWindow(have: Win | undefined, start: number, end: number, rowCount: number): boolean;
+  nextWindow(r: { first: number; start: number; end: number }, rowCount: number, have: Win | undefined, pending: Win | undefined, force: boolean): Win | null;
   createRequests(): Requests;
 }
 
@@ -83,6 +86,44 @@ test('a window is requested only when the visible rows near its edge', () => {
   assert.equal(ls.needsWindow({ pos: 100, count: 200 }, 270, 291, 1000), true);
   assert.equal(ls.needsWindow({ pos: 100, count: 200 }, 105, 126, 1000), true);
   assert.equal(ls.needsWindow({ pos: 0, count: 0 }, 0, 0, 0), false);
+});
+
+test('a freshly received window never needs another request', () => {
+  // The webview asks nextWindow on every scroll and every reply; right after a reply it must ask for nothing.
+  for (const n of [100, 100_000, 5_000_000]) {
+    for (let vp = 100; vp <= 5000; vp += 100) {
+      for (const row of [0, Math.floor(n / 2), n - 1]) {
+        const r = ls.renderRange(ls.rowToScrollTop(row, n, vp), n, vp, 5);
+        const w = ls.nextWindow(r, n, undefined, undefined, false);
+        assert.ok(w, 'the first call asks for a window');
+        assert.equal(ls.needsWindow(w, r.start, r.end, n), false, `rows ${n}, viewport ${vp}, row ${row}: window ${w.pos}+${w.count}`);
+        assert.equal(ls.nextWindow(r, n, w, undefined, false), null, `no second request: rows ${n}, viewport ${vp}, row ${row}`);
+      }
+    }
+  }
+});
+
+test('nextWindow skips a request that the pending one covers and asks again when forced', () => {
+  const r = ls.renderRange(0, 1000, 400, 5);
+  const w = ls.nextWindow(r, 1000, undefined, undefined, false)!;
+  assert.equal(ls.nextWindow(r, 1000, undefined, w, false), null);
+  assert.deepEqual(ls.nextWindow(r, 1000, w, undefined, true), w);
+  assert.equal(ls.nextWindow(ls.renderRange(0, 0, 400, 5), 0, undefined, undefined, true), null, 'no rows, no request');
+});
+
+test('the tracker forgets the pending window on error, stale and state', () => {
+  const r = ls.createRequests();
+  r.onState(1);
+  r.next(1, { pos: 0, count: 200 });
+  assert.deepEqual(r.pending, { pos: 0, count: 200 });
+  r.clear();
+  assert.equal(r.pending, undefined, 'cleared after an error or a stale reply');
+  const a = r.next(1, { pos: 0, count: 200 });
+  assert.equal(r.accept({ id: a.id, rev: 1 }), true);
+  assert.equal(r.pending, undefined, 'cleared by the accepted reply');
+  r.next(1, { pos: 0, count: 200 });
+  r.onState(1);
+  assert.equal(r.pending, undefined, 'cleared by a state message');
 });
 
 test('the request tracker drops older ids and replies for another revision', () => {

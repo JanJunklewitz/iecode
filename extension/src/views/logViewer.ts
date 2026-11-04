@@ -79,7 +79,8 @@ class LogDocument implements vscode.CustomDocument {
 
   dispose() {
     this.changed.dispose();
-    void this.session?.dispose();
+    // Nothing waits for the close; a failing one must not become an unhandled rejection.
+    this.session?.dispose().catch(() => undefined);
   }
 }
 

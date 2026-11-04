@@ -45,9 +45,8 @@
   let state = null;
   /** Rows of the last accepted reply: { pos, count, rows }. */
   let win = null;
-  /** Window of the request in flight: { pos, count }. */
-  let pending = null;
   let transientError = '';
+  /** Request ids, revisions and the window in flight. */
   const requests = createRequests();
 
   window.addEventListener('message', ev => {
@@ -56,7 +55,6 @@
       case 'state': {
         state = m.state;
         if (requests.onState(state.revision)) win = null;
-        pending = null;
         transientError = '';
         table.hidden = false;
         renderStatus();
@@ -68,16 +66,17 @@
       case 'rows':
         if (!requests.accept(m)) break;
         win = { pos: m.pos, count: m.rows.length, rows: m.rows };
-        pending = null;
         render();
         ensureWindow(false);
         break;
       case 'stale':
         // The host sends the newer state right after; re-request now only if it is already here.
-        pending = null;
+        requests.clear();
         if (m.rev !== requests.rev) ensureWindow(true);
         break;
       case 'error':
+        // A failed rows request must not block the next one (the next scroll or resize asks again).
+        requests.clear();
         if (m.fatal) {
           state = null;
           win = null;
@@ -120,17 +119,10 @@
   const currentRange = () => renderRange(scroller.scrollTop, rowCount(), viewport(), MARGIN);
 
   function ensureWindow(force) {
-    const n = rowCount();
-    if (!state || n === 0) return;
-    const r = currentRange();
-    if (!force) {
-      if (!needsWindow(win, r.start, r.end, n)) return;
-      if (pending && !needsWindow(pending, r.start, r.end, n)) return;
-    }
-    const w = windowFor(r.first, r.end - r.first, n);
-    if (w.count === 0) return;
-    const q = requests.next(state.revision);
-    pending = w;
+    if (!state) return;
+    const w = nextWindow(currentRange(), rowCount(), win || undefined, requests.pending, force);
+    if (!w) return;
+    const q = requests.next(state.revision, w);
     vscode.postMessage({ type: 'rows', rev: q.rev, pos: w.pos, count: w.count, id: q.id });
   }
 
