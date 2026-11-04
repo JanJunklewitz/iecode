@@ -139,14 +139,17 @@ export function compileQuery(q: TextQuery): RegExp {
   try {
     return new RegExp(q.regex ? q.query : escapeRegex(q.query), q.caseSensitive ? '' : 'i');
   } catch (e) {
-    throw new LogFormatError(`Invalid regular expression: ${(e as Error).message}`);
+    // The engine's message already reads "Invalid regular expression: /(/i: Unterminated group".
+    throw new LogFormatError((e as Error).message);
   }
 }
 
 /**
  * Searches the source, message and continuation lines of the entries from `from` on (time and level text are not
- * searched; each piece is tested separately, up to 8 KB). `refs` are the full columns indexed by entry; the part from
- * `from` on is copied here and the copies are transferred to a worker, so the caller's arrays stay usable.
+ * searched; each piece is tested separately, up to 8 KB). `refs` are the columns indexed by entry and trimmed to the
+ * entry count (EntryStore columns are longer: they have spare capacity), since their length is the number of entries
+ * searched; the part from `from` on is copied here and the copies are transferred to a worker, so the caller's arrays
+ * stay usable.
  * The worker is terminated when the signal aborts; a catastrophic regex can therefore never block the host.
  */
 export async function searchText(
