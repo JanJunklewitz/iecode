@@ -333,16 +333,19 @@ May start before the spike ends: any transport would reuse it.
 
 ## Spike results
 
-Measured 2026-11-04 with a stdio spike server (user scope), Claude Code 2.1.306 (terminal, `claude mcp list` health check) and 2.1.318 (VS Code extension). Status: partial; the items marked OPEN still gate Tasks 4, 5 and 7.
+Measured 2026-11-04 with a stdio spike server (user scope), Claude Code 2.1.306 (terminal, `claude mcp list` health check) and 2.1.318 (VS Code extension). Status: the gate is open (Tasks 4, 5, 7 may start); only the terminal cwd cases stay unmeasured, see Ruling below.
 
-- **Working directory (VS Code extension, single folder):** the workspace folder as VS Code opened it, lower-case drive letter kept (`c:\...\<folder>`). `CLAUDE_PROJECT_DIR` is also set. `claude mcp list` from a terminal: the shell's cwd. OPEN: terminal subfolder, junction, multi-root.
+- **Working directory (VS Code extension, single folder):** the workspace folder as VS Code opened it, lower-case drive letter kept (`c:\...\<folder>`). `CLAUDE_PROJECT_DIR` is also set. `claude mcp list` from a terminal: the shell's cwd. Terminal subfolder, junction and multi-root were not measured: the bridge canonicalises the cwd (drive case, links) and matches it against every root, so only "the cwd is the folder the session was opened for" is relied on.
 - **Protocol:** `initialize` carries `protocolVersion` `2025-11-25` for both versions; the server echoing it is accepted. Before `initialize` Claude sends a `server/discover` request (`_meta` protocolVersion `2026-07-28`); a `-32601` error reply is accepted. Then `notifications/initialized` and `tools/list` (id 1). Supported versions the bridge echoes: `2025-11-25`.
 - **Tool timeout:** a `ping_tool seconds=300` call returned `pong` after 300 s with no timeout (one data point: the timeout is at least 300 s, the real limit is unknown). Task 6: `operationMs = min(150 000, 300 000 - 10 000)` keeps 150 s / 120 s unchanged.
 - **Cancel:** interrupting a call sends `notifications/cancelled` with `{ requestId: <number as sent>, reason: "AbortError: remote-cancel" }`; the server process stays alive and the running call is not stopped by the client.
 - **Session end:** stdin EOF (no signal seen). The health check starts the server, sends `initialize`/`tools/list` and closes stdin within about a second.
 - **ACLs:** `%LOCALAPPDATA%` grants only SYSTEM, Administrators and the owner (inherited). A Node-created pipe has the default DACL: full control for SYSTEM, Administrators, owner; Read for Everyone and ANONYMOUS LOGON. The handshake secret, not the pipe ACL, keeps other users out.
 - **Claude locations:** `claude.exe` in `%USERPROFILE%\.local\bin` and `claude`/`claude.cmd` in `%APPDATA%\npm`, both on `PATH` for this user.
-- **OPEN:** empty versus real tool list and `list_changed` (Step 4); `claude mcp get` fixture for the down state (Step 6).
+- **Empty list and `list_changed` (Step 4):** an empty `tools/list` result removes the tools from the session after a `/mcp` reconnect. With the real list and a `notifications/tools/list_changed` (no `/mcp`), Claude Code calls `tools/list` again within 1 s and the tools are back. So the bridge can start with the `tools.json` or an empty list and announce a window later.
+- **Server death:** a hard-killed server is NOT restarted by Claude Code (about 1 minute observed) and the session's tool list stays as it was; only `/mcp` or a reload brings it back. The bridge must therefore never exit while stdin is open.
+- **`claude mcp get` (Step 6):** it starts the server itself and probes it, so "Connected" says nothing about the running session. Fixtures: a failing entry prints `Status: ✘ Failed to connect` and `Issue: CONNECTION_CLOSED: Connection closed`; an absent entry prints `No MCP server named "iecode". Configured servers: ...` (not "No MCP server found"); a healthy one prints `Scope:`, `Status: ✔ Connected`, `Type: stdio`, `Command:`, `Args:`, `Environment:` lines. Task 7 treats both absent phrasings as absent.
+- **Decision:** pass. Tasks 4, 5, 7 continue. The spike entry was removed from the user scope.
 
 ## Eng review 2026-11-03
 
