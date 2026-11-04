@@ -32,9 +32,34 @@ export function fnv1a(h: number, text: string): number {
 }
 
 const INITIAL_CAPACITY = 1024;
+/** Most entries a column reserves address space for; a higher limit grows by copying past it. */
+const MAX_RESERVED = 1 << 24;
 
-function grow<T extends Float64Array | Uint32Array | Uint16Array | Uint8Array>(a: T, capacity: number): T {
-  const b = new (a.constructor as new (n: number) => T)(capacity);
+type Column = Float64Array | Uint32Array | Uint16Array | Uint8Array;
+type ColumnType<T extends Column> = { new (buffer: ArrayBuffer): T; readonly BYTES_PER_ELEMENT: number };
+type ResizableArrayBuffer = ArrayBuffer & { readonly maxByteLength: number; resize(byteLength: number): void };
+// ES2024 resizable buffers (Node 20+); the ES2022 lib does not declare the options argument.
+const ResizableBuffer = ArrayBuffer as unknown as new (byteLength: number, o: { maxByteLength: number }) => ResizableArrayBuffer;
+
+/** A length-tracking column over a resizable buffer that can grow to `max` elements in place. */
+function column<T extends Column>(type: ColumnType<T>, capacity: number, max: number): T {
+  const size = type.BYTES_PER_ELEMENT;
+  const reserved = Math.max(capacity, Math.min(max, MAX_RESERVED));
+  return new type(new ResizableBuffer(capacity * size, { maxByteLength: reserved * size }));
+}
+
+/**
+ * Grows in place, so a 5 M-entry store never holds an old and a new copy of its columns at once (copying left
+ * hundreds of MB of dead buffers until the next full GC). Past the reserved size (a raised limit) it copies.
+ */
+function grow<T extends Column>(a: T, capacity: number, max: number): T {
+  const buffer = a.buffer as ResizableArrayBuffer;
+  const bytes = capacity * a.BYTES_PER_ELEMENT;
+  if (bytes <= buffer.maxByteLength) {
+    buffer.resize(bytes);
+    return a;
+  }
+  const b = column(a.constructor as ColumnType<T>, capacity, max);
   b.set(a);
   return b;
 }
@@ -43,41 +68,56 @@ export class EntryStore {
   count = 0;
   maxEntries: number;
   maxSources: number;
-  time = new Float64Array(INITIAL_CAPACITY);
-  sortTime = new Float64Array(INITIAL_CAPACITY);
-  level = new Uint8Array(INITIAL_CAPACITY);
-  source = new Uint32Array(INITIAL_CAPACITY);
-  seq = new Float64Array(INITIAL_CAPACITY);
-  file = new Uint16Array(INITIAL_CAPACITY);
-  offset = new Float64Array(INITIAL_CAPACITY);
-  length = new Float64Array(INITIAL_CAPACITY);
-  firstLength = new Uint32Array(INITIAL_CAPACITY);
-  terminated = new Uint8Array(INITIAL_CAPACITY);
-  lines = new Uint16Array(INITIAL_CAPACITY);
-  hash = new Uint32Array(INITIAL_CAPACITY);
+  time: Float64Array;
+  sortTime: Float64Array;
+  level: Uint8Array;
+  source: Uint32Array;
+  seq: Float64Array;
+  file: Uint16Array;
+  offset: Float64Array;
+  length: Float64Array;
+  firstLength: Uint32Array;
+  terminated: Uint8Array;
+  lines: Uint16Array;
+  hash: Uint32Array;
   sources: string[] = [];
   private sourceIndex = new Map<string, number>();
 
   constructor(opts: { maxEntries?: number; maxSources?: number } = {}) {
     this.maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.maxSources = opts.maxSources ?? DEFAULT_MAX_SOURCES;
+    const max = this.maxEntries;
+    this.time = column(Float64Array, INITIAL_CAPACITY, max);
+    this.sortTime = column(Float64Array, INITIAL_CAPACITY, max);
+    this.level = column(Uint8Array, INITIAL_CAPACITY, max);
+    this.source = column(Uint32Array, INITIAL_CAPACITY, max);
+    this.seq = column(Float64Array, INITIAL_CAPACITY, max);
+    this.file = column(Uint16Array, INITIAL_CAPACITY, max);
+    this.offset = column(Float64Array, INITIAL_CAPACITY, max);
+    this.length = column(Float64Array, INITIAL_CAPACITY, max);
+    this.firstLength = column(Uint32Array, INITIAL_CAPACITY, max);
+    this.terminated = column(Uint8Array, INITIAL_CAPACITY, max);
+    this.lines = column(Uint16Array, INITIAL_CAPACITY, max);
+    this.hash = column(Uint32Array, INITIAL_CAPACITY, max);
   }
 
   private ensureCapacity(): void {
     if (this.count < this.time.length) return;
-    const n = this.time.length * 2;
-    this.time = grow(this.time, n);
-    this.sortTime = grow(this.sortTime, n);
-    this.level = grow(this.level, n);
-    this.source = grow(this.source, n);
-    this.seq = grow(this.seq, n);
-    this.file = grow(this.file, n);
-    this.offset = grow(this.offset, n);
-    this.length = grow(this.length, n);
-    this.firstLength = grow(this.firstLength, n);
-    this.terminated = grow(this.terminated, n);
-    this.lines = grow(this.lines, n);
-    this.hash = grow(this.hash, n);
+    // Never past the entry limit: the doubling step to 8.4 M entries would allocate ~200 MB that can never be used.
+    const n = Math.max(this.count + 1, Math.min(this.time.length * 2, this.maxEntries));
+    const max = this.maxEntries;
+    this.time = grow(this.time, n, max);
+    this.sortTime = grow(this.sortTime, n, max);
+    this.level = grow(this.level, n, max);
+    this.source = grow(this.source, n, max);
+    this.seq = grow(this.seq, n, max);
+    this.file = grow(this.file, n, max);
+    this.offset = grow(this.offset, n, max);
+    this.length = grow(this.length, n, max);
+    this.firstLength = grow(this.firstLength, n, max);
+    this.terminated = grow(this.terminated, n, max);
+    this.lines = grow(this.lines, n, max);
+    this.hash = grow(this.hash, n, max);
   }
 
   private intern(source: string): number {
