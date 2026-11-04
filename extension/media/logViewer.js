@@ -182,10 +182,22 @@
     button('↓ Bookmark', 'Next bookmark (F2)', () => runCommand('nextBookmark')),
   );
 
+  // Live (session-owned): ingest what is appended to the file. Follow (webview-owned): keep the view at the end.
+  const liveBox = h('input');
+  liveBox.type = 'checkbox';
+  liveBox.addEventListener('change', () => post({ type: 'live', on: liveBox.checked }));
+  const liveLabel = h('label', 'live');
+  liveLabel.title = 'Show entries appended to the file';
+  liveLabel.append(liveBox, h('span', null, 'Live'));
+  const followButton = button('', '', () => {
+    setFollow(!follow);
+    if (follow) scrollToEnd();
+  }, 'follow');
+
   const status = h('span', 'status');
   const openRaw = button('Open as text', 'Open this file in the text editor', () => post({ type: 'openRaw' }), 'openRaw');
   const toolRow = h('div', 'tools');
-  toolRow.append(timeSelect, groupLabel, nav, status, openRaw);
+  toolRow.append(timeSelect, groupLabel, nav, liveLabel, followButton, status, openRaw);
 
   const bar = h('div', 'bar');
   bar.append(filterRow, toolRow);
@@ -226,10 +238,23 @@
   let transientError = '';
   /** Short navigation feedback in the status ("No next error"). */
   let note = '';
-  /** Selected row position of the current revision, or null. */
+  /**
+   * Selection by entry (LogRow.index), kept across revisions of one fileGeneration; selectedPos is its row position in
+   * the current revision once a received window shows it, else null.
+   */
+  let selectedIndex = null;
   let selectedPos = null;
-  /** Shown entry: { rev, pos, row, text, truncated, loading }; row may arrive after the text. */
+  /**
+   * Shown entry: { index, rev, pos, row, text, truncated, loading }; row may arrive after the text. A new revision
+   * keeps it; rev and pos follow the entry once a window shows it again.
+   */
   let detail = null;
+  /** fileGeneration of the last state; a new one (file replaced or rewritten) drops selection and detail. */
+  let generation = null;
+  /** Keep the view at the end while live entries come in; off when the user scrolls up. */
+  let follow = false;
+  /** The window of the previous revision, drawn until the new one arrives so that live updates do not blink. */
+  let shownWin = null;
   /** The last jump request, to word "No next error". */
   let lastJump = null;
   /** Filter inputs are filled from the state once; afterwards they hold what the user typed. */
@@ -241,24 +266,36 @@
     const m = ev.data;
     switch (m.type) {
       case 'state': {
+        const wasLive = !!(state && state.live);
         state = m.state;
+        const newGeneration = generation !== null && state.fileGeneration !== generation;
+        generation = state.fileGeneration;
         if (requests.onState(state.revision)) {
+          if (win) shownWin = win;
           win = null;
-          // Positions of another revision point at other rows.
+          // Positions of another revision point at other rows; the selection is found again by its entry.
           selectedPos = null;
           note = '';
-          if (detail && detail.loading) {
+          if (newGeneration) {
+            // Entry indices of the old file mean nothing in the new one.
+            selectedIndex = null;
+            shownWin = null;
+            closeDetail();
+          } else if (detail && detail.loading && state.rowCount === 0) {
+            // No window will come to find the entry in.
             detail.loading = false;
             detail.text = 'The view changed before the entry was read; select the row again.';
             renderDetail();
           }
         }
+        if (state.live && !wasLive) setFollow(true);
         transientError = '';
         table.hidden = false;
         filterRow.hidden = false;
         syncControls();
         renderStatus();
         render();
+        if (follow && state.live) scrollToEnd();
         // Same revision (bookmark, live, progress): the rows may still have changed, so fetch them again.
         ensureWindow(true);
         break;
@@ -266,13 +303,15 @@
       case 'rows':
         if (!requests.accept(m)) break;
         win = { pos: m.pos, count: m.rows.length, rows: m.rows };
-        if (detail && detail.rev === m.rev) {
-          const row = rowAt(detail.pos);
-          if (row) {
-            detail.row = row;
-            renderDetail();
-          }
+        shownWin = null;
+        if (selectedPos !== null && selectedIndex === null) {
+          // A jump target that was not loaded when it was selected.
+          const r = rowAt(selectedPos);
+          if (r) selectedIndex = r.index;
+        } else if (selectedIndex !== null && selectedPos === null) {
+          selectedPos = findPos(selectedIndex);
         }
+        if (detail) followDetail(m.rev);
         render();
         ensureWindow(false);
         break;
@@ -344,6 +383,10 @@
     if (multi && fileButtons.length !== state.files.length) buildFileToggles(state.files);
     fileButtons.forEach((b, i) => setPressed(b, !f.files || f.files.includes(i)));
     openRaw.title = multi ? 'Open the files in the text editor' : 'Open this file in the text editor';
+    // Merged views stay static.
+    liveLabel.hidden = multi;
+    liveBox.checked = !!state.live;
+    followButton.hidden = multi || !state.live;
     groupBox.checked = !!state.options.groupRepeats;
     textError.textContent = state.error || '';
     textQuery.classList.toggle('invalid', !!state.error);
@@ -377,7 +420,18 @@
   const rowCount = () => (state ? state.rowCount : 0);
   const viewport = () => scroller.clientHeight;
   const currentRange = () => renderRange(scroller.scrollTop, rowCount(), viewport(), MARGIN);
-  const rowAt = (pos) => (win && pos >= win.pos && pos < win.pos + win.count ? win.rows[pos - win.pos] : null);
+  const inWin = (w, pos) => (w && pos >= w.pos && pos < w.pos + w.count ? w.rows[pos - w.pos] : null);
+  /** Row of the current revision at pos, or null. */
+  const rowAt = (pos) => inWin(win, pos);
+  /** Row to draw at pos: the current one, else the previous revision's until the new window arrives. */
+  const drawAt = (pos) => rowAt(pos) || (win ? null : inWin(shownWin, pos));
+
+  /** Row position of entry `index` in the received window, or null. */
+  function findPos(index) {
+    if (!win) return null;
+    const k = win.rows.findIndex(r => r.index === index);
+    return k < 0 ? null : win.pos + k;
+  }
 
   function ensureWindow(force) {
     if (!state) return;
@@ -403,7 +457,7 @@
   }
 
   function fillSlot(s, pos, row) {
-    const selected = pos === selectedPos;
+    const selected = row ? row.index === selectedIndex : pos === selectedPos;
     const sig = `${timeMode}|${selected}|${state ? state.viewFirstTimeMs : ''}`;
     if (s.pos === pos && s.row === row && s.sig === sig) return;
     s.pos = pos;
@@ -453,7 +507,7 @@
         continue;
       }
       s.el.hidden = false;
-      fillSlot(s, r.start + i, rowAt(r.start + i));
+      fillSlot(s, r.start + i, drawAt(r.start + i));
     }
     rowsEl.style.transform = `translateY(${r.top}px)`;
     // Never let the drawn rows grow the scroll area (proportional mode draws them at the viewport top).
@@ -483,19 +537,73 @@
     });
   };
   scroller.addEventListener('scroll', update, { passive: true });
+  // Scrolling up switches Follow off, scrolling to the bottom on again (also the programmatic scroll to the end).
+  scroller.addEventListener('scroll', () => {
+    if (state) setFollow(atBottom(scroller.scrollTop, rowCount(), viewport()));
+  }, { passive: true });
+  scroller.addEventListener('keydown', ev => {
+    if (ev.key !== 'End') return;
+    setFollow(true);
+    scrollToEnd();
+  });
   new ResizeObserver(update).observe(scroller);
+
+  // ---------- follow ----------
+  function setFollow(on) {
+    follow = on;
+    followButton.textContent = on ? 'Pause' : 'Follow';
+    followButton.title = on
+      ? 'Stop following the end of the file (new entries still come in)'
+      : 'Follow the end of the file (End)';
+    setPressed(followButton, on);
+  }
+  setFollow(false);
+
+  function scrollToEnd() {
+    scroller.scrollTop = rowToScrollTop(rowCount(), rowCount(), viewport());
+    update();
+  }
 
   // ---------- selection, detail, navigation ----------
   function select(pos, openDetail) {
+    const row = rowAt(pos);
     selectedPos = pos;
+    selectedIndex = row ? row.index : null;
     if (openDetail || !detailPane.hidden) showDetail(pos);
     render();
   }
 
   function showDetail(pos) {
-    detail = { rev: state.revision, pos, row: rowAt(pos), text: '', truncated: false, loading: true };
+    const row = rowAt(pos);
+    detail = { index: row ? row.index : null, rev: state.revision, pos, row, text: '', truncated: false, loading: true };
     detailPane.hidden = false;
     post({ type: 'detail', rev: state.revision, pos });
+    renderDetail();
+  }
+
+  /**
+   * After a window of revision `rev` arrived: the detail's entry gets its row (and position) of that revision; a
+   * detail still loading for an older revision is requested again, or given up when the window does not show it.
+   */
+  function followDetail(rev) {
+    if (detail.rev === rev) {
+      const row = rowAt(detail.pos);
+      if (!row) return;
+      if (detail.index === null) detail.index = row.index;
+      detail.row = row;
+      return renderDetail();
+    }
+    const pos = detail.index === null ? null : findPos(detail.index);
+    if (pos === null) {
+      if (!detail.loading) return;
+      detail.loading = false;
+      detail.text = 'The view changed before the entry was read; select the row again.';
+      return renderDetail();
+    }
+    detail.rev = rev;
+    detail.pos = pos;
+    detail.row = rowAt(pos);
+    if (detail.loading) post({ type: 'detail', rev, pos });
     renderDetail();
   }
 

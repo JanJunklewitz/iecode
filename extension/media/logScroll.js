@@ -100,6 +100,11 @@ function centerScrollTop(row, rowCount, viewportPx) {
   return rowToScrollTop(Math.max(0, row - half), rowCount, viewportPx);
 }
 
+/** True when the view shows the last row: within half a row of the highest scrollTop, or when every row fits. */
+function atBottom(scrollTop, rowCount, viewportPx) {
+  return scrollTop >= maxScrollTop(rowCount, viewportPx) - ROW_HEIGHT / 2;
+}
+
 /**
  * Row a jump starts from (jump looks at the rows after / before it): the selected row, else the first visible row
  * counts when going down and the search goes above it when going up.
@@ -145,6 +150,6 @@ function createRequests() {
 if (typeof module === 'object') {
   module.exports = {
     ROW_HEIGHT, MAX_HEIGHT, scrollHeight, rowToScrollTop, scrollTopToRow, renderRange, windowFor, needsWindow, nextWindow,
-    createRequests, centerScrollTop, navFrom,
+    createRequests, centerScrollTop, navFrom, atBottom,
   };
 }

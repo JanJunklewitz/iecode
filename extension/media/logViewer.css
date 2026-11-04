@@ -16,7 +16,7 @@ body { color: var(--vscode-foreground); background: var(--vscode-editor-backgrou
 .hiddenCount { color: var(--vscode-descriptionForeground); white-space: nowrap; }
 .dash, .unit { color: var(--vscode-descriptionForeground); }
 .nav { display: flex; gap: 4px; }
-.group { display: flex; gap: 4px; align-items: center; cursor: pointer; white-space: nowrap; }
+.group, .live { display: flex; gap: 4px; align-items: center; cursor: pointer; white-space: nowrap; }
 
 button { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid transparent; padding: 2px 8px; cursor: pointer; font: inherit; white-space: nowrap; }
 button:hover { background: var(--vscode-button-secondaryHoverBackground); }

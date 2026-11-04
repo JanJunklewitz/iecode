@@ -116,8 +116,21 @@ export class EntryStore {
     return i;
   }
 
-  /** Appends all entries of another store (source indices are re-interned). */
-  appendFrom(other: EntryStore): void {
+  /**
+   * Replaces the entries from index `at` on (default: none) with all entries of another store; source indices are
+   * re-interned. Atomic: checks both limits first and throws LogLimitError leaving the store unchanged.
+   */
+  appendFrom(other: EntryStore, at = this.count): void {
+    const start = Math.max(0, Math.min(at, this.count));
+    if (start + other.count > this.maxEntries) {
+      throw new LogLimitError(`Too many entries for the viewer: more than ${this.maxEntries} entries; open the file as text`);
+    }
+    const fresh = new Set<string>();
+    for (const s of other.sources) if (!this.sourceIndex.has(s)) fresh.add(s);
+    if (this.sources.length + fresh.size > this.maxSources) {
+      throw new LogLimitError(`Too many entries for the viewer: more than ${this.maxSources} distinct sources; open the file as text`);
+    }
+    this.truncate(start);
     for (let i = 0; i < other.count; i++) {
       this.append({
         time: other.time[i], sortTime: other.sortTime[i], level: other.level[i],

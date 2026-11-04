@@ -1,4 +1,5 @@
-// Stateful core of the log viewer: load, filters, text search, snapshots, rows, bookmarks. No vscode imports.
+// Stateful core of the log viewer: load, live tail, filters, text search, snapshots, rows, bookmarks. No vscode imports.
+import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { BUILT_IN_FORMATS, LEVELS, Level, LogFormat, LogFormatDef, compileFormat, detectFormat } from './logformat';
 import { EntryStore } from './logstore';
@@ -84,6 +85,42 @@ function emptyLevelCounts(): Record<Level, number> {
   return { error: 0, warning: 0, info: 0, debug: 0, other: 0 };
 }
 
+/** What the live tail compares to tell an append from a replaced or rewritten file. */
+interface FileIdentity { dev: number; ino: number; birthtimeMs: number; size: number; head: Buffer }
+
+const HEAD_BYTES = 64;
+
+/** fstat of a freshly opened handle plus the first 64 bytes. */
+async function fileIdentity(p: string): Promise<FileIdentity> {
+  const fh = await fsp.open(p, 'r');
+  try {
+    const st = await fh.stat();
+    const head = Buffer.alloc(HEAD_BYTES);
+    const { bytesRead } = await fh.read(head, 0, HEAD_BYTES, 0);
+    return { dev: st.dev, ino: st.ino, birthtimeMs: st.birthtimeMs, size: st.size, head: head.subarray(0, bytesRead) };
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Another file under the same name: a different dev/ino, or (where ino is 0) a different birth time. */
+function replacedFile(a: FileIdentity, b: FileIdentity): boolean {
+  if (a.dev !== b.dev) return true;
+  if (a.ino !== 0 || b.ino !== 0) return a.ino !== b.ino;
+  return a.birthtimeMs !== b.birthtimeMs;
+}
+
+/** The same file rewritten in place: it shrank, or the bytes it started with changed. */
+function rewrittenFile(old: FileIdentity, now: FileIdentity): boolean {
+  return now.size < old.size || !now.head.subarray(0, old.head.length).equals(old.head);
+}
+
+/** Same extent of entry i of a and entry j of b (a re-scanned entry that did not grow). */
+function sameExtent(a: EntryStore, i: number, b: EntryStore, j: number): boolean {
+  return a.offset[i] === b.offset[j] && a.length[i] === b.length[j] && a.lines[i] === b.lines[j] &&
+    a.terminated[i] === b.terminated[j];
+}
+
 export class LogSession {
   private store: EntryStore;
   private files: LogFiles;
@@ -109,6 +146,16 @@ export class LogSession {
   private loadAbort?: AbortController;
   private loaded = false;
   private disposed = false;
+  /** Single-file sessions: the file as of the last load or refresh. */
+  private identity?: FileIdentity;
+  /** A reload failed: the entries no longer match the file, so the next change reloads again. */
+  private needsReload = false;
+  /** Bumped by every live-tail commit; a full text search re-searches what changed during it. */
+  private commits = 0;
+  private refreshRun?: Promise<boolean>;
+  private refreshNext?: Promise<boolean>;
+  private refreshAbort?: AbortController;
+  private lastTailSearchBytes = 0;
 
   private constructor(
     private readonly paths: string[],
@@ -142,7 +189,12 @@ export class LogSession {
     }
   }
 
-  private async loadFiles(signal: AbortSignal, onProgress?: (f: number) => void): Promise<void> {
+  /**
+   * Builds store, formats and text flags off to the side and publishes them in one step. A reload (live tail: the file
+   * was replaced or rewritten) also opens new LogFiles, bumps fileGeneration and clears the bookmarks; the old files
+   * close once the readers of the old snapshot are done. Load progress is reported for the first load only.
+   */
+  private async loadFiles(signal: AbortSignal, onProgress?: (f: number) => void, reload = false): Promise<void> {
     const userIds = new Set(this.userFormats.map(f => f.id));
     const candidates = [...this.userFormats, ...BUILT_IN_FORMATS.filter(f => !userIds.has(f.id))].map(compileFormat);
 
@@ -157,21 +209,27 @@ export class LogSession {
       formats.push(detectFormat(s.lines, candidates));
     }
 
+    // Taken before the scan, so growth during the scan shows up as an append in the next refresh.
+    const identity = this.paths.length === 1 ? await fileIdentity(this.paths[0]) : undefined;
     const store = new EntryStore(this.limits);
     const n = this.paths.length;
     for (let i = 0; i < n; i++) {
       await scanFile(this.paths[i], i, formats[i], store, {
         signal,
-        onProgress: f => {
+        onProgress: reload ? undefined : f => {
           this.scanning = (i + f) / n;
           onProgress?.(this.scanning);
         },
       });
     }
-    // Before the load, setFilters only records the query (filters.text); search until the recorded query is stable.
+    // Before the load, setFilters only records the query (filters.text); during a reload a search may be running on
+    // the old entries. Search the new entries until the latest query is stable.
+    const latest = () => (this.search ? this.search.query : this.filters.text);
     let flags: Uint8Array | undefined;
+    let applied: TextQuery | undefined;
     for (;;) {
-      const q = this.filters.text;
+      const q = latest();
+      applied = q;
       if (!q) {
         flags = undefined;
         break;
@@ -180,17 +238,33 @@ export class LogSession {
         flags = (await this.searchStore(store, formats, q, signal)).flags;
       } catch (e) {
         if (this.disposed || (e as Error).name === 'AbortError') throw e;
-        if (sameQuery(q, this.filters.text)) {
+        if (sameQuery(q, latest())) {
+          this.search?.ac.abort();
+          this.search = undefined;
           this.filters = { ...this.filters, text: undefined };
+          this.textFlags = undefined;
           this.publish();
           this.error = (e as Error).message;
         }
         continue;
       }
-      if (sameQuery(q, this.filters.text)) break;
+      if (sameQuery(q, latest())) break;
     }
     if (this.disposed) return;
 
+    if (reload) {
+      const old = this.files;
+      this.files = new LogFiles(this.paths);
+      void old.close();
+      this.fileGeneration++;
+      this.bookmarks.clear();
+      this.warning = undefined;
+    }
+    // A search still running belongs to the old entries; its query is applied here.
+    this.search?.ac.abort();
+    this.search = undefined;
+    this.filters = { ...this.filters, text: applied };
+    this.identity = identity;
     this.textFlags = flags;
     this.store = store;
     this.formats = formats;
@@ -216,13 +290,14 @@ export class LogSession {
     this.error = error;
   }
 
-  private searchStore(store: EntryStore, formats: LogFormat[], q: TextQuery, signal: AbortSignal) {
+  /** Flags of the entries from `from` on; the columns are copied synchronously, before the first await. */
+  private searchStore(store: EntryStore, formats: LogFormat[], q: TextQuery, signal: AbortSignal, from = 0) {
     const count = store.count;
     return searchText(
       this.paths,
       { file: store.file.subarray(0, count), offset: store.offset.subarray(0, count), length: store.length.subarray(0, count) },
       formats.map(fm => fm.def),
-      q, 0, signal,
+      q, from, signal,
     );
   }
 
@@ -279,10 +354,24 @@ export class LogSession {
     this.search = job;
     const generation = this.fileGeneration;
     try {
-      const r = await this.searchStore(this.store, this.formats, target, job.ac.signal);
-      if (this.search !== job || this.disposed || generation !== this.fileGeneration) return;
+      // Live-tail commits during the search replace the last entry and append more; search those again until none came.
+      let flags = new Uint8Array(0);
+      let covered = 0;
+      for (;;) {
+        const commits = this.commits;
+        const count = this.store.count;
+        const from = Math.max(0, covered - 1);
+        const r = await this.searchStore(this.store, this.formats, target, job.ac.signal, from);
+        if (this.search !== job || this.disposed || generation !== this.fileGeneration) return;
+        const next = new Uint8Array(count);
+        next.set(flags.subarray(0, from));
+        next.set(r.flags, from);
+        flags = next;
+        covered = count;
+        if (this.commits === commits) break;
+      }
       this.search = undefined;
-      this.textFlags = r.flags;
+      this.textFlags = flags;
       this.filters = { ...this.filters, text: target };
       this.publish();
     } catch (e) {
@@ -365,9 +454,142 @@ export class LogSession {
     return false;
   }
 
-  /** Ingestion on/off; the refresh itself comes with the live tail. */
+  /** Ingestion on/off, reported in the state; the owner watches the file and calls refresh() while it is on. */
   setLive(on: boolean): void {
     this.live = on;
+  }
+
+  /** Bytes the text search of the last live-tail commit read (0 without a text filter). */
+  get tailSearchBytes(): number {
+    return this.lastTailSearchBytes;
+  }
+
+  /**
+   * Live tail of a single-file session (merged sessions stay static and resolve false): ingests what was appended, or
+   * reloads the file when it was replaced or rewritten. Resolves true when the state changed (also for a new error)
+   * and never rejects. Calls are coalesced: at most one refresh runs and at most one more is pending.
+   */
+  refresh(): Promise<boolean> {
+    if (this.refreshNext) return this.refreshNext;
+    const running = this.refreshRun;
+    if (!running) return this.startRefresh();
+    const next = running.then(() => {
+      this.refreshNext = undefined;
+      return this.startRefresh();
+    });
+    this.refreshNext = next;
+    return next;
+  }
+
+  private startRefresh(): Promise<boolean> {
+    const run = this.refreshOnce().finally(() => {
+      if (this.refreshRun === run) this.refreshRun = undefined;
+    });
+    this.refreshRun = run;
+    return run;
+  }
+
+  private async refreshOnce(): Promise<boolean> {
+    if (this.disposed || !this.loaded || this.paths.length !== 1 || !this.identity) return false;
+    const ac = new AbortController();
+    this.refreshAbort = ac;
+    let now: FileIdentity | undefined;
+    let reload = this.needsReload;
+    try {
+      try {
+        now = await fileIdentity(this.paths[0]);
+      } catch {
+        // Gone for a moment (a rotation renames the file away first); the next refresh looks again.
+        return false;
+      }
+      if (this.disposed) return false;
+      const old = this.identity;
+      if (replacedFile(old, now) || rewrittenFile(old, now)) reload = true;
+      else if (now.size === old.size) return false;
+      if (reload) {
+        await this.loadFiles(ac.signal, undefined, true);
+        this.needsReload = false;
+        return !this.disposed;
+      }
+      return await this.appendTail(now, ac.signal);
+    } catch (e) {
+      if (this.disposed || (e as Error).name === 'AbortError') return false;
+      // Not retried until the file changes again; a failed reload leaves entries that no longer match the file.
+      if (now) this.identity = now;
+      if (reload) this.needsReload = true;
+      const message = (e as Error).message;
+      const changed = this.error !== message;
+      this.error = message;
+      return changed;
+    } finally {
+      if (this.refreshAbort === ac) this.refreshAbort = undefined;
+    }
+  }
+
+  /**
+   * Scans from the last entry's offset into a separate store (an unterminated last line stays unread), searches only
+   * that tail, then commits synchronously: replace the last entry, append the rest, extend the text flags, rebuild
+   * order, filter result and view, publish.
+   */
+  private async appendTail(now: FileIdentity, signal: AbortSignal): Promise<boolean> {
+    const store = this.store;
+    const had = store.count > 0;
+    const at = had ? store.count - 1 : 0;
+    const start = had ? store.offset[at] : 0;
+    const tail = new EntryStore(this.limits);
+    await scanFile(this.paths[0], 0, this.formats[0], tail, { startOffset: start, live: true, signal });
+    if (this.disposed) return false;
+    if (had && tail.count > 0 && tail.offset[0] !== start) {
+      // The last entry no longer starts where it did: the file changed beyond the head.
+      await this.loadFiles(signal, undefined, true);
+      return !this.disposed;
+    }
+    // Nothing complete was added: the last line is still being written.
+    if (tail.count === 0 || (had && tail.count === 1 && sameExtent(store, at, tail, 0))) {
+      this.identity = now;
+      return false;
+    }
+
+    let flags: Uint8Array | undefined;
+    this.lastTailSearchBytes = 0;
+    for (;;) {
+      // A full search for a new query may land meanwhile; then the tail is searched for that query too.
+      const q = this.filters.text;
+      if (!q) {
+        flags = undefined;
+        break;
+      }
+      const r = await this.searchStore(tail, this.formats, q, signal);
+      this.lastTailSearchBytes += r.bytesRead;
+      if (this.disposed) return false;
+      if (sameQuery(q, this.filters.text)) {
+        flags = r.flags;
+        break;
+      }
+    }
+
+    // Commit, synchronous from here on. appendFrom checks the limits before it changes anything.
+    const oldLevel = store.level[at];
+    store.appendFrom(tail, at);
+    if (this.textFlags) {
+      const f = new Uint8Array(store.count);
+      f.set(this.textFlags.subarray(0, at));
+      if (flags) f.set(flags, at);
+      this.textFlags = f;
+    }
+    if (had) this.levelCounts[LEVELS[oldLevel]]--;
+    for (let i = at; i < store.count; i++) {
+      this.levelCounts[LEVELS[store.level[i]]]++;
+      const t = store.time[i];
+      if (Number.isNaN(t)) continue;
+      if (this.firstTimeMs === undefined || t < this.firstTimeMs) this.firstTimeMs = t;
+      if (this.lastTimeMs === undefined || t > this.lastTimeMs) this.lastTimeMs = t;
+    }
+    this.order = timelineOrder(store, this.paths.length);
+    this.identity = now;
+    this.commits++;
+    this.publish();
+    return true;
   }
 
   state(): SessionState {
@@ -386,12 +608,14 @@ export class LogSession {
     return st;
   }
 
-  /** Aborts a load or search; resolves once in-flight reads are done and the files are closed. */
+  /** Aborts a load, refresh or search; resolves once in-flight reads are done and the files are closed. */
   async dispose(): Promise<void> {
     this.disposed = true;
     this.loadAbort?.abort();
+    this.refreshAbort?.abort();
     this.search?.ac.abort();
     this.search = undefined;
+    await this.refreshRun;
     await this.files.close();
   }
 

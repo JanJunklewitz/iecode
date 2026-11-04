@@ -153,6 +153,8 @@ export async function searchText(
 ): Promise<SearchResult> {
   compileQuery(q);
   if (signal?.aborted) throw abortError();
+  // Nothing to search: no worker, no read.
+  if (from >= refs.file.length) return { flags: new Uint8Array(0), from, bytesRead: 0 };
   const file = refs.file.slice(from);
   const offset = refs.offset.slice(from);
   const length = refs.length.slice(from);
