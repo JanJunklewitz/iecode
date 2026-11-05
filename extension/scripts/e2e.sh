@@ -7,6 +7,7 @@ CODE="${CODE:-/Applications/Visual Studio Code.app/Contents/MacOS/Code}"
 TMP="$(mktemp -d)"
 cp samples/* "$TMP/"
 cp test/fixtures/visu/* "$TMP/"
+cp test/fixtures/tmc/* "$TMP/"
 cp -R test/fixtures/ws "$TMP/ws"
 (cd "$TMP" && git init -q && git add -A && git -c user.email=e2e@example.invalid -c user.name=e2e commit -qm init)
 # merge conflict in a nested repo; the outer repo ignores it so its Source Control state stays as the other steps expect

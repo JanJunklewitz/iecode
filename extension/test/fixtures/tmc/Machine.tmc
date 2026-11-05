@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcModuleClass xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2009/05/TcModuleClass">
+  <Vendor><Name>IECode Samples</Name></Vendor>
+  <DataTypes>
+    <DataType><Name GUID="{11111111-0000-0000-0000-000000000001}">FB_Base</Name><BitSize>64</BitSize>
+      <SubItem><Name>nState</Name><Type>INT</Type><Comment><![CDATA[ State & mode ]]></Comment><BitSize>16</BitSize><BitOffs>32</BitOffs></SubItem>
+    </DataType>
+    <DataType><Name GUID="{11111111-0000-0000-0000-000000000002}" Namespace="Machine">FB_Motor</Name><BitSize>192</BitSize>
+      <ExtendsType GUID="{11111111-0000-0000-0000-000000000001}">FB_Base</ExtendsType>
+      <SubItem><Name>bEnable</Name><Type>BOOL</Type><BitSize>8</BitSize><BitOffs>64</BitOffs><Default><Value>1</Value></Default>
+        <Properties><Property><Name>TcInitSymbol</Name></Property></Properties></SubItem>
+      <SubItem><Name>eMode</Name><Type GUID="{11111111-0000-0000-0000-000000000003}">E_Mode</Type><BitSize>16</BitSize><BitOffs>72</BitOffs></SubItem>
+      <SubItem><Name>pNext</Name><Type GUID="{11111111-0000-0000-0000-000000000002}" PointerTo="1">FB_Motor</Type><BitSize>64</BitSize><BitOffs>128</BitOffs></SubItem>
+      <PropertyItem><Name>fSpeed</Name><Type>LREAL</Type><BitSize>64</BitSize></PropertyItem>
+      <Method><Name>Start</Name><ReturnType>BOOL</ReturnType><Parameter><Name>fRamp</Name><Type>LREAL</Type></Parameter></Method>
+    </DataType>
+    <DataType><Name GUID="{11111111-0000-0000-0000-000000000003}">E_Mode</Name><BitSize>16</BitSize><BaseType>INT</BaseType>
+      <EnumInfo><Text>Off</Text><Enum>0</Enum></EnumInfo>
+      <EnumInfo><Text>Run</Text><Enum>1</Enum><Comment>Normal operation</Comment></EnumInfo>
+    </DataType>
+    <DataType><Name GUID="{11111111-0000-0000-0000-000000000004}">T_Speed</Name><BitSize>64</BitSize><BaseType>LREAL</BaseType></DataType>
+    <DataType><Name GUID="{11111111-0000-0000-0000-000000000005}">T_Motors</Name><BitSize>384</BitSize>
+      <BaseType GUID="{11111111-0000-0000-0000-000000000002}">FB_Motor</BaseType><ArrayInfo><LBound>1</LBound><Elements>2</Elements></ArrayInfo></DataType>
+  </DataTypes>
+  <Modules>
+    <Module GUID="{22222222-0000-0000-0000-000000000001}" Group="PLC">
+      <Name>PLC1</Name>
+      <CLSID ClassFactory="TcPlc30">{22222222-0000-0000-0000-000000000002}</CLSID>
+      <Licenses><License><LicenseId>{33333333-0000-0000-0000-000000000001}</LicenseId></License></Licenses>
+      <InitSequence>PSO</InitSequence>
+      <Contexts><Context><Id>0</Id><Name>PlcTask</Name><Priority>20</Priority><CycleTime>10000000</CycleTime></Context></Contexts>
+      <Interfaces><Interface><Type GUID="{00000012-0000-0000-E000-000000000064}">ITComObject</Type></Interface></Interfaces>
+      <Parameters><Parameter ReadOnly="true"><Name>AdsPort</Name><BitSize>16</BitSize><BaseType>UINT</BaseType><PTCID>#x03002500</PTCID></Parameter></Parameters>
+      <DataAreas>
+        <DataArea><AreaNo AreaType="InputDst" CreateSymbols="true">0</AreaNo><Name>PlcTask Inputs</Name><ContextId>0</ContextId><ByteSize>1</ByteSize>
+          <Symbol><Name>MAIN.bStart</Name><Comment>Start &amp; go</Comment><BitSize>1</BitSize><BaseType>BIT</BaseType><BitOffs>3</BitOffs></Symbol>
+        </DataArea>
+        <DataArea><AreaNo AreaType="Internal" CreateSymbols="true">3</AreaNo><Name>PlcTask Internal</Name><ContextId>0</ContextId><ByteSize>512</ByteSize>
+          <Symbol><Name>MAIN.fbMotor</Name><BitSize>192</BitSize><BaseType GUID="{11111111-0000-0000-0000-000000000002}" Namespace="Machine">FB_Motor</BaseType><BitOffs>64</BitOffs>
+            <Default><SubItem><Name>.bEnable</Name><Bool>true</Bool></SubItem><SubItem><Name>.eMode</Name><EnumText>Run</EnumText></SubItem></Default></Symbol>
+          <Symbol><Name>MAIN.aValues</Name><BitSize>160</BitSize><BaseType>INT</BaseType><ArrayInfo><LBound>0</LBound><Elements>10</Elements></ArrayInfo><BitOffs>256</BitOffs></Symbol>
+          <Symbol><Name>MAIN.sSpeed</Name><BitSize>64</BitSize><BaseType Namespace="Machine">T_Speed</BaseType><BitOffs>512</BitOffs></Symbol>
+        </DataArea>
+      </DataAreas>
+      <Properties><Property><Name>ApplicationName</Name><Value>Port_851</Value></Property></Properties>
+    </Module>
+  </Modules>
+</TcModuleClass>

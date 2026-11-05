@@ -23,6 +23,7 @@ import { registerVisuEditor } from './views/visuEditor';
 import { registerAiChat } from './commands/aiChat';
 import { showProjectSettings } from './views/projectSettings';
 import { registerPlcArchiveEditor } from './views/plcArchiveEditor';
+import { registerTmcViewer } from './views/tmcViewer';
 import { registerAdsWatch } from './views/adsWatch';
 import { showAdsScope } from './views/adsScope';
 import { registerAdsLmTools } from './ads/lmTools';
@@ -121,6 +122,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerVisuEditor(ctx);
   registerAiChat(ctx);
   registerPlcArchiveEditor(ctx);
+  registerTmcViewer(ctx);
   registerAdsWatch(ctx, state);
   registerAdsLmTools(ctx, state);
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsScope', () => showAdsScope(ctx)));
