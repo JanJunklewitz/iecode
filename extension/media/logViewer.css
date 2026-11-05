@@ -51,6 +51,8 @@ input.invalid { border-color: var(--vscode-inputValidation-errorBorder, var(--vs
 .multiFile .row > .file { display: block; }
 /* The head keeps the table font size: the em column widths must resolve to the same pixels as in the rows. */
 .row.head { color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+/* The head cells share the column classes of the rows but not their colors. */
+.row.head > span { color: inherit; }
 .rows .row { cursor: default; }
 .rows .row:hover { background: var(--vscode-list-hoverBackground); }
 .row.gap { border-top: 1px dashed var(--vscode-descriptionForeground); }
