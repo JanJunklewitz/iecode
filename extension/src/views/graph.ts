@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { WorkspaceModel, buildOrder } from '../core/workspace';
+import { WorkspaceModel, buildOrder, systemProjects } from '../core/workspace';
 import { WorkspaceState } from '../state';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -50,7 +50,7 @@ ul{margin:6px 0 0;padding-left:16px;font-size:12px} li span{opacity:.7} li.pinne
 .order{margin-top:16px;opacity:.8;font-size:12px}.err{color:var(--vscode-errorForeground)}
 </style></head><body>
 ${error ? `<p class="err">${esc(error)}</p>` : ''}
-${m.units.length ? `<div class="cols">${cols.map(c => `<div class="col">${c.map(card).join('')}</div>`).join('')}</div>` : '<p>No TwinCAT projects in this workspace.</p>'}
+${m.units.length ? `<div class="cols">${cols.map(c => `<div class="col">${c.map(card).join('')}</div>`).join('')}</div>` : `<p>${systemProjects(m).length ? 'Only TwinCAT system projects without a PLC in this workspace: there are no PLC dependencies to show.' : 'No TwinCAT projects in this workspace.'}</p>`}
 ${order ? `<div class="order">Build order: ${esc(order)}</div>` : ''}
 </body></html>`;
 }
