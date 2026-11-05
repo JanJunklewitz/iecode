@@ -1,6 +1,6 @@
 // "Config Changes" panel: the changes of an .xti file between two versions, grouped by category, with
 // checkboxes that hide categories and noise kinds (the setting iecode.configDiff.hidden). Both versions can
-// also be opened as YAML in VS Code's diff editor.
+// also be opened as YAML or as raw XML in VS Code's diff editor.
 
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -9,11 +9,12 @@ import { unescapeKey } from '../core/configmodel';
 import { ConfigChange, DEFAULT_HIDDEN, Filter, configToYaml, diffConfig, groupChanges } from '../core/configdiff';
 import { configAt } from '../core/confighistory';
 import { log, repoRoot } from '../core/git';
+import { rawUri } from '../commands/compare';
 import { html } from './configDiffHtml';
 
 type Msg =
   | { type: 'ready' }
-  | { type: 'load' | 'yaml'; file: string; left: string; right: string; leftLabel: string; rightLabel: string }
+  | { type: 'load' | 'yaml' | 'raw'; file: string; left: string; right: string; leftLabel: string; rightLabel: string }
   | { type: 'filter'; hidden: Filter[] }
   | { type: 'ioLinks'; file: string };
 
@@ -103,7 +104,10 @@ async function showPanel(ctx: vscode.ExtensionContext, file: string, left: strin
         };
         send();
       } else if (m.type === 'yaml') await openYamlDiff(m.file, m.left, m.right, shortLabel(m.left, m.leftLabel), shortLabel(m.right, m.rightLabel));
-      else if (m.type === 'filter') await vscode.workspace.getConfiguration('iecode.configDiff').update('hidden', m.hidden, vscode.ConfigurationTarget.Global);
+      else if (m.type === 'raw') {
+        await vscode.commands.executeCommand('vscode.diff', rawUri(m.file, ref(m.left)), rawUri(m.file, ref(m.right)),
+          `${path.basename(m.file)} (XML): ${shortLabel(m.left, m.leftLabel)} ↔ ${shortLabel(m.right, m.rightLabel)}`, { preview: false });
+      } else if (m.type === 'filter') await vscode.workspace.getConfiguration('iecode.configDiff').update('hidden', m.hidden, vscode.ConfigurationTarget.Global);
       else if (m.type === 'ioLinks') await vscode.commands.executeCommand('iecode.ioLinksDiff', vscode.Uri.file(m.file));
     } catch (e) {
       post({ type: 'error', message: (e as Error).message });

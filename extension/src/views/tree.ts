@@ -31,7 +31,7 @@ const TYPE_ICON: Record<ObjectType, string> = {
   GVL: 'symbol-variable', TASK: 'watch', TEXTLIST: 'symbol-text', IMAGEPOOL: 'file-media', VISUMANAGER: 'settings', OTHER: 'file',
 };
 const TYPE_SHORT: Partial<Record<ObjectType, string>> = { FUNCTION_BLOCK: 'FB', PROGRAM: 'PRG', FUNCTION: 'FUN', INTERFACE: 'ITF', ENUM: 'ENUM', STRUCT: 'STRUCT', UNION: 'UNION', ALIAS: 'ALIAS', GVL: 'GVL',
-  TEXTLIST: 'texts', IMAGEPOOL: 'images', VISUMANAGER: 'visu settings' };
+  TASK: 'task', TEXTLIST: 'texts', IMAGEPOOL: 'images', VISUMANAGER: 'visu settings' };
 const MEMBER_ICON: Record<Member['kind'], string> = { METHOD: 'symbol-method', PROPERTY: 'symbol-property', ACTION: 'symbol-event', TRANSITION: 'arrow-right' };
 
 const hasMembers = (t: ObjectType) => t === 'FUNCTION_BLOCK' || t === 'PROGRAM' || t === 'INTERFACE' || t === 'FUNCTION';

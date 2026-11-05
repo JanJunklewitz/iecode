@@ -8,13 +8,16 @@ import { decode } from '../model';
 import { SUMMARY_RE, summaryText } from '../core/plcArchive';
 import { isEncrypted } from '../core/projects';
 import { config, getConfig, log, repoRoot, show } from '../core/git';
+import { withViewKind } from '../core/textdiff';
 
 export const REV_SCHEME = 'iecode-rev';
 export const SRC_SCHEME = 'iecode-src';
-const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i;
-/** Visualizations, text lists, image pools and the visualization manager compare as their YAML summary (read-only), objects as ST. */
+export const RAW_SCHEME = 'iecode-raw';
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i;
+/** Visualizations, text lists, image pools, tasks and the visualization manager compare as their YAML summary (read-only), objects as ST. */
 const VIS_RE = SUMMARY_RE;
-const OWN_SCHEMES = ['iecode', REV_SCHEME, SRC_SCHEME];
+const VIEW_SCHEMES = ['iecode', REV_SCHEME, SRC_SCHEME];
+const OWN_SCHEMES = [...VIEW_SCHEMES, RAW_SCHEME];
 
 /** iecode-rev:/path/X.TcPOU?ref=<commit> shows the ST view of the file at that commit. */
 const revUri = (file: string, ref: string, label: string) =>
@@ -26,6 +29,32 @@ const srcUri = (src: vscode.Uri) => src.with({ scheme: SRC_SCHEME, query: new UR
 const stSide = (u: vscode.Uri) => (u.scheme === 'file' && !VIS_RE.test(u.path) ? viewUri(u.fsPath) : srcUri(u));
 /** Working copy side of a compare. */
 const workingSide = (file: string) => stSide(vscode.Uri.file(file));
+/** iecode-raw:/path/X.TcPOU?src=<uri> (or ?ref=<commit>) shows the unchanged file content, read-only. */
+const rawOfSrc = (src: vscode.Uri) => src.with({ scheme: RAW_SCHEME, query: new URLSearchParams({ src: src.toString() }).toString() });
+/** Raw content of a file at a commit, or of the working copy without a ref. */
+export const rawUri = (file: string, ref?: string) => (ref
+  ? vscode.Uri.file(file).with({ scheme: RAW_SCHEME, query: new URLSearchParams({ ref }).toString() })
+  : rawOfSrc(vscode.Uri.file(file)));
+/** Raw side of a diff side. iecode-rev and iecode-src keep their query, so the way back needs nothing else. */
+function rawSide(u: vscode.Uri): vscode.Uri {
+  if (u.scheme === REV_SCHEME || u.scheme === SRC_SCHEME) return u.with({ scheme: RAW_SCHEME });
+  return rawOfSrc(u.scheme === 'iecode' ? u.with({ scheme: 'file' }) : u);
+}
+/** ST / YAML side of a diff side. */
+function viewSide(u: vscode.Uri): vscode.Uri {
+  if (u.scheme !== RAW_SCHEME) return VIEW_SCHEMES.includes(u.scheme) ? u : stSide(u);
+  const src = new URLSearchParams(u.query).get('src');
+  return src ? stSide(vscode.Uri.parse(src)) : u.with({ scheme: REV_SCHEME });
+}
+
+/** Text of any readable URI. */
+async function readSrc(src: vscode.Uri): Promise<string> {
+  // workspace.fs reads the bytes as UTF-8 regardless of files.encoding; some schemes only have a
+  // content provider (e.g. git-graph: from the Git Graph extension), so fall back to a text document
+  return vscode.workspace.fs.readFile(src).then(
+    bytes => Buffer.from(bytes).toString('utf8'),
+    async () => (await vscode.workspace.openTextDocument(src)).getText());
+}
 
 function toView(xml: string, file: string): string {
   if (VIS_RE.test(file)) {
@@ -108,15 +137,32 @@ export function register(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
     async provideTextDocumentContent(uri) {
       const src = vscode.Uri.parse(new URLSearchParams(uri.query).get('src') ?? '');
-      // workspace.fs reads the bytes as UTF-8 regardless of files.encoding; some schemes only have a
-      // content provider (e.g. git-graph: from the Git Graph extension), so fall back to a text document
-      const xml = await vscode.workspace.fs.readFile(src).then(
-        bytes => Buffer.from(bytes).toString('utf8'),
-        async () => (await vscode.workspace.openTextDocument(src)).getText());
+      const xml = await readSrc(src);
       // git: returns empty content for a side where the file doesn't exist (added / deleted)
       return xml.trim() === '' ? '' : toView(xml, src.path);
     },
   }));
+
+  // Raw side of a diff. It is read-only, so the working copy side follows the file through the watcher.
+  const rawChanged = new vscode.EventEmitter<vscode.Uri>();
+  const rawWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,TcGTLO,TcIPO,TcGIPO,TcTTO,TcVMO,xti}');
+  const refreshRaw = (file: vscode.Uri) => {
+    for (const doc of vscode.workspace.textDocuments) {
+      if (doc.uri.scheme === RAW_SCHEME && new URLSearchParams(doc.uri.query).get('src') === file.toString()) rawChanged.fire(doc.uri);
+    }
+  };
+  ctx.subscriptions.push(rawChanged, rawWatcher, rawWatcher.onDidChange(refreshRaw), rawWatcher.onDidCreate(refreshRaw), rawWatcher.onDidDelete(refreshRaw),
+    vscode.workspace.registerTextDocumentContentProvider(RAW_SCHEME, {
+      onDidChange: rawChanged.event,
+      async provideTextDocumentContent(uri) {
+        const q = new URLSearchParams(uri.query);
+        const src = q.get('src');
+        // a side where the file doesn't exist (added / deleted) is empty, as in VS Code's own diffs
+        if (src) return readSrc(vscode.Uri.parse(src)).catch(() => '');
+        const root = await repoRoot(uri.fsPath);
+        return root ? await show(root, q.get('ref') ?? 'HEAD', uri.fsPath) ?? '' : '';
+      },
+    }));
 
   // Source Control view (and any other diff of two object files): show both sides as ST instead of XML.
   ctx.subscriptions.push(vscode.window.tabGroups.onDidChangeTabs(async e => {
@@ -147,6 +193,25 @@ export function register(ctx: vscode.ExtensionContext) {
     ctx.subscriptions.push(vscode.commands.registerCommand(id, async (arg?: unknown) => {
       try { await fn(arg); } catch (e) { vscode.window.showErrorMessage(`IECode: ${(e as Error).message}`); }
     }));
+
+  // Switch the diff in the active tab between the ST / YAML view and the raw file content.
+  const switchDiff = async (side: (u: vscode.Uri) => vscode.Uri, kind: (file: string) => string) => {
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    const input = tab?.input;
+    if (!tab || !(input instanceof vscode.TabInputTextDiff) || !EXT_RE.test(input.modified.path)) {
+      vscode.window.showInformationMessage('IECode: open the diff of a TwinCAT object first.');
+      return;
+    }
+    const same = (t: vscode.Tab) => t.input instanceof vscode.TabInputTextDiff
+      && t.input.original.toString() === input.original.toString() && t.input.modified.toString() === input.modified.toString();
+    await vscode.commands.executeCommand('vscode.diff', side(input.original), side(input.modified), withViewKind(tab.label, kind(input.modified.path)),
+      { viewColumn: tab.group.viewColumn, preview: tab.isPreview });
+    // unsaved ST edits stay in their tab: the raw side only shows what is saved
+    const still = tab.group.tabs.find(same);
+    if (still && !still.isDirty) await vscode.window.tabGroups.close(still);
+  };
+  reg('iecode.showRawDiff', () => switchDiff(rawSide, () => 'XML'));
+  reg('iecode.showViewDiff', () => switchDiff(viewSide, viewKind));
 
   const needRepo = async (file: string) => {
     const root = await repoRoot(file);
@@ -184,7 +249,7 @@ export function register(ctx: vscode.ExtensionContext) {
     const uri = argUri(arg) ?? vscode.window.activeTextEditor?.document.uri;
     if (uri && EXT_RE.test(uri.path)) return vscode.commands.executeCommand(st, uri);
     if (uri && /\.(tsproj|xti)$/i.test(uri.path)) return vscode.commands.executeCommand(io, uri);
-    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO), visualizations (.TcVIS), text lists (.TcGTLO), image pools (.TcIPO), the visualization manager (.TcVMO) and system project files (.tsproj, .xti).');
+    vscode.window.showInformationMessage('IECode: compare works on TwinCAT objects (.TcPOU, .TcDUT, .TcGVL, .TcIO), visualizations (.TcVIS), text lists (.TcGTLO), image pools (.TcIPO, .TcGIPO), tasks (.TcTTO), the visualization manager (.TcVMO) and system project files (.tsproj, .xti).');
   });
   scm('iecode.scmCompareWithHead', 'iecode.compareWithHead', 'iecode.ioLinksDiff');
   scm('iecode.scmCompareWithCommit', 'iecode.compareWithCommit', 'iecode.ioLinksDiffCommit');
@@ -199,7 +264,7 @@ export function register(ctx: vscode.ExtensionContext) {
     if (!file) return;
     let other = selected;
     if (!other) {
-      const pick = await vscode.window.showOpenDialog({ title: 'Compare with', filters: { 'TwinCAT objects': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO', 'TcVIS', 'TcGTLO', 'TcIPO', 'TcVMO'] } });
+      const pick = await vscode.window.showOpenDialog({ title: 'Compare with', filters: { 'TwinCAT objects': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO', 'TcVIS', 'TcGTLO', 'TcIPO', 'TcGIPO', 'TcTTO', 'TcVMO'] } });
       other = pick?.[0]?.fsPath;
     }
     if (!other) return;
@@ -228,7 +293,7 @@ export function register(ctx: vscode.ExtensionContext) {
     if (viewer) await config(root, 'difftool.iecode.cmd', `node "${cli}" difftool "${viewer.replace(/\\/g, '/')}" "$LOCAL" "$REMOTE"`);
     const attrs = path.join(root, '.gitattributes');
     const existing = await fs.readFile(attrs, 'utf8').catch(() => '');
-    const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO', '*.TcVIS', '*.TcGTLO', '*.TcIPO', '*.TcVMO'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
+    const wanted = ['*.TcPOU', '*.TcDUT', '*.TcGVL', '*.TcIO', '*.TcVIS', '*.TcGTLO', '*.TcIPO', '*.TcGIPO', '*.TcTTO', '*.TcVMO'].filter(p => !new RegExp(`^${p.replace('.', '\\.').replace('*', '\\*')}\\s.*diff=iecode`, 'm').test(existing));
     if (wanted.length) {
       const block = '# IECode: show TwinCAT objects as Structured Text in git diff\n' + wanted.map(p => `${p} diff=iecode`).join('\n') + '\n';
       const sep = existing === '' ? '' : existing.endsWith('\n') ? '\n' : '\n\n';

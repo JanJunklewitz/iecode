@@ -2,7 +2,7 @@
   "name": "iecode",
   "displayName": "IECode – Structured Text for TwinCAT",
   "description": "Structured Text for TwinCAT in VS Code: edit .TcPOU/.TcDUT/.TcGVL/.TcIO as plain ST, browse and extend PLC projects, workspaces with libraries and applications, view and edit .TcVIS visualizations, text lists (.TcGTLO), image pools (.TcIPO) and the visualization manager (.TcVMO), build and deploy with the iecode CLI.",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "publisher": "iecode",
   "icon": "resources/icon.png",
   "galleryBanner": {
@@ -51,10 +51,11 @@
     "onFileSystem:iecode",
     "onFileSystem:iecode-rev",
     "onFileSystem:iecode-src",
+    "onFileSystem:iecode-raw",
     "onFileSystem:iecode-io",
     "onFileSystem:iecode-config",
     "onFileSystem:iecode-lib",
-    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,TcGTLO,TcIPO,TcVMO,plcproj,tsproj,tspproj}"
+    "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,TcGTLO,TcIPO,TcGIPO,TcTTO,TcVMO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
     "languages": [
@@ -76,6 +77,7 @@
           ".TcVIS",
           ".TcGTLO",
           ".TcIPO",
+          ".TcGIPO",
           ".TcVMO",
           ".tmc"
         ]
@@ -111,13 +113,19 @@
       },
       {
         "viewType": "iecode.plcArchiveEditor",
-        "displayName": "IECode Text List / Image Pool / Visualization Manager Editor",
+        "displayName": "IECode Text List / Image Pool / Task / Visualization Manager Editor",
         "selector": [
           {
             "filenamePattern": "*.TcGTLO"
           },
           {
             "filenamePattern": "*.TcIPO"
+          },
+          {
+            "filenamePattern": "*.TcGIPO"
+          },
+          {
+            "filenamePattern": "*.TcTTO"
           },
           {
             "filenamePattern": "*.TcVMO"
@@ -152,6 +160,18 @@
         "command": "iecode.openAsXml",
         "title": "Open as XML",
         "category": "IECode"
+      },
+      {
+        "command": "iecode.showRawDiff",
+        "title": "Show Raw Changes (XML)",
+        "category": "IECode",
+        "icon": "$(code)"
+      },
+      {
+        "command": "iecode.showViewDiff",
+        "title": "Show Changes as ST / YAML",
+        "category": "IECode",
+        "icon": "$(symbol-structure)"
       },
       {
         "command": "iecode.autoResolveXml",
@@ -531,7 +551,7 @@
         },
         {
           "submenu": "iecode.compare",
-          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i",
+          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i",
           "group": "3_compare"
         },
         {
@@ -551,6 +571,16 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "iecode.showRawDiff",
+          "when": "isInDiffEditor && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^iecode(-rev|-src)?$/",
+          "group": "navigation@0"
+        },
+        {
+          "command": "iecode.showViewDiff",
+          "when": "isInDiffEditor && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^(?!iecode(-rev|-src)?$)/",
+          "group": "navigation@0"
+        },
         {
           "command": "iecode.openVisuEditor",
           "when": "resourceScheme == file && resourceExtname =~ /\\\\.TcVIS$/i && activeCustomEditorId != iecode.visuEditor"
@@ -919,6 +949,14 @@
       ],
       "commandPalette": [
         {
+          "command": "iecode.showRawDiff",
+          "when": "isInDiffEditor && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^iecode(-rev|-src)?$/"
+        },
+        {
+          "command": "iecode.showViewDiff",
+          "when": "isInDiffEditor && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^(?!iecode(-rev|-src)?$)/"
+        },
+        {
           "command": "iecode.aiAdd",
           "when": "resourceScheme == iecode || editorLangId == twincat-st"
         },
@@ -1084,7 +1122,7 @@
       "editor/title/context": [
         {
           "submenu": "iecode.compare",
-          "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i"
+          "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i"
         },
         {
           "command": "iecode.ioLinksDiff",

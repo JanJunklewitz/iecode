@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractLinks, diffLinks, linksToCsv, shortPath } from '../src/core/iolinks';
-import { diffLines, unifiedDiff } from '../src/core/textdiff';
+import { diffLines, unifiedDiff, withViewKind } from '../src/core/textdiff';
 
 const tsproj = (links: string) => `<?xml version="1.0"?>
 <TcSmProject TcSmVersion="1.0" TcVersion="3.1.4024.66">
@@ -73,4 +73,10 @@ test('line diff reproduces both inputs for random cases', () => {
     assert.deepEqual(ops.filter(o => o.op !== '+').map(o => o.text), a);
     assert.deepEqual(ops.filter(o => o.op !== '-').map(o => o.text), b);
   }
+});
+
+test('diff title follows the view kind', () => {
+  assert.equal(withViewKind('MAIN (ST): HEAD ↔ working copy', 'XML'), 'MAIN (XML): HEAD ↔ working copy');
+  assert.equal(withViewKind('MAIN (XML): HEAD ↔ working copy', 'YAML'), 'MAIN (YAML): HEAD ↔ working copy');
+  assert.equal(withViewKind('MAIN.TcPOU', 'XML'), 'MAIN.TcPOU (XML)');
 });

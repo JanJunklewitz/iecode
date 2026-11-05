@@ -1,4 +1,4 @@
-// Webview of the text list / image pool / visualization manager editor (see src/views/plcArchiveEditor.ts).
+// Webview of the text list / image pool / task / visualization manager editor (see src/views/plcArchiveEditor.ts).
 // Every editable value is one stored scalar: an edit sends { at, old, value } and the host splices it in.
 (function () {
   'use strict';
@@ -48,16 +48,16 @@
     app.append(toolbar());
     if (!model) { app.append(h('div', { class: 'empty' }, error || 'Loading…')); return; }
     const body = h('div', { class: 'body' });
-    body.append(model.kind === 'textlist' ? textList() : model.kind === 'imagepool' ? imagePool() : visuManager());
+    body.append(model.kind === 'textlist' ? textList() : model.kind === 'imagepool' ? imagePool() : model.kind === 'task' ? task() : visuManager());
     app.append(body);
     if (scroll !== undefined) body.scrollTop = scroll;
     renderStatus();
   }
 
-  const TITLES = { textlist: 'Text list', imagepool: 'Image pool', visumanager: 'Visualization manager' };
+  const TITLES = { textlist: 'Text list', imagepool: 'Image pool', task: 'Task', visumanager: 'Visualization manager' };
   function toolbar() {
-    const bar = h('div', { class: 'bar' }, h('b', {}, model ? `${TITLES[model.kind]} · ${model.name}` : file));
-    if (model) {
+    const bar = h('div', { class: 'bar' }, h('b', {}, model ? `${model.global ? 'Global image pool' : TITLES[model.kind]} · ${model.name}` : file));
+    if (model && model.kind !== 'task') {
       bar.append(h('input', { class: 'filter', type: 'search', value: filter,
         placeholder: model.kind === 'textlist' ? 'Filter: id, text, translation…' : model.kind === 'imagepool' ? 'Filter: id, file…' : 'Filter settings…',
         oninput: (ev) => { filter = ev.target.value; vscode.setState({ filter }); const pos = ev.target.selectionStart; render(); const f = document.querySelector('.filter'); f.focus(); f.setSelectionRange(pos, pos); } }));
@@ -71,7 +71,7 @@
   function renderStatus() {
     if (!statusEl) return;
     statusEl.className = 'status' + (error ? ' err' : '');
-    statusEl.textContent = error || (!model ? '' : model.kind === 'textlist' ? `${model.rows.length} texts · ${model.languages.length} languages`
+    statusEl.textContent = error || (!model || model.kind === 'task' ? '' : model.kind === 'textlist' ? `${model.rows.length} texts · ${model.languages.length} languages`
       : model.kind === 'imagepool' ? `${model.items.filter(i => i.id).length} images` : `${model.settings.filter(s => s.kind !== 'guid').length} settings`);
     if (error && !model) render();
   }
@@ -113,6 +113,19 @@
     return h('div', {}, items.length ? grid : h('div', { class: 'empty' }, 'No image matches the filter.'),
       empty ? h('div', { class: 'dim pad' }, `${empty} empty entr${empty === 1 ? 'y' : 'ies'} (TwinCAT keeps them for ids).`) : '',
       h('div', { class: 'dim pad' }, 'Visualizations refer to images by their ID; add, remove or rename images in TwinCAT.'));
+  }
+
+  // ---------- task ----------
+
+  function task() {
+    const row = (text, s, hint) => h('div', { class: 'prow' }, h('label', {}, text), h('span', {}, control(s), hint ? h('span', { class: 'dim' }, ' ' + hint) : ''));
+    const us = model.cycleTime ? Number(model.cycleTime.value) : NaN;
+    return h('div', { class: 'form' },
+      row('Cycle time (µs)', model.cycleTime, Number.isFinite(us) ? `= ${us / 1000} ms` : ''),
+      row('Priority', model.priority),
+      h('div', { class: 'sec' }, 'POU calls'),
+      model.calls.length ? model.calls.map((c, i) => row(`Call ${i + 1}`, c)) : h('div', { class: 'dim pad' }, 'This task calls no POU.'),
+      h('div', { class: 'dim pad' }, 'This is the task in the PLC project. The system project (.tsproj) has its own cycle time and priority for the task, and they can differ. Add or remove POU calls in TwinCAT.'));
   }
 
   // ---------- visualization manager ----------

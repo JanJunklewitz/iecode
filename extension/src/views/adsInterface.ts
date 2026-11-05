@@ -10,6 +10,7 @@ import { WorkspaceState } from '../state';
 import { PlcProject } from '../core/projects';
 import { AdsInterface, adsChangesToCsv, diffInterfaces, findTmc, fromBuild, fromFile, fromSourceAt, symbolsToCsv, toSnapshot, topLevel } from '../core/adsinterface';
 import { log, repoRoot } from '../core/git';
+import { textFilter } from '../core/textfilter';
 
 type Msg =
   | { type: 'ready' }
@@ -130,7 +131,7 @@ export function html(nonce: string, csp: string): string {
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0}
 .top{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--vscode-panel-border);flex-wrap:wrap}
 select,input{background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,transparent);padding:3px 6px;font:inherit;max-width:340px}
-#q{flex:1;min-width:140px}
+#q{flex:1;min-width:140px}#q.bad{border-color:var(--vscode-inputValidation-errorBorder,red)}
 button{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0;padding:4px 12px;cursor:pointer;font:inherit}
 button.s{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}
 .sum{padding:8px 14px;opacity:.8;font-size:12px}.warn{color:var(--vscode-editorWarning-foreground);opacity:1}
@@ -146,7 +147,8 @@ label{font-size:12px;opacity:.8}
 <div class="top">
   <label>PLC</label><select id="plc"></select>
   <label>Show</label><select id="show"></select><label>compared with</label><select id="cmp"></select>
-  <input id="q" placeholder="Filter (name, type, comment)">
+  <input id="q" placeholder="Filter (name, type, comment): all words must match" title="Words separated by spaces must all match, in any column. Turn on regex to use one regular expression instead.">
+  <label title="Treat the filter as one case-insensitive regular expression"><input type="checkbox" id="rx"> regex</label>
   <label><input type="checkbox" id="mem"> members</label>
   <button class="s" id="csv">Export CSV</button>
   <button class="s" id="snap" title="JSON snapshot for: iecode ads diff --against <file> --fail-on-change">Save snapshot</button>
@@ -155,6 +157,7 @@ label{font-size:12px;opacity:.8}
 <div id="out"><div class="empty">Loading…</div></div>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
+const textFilter = ${textFilter.toString()};
 const $ = id => document.getElementById(id);
 const e = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const size = b => b === undefined || b === null ? '' : b % 8 === 0 ? (b / 8) + ' B' : b + ' bit';
@@ -163,9 +166,10 @@ const PICK = '<option value="pick">Snapshot or .tmc file…</option>';
 function req(type) { const m = { type, plc: $('plc').value, show: $('show').value, compare: $('cmp').value, members: $('mem').checked }; if (m.plc) vscode.postMessage(m); }
 function render() {
   if (!R) return;
-  const q = $('q').value.toLowerCase();
-  const hit = (...xs) => !q || xs.some(x => (x ?? '').toLowerCase().includes(q));
-  const stale = R.stale ? '<span class="warn">⚠ Source files are newer than the build output – build again for the current interface. </span>' : '';
+  const { hit, error } = textFilter($('q').value, $('rx').checked);
+  $('q').classList.toggle('bad', !!error);
+  const stale = (error ? '<span class="warn">⚠ Filter ignored: ' + e(error) + '. </span>' : '')
+    + (R.stale ? '<span class="warn">⚠ Source files are newer than the build output – build again for the current interface. </span>' : '');
   const from = R.origin === 'build' ? 'from ' + e(R.file) : 'from the source code (no sizes; library types are not expanded)';
   if (R.mode === 'list') {
     const rows = R.symbols.filter(s => hit(s.name, s.type, s.comment));
@@ -213,7 +217,7 @@ window.addEventListener('message', ev => {
 $('plc').onchange = () => vscode.postMessage({ type: 'project', plc: $('plc').value });
 $('show').onchange = $('mem').onchange = () => req('load');
 $('cmp').onchange = () => { if ($('cmp').value === 'pick') vscode.postMessage({ type: 'pick', plc: $('plc').value }); else { cmpWas = $('cmp').value; req('load'); } };
-$('q').oninput = render;
+$('q').oninput = $('rx').onchange = render;
 $('csv').onclick = () => req('export');
 $('snap').onclick = () => req('snapshot');
 vscode.postMessage({ type: 'ready' });

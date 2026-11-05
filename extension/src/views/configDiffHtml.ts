@@ -36,6 +36,7 @@ a{color:var(--vscode-textLink-foreground)}
     <b id="file"></b>
     <label>Compare</label><select id="left"></select><label>with</label><select id="right"></select>
     <button id="yaml" title="Open both versions as YAML in the diff editor">Open as YAML</button>
+    <button id="raw" title="Open both versions as raw XML in the diff editor, with all changes and no filters">Open Raw XML</button>
     <button id="toggle">Expand / Collapse</button>
   </div>
   <div class="row2"><label>show:</label>
@@ -93,6 +94,7 @@ document.querySelectorAll('[data-filter]').forEach(b => b.onchange = () =>
   vscode.postMessage({ type: 'filter', hidden: [...document.querySelectorAll('[data-filter]')].filter(x => !x.checked).map(x => x.dataset.filter) }));
 $('left').onchange = $('right').onchange = () => req('load');
 $('yaml').onclick = () => req('yaml');
+$('raw').onclick = () => req('raw');
 $('toggle').onclick = () => { const d = [...document.querySelectorAll('#out details')]; const open = d.some(x => !x.open); d.forEach(x => x.open = open); };
 vscode.postMessage({ type: 'ready' });
 </script></body></html>`;

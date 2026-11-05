@@ -60,3 +60,8 @@ export function unifiedDiff(aText: string, bText: string, aName: string, bName: 
   }
   return out.join('\n') + '\n';
 }
+
+/** A diff title with the given view kind: "MAIN (ST): HEAD ↔ working copy" becomes "MAIN (XML): HEAD ↔ working copy". */
+export function withViewKind(title: string, kind: string): string {
+  return /\((ST|YAML|XML)\)/.test(title) ? title.replace(/\((ST|YAML|XML)\)/, `(${kind})`) : `${title} (${kind})`;
+}

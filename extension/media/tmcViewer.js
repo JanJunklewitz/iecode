@@ -5,7 +5,7 @@
   const PAGE = 500;
   const MAX_DEPTH = 8;
   const saved = vscode.getState() || {};
-  const ui = { tab: saved.tab || 'overview', symFilter: saved.symFilter || '', typeFilter: saved.typeFilter || '', area: saved.area || '', kind: saved.kind || '' };
+  const ui = { tab: saved.tab || 'overview', symFilter: saved.symFilter || '', typeFilter: saved.typeFilter || '', area: saved.area || '', kind: saved.kind || '', regex: !!saved.regex };
   let model = null, file = '', error = '';
   let limit = PAGE, hit = null;
   const open = new Set();   // expanded rows by path
@@ -36,7 +36,7 @@
     else if (m.type === 'error') { error = m.message; render(); }
   });
 
-  const remember = () => vscode.setState({ tab: ui.tab, symFilter: ui.symFilter, typeFilter: ui.typeFilter, area: ui.area, kind: ui.kind });
+  const remember = () => vscode.setState({ tab: ui.tab, symFilter: ui.symFilter, typeFilter: ui.typeFilter, area: ui.area, kind: ui.kind, regex: ui.regex });
 
   // ---------- formatting ----------
 
@@ -46,8 +46,23 @@
   const KINDS = { struct: 'Struct / FB', enum: 'Enum', array: 'Array', alias: 'Alias', other: 'Other' };
   const props = (p) => (p || []).map(x => x.value === undefined ? x.name : `${x.name} = ${x.value}`).join('\n') || undefined;
 
-  /** Every word of the filter occurs in one of the texts. */
+  /** Every word of the filter occurs in one of the texts; with regex on, the expression matches one of them. An invalid one hides nothing. */
   function matcher(filter) {
+    let error = '';
+    let test;
+    if (ui.regex && filter) {
+      try {
+        const re = new RegExp(filter, 'i');
+        test = (...texts) => texts.some(t => t && re.test(t));
+      } catch (e) {
+        error = e.message;
+        test = () => true;
+      }
+    }
+    if (filterEl) filterEl.classList.toggle('bad', !!error);
+    if (filterErrEl) filterErrEl.textContent = error ? `Filter ignored: ${error}` : '';
+    if (test) return test;
+    if (ui.regex) return () => true;
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
     return (...texts) => {
       if (!words.length) return true;
@@ -73,7 +88,7 @@
 
   // ---------- navigation ----------
 
-  const snapshot = () => ({ tab: ui.tab, symFilter: ui.symFilter, typeFilter: ui.typeFilter, area: ui.area, kind: ui.kind });
+  const snapshot = () => ({ tab: ui.tab, symFilter: ui.symFilter, typeFilter: ui.typeFilter, area: ui.area, kind: ui.kind, regex: ui.regex });
 
   function go(change) {
     back.push(snapshot());
@@ -94,7 +109,7 @@
     const t = model.types[ref];
     hit = `t${ref}`;
     open.add(hit);
-    go({ tab: 'types', typeFilter: t.name, kind: '' });
+    go({ tab: 'types', typeFilter: t.name, kind: '', regex: false });
   }
 
   const link = (attrs, text, action) => h('a', Object.assign({ role: 'link', tabindex: '0', onclick: action, onkeydown: (ev) => { if (ev.key === 'Enter') action(); } }, attrs), text);
@@ -115,15 +130,19 @@
   // ---------- toolbar ----------
 
   const app = document.getElementById('app');
-  let bodyEl, countEl;
+  let bodyEl, countEl, filterEl, filterErrEl;
   let debounce;
 
   function filterBox(key, placeholder) {
-    return h('input', { type: 'search', class: 'filter', placeholder, 'aria-label': placeholder, value: ui[key], oninput: (ev) => {
+    filterEl = h('input', { type: 'search', class: 'filter', placeholder, 'aria-label': placeholder, value: ui[key], oninput: (ev) => {
       ui[key] = ev.target.value;
       clearTimeout(debounce);
       debounce = setTimeout(() => { limit = PAGE; remember(); renderBody(); }, 120);
     } });
+    filterErrEl = h('span', { class: 'status err' });
+    const regex = h('input', { type: 'checkbox', onchange: (ev) => { ui.regex = ev.target.checked; limit = PAGE; remember(); renderBody(); } });
+    regex.checked = ui.regex;
+    return [filterEl, h('label', { class: 'regex', title: 'Treat the filter as one case-insensitive regular expression, tested on each column' }, regex, ' regex'), filterErrEl];
   }
 
   function select(key, label, options) {
@@ -138,14 +157,15 @@
   }
 
   function toolbar() {
+    filterEl = filterErrEl = undefined;
     const tab = (id, text) => h('button', { class: `tab${ui.tab === id ? ' on' : ''}`, 'aria-pressed': String(ui.tab === id), onclick: () => { ui.tab = id; limit = PAGE; remember(); render(); } }, text);
     const symbolCount = model ? model.modules.reduce((n, m) => n + m.areas.reduce((k, a) => k + a.symbols.length, 0), 0) : 0;
     const bar = h('div', { class: 'bar' }, h('b', {}, `Module class · ${file}`));
     if (model) {
       bar.append(h('div', { class: 'tabs' }, tab('overview', 'Overview'), tab('symbols', `Symbols (${symbolCount.toLocaleString()})`), tab('types', `Data types (${model.types.length.toLocaleString()})`)));
       if (back.length) bar.append(h('button', { title: 'Back to where you came from', onclick: goBack }, '← Back'));
-      if (ui.tab === 'symbols') bar.append(filterBox('symFilter', 'Filter by name, type or comment'), select('area', 'Data area', areaOptions()));
-      if (ui.tab === 'types') bar.append(filterBox('typeFilter', 'Filter by name, namespace or comment'),
+      if (ui.tab === 'symbols') bar.append(...filterBox('symFilter', 'Filter by name, type or comment'), select('area', 'Data area', areaOptions()));
+      if (ui.tab === 'types') bar.append(...filterBox('typeFilter', 'Filter by name, namespace or comment'),
         select('kind', 'Kind', [['', 'All kinds'], ...Object.entries(KINDS).filter(([k]) => model.types.some(t => t.kind === k))]));
     }
     countEl = h('span', { class: 'status' });

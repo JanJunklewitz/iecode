@@ -2,6 +2,23 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.10
+
+### Editor
+- **Show Raw Changes (XML)**: a button in the diff editor of `.TcPOU/.TcDUT/.TcGVL/.TcIO/.TcVIS/.TcGTLO/.TcIPO/.TcVMO` objects switches from the ST / YAML view to the raw file content and back (**Show Changes as ST / YAML**). The raw diff is read-only.
+
+### System project
+- **Config Changes**: **Open Raw XML** opens both selected versions of the `.xti` as raw XML in the diff editor.
+
+### Tasks and global image pools
+- **Tasks** (`.TcTTO`) open in a form: cycle time, priority and the names of the POU calls can be edited. Everything else in the file stays as it was. The system project (`.tsproj`) keeps its own cycle time and priority for the task, and they can differ. Adding or removing POU calls stays in TwinCAT.
+- **Global image pools** (`.TcGIPO`) open in the image pool editor and show in the IECode view with the image pool icon.
+- Both compare as YAML (HEAD, commits, Source Control, `git diff` / `iecode-st decode`), and can switch to raw XML in the diff editor. Run **Show ST in git diff** again to add them to an existing repository's `.gitattributes`.
+
+### Filters
+- **Module class viewer** (`.tmc`): a **regex** checkbox next to the filter of the symbols and data types treats it as one case-insensitive regular expression, tested on each column. Without it, words separated by spaces must all match. An invalid expression is reported and hides nothing.
+- **ADS Interface**: the filter accepts several words separated by spaces (all must match, in any column), or one regular expression with the new **regex** checkbox. An invalid expression is reported and hides nothing.
+
 ## 0.2.9
 
 ### Claude Code
