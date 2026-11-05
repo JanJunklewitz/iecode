@@ -63,11 +63,19 @@
   // ---------- filter bar ----------
   const hidden = { level: h('span', 'hiddenCount'), time: h('span', 'hiddenCount'), source: h('span', 'hiddenCount'), text: h('span', 'hiddenCount'), file: h('span', 'hiddenCount') };
 
+  /**
+   * Level and file toggles sent but not yet in a state: a state that answers an earlier click must not flip the
+   * buttons back, or the next click would start from the old setting. Cleared by the first state that shows them.
+   */
+  let pendingLevels = null;
+  let pendingFiles;
+
   const levelButtons = {};
   for (const level of LEVELS) {
     const b = button(level, `Show ${level} entries`, () => {
       setPressed(b, !pressed(b));
-      post({ type: 'filters', levels: LEVELS.filter(l => pressed(levelButtons[l])) });
+      pendingLevels = LEVELS.filter(l => pressed(levelButtons[l]));
+      post({ type: 'filters', levels: pendingLevels });
     }, `toggle levelToggle level-${level}`);
     levelButtons[level] = b;
   }
@@ -133,7 +141,8 @@
         const on = [];
         fileButtons.forEach((x, j) => { if (pressed(x)) on.push(j); });
         // null = every file, so the filter goes away instead of listing all of them.
-        post({ type: 'filters', files: on.length === fileButtons.length ? null : on });
+        pendingFiles = on.length === fileButtons.length ? null : on;
+        post({ type: 'filters', files: pendingFiles });
       }, `toggle fileToggle ${fileClass(i)}`);
       return b;
     });
@@ -285,6 +294,7 @@
           win = null;
           // Positions of another revision point at other rows; the selection is found again by its entry.
           selectedPos = null;
+          lastFound = null;
           note = '';
           if (newGeneration) {
             // Entry indices of the old file mean nothing in the new one.
@@ -315,6 +325,8 @@
         if (!requests.accept(m)) break;
         win = { pos: m.pos, count: m.rows.length, rows: m.rows };
         shownWin = null;
+        // Positions of this revision; a later reply without a find keeps the earlier answers.
+        if (m.find && m.find.length > 0) lastFound = { find: m.find, found: m.found };
         if (selectedPos !== null && selectedIndex === null) {
           // A jump target that was not loaded when it was selected.
           const r = rowAt(selectedPos);
@@ -348,11 +360,16 @@
       case 'stale':
         // The host sends the newer state right after; re-request now only if it is already here.
         requests.clear();
+        // A failed jump must not hold up the next one; a queued press is dropped with it.
+        jumpInFlight = false;
+        queuedJump = null;
         if (m.rev !== requests.rev) ensureWindow(true);
         break;
       case 'error':
-        // A failed rows request must not block the next one (the next scroll or resize asks again).
+        // A failed rows request must not block the next one (the next scroll or resize asks again), nor a failed jump.
         requests.clear();
+        jumpInFlight = false;
+        queuedJump = null;
         if (detail && detail.loading) {
           detail.loading = false;
           renderDetail();
@@ -383,8 +400,16 @@
   /** Toggles, counts and hidden numbers always follow the state; the text inputs only on the first state. */
   function syncControls() {
     const f = state.filters;
+    const sameList = (a, b) => a.length === b.length && a.every((x, k) => x === b[k]);
+    if (pendingLevels && sameList(pendingLevels, f.levels)) pendingLevels = null;
+    const levels = pendingLevels || f.levels;
+    // files: undefined in the state = every file (null in the message).
+    if (pendingFiles !== undefined && (pendingFiles === null ? !f.files : !!f.files && sameList(pendingFiles, f.files))) {
+      pendingFiles = undefined;
+    }
+    const files = pendingFiles !== undefined ? pendingFiles || undefined : f.files;
     for (const l of LEVELS) {
-      setPressed(levelButtons[l], f.levels.includes(l));
+      setPressed(levelButtons[l], levels.includes(l));
       levelButtons[l].textContent = `${l} ${(state.levelCounts[l] || 0).toLocaleString('en-US')}`;
     }
     for (const k of Object.keys(hidden)) hidden[k].textContent = hiddenLabel(state.hiddenBy[k] || 0);
@@ -393,7 +418,7 @@
     app.classList.toggle('multiFile', multi);
     fileField.hidden = !multi;
     if (multi && fileButtons.length !== state.files.length) buildFileToggles(state.files);
-    fileButtons.forEach((b, i) => setPressed(b, !f.files || f.files.includes(i)));
+    fileButtons.forEach((b, i) => setPressed(b, !files || files.includes(i)));
     openRaw.title = multi ? 'Open the files in the text editor' : 'Open this file in the text editor';
     exportButton.disabled = state.scanning < 1;
     // Merged views stay static.
@@ -438,11 +463,27 @@
   /** Row of the current revision at pos, or null. */
   const rowAt = (pos) => (win && pos >= win.pos && pos < win.pos + win.count ? win.rows[pos - win.pos] : null);
 
-  /** Row position of entry `index` in the received window, or null. */
+  /**
+   * Row position of entry `index`: from the host's answer in the last rows reply (it knows later group members too),
+   * else from the received window's first members; null when neither shows it.
+   */
+  let lastFound = null;
   function findPos(index) {
+    if (lastFound) {
+      const k = lastFound.find.indexOf(index);
+      if (k >= 0) return lastFound.found[k] >= 0 ? lastFound.found[k] : null;
+    }
     if (!win) return null;
     const k = win.rows.findIndex(r => r.index === index);
     return k < 0 ? null : win.pos + k;
+  }
+
+  /** Entries whose rows are not known in the current revision yet (selection, detail). */
+  function entriesToFind() {
+    const out = [];
+    if (selectedIndex !== null && selectedPos === null) out.push(selectedIndex);
+    if (detail && detail.index !== null && detail.rev !== requests.rev && !out.includes(detail.index)) out.push(detail.index);
+    return out;
   }
 
   function ensureWindow(force) {
@@ -450,7 +491,8 @@
     const w = nextWindow(currentRange(), rowCount(), win || undefined, requests.pending, force);
     if (!w) return;
     const q = requests.next(state.revision, w);
-    post({ type: 'rows', rev: q.rev, pos: w.pos, count: w.count, id: q.id });
+    const find = entriesToFind();
+    post({ type: 'rows', rev: q.rev, pos: w.pos, count: w.count, id: q.id, find: find.length > 0 ? find : undefined });
   }
 
   /**
@@ -469,7 +511,9 @@
   }
 
   function fillSlot(s, pos, row) {
-    const selected = row ? row.index === selectedIndex : pos === selectedPos;
+    // By position once it is known in this revision (a later group member is selected on its group's row); rows of
+    // the previous revision, drawn until the new ones arrive, by entry.
+    const selected = selectedPos !== null ? pos === selectedPos : !!row && row.index === selectedIndex;
     const sig = `${timeMode}|${selected}|${state ? state.viewFirstTimeMs : ''}`;
     if (s.pos === pos && s.row === row && s.sig === sig) return;
     s.pos = pos;
@@ -529,13 +573,29 @@
     rowsEl.style.height = `${Math.max(0, Math.min(count * ROW_HEIGHT, total - r.top))}px`;
   }
 
+  /**
+   * The entry under the pointer at mousedown. The slots are refilled in place, so a live update between mousedown and
+   * click can put another entry into the clicked slot; the click belongs to the entry that was pressed.
+   */
+  let pressedEntry = null;
+  rowsEl.addEventListener('mousedown', ev => {
+    const target = ev.target instanceof Element ? ev.target : null;
+    const el = target && target.closest('.row');
+    const row = el && !el.classList.contains('previous') ? rowAt(Number(el.dataset.pos)) : null;
+    pressedEntry = row && state ? { el, index: row.index, generation: state.fileGeneration } : null;
+  });
+
   rowsEl.addEventListener('click', ev => {
     const target = ev.target instanceof Element ? ev.target : null;
     const el = target && target.closest('.row');
-    if (!el || !state || el.classList.contains('previous')) return;
-    const pos = Number(el.dataset.pos);
-    if (!rowAt(pos)) return;
-    if (target.closest('.mark')) return toggleBookmark(pos);
+    const down = pressedEntry;
+    pressedEntry = null;
+    if (!el || !state || !down || down.el !== el || down.generation !== state.fileGeneration) return;
+    const now = el.classList.contains('previous') ? null : rowAt(Number(el.dataset.pos));
+    // Still the pressed entry: its position; else wherever the pressed entry is now (null when not loaded).
+    const pos = now && now.index === down.index ? Number(el.dataset.pos) : findPos(down.index);
+    if (target.closest('.mark')) return toggleBookmark(pos, down.index);
+    if (pos === null) return;
     // A drag that selected text is no row click.
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) return;
@@ -580,17 +640,19 @@
   }
 
   // ---------- selection, detail, navigation ----------
-  function select(pos, openDetail) {
+  /** index: the row's entry when the row is not loaded yet (a jump target), so a new revision can find it again. */
+  function select(pos, openDetail, index) {
     const row = rowAt(pos);
     selectedPos = pos;
-    selectedIndex = row ? row.index : null;
-    if (openDetail || !detailPane.hidden) showDetail(pos);
+    selectedIndex = row ? row.index : index !== undefined ? index : null;
+    if (openDetail || !detailPane.hidden) showDetail(pos, selectedIndex);
     render();
   }
 
-  function showDetail(pos) {
+  function showDetail(pos, index) {
     const row = rowAt(pos);
-    detail = { index: row ? row.index : null, rev: state.revision, pos, row, text: '', truncated: false, loading: true };
+    const entry = row ? row.index : index !== undefined ? index : null;
+    detail = { index: entry, rev: state.revision, pos, row, text: '', truncated: false, loading: true };
     detailPane.hidden = false;
     post({ type: 'detail', rev: state.revision, pos });
     renderDetail();
@@ -615,10 +677,13 @@
       detail.text = 'The view changed before the entry was read; select the row again.';
       return renderDetail();
     }
+    const before = detail.row;
     detail.rev = rev;
     detail.pos = pos;
     detail.row = rowAt(pos);
-    if (detail.loading) post({ type: 'detail', rev, pos });
+    // The live tail added lines to the shown entry: read its text again (the old text stays until the new one is in).
+    const grown = !!before && !!detail.row && detail.row.extraLines !== before.extraLines;
+    if (detail.loading || grown) post({ type: 'detail', rev, pos });
     renderDetail();
   }
 
@@ -648,17 +713,50 @@
     detailText.classList.toggle('loading', detail.loading);
   }
 
-  function toggleBookmark(pos) {
-    if (state) post({ type: 'bookmark', rev: state.revision, pos });
+  /**
+   * Bookmark and jump name the entry as well as the position: a live-tail commit can publish a newer revision before
+   * the host reads the message, and the entry index still finds the row then. pos may be null (selection not shown yet).
+   */
+  function toggleBookmark(pos, index) {
+    if (!state) return;
+    post({ type: 'bookmark', rev: state.revision, pos: pos === null ? -1 : pos, generation: state.fileGeneration, index });
   }
 
+  /**
+   * One jump at a time: a press while one is in flight (F8 held down) is kept and sent once the reply has moved the
+   * selection, so each press starts from the previous target instead of all landing on the same row.
+   */
+  let jumpInFlight = false;
+  let queuedJump = null;
+
   function jump(dir, what) {
+    if (jumpInFlight) {
+      queuedJump = { dir, what };
+      return;
+    }
+    jumpInFlight = true;
     lastJump = { dir, what };
     note = '';
-    post({ type: 'jump', rev: state.revision, from: navFrom(selectedPos, currentRange().first, dir), dir, what });
+    post({
+      type: 'jump', rev: state.revision, from: navFrom(selectedPos, currentRange().first, dir), dir, what,
+      generation: state.fileGeneration, index: selectedIndex === null ? undefined : selectedIndex,
+    });
+  }
+
+  /** The jump in flight got its answer (or failed): send the queued one. */
+  function jumpDone() {
+    jumpInFlight = false;
+    const q = queuedJump;
+    queuedJump = null;
+    if (q && state && rowCount() > 0) jump(q.dir, q.what);
   }
 
   function onJumped(m) {
+    handleJumped(m);
+    jumpDone();
+  }
+
+  function handleJumped(m) {
     if (!state || m.rev !== state.revision) return;
     if (m.pos < 0) {
       note = lastJump ? `No ${lastJump.dir > 0 ? 'next' : 'previous'} ${lastJump.what}` : '';
@@ -668,7 +766,7 @@
     note = '';
     renderStatus();
     scroller.scrollTop = centerScrollTop(m.pos, rowCount(), viewport());
-    select(m.pos, false);
+    select(m.pos, false, m.index);
     update();
   }
 
@@ -680,7 +778,10 @@
       case 'nextBookmark': return jump(1, 'bookmark');
       case 'previousBookmark': return jump(-1, 'bookmark');
       case 'toggleBookmark':
-        if (selectedPos !== null) return toggleBookmark(selectedPos);
+        if (selectedPos !== null || selectedIndex !== null) {
+          const row = selectedPos === null ? null : rowAt(selectedPos);
+          return toggleBookmark(selectedPos, selectedIndex !== null ? selectedIndex : row ? row.index : undefined);
+        }
         note = 'Select a row to bookmark it';
         return renderStatus();
     }

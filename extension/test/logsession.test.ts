@@ -1239,3 +1239,151 @@ test('an export is not affected by filters that change while it runs', async () 
     await s.dispose();
   }
 });
+
+test('a bookmark and a jump sent for the revision before a live commit act on the selected entry', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2), PUMP(3)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    const old = s.state().revision;
+    grow(p, [PUMP(4), VALVE(5)].join('\n') + '\n');
+    assert.equal(await s.refresh(), true);
+    assert.notEqual(s.currentRevision, old);
+    // Without the entry the old position cannot be trusted.
+    assert.throws(() => s.toggleBookmark(old, 1), StaleError);
+    assert.throws(() => s.jump(old, 1, 1, 'error'), StaleError);
+    s.toggleBookmark(old, 1, { generation: 0, index: 1 });
+    const rev = s.currentRevision;
+    assert.deepEqual((await s.rows(rev, 0, 5)).map(r => r.bookmarked), [false, true, false, false, false]);
+    assert.equal(s.jump(old, 1, 1, 'error', { generation: 0, index: 1 }), 4);
+    assert.equal(s.jump(old, 4, -1, 'bookmark', { generation: 0, index: 4 }), 1);
+    // No selection: the position of the older revision is used as is.
+    assert.equal(s.jump(old, -1, 1, 'error', { generation: 0 }), 4);
+    // An entry of another fileGeneration means nothing any more.
+    assert.throws(() => s.toggleBookmark(old, 1, { generation: 1, index: 1 }), StaleError);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a bookmark jump over many bookmarks and grouped rows finds the nearest row in both directions', async () => {
+  const lines: string[] = [];
+  for (let k = 1; k <= 60; k++) lines.push(k % 3 === 0 ? VALVE(k) : PUMP(k));
+  const s = await opened([tmpFile(lines.join('\n') + '\n')]);
+  try {
+    const rev = s.state().revision;
+    for (const pos of [5, 20, 40]) s.toggleBookmark(rev, pos);
+    assert.equal(s.jump(rev, -1, 1, 'bookmark'), 5);
+    assert.equal(s.jump(rev, 5, 1, 'bookmark'), 20);
+    assert.equal(s.jump(rev, 21, -1, 'bookmark'), 20);
+    assert.equal(s.jump(rev, 40, 1, 'bookmark'), -1);
+    assert.equal(s.jump(rev, 60, -1, 'bookmark'), 40);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('live commits extend the view exactly like a full rebuild, with grouping and every filter', async () => {
+  const CYCLE = (seq: number) => entry(seq, seq * 100, 'INFO', 'fbMain.fbPump', 'Pump cycle');
+  const lines = [PUMP(1), CYCLE(2), CYCLE(3), VALVE(4), CYCLE(5)];
+  const p = tmpFile(lines.join('\n') + '\n');
+  const opts = { groupRepeats: true, gapMs: 1000 };
+  const filters = {
+    levels: ['error', 'info'] as ('error' | 'info')[], from: T0 + 200, source: 'fbpump',
+    text: { query: 'pump|valve', regex: true, caseSensitive: false },
+  };
+  const s = await opened([p], opts);
+  try {
+    await s.setFilters(filters);
+    const steps = [
+      [CYCLE(6), CYCLE(7)],
+      ['  pump detail of 7'],
+      [entry(8, 800, 'DEBUG', 'fbMain.fbPump', 'Pump debug'), CYCLE(9), CYCLE(10)],
+      [entry(11, 1100, 'INFO', 'fbMain.other', 'Other'), VALVE(12), CYCLE(13)],
+      ['  more detail'],
+    ];
+    for (const add of steps) {
+      grow(p, add.join('\n') + '\n');
+      assert.equal(await s.refresh(), true);
+      const fresh = await opened([p], opts);
+      try {
+        await fresh.setFilters(filters);
+        const a = s.state();
+        const b = fresh.state();
+        for (const k of ['total', 'matched', 'rowCount', 'hiddenBy', 'levelCounts', 'viewFirstTimeMs'] as const) {
+          assert.deepEqual(a[k], b[k], `${k} after ${add[0]}`);
+        }
+        const strip = (rows: Awaited<ReturnType<LogSession['rows']>>) => rows.map(r => [r.index, r.repeat, r.message, r.extraLines]);
+        assert.deepEqual(strip(await s.rows(a.revision, 0, 50)), strip(await fresh.rows(b.revision, 0, 50)));
+      } finally {
+        await fresh.dispose();
+      }
+    }
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a text query change aborts a live-tail search stuck on a catastrophic regex; the tail commits for the new query', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ text: { query: '(a+)+$', regex: true, caseSensitive: false } });
+    grow(p, [entry(3, 300, 'INFO', 'fbMain.x', 'a'.repeat(5000) + '!'), PUMP(4)].join('\n') + '\n');
+    const refresh = s.refresh();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await s.setFilters({ text: { query: 'pump cycle', regex: false, caseSensitive: false } });
+    assert.equal(await refresh, true);
+    const st = s.state();
+    assert.equal(st.total, 4);
+    assert.equal(st.filters.text?.query, 'pump cycle');
+    assert.deepEqual((await s.rows(st.revision, 0, 10)).map(r => r.seq), [1, 2, 4]);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('turning live off ends a refresh stuck in its tail search without a commit', async () => {
+  const p = tmpFile([PUMP(1)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    await s.setFilters({ text: { query: '(a+)+$', regex: true, caseSensitive: false } });
+    s.setLive(true);
+    grow(p, entry(2, 200, 'INFO', 'fbMain.x', 'a'.repeat(5000) + '!') + '\n');
+    const refresh = s.refresh();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    s.setLive(false);
+    assert.equal(await refresh, false);
+    assert.equal(s.state().total, 1);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('a half-written first line keeps the format a guess; the completed line settles it', async () => {
+  const first = PUMP(1);
+  const p = tmpFile(first.slice(0, 20));
+  const s = await opened([p]);
+  try {
+    assert.deepEqual(s.state().formats, ['plain']);
+    grow(p, first.slice(20) + '\n' + PUMP(2) + '\n');
+    assert.equal(await s.refresh(), true);
+    const st = s.state();
+    assert.deepEqual(st.formats, ['twincat-logger']);
+    assert.deepEqual((await s.rows(st.revision, 0, 5)).map(r => r.message), ['Pump cycle 1', 'Pump cycle 2']);
+  } finally {
+    await s.dispose();
+  }
+});
+
+test('findRows names the group row of a later member; rowIndex gives a row its first member', async () => {
+  const s = await opened([tmpFile(repeats())], { groupRepeats: true, gapMs: 1000 });
+  try {
+    const rev = s.state().revision;
+    assert.deepEqual(s.findRows(rev, [0, 3, 4, 99, -1]), [0, 3, 3, -1, -1]);
+    assert.equal(s.rowIndex(3), 3);
+    assert.equal(s.rowIndex(4), undefined);
+    assert.throws(() => s.findRows(rev - 1, [0]), StaleError);
+  } finally {
+    await s.dispose();
+  }
+});
