@@ -15,5 +15,12 @@ sh scripts/conflict-repo.sh "$TMP/conflict" > /dev/null
 echo 'conflict/' >> "$TMP/.git/info/exclude"
 # shells started from VS Code set this and Code.exe then fails with "bad option"
 unset ELECTRON_RUN_AS_NODE
+# Code exits non-zero when a test fails, but its last log line can still read "exited with code: 0".
+# The exit code of this script is the result; through a pipe, use "set -o pipefail" or look for E2E OK / E2E FAILED.
+status=0
 "$CODE" --user-data-dir "$TMP/.ud" --extensions-dir "$TMP/.ext" --disable-workspace-trust --skip-welcome --new-window \
-  --extensionDevelopmentPath="$PWD" --extensionTestsPath="$PWD/out/test/e2e/index.js" "$TMP"
+  --extensionDevelopmentPath="$PWD" --extensionTestsPath="$PWD/out/test/e2e/index.js" "$TMP" || status=$?
+if [ "$status" -ne 0 ]; then
+  echo "E2E FAILED (Code exit code $status)" >&2
+  exit "$status"
+fi

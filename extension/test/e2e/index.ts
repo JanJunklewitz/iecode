@@ -64,18 +64,22 @@ export async function run(): Promise<void> {
 
   // a diff from the Source Control view (git: ↔ file:) is replaced by the ST diff
   // the git extension opens the repository some time after start (slower on Windows); wait for it and for the redirect
-  const until = async <T>(get: () => T | undefined, ms = 15000): Promise<T | undefined> => {
-    for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 250))) { const v = get(); if (v) return v; }
+  const until = async <T>(get: () => T | undefined | Promise<T | undefined>, ms = 15000): Promise<T | undefined> => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 250))) { const v = await get(); if (v) return v; }
     return undefined;
   };
   const stDiff = () => until(() => {
     const t = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
     return t instanceof vscode.TabInputTextDiff && t.original.scheme === 'iecode-src' ? t : undefined;
   });
-  type GitApi = { repositories: { state: { workingTreeChanges: { uri: vscode.Uri }[] } }[]; toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
+  type GitApi = { repositories: { status(): Promise<void>; state: { workingTreeChanges: { uri: vscode.Uri }[] } }[]; toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
   const gitApi = (await vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')!.activate()).getAPI(1);
   // the nested conflict repo may be detected too, so search all repositories
-  const change = await until(() => gitApi.repositories.flatMap(r => r.state.workingTreeChanges).find(c => c.uri.path.endsWith('/FB_Motor.TcPOU')));
+  // the git extension only refreshes after a file change while its window has focus, and this window may be behind another app: ask for the status
+  const change = await until(async () => {
+    await Promise.all(gitApi.repositories.map(r => r.status()));
+    return gitApi.repositories.flatMap(r => r.state.workingTreeChanges).find(c => c.uri.path.endsWith('/FB_Motor.TcPOU'));
+  });
   assert.ok(change, 'git sees the changed file');
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   // what clicking the file in the Source Control view opens (git.openChange finds no resource on Windows: c: vs C:)
