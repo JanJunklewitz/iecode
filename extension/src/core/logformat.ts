@@ -20,6 +20,11 @@ export interface LogFormat {
   time?: { re: RegExp; order: string[] };
   /** def.levels with lower-cased keys, built once by compileFormat for the scan hot path. */
   levelMap?: Map<string, Level>;
+  /**
+   * The built-in plain format (by content, not by id: a user format with the id 'plain' replaces it and keeps its own
+   * levels; the content also survives the copy into the search worker): the level is a keyword of the message.
+   */
+  keywordLevels?: boolean;
 }
 
 export interface ParsedLine {
@@ -76,6 +81,13 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&');
 }
 
+const BUILT_IN_PLAIN = BUILT_IN_FORMATS[2];
+
+function isBuiltInPlain(def: LogFormatDef): boolean {
+  return def.id === BUILT_IN_PLAIN.id && def.entry === BUILT_IN_PLAIN.entry && def.levels === undefined &&
+    def.timeFormat === undefined && def.ignore === undefined;
+}
+
 function compileTime(timeFormat: string): { re: RegExp; order: string[] } {
   const order: string[] = [];
   let src = '';
@@ -103,6 +115,7 @@ export function compileFormat(def: LogFormatDef): LogFormat {
     throw new LogFormatError(`The entry regex of log format '${def.id}' needs a (?<message>...) group`);
   }
   const f: LogFormat = { def, entry };
+  if (isBuiltInPlain(def)) f.keywordLevels = true;
   if (def.ignore) f.ignore = make(def.ignore, 'ignore');
   if (def.levels) {
     if (typeof def.levels !== 'object') throw new LogFormatError(`The levels of log format '${def.id}' must be an object`);
@@ -153,17 +166,23 @@ export function parseFilterTime(text: string): number {
   return utc(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), m[6] ? Number(m[6]) : 0, 0);
 }
 
-/** Text of a time filter input: {} when empty (open end), {ms} when valid, {error} for the webview otherwise. */
-export function parseFilterTimeInput(text: string): { ms?: number; error?: string } {
+/**
+ * Text of a time filter input: {} when empty (open end), {ms} when valid, {error} for the webview otherwise. An upper
+ * bound (`end`) covers the whole second (or minute, without seconds) it names: 'To 10:00:05' keeps 10:00:05.456.
+ */
+export function parseFilterTimeInput(text: string, end = false): { ms?: number; error?: string } {
   if (text.trim() === '') return {};
   const ms = parseFilterTime(text);
-  return Number.isNaN(ms) ? { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' } : { ms };
+  if (Number.isNaN(ms)) return { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' };
+  if (!end) return { ms };
+  const withSeconds = /:\d{2}:\d{2}$/.test(text.trim());
+  return { ms: ms + (withSeconds ? 999 : 59_999) };
 }
 
 export type LineKind = { kind: 'entry'; entry: ParsedLine } | { kind: 'continuation' } | { kind: 'ignored' };
 
 function mapLevel(f: LogFormat, levelText: string, message: string): Level {
-  if (f.def.id === 'plain') {
+  if (f.keywordLevels) {
     const m = PLAIN_LEVEL.exec(message);
     if (!m) return 'other';
     const w = m[1].toLowerCase();
@@ -197,7 +216,10 @@ export function parseLine(f: LogFormat, line: string): LineKind {
 const SAMPLE_LINES = 200;
 const MIN_RATIO = 0.3;
 
-/** Picks the format that matches most sampled lines (at least 30 %); falls back to 'plain'. Never throws. */
+/**
+ * Picks the format that matches most sampled lines (at least 30 %); falls back to 'plain' (a user format with that id
+ * replaces the built-in one and also takes part in the detection). Never throws.
+ */
 export function detectFormat(lines: string[], formats: LogFormat[]): LogFormat {
   return detectFormatInfo(lines, formats).format;
 }
@@ -208,13 +230,14 @@ export function detectFormat(lines: string[], formats: LogFormat[]): LogFormat {
  * file falls back to 'plain'. A tentative choice is made again once the file has grown.
  */
 export function detectFormatInfo(lines: string[], formats: LogFormat[]): { format: LogFormat; tentative: boolean } {
-  const fallback = formats.find(f => f.def.id === 'plain') ?? compileFormat(BUILT_IN_FORMATS[2]);
+  const fallback = formats.find(f => f.def.id === 'plain') ?? compileFormat(BUILT_IN_PLAIN);
   let best: LogFormat | undefined;
   let bestRatio = 0;
   let ignoring: LogFormat | undefined;
   let mostIgnored = 0;
   for (const f of formats) {
-    if (f.def.id === 'plain') continue;
+    // The built-in plain format takes every non-blank line; it is only the fallback.
+    if (f.keywordLevels) continue;
     let sampled = 0;
     let hits = 0;
     let ignored = 0;
