@@ -193,7 +193,7 @@ internal static class TargetCommands
         public IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> ReadWatched() => throw new AdsFault(error, null, true);
         public bool SymbolVersionChanged() => false;
         public (string Type, string Value) ReadOnce(string symbol) => throw new AdsFault(error, null, true);
-        public string Write(string symbol, string text) => throw new AdsFault(error, null, true);
+        public (string? Value, string? ReadBackError) Write(string symbol, string text) => throw new AdsFault(error, null, true);
         public void Dispose() { }
     }
 

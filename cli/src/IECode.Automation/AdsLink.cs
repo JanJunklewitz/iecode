@@ -102,7 +102,20 @@ internal sealed class BeckhoffLink(Core.AmsNetId target, int port) : IAdsLink
         public string BaseType { get; } = "";
         public IReadOnlyDictionary<long, string>? Members { get; }
         public object? Read() => Value.ReadValue();
-        public void Write(string text) => Value.WriteValue(AdsValues.ParseForWrite(Value.DataType, text));
+        public void Write(string text)
+        {
+            object parsed;
+            try
+            {
+                parsed = AdsValues.ParseForWrite(Value.DataType, text);
+            }
+            catch (Core.IECodeException e)
+            {
+                // Nothing was sent: the text does not fit the type.
+                throw new Core.Ads.WriteNotSentException(e.Message, e);
+            }
+            Value.WriteValue(parsed);
+        }
     }
 
     private sealed class SumReader(SumSymbolRead sum) : ISymbolRead

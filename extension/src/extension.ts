@@ -27,6 +27,11 @@ import { registerTmcViewer } from './views/tmcViewer';
 import { registerAdsWatch } from './views/adsWatch';
 import { showAdsScope } from './views/adsScope';
 import { registerAdsLmTools } from './ads/lmTools';
+import { adsWriteGate } from './ads/adsWrite';
+import { AdsHost } from './ads/host';
+import { AdsMcpServer } from './ads/mcpServer';
+import { registerClaudeConnect } from './ads/claudeConnect';
+import { CLAUDE_TOOL_TIMEOUT_MS, gatePolicyFor } from './core/mcpTools';
 import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
 
@@ -123,8 +128,18 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerAiChat(ctx);
   registerPlcArchiveEditor(ctx);
   registerTmcViewer(ctx);
-  registerAdsWatch(ctx, state);
-  registerAdsLmTools(ctx, state);
+  // one gate per window: every AI write (Copilot and MCP) queues here and is bound to the confirmed target. The deadlines end
+  // before Claude Code gives up on a call (it waited at least 300 s in the spike); no room for a dialog refuses every AI write.
+  const policy = gatePolicyFor(CLAUDE_TOOL_TIMEOUT_MS) ?? { dialogMs: 0, operationMs: 0, maxQueued: 0 };
+  const writeGate = adsWriteGate(AdsHost.get(ctx), () => vscode.workspace.name ?? 'no workspace', policy);
+  ctx.subscriptions.push({ dispose: () => writeGate.dispose() });
+  // serves this window's ADS tools to Claude Code (`iecode mcp` bridge) while the user-level Connect marker exists
+  const mcpServer = new AdsMcpServer(ctx, state, writeGate);
+  ctx.subscriptions.push(mcpServer);
+  mcpServer.init();
+  registerClaudeConnect(ctx, mcpServer);
+  registerAdsWatch(ctx, state, mcpServer);
+  registerAdsLmTools(ctx, state, writeGate);
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsScope', () => showAdsScope(ctx)));
   // tree node; a .tsproj / .xti Uri (explorer) or resource state (Source Control)
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.ioLinks', async (n?: Node | vscode.Uri | vscode.SourceControlResourceState) => {

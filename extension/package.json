@@ -54,9 +54,6 @@
     "onFileSystem:iecode-io",
     "onFileSystem:iecode-config",
     "onFileSystem:iecode-lib",
-    "onCustomEditor:iecode.visuEditor",
-    "onCustomEditor:iecode.plcArchiveEditor",
-    "onCustomEditor:iecode.tmcViewer",
     "workspaceContains:**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcVIS,TcGTLO,TcIPO,TcVMO,plcproj,tsproj,tspproj}"
   ],
   "contributes": {
@@ -493,6 +490,16 @@
         "title": "Set AI Write Access…",
         "category": "IECode",
         "icon": "$(shield)"
+      },
+      {
+        "command": "iecode.mcpConnect",
+        "title": "Connect Claude Code",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.mcpDisconnect",
+        "title": "Disconnect Claude Code",
+        "category": "IECode"
       }
     ],
     "menus": {
@@ -716,6 +723,16 @@
           "command": "iecode.adsAiWrites",
           "when": "view == iecode.adsWatch",
           "group": "ai@2"
+        },
+        {
+          "command": "iecode.mcpConnect",
+          "when": "view == iecode.adsWatch && isWindows && !remoteName",
+          "group": "ai@3"
+        },
+        {
+          "command": "iecode.mcpDisconnect",
+          "when": "view == iecode.adsWatch && isWindows && !remoteName",
+          "group": "ai@4"
         }
       ],
       "view/item/context": [
@@ -1032,6 +1049,14 @@
         {
           "command": "iecode.adsAiWrites",
           "when": "isWindows"
+        },
+        {
+          "command": "iecode.mcpConnect",
+          "when": "isWindows && !remoteName"
+        },
+        {
+          "command": "iecode.mcpDisconnect",
+          "when": "isWindows && !remoteName"
         }
       ],
       "iecode.compare": [
@@ -1297,12 +1322,12 @@
           ],
           "enumDescriptions": [
             "AI tools cannot write PLC variables.",
-            "You confirm each AI write in the chat. This relies on you not choosing \"Always Allow\" for the adsWrite tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
+            "You confirm each AI write. Claude Code writes always show IECode's own dialog. In Copilot Chat this relies on you not choosing \"Always Allow\" for the ADS Write tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
             "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\"."
           ],
           "default": "off",
           "scope": "application",
-          "markdownDescription": "Whether AI tools in GitHub Copilot Chat (agent mode) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
+          "markdownDescription": "Whether AI tools (GitHub Copilot Chat in agent mode, Claude Code) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
         }
       }
     },
@@ -1368,6 +1393,7 @@
           "properties": {
             "filter": {
               "type": "string",
+              "maxLength": 512,
               "description": "Part of the ADS name to search for, e.g. \"MAIN.\" or \"nCounter\"; empty lists the first 100."
             }
           },
@@ -1381,7 +1407,7 @@
         "toolReferenceName": "adsWatch",
         "displayName": "ADS Watch",
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
-        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for adsRead and adsScope. Returns the resulting list with types and per-symbol errors. Entries you add are marked as added by AI; you can only remove those, not the ones the user added. Watch a variable before asking for its history.",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns the resulting list with types and per-symbol errors. Entries you add are marked as added by AI; you can only remove those, not the ones the user added. Watch a variable before asking for its history.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1393,12 +1419,14 @@
           "properties": {
             "add": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "ADS names to watch, e.g. MAIN.nCounter."
             },
             "remove": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "ADS names to stop watching (only entries added by AI)."
             }
           }
@@ -1421,7 +1449,8 @@
           "properties": {
             "symbols": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "ADS names to read; default all watched symbols."
             }
           }
@@ -1432,7 +1461,7 @@
         "toolReferenceName": "adsScope",
         "displayName": "ADS Scope",
         "userDescription": "Summarize how watched PLC variables changed over the last seconds.",
-        "modelDescription": "Returns min, max, last value and sample count per watched ADS symbol over the last seconds (default 60), plus a tab-separated table of at most 200 rows (time in seconds relative to the newest sample). Only watched symbols have a history: add them with adsWatch first and wait for samples.",
+        "modelDescription": "Returns min, max, last value and sample count per watched ADS symbol over the last seconds (default 60), plus a tab-separated table of at most 200 rows (time in seconds relative to the newest sample). Only watched symbols have a history: add them with the watch tool first and wait for samples.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1444,7 +1473,8 @@
           "properties": {
             "symbols": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "maxLength": 512 },
+              "maxItems": 200,
               "description": "Watched ADS names; default all watched symbols."
             },
             "seconds": {
@@ -1459,7 +1489,7 @@
         "toolReferenceName": "adsWrite",
         "displayName": "ADS Write",
         "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
-        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write (unless the user chose Always Allow for this tool), auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
+        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1471,10 +1501,12 @@
           "properties": {
             "symbol": {
               "type": "string",
+              "maxLength": 512,
               "description": "ADS name, e.g. MAIN.bStart."
             },
             "value": {
               "type": "string",
+              "maxLength": 4096,
               "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
             }
           },

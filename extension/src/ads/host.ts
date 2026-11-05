@@ -4,7 +4,8 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import { HostMessage, PROTOCOL, PendingRequests, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError } from '../core/adswatch';
+import { HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
+import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -32,6 +33,11 @@ export class StartError extends Error {
   constructor(message: string, readonly action?: 'install' | 'settings', readonly setting = 'iecode.ads') { super(message); }
 }
 
+export { WriteNotSent, WriteOutcomeUnknown };
+
+/** What `AdsHost.write` returns when the write went through; `value` is null when only the read-back failed. */
+export interface HostWriteResult { value: string | null; readBackError?: string }
+
 export class AdsHost implements vscode.Disposable {
   private static instance: AdsHost | undefined;
 
@@ -53,6 +59,8 @@ export class AdsHost implements vscode.Disposable {
   readonly buffer: ScopeBuffer;
 
   private proc: ChildProcessWithoutNullStreams | undefined;
+  /** "<target>:<port>" the running child was started with; a write must go to a child started for the confirmed target. */
+  private procKey: string | undefined;
   private ready: Promise<void> | undefined;
   private pending = new PendingRequests();
   private nextId = 1;
@@ -75,7 +83,15 @@ export class AdsHost implements vscode.Disposable {
     this.intervalMs = s.intervalMs;
     this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
     this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port') || e.affectsConfiguration('iecode.cliPath')) {
+      const targetChanged = e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port');
+      if (targetChanged) {
+        // samples and read-back values of the old target must not be shown under the new one, also while no host runs
+        this.buffer.clear();
+        this.written.clear();
+        this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
+        this.itemsChanged.fire();
+      }
+      if (targetChanged || e.affectsConfiguration('iecode.cliPath')) {
         this.failure = undefined;
         if (this.proc) this.restart();
         else if (this.leases > 0) void this.ensure().catch(() => undefined);
@@ -91,6 +107,12 @@ export class AdsHost implements vscode.Disposable {
     return { intervalMs: clampInterval(s.intervalMs), bufferSeconds: clampBufferSeconds(s.bufferSeconds) };
   }
 
+  /** "<target>:<port>" of the current settings; an approved write is bound to it. */
+  targetKey(): string {
+    const s = settings();
+    return `${s.target}:${s.port}`;
+  }
+
   /** The configured target as shown to the user (write confirmations). */
   target(): string {
     const s = settings();
@@ -104,6 +126,14 @@ export class AdsHost implements vscode.Disposable {
   /** Last value text of a watched symbol (after a write: the value read back until the next sample). */
   value(symbol: string): string | null | undefined {
     return this.written.get(symbol.toLowerCase()) ?? this.buffer.latest(symbol)?.value;
+  }
+
+  /** Like value(), with the sample time; a value read back by a write has no time. */
+  valueAt(symbol: string): { value: string | null; t?: number } | undefined {
+    const w = this.written.get(symbol.toLowerCase());
+    if (w !== undefined) return { value: w };
+    const l = this.buffer.latest(symbol);
+    return l ? { value: l.value, t: l.t } : undefined;
   }
 
   watched(): string[] {
@@ -156,20 +186,45 @@ export class AdsHost implements vscode.Disposable {
     });
   }
 
-  /** Writes without asking: every caller confirms first (UI: always, C0; LM tools: per iecode.ads.aiWrites). */
-  async write(symbol: string, value: string): Promise<string> {
+  /**
+   * Writes without asking: every caller confirms first (UI: always, C0; AI tools: through the write gate).
+   * `beforeSend` runs right before the request is written, with no await in between; a returned string refuses the
+   * write. Failures are `WriteNotSent` (nothing was sent) or `WriteOutcomeUnknown`; a failed read-back is a result.
+   */
+  async write(symbol: string, value: string, beforeSend?: () => string | undefined): Promise<HostWriteResult> {
     return this.leased(async () => {
-      await this.ensure(true);
       try {
-        const data = await this.request({ op: 'write', symbol, value }) as { symbol: string; value: string };
-        this.written.set(symbol.trim().toLowerCase(), data.value);
-        this.itemsChanged.fire();
-        return data.value;
+        await this.ensure(true);
       } catch (e) {
-        this.written.delete(symbol.trim().toLowerCase());
-        if (this.timedOut(e)) throw new Error(`Write of ${symbol} timed out; the value may or may not have been written`);
-        throw e;
+        throw new WriteNotSent((e as Error).message, e instanceof StartError);
       }
+      const key = symbol.trim().toLowerCase();
+      // From here to the write there is no await: the guard, the child it checks and the write see the same state.
+      const child = this.proc;
+      if (!child) throw new WriteNotSent('The ADS host is not running.');
+      if (this.procKey !== this.targetKey()) throw new WriteNotSent('The ADS host runs for another target than the settings name; try again.');
+      const refused = beforeSend?.();
+      if (refused) throw new WriteNotSent(refused);
+      const reply = this.send(child, { op: 'write', symbol, value });
+      let data: unknown;
+      try {
+        data = await reply;
+      } catch (e) {
+        this.written.delete(key);
+        const failed = writeStage({ error: e });
+        if (failed.kind === 'notSent') throw new WriteNotSent(failed.reason);
+        const reason = e instanceof RequestTimeout ? `Write of ${symbol} timed out` : failed.kind === 'unknown' ? failed.reason.replace(/\.$/, '') : '';
+        throw new WriteOutcomeUnknown(`${reason}; the value may or may not have been written`);
+      }
+      const done = writeStage({ data });
+      if (done.kind !== 'written') throw new WriteOutcomeUnknown(`Unexpected reply to the write of ${symbol}; the value may or may not have been written`);
+      if (done.value === null) {
+        this.written.delete(key);
+      } else {
+        this.written.set(key, done.value);
+        this.itemsChanged.fire();
+      }
+      return { value: done.value, readBackError: done.readBackError };
     });
   }
 
@@ -219,11 +274,6 @@ export class AdsHost implements vscode.Disposable {
     try { return await fn(); } finally { this.release(); }
   }
 
-  private timedOut(e: unknown): boolean {
-    // PendingRequests' timeout text; any other rejection carries the host's error
-    return e instanceof Error && e.message.startsWith('No reply from the ADS host');
-  }
-
   /** Starts the host if needed and resolves on its hello. `byUser`: retry after a failed start and show errors. */
   private ensure(byUser = false): Promise<void> {
     if (this.ready) return this.ready;
@@ -265,6 +315,7 @@ export class AdsHost implements vscode.Disposable {
     const started = Date.now();
     const child = spawn(custom ?? 'iecode', args, { env: { ...process.env, NO_COLOR: '1' }, windowsHide: true });
     this.proc = child;
+    this.procKey = `${s.target}:${s.port}`;
     this.gen = -1;
     // writing to a host that just died must not throw in the extension host
     child.stdin.on('error', () => undefined);
@@ -368,6 +419,11 @@ export class AdsHost implements vscode.Disposable {
   private request(body: Record<string, unknown>): Promise<unknown> {
     const child = this.proc;
     if (!child) return Promise.reject(new Error('The ADS host is not running.'));
+    return this.send(child, body);
+  }
+
+  /** Writes the request to this child; synchronous, so a caller can guard and send without an await in between. */
+  private send(child: ChildProcessWithoutNullStreams, body: Record<string, unknown>): Promise<unknown> {
     const id = this.nextId++;
     const reply = this.pending.add(id, REQUEST_MS);
     child.stdin.write(JSON.stringify({ id, ...body }) + '\n');

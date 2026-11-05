@@ -11,7 +11,7 @@ export type HostMessage =
   | { event: 'samples'; gen: number; rows: Row[] }
   | { event: 'state'; connected: boolean; error?: string }
   | { event: 'items'; gen: number; items: WatchItem[] }
-  | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number };
+  | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number; written?: string };
 
 // The CLI may print other text (build output, warnings) on stdout; those lines are not messages, and neither is JSON
 // that is neither an event nor a reply.
@@ -112,6 +112,13 @@ export class ScopeBuffer {
     this.trim();
   }
 
+  /** Drops all samples (the target changed); the items and the gen stay, so the host's next rows are stored again. */
+  clear(): void {
+    this.series_.clear();
+    this.latest_.clear();
+    this.newest = -Infinity;
+  }
+
   latest(symbol: string): { t: number; value: string | null } | undefined {
     return this.latest_.get(symbol);
   }
@@ -168,6 +175,38 @@ export function downsample<T>(rows: T[], max: number): T[] {
   return out;
 }
 
+/** No reply within the time limit; for a write that was sent, the outcome is unknown. */
+export class RequestTimeout extends Error {}
+
+/** The host exited or was stopped while a request was open. */
+export class HostGone extends Error {}
+
+/** The host answered ok:false. `written: "no"` is its proof that a write was not sent (cli/README.md, "Live values"). */
+export class HostError extends Error {
+  constructor(message: string, readonly written?: string) { super(message); }
+}
+
+export type WriteStage =
+  | { kind: 'written'; value: string | null; readBackError?: string }
+  | { kind: 'notSent'; reason: string }
+  | { kind: 'unknown'; reason: string };
+
+/**
+ * How far a write got, from the host's reply data or from the rejection of the request. "Not sent" needs the host's proof
+ * (`written: "no"`); everything else that failed is unknown, so an older CLI without the field never yields "not sent".
+ */
+export function writeStage(outcome: { data: unknown } | { error: unknown }): WriteStage {
+  if ('data' in outcome) {
+    const d = (outcome.data ?? {}) as { value?: unknown; readBackError?: unknown };
+    const stage: WriteStage = { kind: 'written', value: typeof d.value === 'string' ? d.value : null };
+    if (typeof d.readBackError === 'string') stage.readBackError = d.readBackError;
+    return stage;
+  }
+  const e = outcome.error;
+  const reason = e instanceof Error ? e.message : String(e);
+  return e instanceof HostError && e.written === 'no' ? { kind: 'notSent', reason } : { kind: 'unknown', reason };
+}
+
 // A write cannot be retried blindly, so a timeout says the outcome is unknown. An id added again while still open
 // rejects the older request, which could otherwise never settle.
 export class PendingRequests {
@@ -183,30 +222,48 @@ export class PendingRequests {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.open.get(id)?.timer === timer) this.open.delete(id);
-        reject(new Error(`No reply from the ADS host within ${timeoutMs} ms; the outcome is unknown.`));
+        reject(new RequestTimeout(`No reply from the ADS host within ${timeoutMs} ms; the outcome is unknown.`));
       }, timeoutMs);
       this.open.set(id, { resolve, reject, timer });
     });
   }
 
-  settle(msg: { id: number | null; ok: boolean; data?: unknown; error?: string }): void {
+  settle(msg: { id: number | null; ok: boolean; data?: unknown; error?: string; written?: string }): void {
     if (msg.id === null) return;
     const p = this.open.get(msg.id);
     if (!p) return;
     this.open.delete(msg.id);
     clearTimeout(p.timer);
     if (msg.ok) p.resolve(msg.data);
-    else p.reject(new Error(msg.error ?? 'request failed'));
+    else p.reject(new HostError(msg.error ?? 'request failed', msg.written));
   }
 
   rejectAll(reason: string): void {
-    for (const p of this.open.values()) { clearTimeout(p.timer); p.reject(new Error(reason)); }
+    for (const p of this.open.values()) { clearTimeout(p.timer); p.reject(new HostGone(reason)); }
     this.open.clear();
   }
 }
 
-// Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows.
-export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, maxRows = 200): string {
+const STALE_MS = 2000;
+
+/** "<n> s old" for a sample older than 2 s, else undefined (also without a sample time). */
+export function sampleAge(newestMs: number | undefined, nowMs: number): string | undefined {
+  if (newestMs === undefined || nowMs - newestMs < STALE_MS) return undefined;
+  return `${Math.round((nowMs - newestMs) / 1000)} s old`;
+}
+
+/** Tells why values may be missing: samples only arrive while the watch view or the scope keeps the host alive. */
+export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms: number) => string): string | undefined {
+  const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+  if (newestMs === undefined) return `No samples yet: ${tail}`;
+  return nowMs - newestMs < STALE_MS ? undefined : `No samples since ${clock(newestMs)}: ${tail}`;
+}
+
+/** Most symbols that get a column in the scope table (the summaries cover all of them). */
+export const MAX_SCOPE_COLUMNS = 20;
+
+// Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
+export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, maxRows = 200, maxColumns = MAX_SCOPE_COLUMNS): string {
   const lines: string[] = [];
   const maps = symbols.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
   for (const s of symbols) {
@@ -215,12 +272,15 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
       ? `${s}: min=${sum.min} max=${sum.max} last=${sum.last} count=${sum.count}`
       : `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`);
   }
-  const times = [...new Set(maps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
+  const shown = symbols.slice(0, maxColumns);
+  const shownMaps = maps.slice(0, maxColumns);
+  const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
   if (times.length > 0) {
-    lines.push('', ['t[s]', ...symbols].join('\t'));
+    lines.push('', ['t[s]', ...shown].join('\t'));
     for (const t of downsample(times, maxRows)) {
-      lines.push([((t - now) / 1000).toFixed(3), ...maps.map(m => m.get(t) ?? '')].join('\t'));
+      lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => m.get(t) ?? '')].join('\t'));
     }
+    if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);
   }
   return lines.join('\n');
 }

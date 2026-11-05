@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
-import { AdsHost, StartError } from '../ads/host';
+import { AdsHost, StartError, WriteNotSent } from '../ads/host';
 import { MAX_WATCHED, WatchItem, symbolAt, watchEdit, watchRename } from '../core/adswatch';
 import { aiWritesSetting } from '../ads/aiSettings';
 import { writeAdsSetting } from '../ads/settingsWrite';
@@ -78,11 +78,11 @@ class WatchTree implements vscode.TreeDataProvider<WatchItem> {
 
 /** Errors of a failed host start were already shown by the host. */
 function showError(e: unknown) {
-  if (e instanceof StartError) return;
+  if (e instanceof StartError || (e instanceof WriteNotSent && e.alreadyShown)) return;
   vscode.window.showErrorMessage(`IECode: ${(e as Error).message}`);
 }
 
-export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceState) {
+export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceState, mcp?: { serving(): boolean; onState: vscode.Event<void> }) {
   const host = AdsHost.get(ctx);
   const tree = new WatchTree(host);
   const view = vscode.window.createTreeView('iecode.adsWatch', { treeDataProvider: tree, canSelectMany: true });
@@ -97,7 +97,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   };
   showState();
   // the target is always shown (a write goes there); auto-approved AI writes must never be on unnoticed
-  const showAiWrites = () => { view.description = [host.target(), aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
+  const showAiWrites = () => { view.description = [host.target(), mcp?.serving() ? 'MCP: on' : undefined, aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
   showAiWrites();
 
   // the host runs while the view is visible with a non-empty list; a saved list alone does not connect (O11)
@@ -113,6 +113,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     host.onSamples(schedule),
     host.onItems(() => { schedule(); updateLease(); }),
     host.onState(() => { showState(); schedule(); }),
+    ...(mcp ? [mcp.onState(showAiWrites)] : []),
     view.onDidChangeVisibility(updateLease),
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
     new vscode.Disposable(() => { clearTimeout(timer); lease?.dispose(); }),
@@ -203,7 +204,8 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     if (ok !== 'Write') return;
     try {
       const back = await host.write(symbol, value);
-      vscode.window.setStatusBarMessage(`IECode: ${symbol} = ${back}`, 5000);
+      if (back.value === null) vscode.window.showWarningMessage(`IECode: ${symbol} was written, but the read-back failed: ${back.readBackError ?? 'unknown error'}`);
+      else vscode.window.setStatusBarMessage(`IECode: ${symbol} = ${back.value}`, 5000);
       schedule();
     } catch (e) {
       showError(e);

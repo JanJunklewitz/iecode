@@ -1,0 +1,119 @@
+using System.Text.Json;
+
+namespace IECode.Core.Mcp;
+
+/// <summary>One serving VS Code window as described by its instance file.</summary>
+public sealed record InstanceInfo(string Id, int Pid, string ExtensionVersion, int ProtocolMin, int ProtocolMax,
+    string Pipe, IReadOnlyList<string> Roots, string WorkspaceName, string Secret);
+
+public static class Instances
+{
+    private static readonly System.Text.RegularExpressions.Regex PipeName = new("^[A-Za-z0-9._-]{1,128}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Reads every <c>*.json</c> of the instances directory; an unreadable file or one that is not format 1 is skipped.</summary>
+    public static IReadOnlyList<InstanceInfo> Load(string instancesDir) => Load(instancesDir, out _);
+
+    /// <param name="instancesDir">The instances directory.</param>
+    /// <param name="unreadable">A file stayed locked: it may belong to the window that owns the folder, so the caller must not choose without it.</param>
+    public static IReadOnlyList<InstanceInfo> Load(string instancesDir, out bool unreadable)
+    {
+        unreadable = false;
+        var result = new List<InstanceInfo>();
+        string[] files;
+        try { files = Directory.GetFiles(instancesDir, "*.json"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return result; }
+        foreach (var file in files)
+        {
+            try
+            {
+                var text = Read(file, ref unreadable);
+                if (text is null) continue;
+                using var doc = JsonDocument.Parse(text);
+                var r = doc.RootElement;
+                if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("format", out var f) || f.ValueKind != JsonValueKind.Number || f.GetInt32() != 1) continue;
+                var proto = r.GetProperty("bridgeProtocol");
+                var pipe = r.GetProperty("pipe").GetString() ?? "";
+                var roots = r.GetProperty("roots").EnumerateArray().Select(x => x.GetString() ?? "").ToList();
+                // the pipe name becomes a path and a search pattern, a root goes to the path matcher: a malformed file is not an instance
+                if (!PipeName.IsMatch(pipe) || roots.Any(string.IsNullOrWhiteSpace)) continue;
+                result.Add(new InstanceInfo(
+                    r.GetProperty("id").GetString()!,
+                    r.GetProperty("pid").GetInt32(),
+                    r.GetProperty("extensionVersion").GetString() ?? "",
+                    proto.GetProperty("min").GetInt32(),
+                    proto.GetProperty("max").GetInt32(),
+                    pipe,
+                    roots,
+                    r.TryGetProperty("workspaceName", out var w) ? w.GetString() ?? "" : "",
+                    r.GetProperty("secret").GetString()!));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+            {
+                // half-written or foreign file: not an instance
+            }
+        }
+        return result;
+    }
+
+    /// <summary>The text of a file, null when it is gone or stays locked; a rename by the owner's heartbeat locks it only for a moment, so it is retried.</summary>
+    private static string? Read(string file, ref bool unreadable)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return File.ReadAllText(file); }
+            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return null; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= 2)
+                {
+                    unreadable = true;
+                    return null;
+                }
+                Thread.Sleep(20);
+            }
+        }
+    }
+}
+
+public static class PathMatch
+{
+    private const char Sep = '\\';
+
+    /// <summary>Full path, every existing link component resolved, backslashes, lower-case drive letter, no trailing separator (a drive root keeps its one).</summary>
+    public static string Canonical(string path)
+    {
+        var full = Path.GetFullPath(path).Replace('/', Sep);
+        var root = Path.GetPathRoot(full) ?? "";
+        var current = root;
+        foreach (var part in full[root.Length..].Split(Sep, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            var resolved = Resolve(current);
+            if (resolved is not null) current = resolved;
+        }
+        var s = current.Replace('/', Sep);
+        while (s.Length > 1 && s[^1] == Sep && !(s.Length == 3 && s[1] == ':')) s = s[..^1];
+        if (s.Length >= 2 && s[1] == ':') s = char.ToLowerInvariant(s[0]) + s[1..];
+        return s;
+    }
+
+    private static string? Resolve(string existing)
+    {
+        try
+        {
+            FileSystemInfo info = Directory.Exists(existing) ? new DirectoryInfo(existing) : new FileInfo(existing);
+            return info.Exists ? info.ResolveLinkTarget(true)?.FullName : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>True when <paramref name="path"/> is the folder <paramref name="root"/> or lies inside it (component by component).</summary>
+    public static bool Contains(string root, string path)
+    {
+        var r = Canonical(root);
+        var p = Canonical(path);
+        if (p.Equals(r, StringComparison.OrdinalIgnoreCase)) return true;
+        var prefix = r.EndsWith(Sep) ? r : r + Sep;
+        return p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+}

@@ -174,12 +174,29 @@ public sealed class AdsWatchBackend : IWatchBackend
         return (sym.TypeName, PlcValueText.Format(sym.BaseType, AdsValues.Normalize(sym.BaseType, value), sym.Members));
     }
 
-    public string Write(string symbol, string text)
+    public (string? Value, string? ReadBackError) Write(string symbol, string text)
     {
-        var sym = Find(symbol);
+        ILinkSymbol sym;
+        try
+        {
+            sym = Find(symbol);
+        }
+        catch (IECodeException e)
+        {
+            // Not found / not a single value: known before anything is sent.
+            throw new WriteNotSentException(e.Message, e);
+        }
         Call($"Write {symbol}", () => { sym.Write(text); return 0; });
-        var back = Call($"Read {symbol}", sym.Read);
-        return PlcValueText.Format(sym.BaseType, AdsValues.Normalize(sym.BaseType, back), sym.Members);
+        // From here on the PLC took the value; a failing read-back must not look like a failed write.
+        try
+        {
+            var back = Call($"Read {symbol}", sym.Read);
+            return (PlcValueText.Format(sym.BaseType, AdsValues.Normalize(sym.BaseType, back), sym.Members), null);
+        }
+        catch (Exception e)
+        {
+            return (null, e.Message);
+        }
     }
 
     public void Dispose() => Drop();

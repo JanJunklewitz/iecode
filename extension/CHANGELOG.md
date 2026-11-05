@@ -2,6 +2,12 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Claude Code
+- **Claude Code** can use the ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_scope`, `ads_write`): **Connect Claude Code** registers the CLI's `iecode mcp` bridge once per user, and each VS Code window serves its folders over a named pipe with a per-window secret. The bridge picks the window per call; no window, a window that does not answer, or two windows on one folder give an error, never a guess. Writes follow `iecode.ads.aiWrites`: with `confirm`, or when the workspace sets the ADS target, IECode's confirmation dialog always shows; `auto` writes without asking; `off` refuses. **Disconnect Claude Code** undoes it.
+- CLI: `iecode mcp` is the stdio MCP bridge Claude Code starts.
+
 ## 0.2.8
 
 ### Build output

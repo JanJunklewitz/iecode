@@ -10,6 +10,8 @@
 
 **Spec:** [docs/superpowers/specs/2026-11-03-ads-mcp-server-design.md](../specs/2026-11-03-ads-mcp-server-design.md)
 
+> **Superseded in part:** its Tasks 1 and 6 to 9 are replaced by [2026-11-03-ads-mcp-bridge.md](2026-11-03-ads-mcp-bridge.md); Tasks 2, 2b, 3, 4 and 5 are built.
+>
 > **Status after the eng review of 2026-11-03 (D20, D21):** the transport changes from HTTP with per-folder local registration to a user-scope stdio bridge (`claude mcp add -s user iecode -- iecode mcp`) that finds the window serving its cwd through a discovery file. Tasks 2-5 are reviewed and ready to build. Tasks 1 and 6-8 (and the Connect parts of Task 9) describe the old HTTP design and are **not to be built** until the spec has been revised for the bridge and the new tasks have had their own eng review. See "Decision ledger" R18 for which review decisions carry over.
 >
 > **Status after the second opinion of 2026-11-03 (R19-R29):** a cross-model review found that a failed read-back after a successful write would be reported as "Not written" (R19). Task 2b (CLI) was added for it; Tasks 2-5 were tightened (R20-R29). Tasks 2, 2b, 3, 4 and 5 are ready to build in this order of lanes (see "Worktree parallelization strategy").

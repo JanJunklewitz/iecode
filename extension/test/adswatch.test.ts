@@ -1,9 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
+
+test('sampleAge formats old samples', () => {
+  assert.equal(sampleAge(1000, 2500), undefined);
+  assert.equal(sampleAge(1000, 13_400), '12 s old');
+  assert.equal(sampleAge(undefined, 5), undefined);
+});
+
+test('gap note when the newest sample is old', () => {
+  const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+  assert.equal(gapNote(0, 61_000, () => '10:00:00'), `No samples since 10:00:00: ${tail}`);
+  assert.equal(gapNote(60_000, 61_000, () => '10:00:00'), undefined);
+  assert.equal(gapNote(undefined, 1, () => '10:00:00'), `No samples yet: ${tail}`);
+});
 
 test('parseHostLine reads each message kind', () => {
   assert.equal(PROTOCOL, 1);
@@ -308,4 +321,57 @@ test('watchRename keeps the position, hands the entry to the user and merges wit
 test('the scope sampling fields are clamped to the bounds of the settings', () => {
   assert.deepEqual([5, 9999, 100.4, NaN].map(clampInterval), [10, 5000, 100, 100]);
   assert.deepEqual([1, 99999, 300, NaN].map(clampBufferSeconds), [10, 3600, 300, 300]);
+});
+
+test('ScopeBuffer.clear drops samples but keeps items', () => {
+  const b = new ScopeBuffer(300);
+  b.setItems(1, [item('a')]);
+  b.push(1, rows(3));
+  b.clear();
+  assert.equal(b.latest('a'), undefined);
+  assert.equal(b.series('a', 0).length, 0);
+  b.push(1, rows(2, 1000, 100_000));
+  assert.equal(b.latest('a')?.value, '1');
+  assert.equal(b.series('a', 0).length, 2);
+});
+
+test('PendingRequests tells a timeout from a host exit', async () => {
+  const p = new PendingRequests();
+  await assert.rejects(p.add(1, 10), RequestTimeout);
+  const open = p.add(2, 1000);
+  p.rejectAll('The ADS host exited (code 1).');
+  await assert.rejects(open, HostGone);
+});
+
+test('rejectAll after a settings restart is a host exit', async () => {
+  const p = new PendingRequests();
+  const open = p.add(1, 1000);
+  p.rejectAll('The ADS host restarted (settings changed).');
+  await assert.rejects(open, (e: Error) => e instanceof HostGone && /restarted/.test(e.message));
+});
+
+test('host error keeps the written field', async () => {
+  assert.deepEqual(parseHostLine('{"id":1,"ok":false,"error":"x","written":"no"}'), { id: 1, ok: false, error: 'x', written: 'no' });
+  const p = new PendingRequests();
+  const open = p.add(1, 1000);
+  p.settle({ id: 1, ok: false, error: 'x', written: 'no' });
+  await assert.rejects(open, (e: Error) => e instanceof HostError && e.written === 'no' && e.message === 'x');
+});
+
+test('write outcome after a failed read-back', () => {
+  assert.deepEqual(writeStage({ data: { symbol: 'a', value: null, readBackError: 'x' } }), { kind: 'written', value: null, readBackError: 'x' });
+  assert.deepEqual(writeStage({ data: { symbol: 'a', value: '5' } }), { kind: 'written', value: '5' });
+});
+
+test('write outcome of an old CLI error is unknown', () => {
+  assert.deepEqual(writeStage({ error: new HostError('Write a: timeout') }), { kind: 'unknown', reason: 'Write a: timeout' });
+});
+
+test('write outcome not sent only with proof', () => {
+  assert.deepEqual(writeStage({ error: new HostError('Symbol not found', 'no') }), { kind: 'notSent', reason: 'Symbol not found' });
+  assert.equal(writeStage({ error: new HostError('x', 'maybe') }).kind, 'unknown');
+  assert.equal(writeStage({ error: new RequestTimeout('t') }).kind, 'unknown');
+  assert.equal(writeStage({ error: new HostGone('g') }).kind, 'unknown');
+  assert.equal(writeStage({ error: new Error('plain') }).kind, 'unknown');
+  assert.equal(writeStage({ error: 'not an error' }).kind, 'unknown');
 });
