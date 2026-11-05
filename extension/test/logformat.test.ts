@@ -166,3 +166,26 @@ test('filter time input: empty is open, invalid text gets a message', () => {
   assert.deepEqual(parseFilterTimeInput('2026-10-19 8:00'), { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' });
   assert.deepEqual(parseFilterTimeInput('2026-02-30 00:00'), { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' });
 });
+
+test('a user format with the id plain replaces the built-in one: its levels apply and it is detected by ratio', () => {
+  const user = compileFormat({ id: 'plain', name: 'My plain', entry: '^(?<level>\\w): (?<message>.*)$', levels: { E: 'error', W: 'warning' } });
+  assert.equal(entry(user, 'E: pump info stuck').level, 'error');
+  assert.equal(entry(user, 'W: x').level, 'warning');
+  assert.equal(entry(user, 'I: an error word').level, 'other');
+  assert.equal(user.keywordLevels, undefined);
+  const info = detectFormatInfo(['E: a', 'W: b', 'E: c'], [logger, tabs, user]);
+  assert.equal(info.format, user);
+  assert.equal(info.tentative, false);
+  // The built-in plain format keeps its keyword levels, also when compiled from a copy (as in the search worker).
+  const copy = compileFormat(JSON.parse(JSON.stringify(BUILT_IN_FORMATS[2])));
+  assert.equal(copy.keywordLevels, true);
+  assert.equal(entry(copy, 'Something ERROR happened').level, 'error');
+});
+
+test('an upper time bound covers the whole second or minute it names', () => {
+  assert.deepEqual(parseFilterTimeInput('2026-10-19 08:00:05', true), { ms: Date.UTC(2026, 9, 19, 8, 0, 5, 999) });
+  assert.deepEqual(parseFilterTimeInput('2026-10-19 08:00', true), { ms: Date.UTC(2026, 9, 19, 8, 0, 59, 999) });
+  assert.deepEqual(parseFilterTimeInput('2026-10-19 08:00:05'), { ms: Date.UTC(2026, 9, 19, 8, 0, 5) });
+  assert.deepEqual(parseFilterTimeInput('', true), {});
+  assert.deepEqual(parseFilterTimeInput('nope', true), { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' });
+});
