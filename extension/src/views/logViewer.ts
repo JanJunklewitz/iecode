@@ -23,13 +23,14 @@ export const MERGED_VIEW_TYPE = 'iecode.logViewer.merged';
  */
 type Msg =
   | { type: 'ready' }
-  | { type: 'rows'; rev: number; pos: number; count: number; id: number }
+  // find: entries (selection, detail) whose rows the reply names in `found`, also when they are later group members.
+  | { type: 'rows'; rev: number; pos: number; count: number; id: number; find?: number[] }
   | ({ type: 'filters'; fromText?: string; toText?: string; files?: number[] | null } &
     Partial<Omit<SessionFilters, 'from' | 'to' | 'files'>>)
   | ({ type: 'options' } & Partial<ViewOptions>)
   | { type: 'detail'; rev: number; pos: number }
-  | { type: 'jump'; rev: number; from: number; dir: 1 | -1; what: 'error' | 'bookmark' }
-  | { type: 'bookmark'; rev: number; pos: number }
+  | { type: 'jump'; rev: number; from: number; dir: 1 | -1; what: 'error' | 'bookmark'; generation: number; index?: number }
+  | { type: 'bookmark'; rev: number; pos: number; generation: number; index?: number }
   | { type: 'live'; on: boolean }
   | { type: 'export' }
   | { type: 'openRaw' };
@@ -53,6 +54,10 @@ function userFormats(): LogFormatDef[] {
   if (!Array.isArray(v)) return [];
   return v.filter((f): f is LogFormatDef =>
     !!f && typeof f === 'object' && typeof f.id === 'string' && typeof f.name === 'string' && typeof f.entry === 'string');
+}
+
+function samePath(a: string, b: string): boolean {
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 function viewOptions(): ViewOptions {
@@ -134,13 +139,19 @@ class LogSessionHost {
     this.watch = undefined;
     if (on) {
       const file = this.paths[0];
+      const name = path.basename(file);
+      // A name with glob characters ('Plc[1].log') would be read as a pattern: watch the folder and filter instead.
+      const glob = /[*?[\]{}!]/.test(name);
       const watcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), path.basename(file)));
+        new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), glob ? '*' : name));
       const refresh = () => void this.refresh();
+      const onEvent = (uri: vscode.Uri) => {
+        if (!glob || samePath(uri.fsPath, file)) refresh();
+      };
       // The watcher misses changes on some file systems (network shares); the poll catches those.
       const poll = setInterval(refresh, LIVE_POLL_MS);
       this.watch = vscode.Disposable.from(
-        watcher, watcher.onDidChange(refresh), watcher.onDidCreate(refresh), watcher.onDidDelete(refresh),
+        watcher, watcher.onDidChange(onEvent), watcher.onDidCreate(onEvent), watcher.onDidDelete(onEvent),
         new vscode.Disposable(() => clearInterval(poll)),
       );
       refresh();
@@ -264,8 +275,11 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
       try {
         switch (m.type) {
           case 'rows': {
+            // Taken before the read's first await, from the same snapshot as the rows.
+            const find = Array.isArray(m.find) ? m.find.slice(0, 2) : [];
+            const found = s.findRows(m.rev, find);
             const rows = await s.rows(m.rev, m.pos, Math.max(0, Math.min(m.count, MAX_ROWS_PER_REQUEST)));
-            return post({ type: 'rows', rev: m.rev, id: m.id, pos: m.pos, rows });
+            return post({ type: 'rows', rev: m.rev, id: m.id, pos: m.pos, rows, find, found });
           }
           case 'filters': {
             const { type: _type, fromText, toText, files, ...rest } = m;
@@ -273,18 +287,23 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
             if (files !== undefined) f.files = Array.isArray(files) ? files : undefined;
             for (const [field, text] of [['from', fromText], ['to', toText]] as const) {
               if (text === undefined) continue;
-              const t = parseFilterTimeInput(text);
+              const t = parseFilterTimeInput(text, field === 'to');
               post({ type: 'filterError', field, message: t.error ?? '' });
               // An own undefined member opens the bound (setFilters spreads the patch over the filters).
               if (t.error === undefined) f[field] = t.ms;
             }
             if (Object.keys(f).length === 0) return;
-            // Level, time and source changes publish before the first await; a text search publishes later,
-            // and a failing search only sets state.error, so the state goes out after both steps.
+            // Level, time and source changes publish before the first await; a text search publishes later, and a
+            // failing search only sets state.error. The state goes out after each step that changed it.
+            const before = s.state().revision;
             const done = s.setFilters(f);
-            doc.notify();
+            const published = s.state().revision;
+            if (published !== before) doc.notify();
+            const error = s.state().error;
             await done;
-            return doc.notify();
+            const after = s.state();
+            if (after.revision !== published || after.error !== error) doc.notify();
+            return;
           }
           case 'options': {
             const { type: _type, ...o } = m;
@@ -295,11 +314,16 @@ function showLogWebview(extensionUri: vscode.Uri, panel: vscode.WebviewPanel, do
             const d = await s.detail(m.rev, m.pos);
             return post({ type: 'detail', rev: m.rev, pos: m.pos, text: d.text, truncated: d.truncated });
           }
-          case 'jump':
-            return post({ type: 'jumped', rev: m.rev, pos: s.jump(m.rev, m.from, m.dir, m.what) });
+          // Both name the selected entry too (index), so a live-tail commit in between does not lose them. The jump
+          // answers with the current revision (the state message of a newer one went out before this reply) and the
+          // target's entry, so the selection survives the next live commit before the target's rows arrive.
+          case 'jump': {
+            const pos = s.jump(m.rev, m.from, m.dir, m.what, { generation: m.generation, index: m.index ?? undefined });
+            return post({ type: 'jumped', rev: s.currentRevision, pos, index: pos < 0 ? undefined : s.rowIndex(pos) });
+          }
           case 'bookmark':
             // The revision stays; the state message makes the webview fetch the rows' bookmark flags again.
-            s.toggleBookmark(m.rev, m.pos);
+            s.toggleBookmark(m.rev, m.pos, typeof m.index === 'number' ? { generation: m.generation, index: m.index } : undefined);
             return doc.notify();
           case 'live':
             return doc.setLive(m.on);

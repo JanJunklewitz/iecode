@@ -127,3 +127,49 @@ test('an empty view has no rows', () => {
   assert.deepEqual(v.rowEntries(0, 10), []);
   assert.equal(v.find(-1, 1, () => true), -1);
 });
+
+test('rowOf, rowsOf and someMember find rows by entry, in rising and in merged order', () => {
+  const s = runs();
+  for (const indices of [all(s), Uint32Array.from([3, 0, 1, 2, 4, 6, 5])]) {
+    const v = new LogView(s, indices, { groupRepeats: true, gapMs: 0 });
+    for (let p = 0; p < v.rowCount; p++) {
+      for (const i of v.members(p)) assert.equal(v.rowOf(i), p, `entry ${i}`);
+      assert.equal(v.someMember(p, i => i === v.members(p)[0]), true);
+    }
+    assert.equal(v.someMember(0, () => false), false);
+    assert.equal(v.someMember(v.rowCount, () => true), false);
+    const shown = new Set([0, 2, 5, 6, 99]);
+    const expected = [...new Set([0, 2, 5, 6].map(i => v.rowOf(i)))].sort((a, b) => a - b);
+    assert.deepEqual(v.rowsOf(shown), expected);
+  }
+  const filtered = new LogView(s, Uint32Array.from([0, 2, 4]), { groupRepeats: false, gapMs: 0 });
+  assert.equal(filtered.rowOf(1), -1);
+  assert.equal(filtered.rowOf(4), 2);
+});
+
+test('a view extended from a base groups exactly like a new one', () => {
+  // a a a b a c c, then the last entry replaced and more appended: c c c d d a.
+  const s = runs();
+  for (const group of [true, false]) {
+    const o = { groupRepeats: group, gapMs: 0 };
+    let view = new LogView(s, all(s), o);
+    let indices = all(s);
+    const more: Array<[string, number]> = [['fbMain.c', 3], ['fbMain.d', 4], ['fbMain.d', 4], ['fbMain.a', 1]];
+    for (const [source, hash] of more) {
+      const t = new EntryStore();
+      t.append({ time: T, sortTime: T, level: 2, source, seq: 0, file: 0, offset: 0, length: 9, firstLength: 9, terminated: 1, lines: 1, hash });
+      const keep = s.count - 1;
+      s.appendFrom(t, s.count);
+      const next = new Uint32Array(s.count);
+      next.set(indices);
+      next[s.count - 1] = s.count - 1;
+      indices = next;
+      view = new LogView(s, indices, o, { view, keep });
+      const fresh = new LogView(s, indices, o);
+      assert.equal(view.rowCount, fresh.rowCount);
+      assert.deepEqual(view.rowEntries(0, 100), fresh.rowEntries(0, 100));
+    }
+    // Reset the store for the next pass.
+    s.truncate(7);
+  }
+});

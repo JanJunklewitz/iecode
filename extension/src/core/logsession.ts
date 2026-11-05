@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto';
 import { BUILT_IN_FORMATS, LEVELS, Level, LogFormat, LogFormatDef, LogFormatError, compileFormat, detectFormatInfo } from './logformat';
 import { EntryStore } from './logstore';
 import { scanFile, sniff } from './logscan';
-import { FilterResult, applyFilters, timelineOrder } from './logfilter';
+import { FilterResult, Filters, applyFilters, timelineOrder } from './logfilter';
 import { EntryRef, LogFiles, TextQuery, compileQuery, exportRaw, readDetail, readPreviews, searchText } from './logrows';
 import { LogView, ViewOptions } from './logview';
 
@@ -37,7 +37,11 @@ export interface SessionState {
   liveError?: string;
 }
 
-/** Immutable once published; readers take it synchronously and never see a later change. */
+/**
+ * Read synchronously by the requests of its revision; readers copy what they need before their first await. A
+ * live-tail commit extends the store, order, indices and rows in place past the old end, so a snapshot of an older
+ * revision must not be read any more (requests for it throw StaleError).
+ */
 interface Snapshot {
   revision: number;
   fileGeneration: number;
@@ -49,6 +53,37 @@ interface Snapshot {
   result: FilterResult;
   view: LogView;
   viewFirstTimeMs?: number;
+  /** View position of the entry viewFirstTimeMs is from; -1 when no entry of the view has a time. */
+  viewFirstPos: number;
+  /** What the snapshot was built from; a live-tail commit extends it only while these are unchanged. */
+  filters: SessionFilters;
+  textFlags?: Uint8Array;
+  options: ViewOptions;
+}
+
+/** An entry of the selected row; unlike a row position it stays valid across the revisions of one fileGeneration. */
+export interface EntryAt { generation: number; index: number }
+
+/** A view of `count` elements over `a`'s buffer when it has room, else over a new buffer of at least twice the size. */
+function extended<T extends Uint8Array | Uint32Array>(a: T, keep: number, count: number, make: (n: number) => T): T {
+  if (a.byteOffset === 0 && a.buffer.byteLength >= count * a.BYTES_PER_ELEMENT) {
+    return new (a.constructor as new (b: ArrayBufferLike, o: number, n: number) => T)(a.buffer, 0, count);
+  }
+  const b = make(Math.max(count, a.length * 2));
+  b.set(a.subarray(0, keep));
+  return b.subarray(0, count) as T;
+}
+
+/** Number of entries of rising `a` below x. */
+function countBelow(a: Uint32Array, x: number): number {
+  let lo = 0;
+  let hi = a.length;
+  while (lo < hi) {
+    const m = (lo + hi) >>> 1;
+    if (a[m] < x) lo = m + 1;
+    else hi = m;
+  }
+  return lo;
 }
 
 const MAX_MESSAGE = 2000;
@@ -158,7 +193,10 @@ export class LogSession {
   /** filters.text is the query the current textFlags belong to. */
   private filters: SessionFilters = { levels: [...LEVELS] };
   private textFlags?: Uint8Array;
-  private search?: { ac: AbortController; query: TextQuery };
+  /** The full search for a new query; done resolves when it ended in any way. */
+  private search?: { ac: AbortController; query: TextQuery; done: Promise<void> };
+  /** The text search of a running live-tail refresh, over the appended entries. */
+  private tailSearch?: { ac: AbortController; query: TextQuery };
   /** The text search of a running load or reload, over its new entries; aborted when the latest query changes. */
   private loadSearch?: { ac: AbortController; query: TextQuery };
   /** Per file: the format was chosen without an entry line confirming it (empty or header-only file). */
@@ -249,7 +287,12 @@ export class LogSession {
         throw new Error(`${path.basename(p)} is UTF-16 encoded; the log viewer reads UTF-8 only. Save the file as UTF-8 or open it as text.`);
       }
       if (!s.validUtf8) invalid.push(path.basename(p));
-      const d = detectFormatInfo(s.lines, candidates);
+      let d = detectFormatInfo(s.lines, candidates);
+      // A half-written last line alone must not settle the format: '0000000001 - 2026-01-' is plain text now and a
+      // logger line once complete. Without evidence from the complete lines the choice stays a guess.
+      if (!d.tentative && s.partialLast && detectFormatInfo(s.lines.slice(0, -1), candidates).tentative) {
+        d = { format: d.format, tentative: true };
+      }
       formats.push(d.format);
       tentative.push(d.tentative);
     }
@@ -351,9 +394,14 @@ export class LogSession {
     return this.search ? this.search.query : this.filters.text;
   }
 
-  /** A load or reload searching for another query than the latest one starts over with the latest. */
+  /**
+   * A load or reload searching for another query than the latest one starts over with the latest; a live-tail search
+   * for another query is aborted and waits for the latest one to be applied.
+   */
   private restartLoadSearch(): void {
-    if (this.loadSearch && !sameQuery(this.loadSearch.query, this.latestQuery())) this.loadSearch.ac.abort();
+    const latest = this.latestQuery();
+    if (this.loadSearch && !sameQuery(this.loadSearch.query, latest)) this.loadSearch.ac.abort();
+    if (this.tailSearch && !sameQuery(this.tailSearch.query, latest)) this.tailSearch.ac.abort();
   }
 
   /** Flags of the entries from `from` on; the columns are copied synchronously, before the first await. */
@@ -419,7 +467,8 @@ export class LogSession {
     }
 
     if (hasRest) this.publish();
-    const job = { ac: new AbortController(), query: target };
+    let ended!: () => void;
+    const job = { ac: new AbortController(), query: target, done: new Promise<void>(resolve => { ended = resolve; }) };
     this.search = job;
     this.restartLoadSearch();
     const generation = this.fileGeneration;
@@ -448,6 +497,8 @@ export class LogSession {
       if (this.search !== job) return;
       this.search = undefined;
       if ((e as Error).name !== 'AbortError') this.error = (e as Error).message;
+    } finally {
+      ended();
     }
   }
 
@@ -501,32 +552,80 @@ export class LogSession {
     return { text: d.text, truncated: d.truncated };
   }
 
-  /** Clears every bookmark of the row's group if it has one, otherwise bookmarks the group's first member. */
-  toggleBookmark(revision: number, pos: number): void {
-    const members = this.current(revision).view.members(pos);
+  /** Revision of the current snapshot; the positions jump() returns belong to it. */
+  get currentRevision(): number {
+    return this.snap.revision;
+  }
+
+  /**
+   * Clears every bookmark of the row's group if it has one, otherwise bookmarks the group's first member. The row is
+   * the one of `entry` (an entry of the row) while the current view of its fileGeneration shows it, which survives a
+   * live-tail commit in between; else the row at `pos` of `revision`, which must be the current one.
+   */
+  toggleBookmark(revision: number, pos: number, entry?: EntryAt): void {
+    const members = this.snap.view.members(this.rowAt(revision, pos, entry));
     if (members.length === 0) return;
     let had = false;
     for (const i of members) if (this.bookmarks.delete(i)) had = true;
     if (!had) this.bookmarks.add(members[0]);
   }
 
-  /** Next (dir 1) or previous (dir -1) row after `from` with an error or a bookmark (on any member); -1 when there is none. */
-  jump(revision: number, from: number, dir: 1 | -1, what: 'error' | 'bookmark'): number {
-    const { store, view } = this.current(revision);
-    if (what === 'error') return view.find(from, dir, i => store.level[i] === ERROR_LEVEL);
+  /**
+   * Next (dir 1) or previous (dir -1) row of the current revision after `from` with an error or a bookmark (on any
+   * member); -1 when there is none. With `origin` of the current fileGeneration, the search starts at the row of
+   * origin.index (the selected entry) when the current view shows it; otherwise `from` of an older revision is taken
+   * as is (a live-tail commit keeps the positions of earlier rows). Without origin, an older revision throws StaleError.
+   */
+  jump(revision: number, from: number, dir: 1 | -1, what: 'error' | 'bookmark', origin?: { generation: number; index?: number }): number {
+    const { store, view } = this.snap;
+    const sameGeneration = origin !== undefined && origin.generation === this.fileGeneration;
+    const p = sameGeneration && origin.index !== undefined ? view.rowOf(origin.index) : -1;
+    const start = p >= 0 ? p : from;
+    if (p < 0 && revision !== this.snap.revision && !sameGeneration) throw new StaleError(revision, this.snap.revision);
+    if (what === 'error') return view.find(start, dir, i => store.level[i] === ERROR_LEVEL);
     if (this.bookmarks.size === 0) return -1;
-    return view.find(from, dir, (_i, p) => this.rowBookmarked(view, p));
+    // Only the bookmarked rows are looked at, however long the view is.
+    const rows = view.rowsOf(this.bookmarks);
+    const s = Math.max(-1, Math.min(view.rowCount, start));
+    if (dir === 1) return rows.find(r => r > s) ?? -1;
+    for (let k = rows.length - 1; k >= 0; k--) if (rows[k] < s) return rows[k];
+    return -1;
+  }
+
+  /**
+   * Rows of `revision` holding the entries (-1 where the view does not show one), for a selection kept by entry: the
+   * entry may be a later member of a group, which LogRow.index (the first member) does not name.
+   */
+  findRows(revision: number, indices: number[]): number[] {
+    const { view } = this.current(revision);
+    return indices.map(i => (Number.isInteger(i) && i >= 0 ? view.rowOf(i) : -1));
+  }
+
+  /** First entry of the current view's row at pos (the LogRow.index the rows give it); undefined past the rows. */
+  rowIndex(pos: number): number | undefined {
+    return this.snap.view.rowEntries(pos, 1)[0]?.index;
+  }
+
+  /** Position in the current view of the row given by revision and position, or by an entry of it. */
+  private rowAt(revision: number, pos: number, entry?: EntryAt): number {
+    if (entry && entry.generation === this.fileGeneration) {
+      const p = this.snap.view.rowOf(entry.index);
+      if (p >= 0) return p;
+    }
+    if (revision === this.snap.revision) return pos;
+    throw new StaleError(revision, this.snap.revision);
   }
 
   private rowBookmarked(view: LogView, pos: number): boolean {
     if (this.bookmarks.size === 0) return false;
-    for (const i of view.members(pos)) if (this.bookmarks.has(i)) return true;
-    return false;
+    return view.someMember(pos, i => this.bookmarks.has(i));
   }
 
   /** Ingestion on/off, reported in the state; the owner watches the file and calls refresh() while it is on. */
   setLive(on: boolean): void {
     this.live = on;
+    // Off: a running refresh (perhaps stuck in a search) ends without committing; the next one picks the change up.
+    if (!on) this.refreshAbort?.abort();
   }
 
   /** Bytes the text search of the last live-tail commit read (0 without a text filter). */
@@ -606,8 +705,8 @@ export class LogSession {
 
   /**
    * Scans from the last entry's offset into a separate store (an unterminated last line stays unread), searches only
-   * that tail, then commits synchronously: replace the last entry, append the rest, extend the text flags, rebuild
-   * order, filter result and view, publish.
+   * that tail, then commits synchronously: replace the last entry, append the rest, extend the text flags, order,
+   * filter result and view, publish.
    */
   private async appendTail(now: FileIdentity, signal: AbortSignal): Promise<boolean> {
     const store = this.store;
@@ -631,13 +730,34 @@ export class LogSession {
     let flags: Uint8Array | undefined;
     this.lastTailSearchBytes = 0;
     for (;;) {
+      // A full search for a newer query runs: the tail is searched for it once it is applied (setFilters aborts a
+      // tail search for an older query, which may never end on a catastrophic regex).
+      while (this.search && !sameQuery(this.search.query, this.filters.text)) {
+        await this.search.done;
+        if (this.disposed || signal.aborted) return false;
+      }
       // A full search for a new query may land meanwhile; then the tail is searched for that query too.
       const q = this.filters.text;
       if (!q) {
         flags = undefined;
         break;
       }
-      const r = await this.searchStore(tail, this.formats, q, signal);
+      const ac = new AbortController();
+      const onAbort = () => ac.abort();
+      signal.addEventListener('abort', onAbort);
+      if (signal.aborted) ac.abort();
+      this.tailSearch = { ac, query: q };
+      let r: Awaited<ReturnType<LogSession['searchStore']>>;
+      try {
+        r = await this.searchStore(tail, this.formats, q, ac.signal);
+      } catch (e) {
+        // Aborted for a newer query: wait for it above.
+        if ((e as Error).name === 'AbortError' && !signal.aborted && !this.disposed) continue;
+        throw e;
+      } finally {
+        signal.removeEventListener('abort', onAbort);
+        if (this.tailSearch?.ac === ac) this.tailSearch = undefined;
+      }
       this.lastTailSearchBytes += r.bytesRead;
       if (this.disposed) return false;
       if (sameQuery(q, this.filters.text)) {
@@ -646,13 +766,20 @@ export class LogSession {
       }
     }
 
-    // Commit, synchronous from here on. appendFrom checks the limits before it changes anything.
+    // Commit, synchronous from here on. The published snapshot is extended in place when it was built from the current
+    // filters, text flags and options (always, unless something forgot to publish); otherwise it is rebuilt.
+    const prev = this.snap;
+    const incremental = prev.store === store && prev.count === store.count && prev.filters === this.filters &&
+      prev.textFlags === this.textFlags && prev.options === this.options;
+    // The filter result of the entry the commit replaces, before appendFrom overwrites it.
+    const replaced = incremental && had ? applyFilters(store, Uint32Array.of(at), this.filterInput()) : undefined;
     const oldLevel = store.level[at];
+    // appendFrom checks the limits before it changes anything.
     store.appendFrom(tail, at);
     if (this.textFlags) {
-      const f = new Uint8Array(store.count);
-      f.set(this.textFlags.subarray(0, at));
+      const f = extended(this.textFlags, at, store.count, n => new Uint8Array(n));
       if (flags) f.set(flags, at);
+      else f.fill(0, at);
       this.textFlags = f;
     }
     if (had) this.levelCounts[LEVELS[oldLevel]]--;
@@ -663,10 +790,14 @@ export class LogSession {
       if (this.firstTimeMs === undefined || t < this.firstTimeMs) this.firstTimeMs = t;
       if (this.lastTimeMs === undefined || t > this.lastTimeMs) this.lastTimeMs = t;
     }
-    this.order = timelineOrder(store, this.paths.length);
+    // One file: the order is the scan order, extended in place.
+    const order = extended(this.order, at, store.count, n => new Uint32Array(n));
+    for (let i = at; i < store.count; i++) order[i] = i;
+    this.order = order;
     this.identity = now;
     this.commits++;
-    this.publish();
+    if (incremental) this.publishAppended(prev, at, replaced);
+    else this.publish();
     return true;
   }
 
@@ -762,20 +893,54 @@ export class LogSession {
 
   private build(): Snapshot {
     const { store } = this;
-    const { text: _query, ...rest } = this.filters;
-    const result = applyFilters(store, this.order, { ...rest, text: this.textFlags });
+    const result = applyFilters(store, this.order, this.filterInput());
     const view = new LogView(store, result.indices, this.options);
-    let viewFirstTimeMs: number | undefined;
-    for (let j = 0; j < result.indices.length; j++) {
-      const t = store.time[result.indices[j]];
-      if (!Number.isNaN(t)) {
-        viewFirstTimeMs = t;
-        break;
-      }
+    return this.snapshot(result, view, 0, -1);
+  }
+
+  private filterInput(): Filters {
+    const { text: _query, ...rest } = this.filters;
+    return { ...rest, text: this.textFlags };
+  }
+
+  /** The snapshot of result and view; the first dated entry of the view is looked for from position `scanFrom` on. */
+  private snapshot(result: FilterResult, view: LogView, scanFrom: number, firstPos: number): Snapshot {
+    const { store } = this;
+    let viewFirstPos = firstPos;
+    for (let j = scanFrom; viewFirstPos < 0 && j < result.indices.length; j++) {
+      if (!Number.isNaN(store.time[result.indices[j]])) viewFirstPos = j;
     }
     return {
       revision: this.revision, fileGeneration: this.fileGeneration, store, files: this.files, formats: this.formats,
-      count: store.count, order: this.order, result, view, viewFirstTimeMs,
+      count: store.count, order: this.order, result, view, viewFirstPos,
+      viewFirstTimeMs: viewFirstPos >= 0 ? store.time[result.indices[viewFirstPos]] : undefined,
+      filters: this.filters, textFlags: this.textFlags, options: this.options,
     };
+  }
+
+  /**
+   * Publishes a live-tail commit that replaced entry `at` and appended the rest (single file: order and indices rise)
+   * without going over the entries before `at` again: the result keeps the old indices below `at` and filters only the
+   * new entries; the view regroups from the row holding the last kept index. `replaced` is the old entry `at`'s filter
+   * result, taken before the commit overwrote it.
+   */
+  private publishAppended(prev: Snapshot, at: number, replaced: FilterResult | undefined): void {
+    const { store } = this;
+    const old = prev.result;
+    const keep = countBelow(old.indices, at);
+    const tail = applyFilters(store, this.order.subarray(at), this.filterInput());
+    const count = keep + tail.indices.length;
+    const indices = extended(old.indices, keep, count, n => new Uint32Array(n));
+    indices.set(tail.indices, keep);
+    const hiddenBy = { ...old.hiddenBy };
+    for (const k of Object.keys(hiddenBy) as (keyof FilterResult['hiddenBy'])[]) {
+      hiddenBy[k] += tail.hiddenBy[k] - (replaced?.hiddenBy[k] ?? 0);
+    }
+    const result: FilterResult = { indices, hiddenBy };
+    const view = new LogView(store, indices, this.options, { view: prev.view, keep });
+    this.revision++;
+    // The first dated entry stays when it lies before the kept part's end; else it is looked for in the new part.
+    const firstKept = prev.viewFirstPos >= 0 && prev.viewFirstPos < keep;
+    this.snap = this.snapshot(result, view, keep, firstKept ? prev.viewFirstPos : -1);
   }
 }
