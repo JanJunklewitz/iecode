@@ -2,7 +2,7 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.10
 
 ### Editor
 - **Show Raw Changes (XML)**: a button in the diff editor of `.TcPOU/.TcDUT/.TcGVL/.TcIO/.TcVIS/.TcGTLO/.TcIPO/.TcVMO` objects switches from the ST / YAML view to the raw file content and back (**Show Changes as ST / YAML**). The raw diff is read-only.
