@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { ImagePool, TextList, VisuManager, applyArchiveEdits, parsePlcArchive, plcArchiveToText, summaryText } from '../src/core/plcArchive';
+import { ImagePool, Task, TextList, VisuManager, applyArchiveEdits, parsePlcArchive, plcArchiveToText, summaryText } from '../src/core/plcArchive';
 import { VisuEditError } from '../src/core/tcvis';
 
 const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'archive');
 const read = (f: string) => readFileSync(join(dir, f), 'utf8');
+const tto = read('PlcTask.TcTTO'), gipo = read('GlobalImagePool.TcGIPO');
 const gtlo = read('GlobalTextList.TcGTLO'), ipo = read('ImagePool.TcIPO'), vmo = read('Visualization Manager.TcVMO');
 
 test('text list: ids, defaults, translations by language', () => {
@@ -72,4 +73,43 @@ test('refuses stale or id edits', () => {
   const g = v.settings.find(s => s.kind === 'guid')!;
   assert.throws(() => applyArchiveEdits(vmo, [{ at: g.at, old: g.raw, value: 'x' }]), /ids/);
   assert.throws(() => parsePlcArchive('<TcPlcObject><POU/></TcPlcObject>'), /not a TwinCAT text list/);
+});
+
+test('global image pool: same model as an image pool', () => {
+  const p = parsePlcArchive(gipo) as ImagePool;
+  assert.equal(p.kind, 'imagepool');
+  assert.equal(p.global, true);
+  assert.equal((parsePlcArchive(ipo) as ImagePool).global, false);
+  assert.deepEqual(p.items.map(i => [i.id, i.itemId, i.path]), [['Logo', 3, 'Images/Logo.png'], ['', 4, '']]);
+  assert.match(summaryText(gipo), /^# Global image pool GlobalImagePool \(1 image\)\n/);
+});
+
+test('task: cycle time, priority and POU calls, ids left out of the summary', () => {
+  const t = parsePlcArchive(tto) as Task;
+  assert.equal(t.kind, 'task');
+  assert.equal(t.name, 'PlcTask');
+  assert.equal(t.cycleTime?.value, '10000');
+  assert.equal(t.priority?.value, '1');
+  assert.deepEqual(t.calls.map(c => c.value), ['MAIN', 'VisuElems.Visu_Prg']);
+  assert.equal(summaryText(tto), '# Task PlcTask\nname: PlcTask\ncycleTimeMicroseconds: 10000\npriority: 1\npouCalls:\n  - MAIN\n  - VisuElems.Visu_Prg\n');
+});
+
+test('task edits splice one element, everything else stays byte-identical', () => {
+  const t = parsePlcArchive(tto) as Task;
+  const edited = applyArchiveEdits(tto, [
+    { at: t.cycleTime!.at, old: t.cycleTime!.raw, value: '20000' },
+    { at: t.calls[1].at, old: t.calls[1].raw, value: 'Other.Prg' },
+  ]);
+  assert.equal(edited, tto.replace('<CycleTime>10000<', '<CycleTime>20000<').replace('VisuElems.Visu_Prg', 'Other.Prg'));
+  assert.equal(edited.charCodeAt(0), 0xfeff, 'BOM kept');
+});
+
+test('task edits reject invalid values', () => {
+  const t = parsePlcArchive(tto) as Task;
+  const change = (s: { at: number; raw: string }, value: string) => () => applyArchiveEdits(tto, [{ at: s.at, old: s.raw, value }]);
+  assert.throws(change(t.cycleTime!, '0'), VisuEditError);
+  assert.throws(change(t.cycleTime!, '1.5'), VisuEditError);
+  assert.throws(change(t.priority!, '-1'), VisuEditError);
+  assert.throws(change(t.calls[0], 'MAIN<x>'), VisuEditError);
+  assert.equal(applyArchiveEdits(tto, [{ at: t.priority!.at, old: t.priority!.raw, value: '0' }]).includes('<Priority>0<'), true);
 });

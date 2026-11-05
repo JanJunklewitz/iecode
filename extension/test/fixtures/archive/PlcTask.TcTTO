@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <Task Name="PlcTask" Id="{11111111-1111-4111-8111-111111111111}">
+    <!--CycleTime in micro seconds.-->
+    <CycleTime>10000</CycleTime>
+    <Priority>1</Priority>
+    <PouCall>
+      <Name>MAIN</Name>
+    </PouCall>
+    <PouCall>
+      <Name>VisuElems.Visu_Prg</Name>
+    </PouCall>
+    <TaskFBGuid>{22222222-2222-4222-8222-222222222222}</TaskFBGuid>
+    <Fb_init>{33333333-3333-4333-8333-333333333333}</Fb_init>
+    <Fb_exit>{44444444-4444-4444-8444-444444444444}</Fb_exit>
+  </Task>
+</TcPlcObject>

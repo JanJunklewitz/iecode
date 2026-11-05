@@ -1,5 +1,5 @@
-// Editor for global text lists (.TcGTLO), image pools (.TcIPO) and the visualization manager (.TcVMO): a table of
-// texts with their translations, the images with previews, and the visualization manager's settings as a form.
+// Editor for global text lists (.TcGTLO), image pools (.TcIPO, .TcGIPO), tasks (.TcTTO) and the visualization manager
+// (.TcVMO): a table of texts with their translations, the images with previews, the task and the manager's settings as a form.
 // Edits go through the text document (WorkspaceEdit), so undo / redo / save / dirty state work as for text.
 
 import * as vscode from 'vscode';

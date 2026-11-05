@@ -13,6 +13,9 @@ input[type=search], select {
 }
 input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .filter { width: 280px; max-width: 100%; }
+.filter.bad { outline: 1px solid var(--vscode-inputValidation-errorBorder, red); }
+.regex { white-space: nowrap; font-size: 12px; }
+.status.err { color: var(--vscode-errorForeground); }
 .tabs { display: flex; gap: 2px; }
 .tab { background: none; color: var(--vscode-foreground); opacity: .75; border-bottom: 2px solid transparent; border-radius: 0; }
 .tab:hover { background: none; opacity: 1; }

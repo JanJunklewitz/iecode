@@ -26,9 +26,9 @@ import { changesToText, configAt } from './core/confighistory';
 import { loadPlcProject } from './core/projects';
 import { AdsSymbol, adsChangesToCsv, diffSymbols, fromSourceAt, fromTmc, sizeText, symbolsToCsv } from './core/adsinterface';
 
-const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i;
-/** ST view of an object, YAML summary of a visualization, text list, image pool or visualization manager (git textconv runs on a temp file: detect by content). */
-const toView = (xml: string) => (/<(Visu|GlobalTextList|ImagePool|VisuManager)\s/.test(xml.slice(0, 600)) ? summaryText(xml)
+const EXT_RE = /\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i;
+/** ST view of an object, YAML summary of a visualization, text list, image pool, task or visualization manager (git textconv runs on a temp file: detect by content). */
+const toView = (xml: string) => (/<(Visu|GlobalTextList|ImagePool|GlobalImagePool|Task|VisuManager)\s/.test(xml.slice(0, 600)) ? summaryText(xml)
   : isEncrypted(xml) ? '(* encrypted object *)\n' : decode(xml.replace(/^﻿/, '')));
 
 /** Writes the ST views of both files to a temp folder and runs the viewer on them; other files are passed as they are. */

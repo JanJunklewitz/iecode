@@ -62,6 +62,35 @@ export async function run(): Promise<void> {
   assert.ok(rev.getText().includes('Start := TRUE;') && !rev.getText().includes('CDATA'), 'HEAD shown as ST');
   await vscode.commands.executeCommand('iecode.compareWithHead', vscode.Uri.file(path));
 
+  // the diff switches to the raw XML and back, without being redirected to ST again
+  const activeDiff = () => vscode.window.tabGroups.activeTabGroup.activeTab?.input as vscode.TabInputTextDiff;
+  const sideText = async (u: vscode.Uri) => (await vscode.workspace.openTextDocument(u)).getText();
+  await vscode.commands.executeCommand('iecode.showRawDiff');
+  await new Promise(r => setTimeout(r, 1500));
+  const raw = activeDiff();
+  assert.deepEqual([raw.original.scheme, raw.modified.scheme], ['iecode-raw', 'iecode-raw'], 'raw diff stays raw');
+  assert.ok((await sideText(raw.original)).includes('Start := TRUE;'), 'raw original is the HEAD XML');
+  assert.ok((await sideText(raw.modified)).includes('CDATA'), 'raw modified is the working copy XML');
+  assert.match(vscode.window.tabGroups.activeTabGroup.activeTab!.label, /\(XML\)/);
+  await vscode.commands.executeCommand('iecode.showViewDiff');
+  await new Promise(r => setTimeout(r, 1500));
+  const back = activeDiff();
+  assert.deepEqual([back.original.scheme, back.modified.scheme], ['iecode-rev', 'iecode'], 'switched back to the ST diff');
+  assert.ok(!vscode.window.tabGroups.all.some(g => g.tabs.some(t => t.input instanceof vscode.TabInputTextDiff && t.input.modified.scheme === 'iecode-raw')), 'raw tab replaced');
+
+  // tasks and global image pools open in their editor and read their real file format
+  for (const [file, xml] of [['E2E.TcTTO', '<TcPlcObject><Task Name="E2E" Id="{a}"><CycleTime>10000</CycleTime><Priority>1</Priority></Task></TcPlcObject>'],
+    ['E2EPool.TcGIPO', '<TcPlcObject><GlobalImagePool Name="E2EPool" Id="{a}"><XmlArchive><Data><o></o></Data></XmlArchive></GlobalImagePool></TcPlcObject>']]) {
+    const f = join(ws, file);
+    await fs.writeFile(f, xml);
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(f));
+    await new Promise(r => setTimeout(r, 1500));
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab!;
+    assert.ok(tab.input instanceof vscode.TabInputCustom && tab.input.viewType === 'iecode.plcArchiveEditor', `${file} opens in the editor`);
+    await vscode.window.tabGroups.close(tab);
+    await fs.rm(f);
+  }
+
   // a diff from the Source Control view (git: ↔ file:) is replaced by the ST diff
   // the git extension opens the repository some time after start (slower on Windows); wait for it and for the redirect
   const until = async <T>(get: () => T | undefined | Promise<T | undefined>, ms = 15000): Promise<T | undefined> => {

@@ -167,7 +167,7 @@ export function parseLibraryId(s: string | undefined): LibraryId | undefined {
 export const formatLibraryId = (id: LibraryId) => `${id.name}, ${id.version} (${id.vendor})`;
 
 const EXT_TYPE: Record<string, ObjectType> = {
-  '.tcgvl': 'GVL', '.tcio': 'INTERFACE', '.tctto': 'TASK', '.tcgtlo': 'TEXTLIST', '.tcipo': 'IMAGEPOOL', '.tcvmo': 'VISUMANAGER',
+  '.tcgvl': 'GVL', '.tcio': 'INTERFACE', '.tctto': 'TASK', '.tcgtlo': 'TEXTLIST', '.tcipo': 'IMAGEPOOL', '.tcgipo': 'IMAGEPOOL', '.tcvmo': 'VISUMANAGER',
 };
 
 /** Reads name and kind of an object file from its first declaration (cheap: a regex on the file head). */
