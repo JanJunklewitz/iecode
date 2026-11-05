@@ -49,7 +49,8 @@ input.invalid { border-color: var(--vscode-inputValidation-errorBorder, var(--vs
 .row > .file { display: none; }
 .multiFile .row { grid-template-columns: 18px 13em 10em 5em 14em minmax(0, 1fr); }
 .multiFile .row > .file { display: block; }
-.row.head { color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+/* The head keeps the table font size: the em column widths must resolve to the same pixels as in the rows. */
+.row.head { color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
 .rows .row { cursor: default; }
 .rows .row:hover { background: var(--vscode-list-hoverBackground); }
 .row.gap { border-top: 1px dashed var(--vscode-descriptionForeground); }
