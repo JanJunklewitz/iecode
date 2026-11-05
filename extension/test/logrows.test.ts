@@ -129,7 +129,7 @@ test('LogFiles.close called twice resolves both calls after the release', async 
   await Promise.all([a, b]);
 });
 
-test('readDetail parses first from at most 8 KB of a long first line but returns the full text', async () => {
+test('readDetail parses first from at most 24 KB of a long first line but returns the full text', async () => {
   const msg = 'y'.repeat(20000);
   const p = tmpFile(entryLine(1, 'ERROR', 'fbMain.long', msg) + '\n  tail line\n');
   const s = await scan([p]);
@@ -140,13 +140,14 @@ test('readDetail parses first from at most 8 KB of a long first line but returns
     assert.ok(d.text.endsWith('  tail line'));
     assert.equal(d.first.source, 'fbMain.long');
     assert.ok(d.first.message.length <= 8192 && d.first.message.length > 8000);
-    // 2-byte characters: the 8 KB byte cut leaves about 4000 characters, parseLine's own 8192-character cap would leave more.
+    // 2-byte characters: the 24 KB read holds parseLine's whole 8192-character head, as the scan saw it.
     const wide = tmpFile(entryLine(1, 'ERROR', 'fbMain.long', 'ä'.repeat(10000)) + '\n  tail line\n');
     const ws = await scan([wide]);
     const wf = new LogFiles([wide]);
     try {
       const w = await readDetail(wf, [logger], ref(ws, 0));
-      assert.ok(w.first.message.length < 4500, `message has ${w.first.message.length} chars`);
+      assert.ok(w.first.message.length > 8000 && w.first.message.length <= 8192, `message has ${w.first.message.length} chars`);
+      assert.ok(!w.first.message.includes('�'));
       assert.ok(w.text.includes('ä'.repeat(10000)));
     } finally {
       await wf.close();
@@ -405,4 +406,35 @@ test('exportRaw keeps the given order over two files and out-of-order entries', 
   } finally {
     await files.close();
   }
+});
+
+test('searchText reuses finished workers, also after a failed search, and replaces an aborted one', async () => {
+  const p = path.join(fixtures, 'multiline.log');
+  const s = await scan([p]);
+  // Several searches in a row and in parallel answer like one each; a reused worker keeps nothing of the last query.
+  for (let k = 0; k < 3; k++) {
+    assert.deepEqual(Array.from((await searchText([p], cols(s), defs, Q('PUMP'), 0)).flags), [1, 1, 1]);
+    assert.deepEqual(Array.from((await searchText([p], cols(s), defs, Q('detail line TWO'), 0)).flags), [1, 0, 0]);
+  }
+  const both = await Promise.all([Q('PUMP'), Q('detail line TWO'), Q('nothing at all')].map(q => searchText([p], cols(s), defs, q, 0)));
+  assert.deepEqual(both.map(r => Array.from(r.flags)), [[1, 1, 1], [1, 0, 0], [0, 0, 0]]);
+  // A search that fails inside the worker (missing file) leaves the worker usable.
+  await assert.rejects(searchText([path.join(tmp, 'missing.log')], cols(s), defs, Q('x'), 0));
+  assert.deepEqual(Array.from((await searchText([p], cols(s), defs, Q('PUMP'), 0)).flags), [1, 1, 1]);
+  // An aborted search terminates its worker; the next one gets a working one.
+  const ac = new AbortController();
+  const slow = tmpFile(entryLine(1, 'INFO', 'fbMain.x', 'a'.repeat(5000) + '!') + '\n');
+  const pr = searchText([slow], cols(await scan([slow])), defs, Q('(a+)+$', { regex: true }), 0, ac.signal);
+  setTimeout(() => ac.abort(), 50);
+  await assert.rejects(pr, (e: Error) => e.name === 'AbortError');
+  assert.deepEqual(Array.from((await searchText([p], cols(s), defs, Q('PUMP'), 0)).flags), [1, 1, 1]);
+});
+
+test('searchText only sees the indexed bytes of an unterminated last entry that grew since', async () => {
+  const p = tmpFile(entryLine(1, 'INFO', 'fbMain.x', 'first') + '\n' + entryLine(2, 'INFO', 'fbMain.x', 'half'));
+  const s = await scan([p]);
+  assert.equal(s.count, 2);
+  fs.appendFileSync(p, ' written later');
+  assert.deepEqual(Array.from((await searchText([p], cols(s), defs, Q('written later'), 0)).flags), [0, 0]);
+  assert.deepEqual(Array.from((await searchText([p], cols(s), defs, Q('half'), 0)).flags), [0, 1]);
 });

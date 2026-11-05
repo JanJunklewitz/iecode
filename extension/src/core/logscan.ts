@@ -30,10 +30,11 @@ export interface RawLine { buf: Buffer; start: number; end: number; offset: numb
 const DEFAULT_CHUNK = 1024 * 1024;
 const MAX_LINE_BYTES = 1024 * 1024;
 const MAX_BATCH_LINES = 1024;
-const MAX_FIRST_LENGTH = 8192;
 const MAX_HASH_CHARS = 8192;
 /** Enough bytes to hold MAX_HASH_CHARS characters of any UTF-8 text (3 bytes per BMP char). */
 const MAX_DECODE_BYTES = MAX_HASH_CHARS * 3;
+/** The previews read the first line up to here, so they see the same head the scan parsed. */
+const MAX_FIRST_LENGTH = MAX_DECODE_BYTES;
 const MAX_LINES = 65535;
 const LF = 0x0a;
 const CR = 0x0d;
@@ -177,15 +178,9 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
   // last appended entry (a range, not a list: a plain file has millions of undated entries).
   let undatedFrom = -1;
   let lastTime = NaN;
-  // Resume only looks back for the previous dated time. Entries already in the store are never re-patched:
-  // committed entries are immutable, so trailing boot entries keep the previous dated entry as sortTime even when
-  // the grown file now has a later dated one. That differs from a full scan, but live tails are single-file
-  // (file order), where sortTime is not used.
-  if (startOffset > 0) {
-    for (let i = store.count - 1; i >= 0 && store.file[i] === fileId; i--) {
-      if (!Number.isNaN(store.time[i])) { lastTime = store.time[i]; break; }
-    }
-  }
+  // A resume (startOffset, the live tail) sees only the entries it scans: trailing boot entries of the tail get
+  // -Infinity instead of the previous dated time, and entries already in the store are never re-patched. That differs
+  // from a full scan, but live tails are single-file (file order), where sortTime is not used.
   const patchUndated = (t: number): void => {
     if (undatedFrom < 0) return;
     store.sortTime.fill(t, undatedFrom, store.count);
@@ -244,7 +239,10 @@ export async function scanFile(path: string, fileId: number, format: LogFormat, 
   return { size, lastEntryStart };
 }
 
-export async function sniff(path: string): Promise<{ lines: string[]; encoding: 'utf8' | 'utf16'; validUtf8: boolean; head: Buffer }> {
+/** partialLast: the last of `lines` has no line break yet (the whole file was sampled; it may still be written). */
+export async function sniff(path: string): Promise<{
+  lines: string[]; encoding: 'utf8' | 'utf16'; validUtf8: boolean; head: Buffer; partialLast: boolean;
+}> {
   const SNIFF_BYTES = 64 * 1024;
   const fh = await fsp.open(path, 'r');
   try {
@@ -262,12 +260,13 @@ export async function sniff(path: string): Promise<{ lines: string[]; encoding: 
     } catch {
       validUtf8 = false;
     }
-    if (utf16) return { lines: [], encoding: 'utf16', validUtf8, head };
+    if (utf16) return { lines: [], encoding: 'utf16', validUtf8, head, partialLast: false };
     const lines = new TextDecoder('utf-8').decode(data, { stream: cut }).split(/\r?\n/);
     // A full sample ends mid-line; drop the cut line. A short sample is the whole file.
     if (cut) lines.pop();
     else if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-    return { lines, encoding: 'utf8', validUtf8, head };
+    const partialLast = !cut && bytesRead > 0 && data[bytesRead - 1] !== 0x0a && lines.length > 0;
+    return { lines, encoding: 'utf8', validUtf8, head, partialLast };
   } finally {
     await fh.close();
   }

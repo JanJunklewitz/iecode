@@ -219,7 +219,8 @@ test('startOffset resume equals one full scan', async () => {
   }
 });
 
-test('resume keeps the sort time of trailing boot entries', async () => {
+test('resume does not look back for the sort time of trailing boot entries', async () => {
+  // A resume sees only what it scans (the live tail scans into a fresh store); sortTime is unused for one file.
   const p = tmpFile([entryLine(1, T1, 'INFO', 'x', 'a'), entryLine(2, BOOT, 'INFO', 'boot', 'b')].join('\n') + '\n');
   const full = new EntryStore();
   const r = await scanFile(p, 0, logger, full);
@@ -227,8 +228,8 @@ test('resume keeps the sort time of trailing boot entries', async () => {
   await scanFile(p, 0, logger, part);
   part.truncate(1);
   await scanFile(p, 0, logger, part, { startOffset: r.lastEntryStart });
-  sameStore(full, part);
-  assert.equal(part.sortTime[1], part.time[0]);
+  assert.equal(full.sortTime[1], full.time[0]);
+  assert.equal(part.sortTime[1], -Infinity);
 });
 
 test('resume on a grown file does not re-patch stored boot entries', async () => {
@@ -325,7 +326,7 @@ test('a 3 MB file without a line break is one entry of exact length', async () =
   await scanFile(tmpFile(content), 0, logger, store, { chunkSize: 256 * 1024 });
   assert.equal(store.count, 1);
   assert.equal(store.length[0], content.length);
-  assert.equal(store.firstLength[0], 8192);
+  assert.equal(store.firstLength[0], 24576);
   assert.equal(store.terminated[0], 0);
 });
 
