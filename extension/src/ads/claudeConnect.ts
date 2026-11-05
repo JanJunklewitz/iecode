@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { RegisteredEntry, addArgs, cmdLine, findOnPath, getArgs, isNotRegistered, manualCommand, parseEntry, removeArgs, restoreArgs } from '../core/claudeRegistration';
 import { output, resolveIecodeExe } from '../cli/iecode';
 import { aiWritesSetting } from './aiSettings';
-import { AdsMcpServer } from './mcpServer';
+import { AdsMcpServer, discoveryDir } from './mcpServer';
 
 interface Claude { exe?: string; cmd?: string }
 interface Ran { code: number | null; out: string }
@@ -72,7 +72,10 @@ async function withRegistrationLock<T>(dir: string, work: () => Promise<T>): Pro
   }
 }
 
-const discoveryDir = () => path.join(process.env.LOCALAPPDATA ?? '', 'iecode', 'mcp', 'v1');
+/** The discovery directory in a local Windows window; connecting makes no sense anywhere else. */
+const localDir = (): string | undefined => (vscode.env.remoteName === undefined && process.platform === 'win32' ? discoveryDir() : undefined);
+
+const LOCAL_ONLY = 'Claude Code works with a local Windows VS Code window only.';
 
 const failed = (what: string, r: Ran): false => {
   output.error(`${what}: exit ${r.code}\n${r.out.trim()}`);
@@ -82,8 +85,9 @@ const failed = (what: string, r: Ran): false => {
 
 export function registerClaudeConnect(ctx: vscode.ExtensionContext, server: AdsMcpServer) {
   const connect = async () => {
-    if (vscode.env.remoteName !== undefined || process.platform !== 'win32') {
-      void vscode.window.showErrorMessage('IECode: Connect Claude Code works with a local Windows VS Code window only.');
+    const dir = localDir();
+    if (!dir) {
+      void vscode.window.showErrorMessage(`IECode: Connect ${LOCAL_ONLY}`);
       return;
     }
     const exe = resolveIecodeExe();
@@ -99,7 +103,7 @@ export function registerClaudeConnect(ctx: vscode.ExtensionContext, server: AdsM
     const claude = findClaude();
     if (!claude) return offerManual(exe, server);
 
-    const done = await withRegistrationLock(discoveryDir(), async () => {
+    const done = await withRegistrationLock(dir, async () => {
       const got = await runClaude(claude, getArgs());
       let saved: RegisteredEntry | undefined;
       if (got.code === 0) {
@@ -132,22 +136,32 @@ export function registerClaudeConnect(ctx: vscode.ExtensionContext, server: AdsM
   };
 
   const disconnect = async () => {
+    const dir = localDir();
+    if (!dir) {
+      void vscode.window.showErrorMessage(`IECode: Disconnect ${LOCAL_ONLY}`);
+      return;
+    }
     const exe = resolveIecodeExe();
     const claude = findClaude();
     let note = '';
     if (!claude) {
       note = ' The claude CLI was not found, so its entry was not touched: run "claude mcp remove -s user iecode" yourself.';
     } else {
-      const got = await withRegistrationLock(discoveryDir(), () => runClaude(claude, getArgs()));
-      const entry = got && got.code === 0 ? parseEntry(got.out) : undefined;
-      if (entry) {
-        if (exe && sameExe(entry.command, exe) && entry.args.length === 1 && entry.args[0] === 'mcp') {
-          const rm = await runClaude(claude, removeArgs());
-          if (rm.code !== 0) failed('"claude mcp remove" failed', rm);
-        } else {
-          note = ' A different "iecode" entry of Claude Code was left alone.';
-        }
-      }
+      const manual = 'run "claude mcp remove -s user iecode" yourself if it should go.';
+      const outcome = await withRegistrationLock(dir, async () => {
+        const got = await runClaude(claude, getArgs());
+        if (got.code !== 0) return isNotRegistered(got.out) ? '' : ` "claude mcp get iecode" failed, so its entry was not touched: ${manual}`;
+        const entry = parseEntry(got.out);
+        if (!entry) return ` The "iecode" entry of Claude Code could not be read, so it was not touched: ${manual}`;
+        if (!exe) return ` The iecode CLI was not found, so the "iecode" entry of Claude Code could not be checked and was not touched: ${manual}`;
+        if (!sameExe(entry.command, exe) || entry.args.length !== 1 || entry.args[0] !== 'mcp') return ' A different "iecode" entry of Claude Code was left alone.';
+        const rm = await runClaude(claude, removeArgs());
+        if (rm.code === 0) return '';
+        failed('"claude mcp remove" failed', rm);
+        return ` Its entry is still registered: ${manual}`;
+      });
+      if (outcome === undefined) return; // another window holds the lock and the user was told: nothing changed
+      note = outcome;
     }
     await server.setConnected(false);
     void vscode.window.showInformationMessage(`IECode: Claude Code disconnected; no window serves the ADS tools any more.${note}`);

@@ -67,7 +67,7 @@ const CANCELLED = 'the request was cancelled';
 const TOO_LONG = 'the request waited too long';
 const OFF = 'AI writes are off. The user can allow them with the command "IECode: Set AI Write Access…" (setting iecode.ads.aiWrites in the user settings)';
 /** A dialog needs at least this much of the operation deadline, else the user could not answer in time. */
-const MIN_DIALOG_MS = 5000;
+export const MIN_DIALOG_MS = 5000;
 
 const namesOf = (op: WriteOp): ToolNames => (op.via === 'MCP' ? MCP_NAMES : COPILOT_NAMES);
 const refusal = (reason: string): WriteResult => ({ kind: 'refused', reason });
@@ -100,7 +100,6 @@ interface OpState {
   op: WriteOp;
   signal: AbortSignal;
   deadlineAt: number;
-  phase: 'queued' | 'confirming' | 'sending';
   /** The result was handed to the caller. */
   settled: boolean;
   /** `beforeSend` passed: from here nothing turns the result into "refused" any more. */
@@ -128,7 +127,7 @@ export class WriteGate {
     if (this.queue.length >= this.policy.maxQueued) return Promise.resolve(refusal('too many pending writes'));
     return new Promise<WriteResult>(resolve => {
       const s: OpState = {
-        op, signal, deadlineAt: this.clock.now() + this.policy.operationMs, phase: 'queued', settled: false, committed: false,
+        op, signal, deadlineAt: this.clock.now() + this.policy.operationMs, settled: false, committed: false,
         resolve, timers: [], onAbort: () => this.flip(s, CANCELLED),
       };
       s.timers.push(this.clock.setTimeout(() => this.flip(s, TOO_LONG), this.policy.operationMs));
@@ -199,7 +198,6 @@ export class WriteGate {
       s.approved = 'allow';
     } else {
       if (s.deadlineAt - this.clock.now() < MIN_DIALOG_MS) return this.flip(s, TOO_LONG);
-      s.phase = 'confirming';
       const dialogTimer = this.clock.setTimeout(() => this.flip(s, 'the confirmation was not answered in time'), this.policy.dialogMs);
       s.timers.push(dialogTimer);
       let answer = false;
@@ -216,7 +214,6 @@ export class WriteGate {
       if (!answer) return this.finish(s, refusal('the user declined the write'));
       s.approved = 'confirm';
     }
-    s.phase = 'sending';
     let result: WriteResult;
     try {
       result = await this.deps.send(op, () => this.beforeSend(s));

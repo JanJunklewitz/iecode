@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { addArgs, removeArgs, getArgs, manualCommand, registeredExe, parseEntry, restoreArgs, cmdLine, findOnPath, isNotRegistered } from '../src/core/claudeRegistration';
+import { addArgs, removeArgs, getArgs, manualCommand, parseEntry, restoreArgs, cmdLine, findOnPath, isNotRegistered } from '../src/core/claudeRegistration';
 
 // Real output of `claude mcp get` (Claude Code 2.1.318), the spike's fixture with the server renamed
 const HEALTHY = `iecode:
@@ -37,10 +37,10 @@ test('addArgs builds the user-scope stdio registration', () => {
   assert.deepEqual(getArgs(), ['mcp', 'get', 'iecode']);
 });
 
-test('registeredExe reads the command of the entry', () => {
-  assert.equal(registeredExe(HEALTHY), EXE);
-  assert.equal(registeredExe(FAILED), EXE);
-  assert.equal(registeredExe(ABSENT), undefined);
+test('parseEntry reads the command of the entry', () => {
+  assert.equal(parseEntry(HEALTHY)?.command, EXE);
+  assert.equal(parseEntry(FAILED)?.command, EXE);
+  assert.equal(parseEntry(ABSENT), undefined);
 });
 
 test('absent entries are recognised in both wordings', () => {
@@ -84,7 +84,9 @@ test('parseEntry keeps command, args and env of an existing entry', () => {
 
 test('restoreArgs rebuilds the add command of a saved entry', () => {
   assert.deepEqual(restoreArgs(parseEntry(HEALTHY)!), ['mcp', 'add', '-s', 'user', 'iecode', '--', EXE, 'mcp']);
-  assert.deepEqual(restoreArgs(parseEntry(WITH_ENV)!), ['mcp', 'add', '-s', 'user', 'iecode', '-e', 'TOKEN=abc', '-e', 'MODE=fast', '--', 'node', 'C:\\tools\\srv.js', '--flag']);
+  assert.deepEqual(restoreArgs({ ...parseEntry(WITH_ENV)!, args: ['C:\\tools\\srv.js'] }), ['mcp', 'add', '-s', 'user', 'iecode', '-e', 'TOKEN=abc', '-e', 'MODE=fast', '--', 'node', 'C:\\tools\\srv.js']);
+  // several arguments may really be one with a space inside: not restored by guessing
+  assert.equal(restoreArgs(parseEntry(WITH_ENV)!), undefined);
   assert.equal(restoreArgs({ ...parseEntry(HEALTHY)!, transport: 'http' }), undefined);
   assert.equal(restoreArgs({ ...parseEntry(HEALTHY)!, scope: '' }), undefined);
 });

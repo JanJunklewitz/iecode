@@ -22,8 +22,8 @@ type WatchInput = Parameters<ReturnType<typeof adsTools>['watch']>[0];
 type ReadInput = Parameters<ReturnType<typeof adsTools>['read']>[0];
 type ScopeInput = Parameters<ReturnType<typeof adsTools>['scope']>[0];
 
-/** A prepared write older than this (the gate's operation deadline) is not matched to an invoke any more. */
-const WRITE_PREPARE_MAX_AGE_MS = 150_000;
+/** Copilot's confirmation has no time limit, so this allows for a slow answer; the gate checks decision and target again at send time. */
+const WRITE_PREPARE_MAX_AGE_MS = 900_000;
 
 export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: WorkspaceState, gate: WriteGate) {
   const tools = adsTools(ctx, state, COPILOT_NAMES);

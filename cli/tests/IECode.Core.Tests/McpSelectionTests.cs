@@ -206,6 +206,25 @@ public sealed class McpSelectionTests
     }
 
     [Fact]
+    public void Load_ReportsAFileThatStaysLocked()
+    {
+        var dir = TempDir();
+        try
+        {
+            var path = Path.Combine(dir, "a1.json");
+            File.WriteAllText(path, GoodFile);
+            Assert.Single(Instances.Load(dir, out var before));
+            Assert.False(before);
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.Empty(Instances.Load(dir, out var locked));
+                Assert.True(locked);
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void Load_SkipsAFileWithAMalformedPipeNameOrRoot()
     {
         var dir = TempDir();

@@ -14,7 +14,7 @@ public abstract record Probe
 /// <summary>The window a folder's calls go to, or why there is none.</summary>
 public abstract record Selection
 {
-    public sealed record Chosen(InstanceInfo Instance, Stream Link) : Selection;
+    public sealed record Chosen(InstanceInfo Instance) : Selection;
     public sealed record None : Selection;
     public sealed record Conflict(IReadOnlyList<InstanceInfo> Instances) : Selection;
     public sealed record VersionMismatch(InstanceInfo Instance) : Selection;
@@ -24,7 +24,7 @@ public abstract record Selection
     /// <summary>
     /// Candidates are instances with a root that contains <paramref name="cwd"/>. The groups of equal best-root length are walked from the
     /// longest; a group decides as soon as one of its windows is reachable or silent. Silent never means gone, so a paused window with the
-    /// longest root blocks the fallback to a shorter root. Streams of a decision that is not <see cref="Chosen"/> are disposed.
+    /// longest root blocks the fallback to a shorter root. The streams of the probes are disposed: a caller that keeps a link holds its own.
     /// </summary>
     public static Selection Choose(string cwd, IReadOnlyList<InstanceInfo> all, Func<InstanceInfo, Probe> connect)
     {
@@ -72,7 +72,11 @@ public abstract record Selection
                 foreach (var o in ok) o.Link.Dispose();
                 return new VersionMismatch(mismatch);
             }
-            if (ok.Count == 1) return new Chosen(ok[0].Instance, ok[0].Link);
+            if (ok.Count == 1)
+            {
+                ok[0].Link.Dispose();
+                return new Chosen(ok[0].Instance);
+            }
             if (ok.Count > 1)
             {
                 foreach (var o in ok) o.Link.Dispose();

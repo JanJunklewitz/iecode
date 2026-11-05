@@ -22,6 +22,8 @@ import { adsTools } from './adsTools';
 const POLL_MS = 5_000;
 const HEARTBEAT_MS = 60_000;
 const STALE_MS = 600_000;
+/** After a failed start the next try waits this long, so a lasting failure does not spawn icacls every poll. */
+const RETRY_MS = 60_000;
 
 const realFs: FsOps = {
   mkdir: p => { fs.mkdirSync(p, { recursive: true }); },
@@ -35,7 +37,7 @@ const realFs: FsOps = {
 };
 
 /** `%LOCALAPPDATA%\iecode\mcp\v1`, or undefined where there is no such place. */
-function discoveryDir(): string | undefined {
+export function discoveryDir(): string | undefined {
   const base = process.env.LOCALAPPDATA;
   return base ? path.join(base, 'iecode', 'mcp', 'v1') : undefined;
 }
@@ -60,6 +62,7 @@ export class AdsMcpServer implements vscode.Disposable {
   private live: Live | undefined;
   private warned = false;
   private aclWarned = false;
+  private retryAt = 0;
   private poll: NodeJS.Timeout | undefined;
   private readonly subscriptions: vscode.Disposable[] = [];
 
@@ -82,6 +85,7 @@ export class AdsMcpServer implements vscode.Disposable {
     const dir = discoveryDir();
     if (!dir) return;
     setConnectedMarker(dir, on, realFs);
+    this.retryAt = 0;
     await this.reconcile();
   }
 
@@ -114,12 +118,14 @@ export class AdsMcpServer implements vscode.Disposable {
 
   private async reconcile(): Promise<void> {
     const want = this.eligible() && this.connected();
-    if (want && !this.live) await this.start();
+    if (!want) this.retryAt = 0;
+    if (want && !this.live && Date.now() >= this.retryAt) await this.start();
     else if (!want && this.live) await this.stop();
   }
 
   private fail(e: unknown): void {
     const reason = (e as Error).message;
+    this.retryAt = Date.now() + RETRY_MS;
     output.warn(`MCP server could not start: ${reason}`);
     if (!this.warned) {
       this.warned = true;
@@ -172,7 +178,11 @@ export class AdsMcpServer implements vscode.Disposable {
   private async doStart(gen: { stale(): boolean }): Promise<void> {
     const dir = discoveryDir();
     if (this.live || !dir) return;
-    if (!(await this.ensurePrivate(dir)) || gen.stale()) return;
+    if (!(await this.ensurePrivate(dir))) {
+      this.retryAt = Date.now() + RETRY_MS;
+      return;
+    }
+    if (gen.stale()) return;
     const instances = path.join(dir, 'instances');
     realFs.mkdir(instances);
     await sweepStaleInstances(instances, realFs, Date.now(), STALE_MS, async pipePath => pipeExists(pipePath));
@@ -180,8 +190,9 @@ export class AdsMcpServer implements vscode.Disposable {
 
     const tools = this.descriptors();
     const toolsPath = path.join(dir, 'tools.json');
-    realFs.write(`${toolsPath}.tmp`, toolsFile(tools));
-    realFs.rename(`${toolsPath}.tmp`, toolsPath);
+    const toolsTmp = `${toolsPath}.${process.pid}.tmp`; // windows start at the same time; one temp name each
+    realFs.write(toolsTmp, toolsFile(tools));
+    realFs.rename(toolsTmp, toolsPath);
 
     const id = randomBytes(16).toString('hex');
     const secret = randomBytes(32).toString('base64');
@@ -197,8 +208,14 @@ export class AdsMcpServer implements vscode.Disposable {
       format: 1, id, pid: process.pid, startedAt: new Date().toISOString(), extensionVersion: String(this.ctx.extension.packageJSON.version),
       bridgeProtocol: { min: 1, max: 1 }, pipe, roots: this.roots(), workspaceName: vscode.workspace.name ?? '', rootsRevision: 1, secret,
     };
+    // published first: a failed write must leave no half-started server, so the next poll can try again
+    try {
+      writeInstance(instances, file, realFs);
+    } catch (e) {
+      await server.close();
+      throw e;
+    }
     this.live = { id, server, file, connections };
-    writeInstance(instances, file, realFs);
     this.queue.every(HEARTBEAT_MS, () => this.republish(false));
     output.info(`MCP server for Claude Code serves ${file.roots.join(', ') || 'no folder'} on ${pipe}`);
     this.changed.fire();

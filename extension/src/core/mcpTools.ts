@@ -4,7 +4,7 @@
 import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWatchInput, parseWriteInput, Parsed } from './toolInput';
-import { GatePolicy, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
+import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
 export interface ToolDescriptor { name: string; description: string; inputSchema: object }
@@ -56,9 +56,6 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
     },
   ];
 }
-
-/** A dialog needs at least this long, else the user could not answer in time. */
-const MIN_DIALOG_MS = 5_000;
 
 /**
  * Gate deadlines that end before the client gives up on the call, so it never abandons a call while its dialog is open.

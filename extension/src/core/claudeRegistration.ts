@@ -48,11 +48,12 @@ export function parseEntry(getOutput: string): RegisteredEntry | undefined {
   return { scope, transport, command, args: argText ? argText.split(/\s+/) : [], env, raw: getOutput.trim() };
 }
 
-export const registeredExe = (getOutput: string): string | undefined => parseEntry(getOutput)?.command;
-
-/** The `claude mcp add` arguments that recreate a saved entry; undefined when they cannot be expressed (not stdio, unknown scope). */
+/**
+ * The `claude mcp add` arguments that recreate a saved entry; undefined when they cannot be expressed (not stdio, unknown scope, or
+ * several arguments: `claude mcp get` joins them with spaces, so one with a space inside cannot be told from two).
+ */
 export function restoreArgs(e: RegisteredEntry): string[] | undefined {
-  if (e.transport.toLowerCase() !== 'stdio' || !e.scope) return undefined;
+  if (e.transport.toLowerCase() !== 'stdio' || !e.scope || e.args.length > 1) return undefined;
   const env = Object.entries(e.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
   return ['mcp', 'add', '-s', e.scope, SERVER_NAME, ...env, '--', e.command, ...e.args];
 }

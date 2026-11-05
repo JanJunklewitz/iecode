@@ -726,12 +726,12 @@
         },
         {
           "command": "iecode.mcpConnect",
-          "when": "view == iecode.adsWatch",
+          "when": "view == iecode.adsWatch && isWindows && !remoteName",
           "group": "ai@3"
         },
         {
           "command": "iecode.mcpDisconnect",
-          "when": "view == iecode.adsWatch",
+          "when": "view == iecode.adsWatch && isWindows && !remoteName",
           "group": "ai@4"
         }
       ],
@@ -1052,11 +1052,11 @@
         },
         {
           "command": "iecode.mcpConnect",
-          "when": "isWindows && !isRemote"
+          "when": "isWindows && !remoteName"
         },
         {
           "command": "iecode.mcpDisconnect",
-          "when": "isWindows && !isRemote"
+          "when": "isWindows && !remoteName"
         }
       ],
       "iecode.compare": [

@@ -11,8 +11,13 @@ public static class Instances
     private static readonly System.Text.RegularExpressions.Regex PipeName = new("^[A-Za-z0-9._-]{1,128}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Reads every <c>*.json</c> of the instances directory; an unreadable file or one that is not format 1 is skipped.</summary>
-    public static IReadOnlyList<InstanceInfo> Load(string instancesDir)
+    public static IReadOnlyList<InstanceInfo> Load(string instancesDir) => Load(instancesDir, out _);
+
+    /// <param name="instancesDir">The instances directory.</param>
+    /// <param name="unreadable">A file stayed locked: it may belong to the window that owns the folder, so the caller must not choose without it.</param>
+    public static IReadOnlyList<InstanceInfo> Load(string instancesDir, out bool unreadable)
     {
+        unreadable = false;
         var result = new List<InstanceInfo>();
         string[] files;
         try { files = Directory.GetFiles(instancesDir, "*.json"); }
@@ -21,7 +26,9 @@ public static class Instances
         {
             try
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                var text = Read(file, ref unreadable);
+                if (text is null) continue;
+                using var doc = JsonDocument.Parse(text);
                 var r = doc.RootElement;
                 if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("format", out var f) || f.ValueKind != JsonValueKind.Number || f.GetInt32() != 1) continue;
                 var proto = r.GetProperty("bridgeProtocol");
@@ -46,6 +53,25 @@ public static class Instances
             }
         }
         return result;
+    }
+
+    /// <summary>The text of a file, null when it is gone or stays locked; a rename by the owner's heartbeat locks it only for a moment, so it is retried.</summary>
+    private static string? Read(string file, ref bool unreadable)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return File.ReadAllText(file); }
+            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return null; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= 2)
+                {
+                    unreadable = true;
+                    return null;
+                }
+                Thread.Sleep(20);
+            }
+        }
     }
 }
 

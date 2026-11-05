@@ -278,7 +278,11 @@ public sealed class McpBridge
 
     // ---- window selection and links ----
 
-    private Task<Selection> ChooseAsync() => Task.Run(() => Selection.Choose(_cwd, Instances.Load(_instancesDir), ConnectShared));
+    private Task<Selection> ChooseAsync() => Task.Run<Selection>(() =>
+    {
+        var all = Instances.Load(_instancesDir, out var unreadable);
+        return unreadable ? new Selection.Unsure([]) : Selection.Choose(_cwd, all, ConnectShared);
+    });
 
     private Link? TryLink(string id)
     {
