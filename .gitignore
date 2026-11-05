@@ -33,6 +33,7 @@ _CompileInfo/
 _Libraries/
 *.~u
 *.tmc
+!extension/test/fixtures/tmc/*.tmc
 *.tpy
 *.compiled-library
 *.library

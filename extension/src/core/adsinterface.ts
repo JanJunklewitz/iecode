@@ -53,31 +53,31 @@ export const sizeText = (bits?: number) => (bits === undefined ? '' : bits % 8 =
 
 // ---- build output (.tmc) ----
 
-const kids = (n: XNode, name: string) => n.children.filter(c => c.name === name);
-const kid = (n: XNode, name: string) => n.children.find(c => c.name === name);
+export const kids = (n: XNode, name: string) => n.children.filter(c => c.name === name);
+export const kid = (n: XNode, name: string) => n.children.find(c => c.name === name);
 
 function* walk(n: XNode): Generator<XNode> { for (const c of n.children) { yield c; yield* walk(c); } }
 
 const XML_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
-function textOf(n: XNode | undefined, src: string): string | undefined {
+export function textOf(n: XNode | undefined, src: string): string | undefined {
   if (!n) return undefined;
   const raw = cdataText(n) ?? src.slice(n.innerStart, n.innerEnd).replace(/&(amp|lt|gt|quot|apos);/g, (_, e: string) => XML_ENTITIES[e]);
   return raw.trim() || undefined;
 }
 
-const intOf = (n: XNode | undefined, src: string) => {
+export const intOf = (n: XNode | undefined, src: string) => {
   const t = textOf(n, src);
   return t !== undefined && /^-?\d+$/.test(t) ? Number(t) : undefined;
 };
 
-const keyOf = (n: XNode | undefined, src: string) => {
+export const keyOf = (n: XNode | undefined, src: string) => {
   const t = textOf(n, src) ?? '';
   return n?.attrs.Namespace ? `${n.attrs.Namespace}.${t}` : t;
 };
 
 /** Type of a symbol / member: base type plus ARRAY / POINTER TO / REFERENCE TO. */
-function typeOf(n: XNode, typeElement: string, src: string): string {
+export function typeOf(n: XNode, typeElement: string, src: string): string {
   const t = kid(n, typeElement);
   let type = textOf(t, src) ?? '';
   if (t?.attrs.PointerTo) type = 'POINTER TO '.repeat(Math.max(Number(t.attrs.PointerTo) || 1, 1)) + type;

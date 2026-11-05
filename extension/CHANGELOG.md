@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Build output
+- **Module class viewer**: `.tmc` files (the build output of PLC projects and TcCOM modules) open in a read-only viewer (**Open as XML** or **Reopen Editor With…** for the text). **Overview**: tasks with cycle times, data areas with their sizes, parameters, interfaces, properties and licenses. **Symbols** and **Data types**: filter, expand members, enum values and methods, jump from a type name to its definition. Reloads after each build.
+
 ## 0.2.7
 
 Requires VS Code 1.95 or later (language model tools).
