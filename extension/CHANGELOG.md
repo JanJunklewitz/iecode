@@ -5,8 +5,13 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 ## Unreleased
 
 ### Claude Code
-- **Claude Code** can use the ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_scope`, `ads_write`): **Connect Claude Code** registers the CLI's `iecode mcp` bridge once per user, and each VS Code window serves its folders over a named pipe with a per-window secret. The bridge picks the window per call; no window, a window that does not answer, or two windows on one folder give an error, never a guess. Writes always show IECode's confirmation dialog. **Disconnect Claude Code** undoes it.
+- **Claude Code** can use the ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_scope`, `ads_write`): **Connect Claude Code** registers the CLI's `iecode mcp` bridge once per user, and each VS Code window serves its folders over a named pipe with a per-window secret. The bridge picks the window per call; no window, a window that does not answer, or two windows on one folder give an error, never a guess. Writes follow `iecode.ads.aiWrites`: with `confirm`, or when the workspace sets the ADS target, IECode's confirmation dialog always shows; `auto` writes without asking; `off` refuses. **Disconnect Claude Code** undoes it.
 - CLI: `iecode mcp` is the stdio MCP bridge Claude Code starts.
+
+## 0.2.8
+
+### Build output
+- **Module class viewer**: `.tmc` files (the build output of PLC projects and TcCOM modules) open in a read-only viewer (**Open as XML** or **Reopen Editor Withâ€¦** for the text). **Overview**: tasks with cycle times, data areas with their sizes, parameters, interfaces, properties and licenses. **Symbols** and **Data types**: filter, expand members, enum values and methods, jump from a type name to its definition. Reloads after each build.
 
 ## 0.2.7
 

@@ -177,6 +177,17 @@ export async function run(): Promise<void> {
   const { decode } = await import('../../src/model');
   assert.ok(decode(resolved).includes('TRUE AND FALSE'), 'decodes, kept the current side');
 
+  // module class viewer: opens for .tmc, "Open as XML" stays available as XML text
+  const tmcUri = vscode.Uri.file(join(ws, 'Machine.tmc'));
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  await vscode.commands.executeCommand('vscode.open', tmcUri);
+  const tmcTab = await until(() => { const t = vscode.window.tabGroups.activeTabGroup.activeTab?.input; return t instanceof vscode.TabInputCustom ? t : undefined; });
+  assert.ok(tmcTab instanceof vscode.TabInputCustom && tmcTab.viewType === 'iecode.tmcViewer', 'viewer opens for .tmc');
+  await vscode.commands.executeCommand('vscode.openWith', tmcUri, 'default');
+  const tmcText = await until(() => vscode.window.activeTextEditor?.document.uri.fsPath === tmcUri.fsPath ? vscode.window.activeTextEditor : undefined);
+  assert.equal(tmcText?.document.languageId, 'xml', '.tmc as text is XML');
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
   // library manager and graph open without errors
   await vscode.commands.executeCommand('iecode.libraries');
   await vscode.commands.executeCommand('iecode.showGraph');
