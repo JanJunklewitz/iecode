@@ -541,68 +541,68 @@
       "explorer/context": [
         {
           "command": "iecode.projectSettings",
-          "when": "resourceExtname =~ /\\\\.plcproj$/i",
+          "when": "resourceExtname =~ /\\.plcproj$/i",
           "group": "navigation"
         },
         {
           "command": "iecode.openVisuEditor",
-          "when": "resourceExtname =~ /\\\\.TcVIS$/i",
+          "when": "resourceExtname =~ /\\.TcVIS$/i",
           "group": "navigation"
         },
         {
           "command": "iecode.openVisuText",
-          "when": "resourceExtname =~ /\\\\.TcVIS$/i",
+          "when": "resourceExtname =~ /\\.TcVIS$/i",
           "group": "navigation"
         },
         {
           "command": "iecode.openAsST",
-          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "navigation"
         },
         {
           "command": "iecode.openAsXml",
-          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "navigation"
         },
         {
           "submenu": "iecode.compare",
-          "when": "resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i",
+          "when": "resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.ioLinksDiff",
-          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "when": "resourceExtname =~ /\\.(tsproj|xti)$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.ioLinksDiffCommit",
-          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "when": "resourceExtname =~ /\\.(tsproj|xti)$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.configDiff",
-          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "when": "resourceExtname =~ /\\.xti$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.logViewer.open",
-          "when": "resourceExtname =~ /\\\\.log$/i",
+          "when": "resourceExtname =~ /\\.log$/i",
           "group": "navigation"
         },
         {
           "command": "iecode.logViewer.openMerged",
-          "when": "explorerResourceIsFolder || resourceExtname =~ /\\\\.log$/i",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /\\.log$/i",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
           "command": "iecode.openVisuEditor",
-          "when": "resourceScheme == file && resourceExtname =~ /\\\\.TcVIS$/i && activeCustomEditorId != iecode.visuEditor"
+          "when": "resourceScheme == file && resourceExtname =~ /\\.TcVIS$/i && activeCustomEditorId != iecode.visuEditor"
         },
         {
           "command": "iecode.openAsST",
-          "when": "resourceScheme == file && resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i"
         },
         {
           "command": "iecode.openAsXml",
@@ -1149,26 +1149,26 @@
       "editor/title/context": [
         {
           "submenu": "iecode.compare",
-          "when": "resourceScheme == iecode || resourceExtname =~ /\\\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i"
+          "when": "resourceScheme == iecode || resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcVMO)$/i"
         },
         {
           "command": "iecode.ioLinksDiff",
-          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "when": "resourceExtname =~ /\\.(tsproj|xti)$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.ioLinksDiffCommit",
-          "when": "resourceExtname =~ /\\\\.(tsproj|xti)$/i",
+          "when": "resourceExtname =~ /\\.(tsproj|xti)$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.configDiff",
-          "when": "resourceExtname =~ /\\\\.xti$/i",
+          "when": "resourceExtname =~ /\\.xti$/i",
           "group": "3_compare"
         },
         {
           "command": "iecode.logViewer.open",
-          "when": "resourceExtname =~ /\\\\.log$/i && activeCustomEditorId != iecode.logViewer",
+          "when": "resourceExtname =~ /\\.log$/i && activeCustomEditorId != iecode.logViewer",
           "group": "1_open"
         }
       ],
