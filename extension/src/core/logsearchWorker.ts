@@ -1,6 +1,6 @@
 // Worker thread of searchText: streams the files with readLines and flags matching entries. No vscode imports.
-import { parentPort, workerData } from 'worker_threads';
-import { LogFormatDef, compileFormat, parseLine } from './logformat';
+import { parentPort } from 'worker_threads';
+import { LogFormat, LogFormatDef, compileFormat, parseLine } from './logformat';
 import { readLines } from './logscan';
 import { TextQuery, compileQuery } from './logrows';
 
@@ -16,9 +16,18 @@ interface Input {
 const MAX_TEXT_CHARS = 8192;
 const MAX_TEXT_BYTES = MAX_TEXT_CHARS * 3;
 
+/** Compiled formats of the last search; the live tail searches with the same ones every time. */
+let compiled: { key: string; formats: LogFormat[] } | undefined;
+
+function formatsOf(defs: LogFormatDef[]): LogFormat[] {
+  const key = JSON.stringify(defs);
+  if (compiled?.key !== key) compiled = { key, formats: defs.map(compileFormat) };
+  return compiled.formats;
+}
+
 async function run(d: Input): Promise<{ flags: Uint8Array; bytesRead: number }> {
   const re = compileQuery(d.q);
-  const formats = d.formats.map(compileFormat);
+  const formats = formatsOf(d.formats);
   const n = d.file.length;
   const flags = new Uint8Array(n);
   // Entries of one file in offset order; the entries of different files may be interleaved in the columns.
@@ -49,7 +58,9 @@ async function run(d: Input): Promise<{ flags: Uint8Array; bytesRead: number }> 
         const i = list[p];
         end = l.physEnd + l.terminator;
         if (l.offset < d.offset[i] || flags[i]) continue;
-        let text = l.buf.toString('utf8', l.start, Math.min(l.end, l.start + MAX_TEXT_BYTES));
+        // Only the bytes the entry had when it was indexed: an unterminated last line may have grown since.
+        const entryEnd = l.start + (d.offset[i] + d.length[i] - l.offset);
+        let text = l.buf.toString('utf8', l.start, Math.min(l.end, l.start + MAX_TEXT_BYTES, entryEnd));
         if (l.offset === 0 && text.charCodeAt(0) === 0xfeff) text = text.slice(1);
         if (text.length > MAX_TEXT_CHARS) text = text.slice(0, MAX_TEXT_CHARS);
         let hit: boolean;
@@ -70,7 +81,10 @@ async function run(d: Input): Promise<{ flags: Uint8Array; bytesRead: number }> 
   return { flags, bytesRead };
 }
 
-run(workerData as Input).then(
-  r => parentPort!.postMessage(r, [r.flags.buffer as ArrayBuffer]),
-  e => parentPort!.postMessage({ error: (e as Error).message }),
-);
+// One search per message; the worker stays for the next one until the host terminates it.
+parentPort!.on('message', (d: Input) => {
+  run(d).then(
+    r => parentPort!.postMessage(r, [r.flags.buffer as ArrayBuffer]),
+    e => parentPort!.postMessage({ error: (e as Error).message }),
+  );
+});

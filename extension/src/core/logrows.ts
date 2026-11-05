@@ -10,7 +10,8 @@ export interface EntryText { first: ParsedLine; text: string; truncated: boolean
 export interface TextQuery { query: string; regex: boolean; caseSensitive: boolean }
 export interface SearchResult { flags: Uint8Array; from: number; bytesRead: number }
 
-const MAX_PREVIEW_BYTES = 8192;
+/** The scan parses up to 8192 characters from 3 bytes per character; the previews read as much (EntryStore.firstLength). */
+const MAX_PREVIEW_BYTES = 8192 * 3;
 const DEFAULT_DETAIL_BYTES = 1024 * 1024;
 const EXPORT_CHUNK = 1024 * 1024;
 /** Largest gap between two entries that one export read still spans. */
@@ -94,7 +95,7 @@ function parseFirst(format: LogFormat, line: string): ParsedLine {
   return { time: NaN, timeText: '', level: 'other', levelText: '', source: '', message: text };
 }
 
-/** Parsed first line of every ref (at most 8 KB read each), in the order of refs. */
+/** Parsed first line of every ref (at most 24 KB read each), in the order of refs. */
 export async function readPreviews(files: LogFiles, formats: LogFormat[], refs: EntryRef[]): Promise<ParsedLine[]> {
   const release = files.acquire();
   try {
@@ -123,7 +124,8 @@ export async function readDetail(files: LogFiles, formats: LogFormat[], ref: Ent
     const fh = await files.handle(ref.file);
     const { bytesRead } = await fh.read(buf, 0, want, ref.offset);
     const text = decode(buf, bytesRead, ref.offset).replace(/\r\n/g, '\n');
-    // The entry regex only sees the first 8 KB of the first line, decoded on its own (BOM/CR handled as in readPreviews).
+    // The entry regex only sees the first 24 KB of the first line (as in the scan), decoded on its own (BOM/CR
+    // handled as in readPreviews).
     const head = Math.min(ref.firstLength, MAX_PREVIEW_BYTES, bytesRead);
     return { first: parseFirst(formats[ref.file], decode(buf, head, ref.offset)), text, truncated: ref.length > maxBytes };
   } finally {
@@ -150,7 +152,8 @@ export function compileQuery(q: TextQuery): RegExp {
  * entry count (EntryStore columns are longer: they have spare capacity), since their length is the number of entries
  * searched; the part from `from` on is copied here and the copies are transferred to a worker, so the caller's arrays
  * stay usable.
- * The worker is terminated when the signal aborts; a catastrophic regex can therefore never block the host.
+ * The worker is terminated when the signal aborts; a catastrophic regex can therefore never block the host. A worker
+ * that finished its search is kept for the next one (the live tail searches every few seconds), see takeWorker.
  */
 export async function searchText(
   paths: string[],
@@ -167,28 +170,79 @@ export async function searchText(
   const file = refs.file.slice(from);
   const offset = refs.offset.slice(from);
   const length = refs.length.slice(from);
-  const worker = new Worker(path.join(__dirname, 'logsearchWorker.js'), {
-    workerData: { paths, file, offset, length, formats, q },
-    transferList: [file.buffer as ArrayBuffer, offset.buffer as ArrayBuffer, length.buffer as ArrayBuffer],
-  });
+  const worker = takeWorker();
   return new Promise<SearchResult>((resolve, reject) => {
     let settled = false;
-    const finish = (fn: () => void): void => {
+    /** reuse: the worker answered and is idle again; otherwise it is stopped (abort, crash). */
+    const finish = (fn: () => void, reuse: boolean): void => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener('abort', onAbort);
-      void worker.terminate();
+      worker.off('message', onMessage);
+      worker.off('error', onError);
+      worker.off('exit', onExit);
+      if (reuse) releaseWorker(worker);
+      else void worker.terminate();
       fn();
     };
-    const onAbort = (): void => finish(() => reject(abortError()));
+    const onAbort = (): void => finish(() => reject(abortError()), false);
+    const onMessage = (m: { flags?: Uint8Array; bytesRead?: number; error?: string }): void => {
+      if (m.error !== undefined) finish(() => reject(new Error(m.error)), true);
+      else finish(() => resolve({ flags: m.flags!, from, bytesRead: m.bytesRead! }), true);
+    };
+    const onError = (e: Error): void => finish(() => reject(e), false);
+    const onExit = (): void => finish(() => reject(new Error('The search worker exited unexpectedly')), false);
     signal?.addEventListener('abort', onAbort);
-    worker.on('message', (m: { flags?: Uint8Array; bytesRead?: number; error?: string }) => {
-      if (m.error !== undefined) finish(() => reject(new Error(m.error)));
-      else finish(() => resolve({ flags: m.flags!, from, bytesRead: m.bytesRead! }));
-    });
-    worker.on('error', e => finish(() => reject(e)));
-    worker.on('exit', () => finish(() => reject(new Error('The search worker exited unexpectedly'))));
+    worker.on('message', onMessage);
+    worker.on('error', onError);
+    worker.on('exit', onExit);
+    worker.postMessage({ paths, file, offset, length, formats, q },
+      [file.buffer as ArrayBuffer, offset.buffer as ArrayBuffer, length.buffer as ArrayBuffer]);
   });
+}
+
+/** Most finished search workers kept for reuse, and how long an unused one is kept. */
+const MAX_IDLE_WORKERS = 2;
+const WORKER_IDLE_MS = 30_000;
+const idleWorkers: { worker: Worker; timer: NodeJS.Timeout }[] = [];
+
+function dropIdle(worker: Worker): void {
+  const k = idleWorkers.findIndex(w => w.worker === worker);
+  if (k < 0) return;
+  clearTimeout(idleWorkers[k].timer);
+  idleWorkers.splice(k, 1);
+}
+
+/**
+ * An idle worker, else a new one. Starting a worker (thread, module load) costs tens of milliseconds, too much for
+ * the small search of each live-tail commit. A worker runs one search at a time.
+ */
+function takeWorker(): Worker {
+  const idle = idleWorkers.pop();
+  if (idle) {
+    clearTimeout(idle.timer);
+    idle.worker.ref();
+    return idle.worker;
+  }
+  const worker = new Worker(path.join(__dirname, 'logsearchWorker.js'));
+  // An idle worker that dies must not be handed out again.
+  worker.on('exit', () => dropIdle(worker));
+  return worker;
+}
+
+/** Keeps the worker for the next search; unref'd while idle, so it never keeps the process alive. */
+function releaseWorker(worker: Worker): void {
+  if (idleWorkers.length >= MAX_IDLE_WORKERS) {
+    void worker.terminate();
+    return;
+  }
+  worker.unref();
+  const timer = setTimeout(() => {
+    dropIdle(worker);
+    void worker.terminate();
+  }, WORKER_IDLE_MS);
+  timer.unref();
+  idleWorkers.push({ worker, timer });
 }
 
 /**
