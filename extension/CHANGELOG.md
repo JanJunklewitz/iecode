@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Setup
+- **IECode: Set up this PC** and the `install.ps1` one-liner install the CLI when VS Code was started from PowerShell 7: Windows PowerShell inherited PowerShell 7's module path and stopped with "Get-FileHash was not recognized". The installer no longer needs `Get-FileHash` or `Expand-Archive`, and the extension starts it without the inherited module path.
+
 ## 0.2.10
 
 ### Editor

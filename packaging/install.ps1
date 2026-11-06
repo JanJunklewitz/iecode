@@ -37,12 +37,17 @@ try {
   Write-Host "● Downloading ${zip}…"
   $file = Join-Path $tmp $zip
   Invoke-WebRequest "$base/$zip" -OutFile $file -UseBasicParsing
-  $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+  # .NET instead of Get-FileHash / Expand-Archive: Windows PowerShell started with the PSModulePath of PowerShell 7
+  # (e.g. from VS Code) loads PS7's script modules and finds neither cmdlet
+  $stream = [IO.File]::OpenRead($file)
+  try { $actual = -join ([Security.Cryptography.SHA256]::Create().ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) }
+  finally { $stream.Dispose() }
   if ($actual -ne $hash.ToLower()) { throw "Checksum mismatch for $zip (expected $hash, got $actual)." }
   Write-Host "● SHA256 ok"
 
   if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
-  Expand-Archive $file -DestinationPath $InstallDir
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::ExtractToDirectory($file, $InstallDir)
 
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (($userPath -split ';') -notcontains $InstallDir) {
