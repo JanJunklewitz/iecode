@@ -42,7 +42,7 @@ public class AdsWatchBackendTests
         });
         b.Connect();
         var items = b.Resolve(["MAIN.nWatch", "MAIN.eMode", "MAIN.nope"]);
-        Assert.Equal("Symbol not found", items[2].Error);
+        Assert.Equal("Symbol not found. If the variable has {attribute 'hide'}, it has no ADS symbol: read it through a property with {attribute 'monitoring' := 'call'}.", items[2].Error);
         Assert.True(items[0].Numeric);
         var row = b.ReadWatched();
         Assert.Equal(("7", null, null), row[0]);
@@ -245,7 +245,8 @@ public class AdsWatchBackendTests
         var sym = Int("MAIN.nWatch");
         var (b, _, _) = Make(l => l.Upload = () => new FakeSet(sym));
         b.Connect();
-        Assert.Throws<WriteNotSentException>(() => b.Write("MAIN.nope", "42"));
+        var e = Assert.Throws<WriteNotSentException>(() => b.Write("MAIN.nope", "42"));
+        Assert.Contains("{attribute 'hide'}", e.Message);
         Assert.Null(sym.Written);
     }
 

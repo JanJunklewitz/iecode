@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### ADS watch
+- "Symbol not found" in the ADS watch, the ADS tools and `iecode ads` now says that a variable with `{attribute 'hide'}` has no ADS symbol and can be read through a property with `{attribute 'monitoring' := 'call'}`. Before, a hidden variable looked like a typo.
+
 ## 0.2.10
 
 ### Editor
