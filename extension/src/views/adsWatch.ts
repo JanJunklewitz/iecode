@@ -135,7 +135,8 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     const room = MAX_WATCHED - host.watched().length;
     if (room <= 0) return void vscode.window.showWarningMessage(`IECode: the ADS watch already has ${MAX_WATCHED} variables, the most it can hold. Remove some first.`);
     const watched = new Set(host.watched().map(s => s.toLowerCase()));
-    const units = state.current.units.filter(u => !u.plc.isLibrary);
+    // a library project can run too (a module with its own MAIN): it counts once it was built
+    const units = state.current.units;
     const picks: Pick[] = [];
     const missing: string[] = [];
     for (const u of units) {
@@ -146,7 +147,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
           picks.push({ label: s.name, description: units.length > 1 ? `${s.type} · ${u.id}` : s.type, symbol: s.name });
         }
       } catch {
-        missing.push(u.plc.name);
+        if (!u.plc.isLibrary) missing.push(u.plc.name);
       }
     }
     const placeHolder = (missing.length
