@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Claude Code and ADS
+- Installing or updating the CLI no longer disconnects Claude Code. The installer deleted the connect state together with the old CLI, so every window stopped serving the ADS tools ("No VS Code window with IECode is open") until **IECode: Connect Claude Code** ran again.
+
 ## 0.2.10
 
 ### Editor

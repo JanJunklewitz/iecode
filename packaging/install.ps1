@@ -41,7 +41,8 @@ try {
   if ($actual -ne $hash.ToLower()) { throw "Checksum mismatch for $zip (expected $hash, got $actual)." }
   Write-Host "● SHA256 ok"
 
-  if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
+  # mcp\ holds the Claude Code connect marker and the window discovery files: deleting it disconnects every window
+  if (Test-Path $InstallDir) { Get-ChildItem -Force $InstallDir | Where-Object { $_.Name -ne 'mcp' } | Remove-Item -Recurse -Force }
   Expand-Archive $file -DestinationPath $InstallDir
 
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
