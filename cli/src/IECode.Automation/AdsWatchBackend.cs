@@ -92,7 +92,7 @@ public sealed class AdsWatchBackend : IWatchBackend
                 watched[i] = new Watched(null, "", null);
                 continue;
             }
-            if (sym is null) items[i] = new WatchItem(name, "", false, "Symbol not found");
+            if (sym is null) items[i] = new WatchItem(name, "", false, AdsCodes.SymbolNotFound);
             else if (!sym.IsSingleValue) items[i] = new WatchItem(name, sym.TypeName, false, $"{sym.TypeName} is not a single value; add its members instead");
             else
             {
@@ -247,7 +247,7 @@ public sealed class AdsWatchBackend : IWatchBackend
     {
         var link = Link();
         var sym = Lookup(Loader(link, ReadVersion(link), 1), symbol)
-            ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}.");
+            ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}. {AdsCodes.HiddenHint}");
         if (!sym.IsSingleValue)
             throw new IECodeException(ExitCodes.Usage, $"{sym.TypeName} is not a single value; add its members instead");
         return sym;
