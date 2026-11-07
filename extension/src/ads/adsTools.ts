@@ -5,8 +5,10 @@
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
-import { oneLine, sampleAge, watchEdit } from '../core/adswatch';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, scopeSummaryText, scopeToolText, symbolsText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { oneLine, sampleAge } from '../core/adswatch';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import type { WaitCondition } from '../core/waitCondition';
+import { WaitDeps, runWait } from '../core/waitRun';
 import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
@@ -15,6 +17,7 @@ export interface SymbolsInput { filter: string }
 export interface WatchInput { add?: string[]; remove?: string[] }
 export interface ReadInput { symbols?: string[] }
 export interface ScopeInput { symbols?: string[]; seconds?: number }
+export interface WaitInput { symbol: string; condition: WaitCondition; timeoutSeconds: number }
 
 const MAX_SYMBOLS = 100;
 export const SCOPE_SECONDS = 60;
@@ -83,10 +86,9 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
 
     async watch(input: WatchInput): Promise<ToolText> {
       const { add = [], remove = [] } = input;
-      const next = watchEdit(host.entries(), add, remove, true);
-      const kept = remove.filter(r => next.some(e => e.symbol.toLowerCase() === r.trim().toLowerCase()));
+      let kept: string[];
       try {
-        await leased(host, () => host.setEntries(next));
+        ({ kept } = await leased(host, () => host.list.aiEdit(add, remove)));
       } catch (e) {
         const f = watchFailureText(errorText(e), list(host));
         return { ...f, text: capText(f.text) };
@@ -129,6 +131,23 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const watched = found.filter((n): n is string => !!n);
       const unwatched = asked.filter((_, i) => !found[i]);
       return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds) : undefined, unwatched, names));
+    },
+
+    async wait(input: WaitInput, signal: AbortSignal): Promise<ToolText> {
+      const deps: WaitDeps = {
+        hold: s => host.list.hold(s),
+        ready: () => host.ready(),
+        onSamples: l => host.onSamples(l),
+        onEnded: l => host.onEnded(l),
+        onUserRemoved: l => host.list.onUserRemoved(l),
+        monotonicMs: () => performance.now(),
+        wallMs: () => Date.now(),
+        setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
+      };
+      // the host keeps running for the whole wait, whatever way it ends
+      const outcome = await leased(host, () => runWait(deps, input, signal));
+      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock });
+      return { ...r, text: capText(r.text) };
     },
   };
 }
