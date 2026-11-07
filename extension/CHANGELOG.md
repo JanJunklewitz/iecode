@@ -2,6 +2,10 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+- ADS: new tool ads_wait (Copilot: adsWait) waits until a watched PLC variable meets a condition (=, <>, <, <=, >, >=, changes, contains), with a timeout of up to 120 s.
+
 ## 0.2.11
 
 ### Setup

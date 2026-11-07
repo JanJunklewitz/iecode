@@ -1535,6 +1535,42 @@
         }
       },
       {
+        "name": "iecode_ads_wait",
+        "toolReferenceName": "adsWait",
+        "displayName": "ADS Wait",
+        "userDescription": "Wait until a watched PLC variable meets a condition.",
+        "modelDescription": "Waits until an ADS symbol meets a condition, then returns the time and value; returns at once if the condition is already true at the first sample after the call. Conditions: = v, <> v, < v, <= v, > v, >= v, changes, contains \"text\". v is a number, TRUE/FALSE, an enum name, or a quoted string for STRING values. The symbol is added to the watch list for the duration of the wait if it is not watched. Resolution is the sample interval: a change shorter than one sample can be missed. Not met within the timeout is a normal result with the last value.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "ADS name, e.g. MAIN.bStart."
+            },
+            "condition": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Condition, e.g. = TRUE, > 5.5, changes or contains \"text\"."
+            },
+            "timeoutSeconds": {
+              "type": "number",
+              "description": "Seconds to wait, 1-120, default 30."
+            }
+          },
+          "required": [
+            "symbol",
+            "condition"
+          ]
+        }
+      },
+      {
         "name": "iecode_ads_write",
         "toolReferenceName": "adsWrite",
         "displayName": "ADS Write",

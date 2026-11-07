@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
+import { parseWaitInput } from '../core/toolInput';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
 import { sendToAiChat } from '../commands/aiChat';
 import { aiWritesSetting, workspaceTarget } from './aiSettings';
@@ -21,6 +22,7 @@ type SymbolsInput = Parameters<ReturnType<typeof adsTools>['symbols']>[0];
 type WatchInput = Parameters<ReturnType<typeof adsTools>['watch']>[0];
 type ReadInput = Parameters<ReturnType<typeof adsTools>['read']>[0];
 type ScopeInput = Parameters<ReturnType<typeof adsTools>['scope']>[0];
+type WaitToolInput = { symbol: string; condition: string; timeoutSeconds?: number };
 
 /** Copilot's confirmation has no time limit, so this allows for a slow answer; the gate checks decision and target again at send time. */
 const WRITE_PREPARE_MAX_AGE_MS = 900_000;
@@ -45,6 +47,22 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
 
   const scopeTool: vscode.LanguageModelTool<ScopeInput> = {
     invoke(opts) { return text(tools.scope(opts.input).text); },
+  };
+
+  const waitTool: vscode.LanguageModelTool<WaitToolInput> = {
+    prepareInvocation: () => ({ invocationMessage: 'Waiting for an ADS condition' }),
+    async invoke(opts, token) {
+      const parsed = parseWaitInput(opts.input);
+      if (!parsed.ok) return text(`Invalid arguments: ${parsed.error}`);
+      const abort = new AbortController();
+      const cancelled = token.onCancellationRequested(() => abort.abort());
+      if (token.isCancellationRequested) abort.abort();
+      try {
+        return text((await tools.wait(parsed.value, abort.signal)).text);
+      } finally {
+        cancelled.dispose();
+      }
+    },
   };
 
   // The decision and target each prepared write was shown with; the gate checks them against the settings at send time.
@@ -87,6 +105,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     vscode.lm.registerTool('iecode_ads_read', readTool),
     vscode.lm.registerTool('iecode_ads_scope', scopeTool),
     vscode.lm.registerTool('iecode_ads_write', writeTool),
+    vscode.lm.registerTool('iecode_ads_wait', waitTool),
     vscode.commands.registerCommand('iecode.adsWatchAiChat', async () => {
       const symbols = host.watched();
       if (!symbols.length) return vscode.window.showInformationMessage('IECode: the ADS watch list is empty, nothing to send.');

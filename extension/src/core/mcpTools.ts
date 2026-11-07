@@ -1,9 +1,10 @@
-// The five ADS tools as MCP tools, and the write-gate policy that fits the MCP client's tool timeout. Pure (no VS Code API):
+// The six ADS tools as MCP tools, and the write-gate policy that fits the MCP client's tool timeout. Pure (no VS Code API):
 // the tool functions, the gate and the bound target come in, so the riskiest seam, ads_write into the gate, is unit-tested.
 
 import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
-import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWatchInput, parseWriteInput, Parsed } from './toolInput';
+import type { WaitCondition } from './waitCondition';
+import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed } from './toolInput';
 import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
@@ -15,9 +16,8 @@ export interface AdsToolFns {
   watch(input: { add?: string[]; remove?: string[] }): Promise<ToolText>;
   read(input: { symbols?: string[] }): Promise<ToolText>;
   scope(input: { symbols?: string[]; seconds?: number }): ToolText | Promise<ToolText>;
+  wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
 }
-
-export const MCP_TOOL_NAMES = ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_write'] as const;
 
 const invalid = (error: string): { text: string; isError: true } => ({ text: `Invalid arguments: ${error}`, isError: true });
 
@@ -27,13 +27,13 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
     if (!found) throw new Error(`package.json declares no tool ${name}`);
     return found;
   };
-  const read = <T>(name: string, parse: (raw: unknown) => Parsed<T>, run: (v: T) => ToolText | Promise<ToolText>): McpTool => {
+  const read = <T>(name: string, parse: (raw: unknown) => Parsed<T>, run: (v: T, signal: AbortSignal) => ToolText | Promise<ToolText>): McpTool => {
     const { description, inputSchema } = descriptor(name);
     return {
       name, description, inputSchema,
-      async call(args) {
+      async call(args, signal) {
         const p = parse(args);
-        return p.ok ? run(p.value) : invalid(p.error);
+        return p.ok ? run(p.value, signal) : invalid(p.error);
       },
     };
   };
@@ -44,6 +44,7 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
     read('ads_watch', parseWatchInput, v => d.tools.watch(v)),
     read('ads_read', parseReadInput, v => d.tools.read(v)),
     read('ads_scope', parseScopeInput, v => d.tools.scope(v)),
+    read('ads_wait', parseWaitInput, (v, signal) => d.tools.wait(v, signal)),
     {
       name: 'ads_write', description: write.description, inputSchema: write.inputSchema,
       async call(args, signal) {
