@@ -55,7 +55,7 @@ export class AdsHost implements vscode.Disposable {
   private readonly itemsChanged = new vscode.EventEmitter<void>();
   private readonly stateChanged = new vscode.EventEmitter<AdsState>();
   private readonly ended = new vscode.EventEmitter<string>();
-  /** Rows of the current gen with the items of their columns (also with no rows, so an item error is seen). */
+  /** Rows of the current gen with the items of their columns; fires only for a batch with rows (an item error arrives as a row with a null value). */
   readonly onSamples = this.samples.event;
   /** The resolved watch items changed (types, errors, list). */
   readonly onItems = this.itemsChanged.event;
@@ -86,6 +86,8 @@ export class AdsHost implements vscode.Disposable {
   private written = new Map<string, string>();
   private stopped = new WeakSet<ChildProcessWithoutNullStreams>();
   private readonly disposables: vscode.Disposable[] = [];
+  // after dispose() nothing may start a child again (e.g. a wait hold released late)
+  private disposed = false;
 
   private constructor(private readonly ctx: vscode.ExtensionContext) {
     const s = settings();
@@ -185,8 +187,8 @@ export class AdsHost implements vscode.Disposable {
     const known = new Map(this.items_.map(i => [i.symbol, i]));
     this.items_ = list.map(symbol => known.get(symbol) ?? { symbol, type: '', numeric: false, error: null });
     this.itemsChanged.fire();
-    // an empty list needs no host; a running one stops polling
-    if (list.length === 0 && !this.proc) return this.items_;
+    // an empty list needs no host; a running one stops polling; a disposed host starts none
+    if (this.disposed || (list.length === 0 && !this.proc)) return this.items_;
     return this.leased(async () => {
       await this.ensure(true);
       // applied inside the reply line, so samples of the new gen right behind it already find their items
@@ -270,6 +272,7 @@ export class AdsHost implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
     clearTimeout(this.idleTimer);
     this.stop('The ADS host stopped.');
     this.disposables.forEach(d => d.dispose());
@@ -298,6 +301,7 @@ export class AdsHost implements vscode.Disposable {
 
   /** Starts the host if needed and resolves on its hello. `byUser`: retry after a failed start and show errors. */
   private ensure(byUser = false): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error('The ADS host was shut down.'));
     if (this.ready_) return this.ready_;
     if (this.failure && !byUser) return Promise.reject(this.failure);
     this.failure = undefined;
