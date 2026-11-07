@@ -170,7 +170,12 @@ export function installCli(): Promise<boolean> {
   };
   return Promise.resolve(vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'IECode: installing the CLI' }, () =>
     new Promise<boolean>(resolve => {
-      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true });
+      // without PSModulePath Windows PowerShell builds its own; an inherited one from PowerShell 7 makes it load PS7 modules
+      const env = { ...process.env };
+      for (const k of Object.keys(env)) if (k.toLowerCase() === 'psmodulepath') delete env[k];
+      // Windows PowerShell writes redirected output in the OEM code page; UTF-8 keeps "●", "…" and umlauts readable in the log
+      const command = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; ${script}`;
+      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], { windowsHide: true, env });
       child.stdout.on('data', lines('info'));
       child.stderr.on('data', lines('error'));
       child.on('error', e => { output.error(e.message); resolve(false); });
