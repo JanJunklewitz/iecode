@@ -12,6 +12,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - Installing or updating the CLI no longer disconnects Claude Code. The installer deleted the connect state together with the old CLI, so every window stopped serving the ADS tools ("No VS Code window with IECode is open") until **IECode: Connect Claude Code** ran again.
 - `ads_symbols`, `adsSymbols` and **Add Variable to ADS Watchâ€¦** list the symbols of library projects that were built, e.g. a module with its own `MAIN`. Before, a workspace with only library projects got "No PLC projects in this workspace".
 
+### ADS watch
+- "Symbol not found" in the ADS watch, the ADS tools and `iecode ads` now says that a variable with `{attribute 'hide'}` has no ADS symbol and can be read through a property with `{attribute 'monitoring' := 'call'}`. Before, a hidden variable looked like a typo.
+
 ## 0.2.10
 
 ### Editor

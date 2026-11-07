@@ -74,7 +74,7 @@ public static class Target
         var loader = Try(() => SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default), target);
         return Try(() => AdsValues.FindSymbol(loader.Symbols, symbol), target) as IValueSymbol
             ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {target}.",
-                "Use the full instance path, e.g. MAIN.fbMotor.bEnable or GVL.nCount, and check the ADS port (--port, default 851).");
+                "Use the full instance path, e.g. MAIN.fbMotor.bEnable or GVL.nCount, and check the ADS port (--port, default 851). " + AdsCodes.HiddenHint);
     }
 
     private static T Try<T>(Func<T> call, Core.AmsNetId target)

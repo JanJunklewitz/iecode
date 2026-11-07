@@ -13,4 +13,13 @@ public static class AdsCodes
 
     /// <summary>0x710 symbol not found, 0x711 symbol version invalid: handles must be resolved again.</summary>
     public static bool IsDeadHandle(uint adsCode) => adsCode is 0x710 or 0x711;
+
+    /// <summary>
+    /// Appended to "symbol not found": a variable with {attribute 'hide'} exists in the program but has no ADS symbol, which
+    /// looks like a typo to the reader (often an AI agent) unless it is said.
+    /// </summary>
+    public const string HiddenHint = "If the variable has {attribute 'hide'}, it has no ADS symbol: read it through a property with {attribute 'monitoring' := 'call'}.";
+
+    /// <summary>The error of a watched item whose name is not in the symbol table.</summary>
+    public const string SymbolNotFound = "Symbol not found. " + HiddenHint;
 }
