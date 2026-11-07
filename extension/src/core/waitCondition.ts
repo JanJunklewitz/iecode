@@ -10,7 +10,7 @@ export type CompareOp = '=' | '<>' | '<' | '<=' | '>' | '>=';
 export type WaitCondition = { op: CompareOp; literal: Literal } | { op: 'changes' } | { op: 'contains'; text: string };
 export type ValueClass = 'integer' | 'real' | 'bool' | 'enum' | 'string' | 'other';
 
-const MAX_CONDITION_LENGTH = 512;
+export const MAX_CONDITION_LENGTH = 512;
 const FORMS = 'condition must be one of: = v, <> v, < v, <= v, > v, >= v, changes, contains "text"';
 const bad = (): Parsed<WaitCondition> => ({ ok: false, error: FORMS });
 

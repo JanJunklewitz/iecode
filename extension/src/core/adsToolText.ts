@@ -2,12 +2,14 @@
 // wording is pinned by tests and does not drift between the two clients.
 
 import { ScopeBuffer, WatchEntry, WatchItem, gapNote, scopeText } from './adswatch';
+import { WaitCondition, conditionText } from './waitCondition';
+import type { WaitOutcome } from './waitRun';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
-export interface ToolNames { watch: string; scope: string; write: string }
+export interface ToolNames { watch: string; scope: string; write: string; wait: string }
 
-export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite' };
-export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write' };
+export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait' };
+export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait' };
 
 export interface ToolText { text: string; isError?: boolean }
 
@@ -87,4 +89,23 @@ export function scopeToolText(summary: string | undefined, unwatched: string[], 
   if (unwatched.length) lines.push(`Not watched, so no history (add them with ${names.watch}): ${unwatched.join(', ')}`);
   if (summary) lines.push(summary);
   return lines.join('\n\n');
+}
+
+/** The resolution is the sample interval; the closing line keeps an agent from reading a missed change as proof it never happened. */
+export function waitResultText(o: { symbol: string; condition: WaitCondition; outcome: WaitOutcome; intervalMs: number; clock: (ms: number) => string }): ToolText {
+  const out = o.outcome;
+  const sampled = `Sampled every ${o.intervalMs} ms; changes between samples are not seen.`;
+  switch (out.kind) {
+    case 'met': {
+      const first = out.firstObservation ? ' (true at the first observation)' : '';
+      return { text: `Condition met at ${o.clock(out.t)} (after ${(out.elapsedMs / 1000).toFixed(2)} s): ${o.symbol} = ${out.value}${first}\n${sampled}` };
+    }
+    case 'timeout': {
+      const last = out.last === undefined ? 'no valid value observed' : `last value ${out.last}`;
+      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}\n${sampled}` };
+    }
+    case 'ended': return { text: `Wait ended: ${out.reason}` };
+    case 'refused': return { text: `Error: ${out.reason}`, isError: true };
+    case 'cancelled': return { text: 'Wait cancelled.' };
+  }
 }
