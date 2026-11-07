@@ -4,7 +4,7 @@
 export const PROTOCOL = 1;
 
 export interface WatchItem { symbol: string; type: string; numeric: boolean; error: string | null }
-interface Row { t: number; v: (string | null)[]; e?: (number | null)[] }
+export interface Row { t: number; v: (string | null)[]; e?: (number | null)[] }
 
 export type HostMessage =
   | { event: 'hello'; protocol: number }
@@ -210,9 +210,10 @@ export function writeStage(outcome: { data: unknown } | { error: unknown }): Wri
 // A write cannot be retried blindly, so a timeout says the outcome is unknown. An id added again while still open
 // rejects the older request, which could otherwise never settle.
 export class PendingRequests {
-  private open = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private open = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout; onData?: (data: unknown) => void }>();
 
-  add(id: number, timeoutMs: number): Promise<unknown> {
+  /** onData runs synchronously inside settle for an ok reply, before the promise resolves (a throw rejects it). */
+  add(id: number, timeoutMs: number, onData?: (data: unknown) => void): Promise<unknown> {
     const old = this.open.get(id);
     if (old) {
       this.open.delete(id);
@@ -224,7 +225,7 @@ export class PendingRequests {
         if (this.open.get(id)?.timer === timer) this.open.delete(id);
         reject(new RequestTimeout(`No reply from the ADS host within ${timeoutMs} ms; the outcome is unknown.`));
       }, timeoutMs);
-      this.open.set(id, { resolve, reject, timer });
+      this.open.set(id, { resolve, reject, timer, onData });
     });
   }
 
@@ -234,8 +235,14 @@ export class PendingRequests {
     if (!p) return;
     this.open.delete(msg.id);
     clearTimeout(p.timer);
-    if (msg.ok) p.resolve(msg.data);
-    else p.reject(new HostError(msg.error ?? 'request failed', msg.written));
+    if (msg.ok) {
+      try {
+        p.onData?.(msg.data);
+        p.resolve(msg.data);
+      } catch (e) {
+        p.reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    } else p.reject(new HostError(msg.error ?? 'request failed', msg.written));
   }
 
   rejectAll(reason: string): void {
