@@ -100,3 +100,53 @@ test('a failed save rejects its call and the next one still runs', async () => {
   await w.aiEdit(['B'], []);
   assert.deepEqual(list, [{ symbol: 'B', ai: true }]);
 });
+
+// Like the host: the list is saved first, then the host start can fail, so `set` throws after the save.
+function savedThenFails(initial: WatchEntry[] = []) {
+  let list = initial;
+  let failures = 0;
+  const w = new WatchList({ entries: () => list, set: async e => { list = e; if (failures > 0) { failures--; throw new Error('host down'); } } });
+  return { w, list: () => list, failNext: (n = 1) => { failures = n; } };
+}
+
+test('a release whose save fails still drops its hold, so a later wait removes its entry', async () => {
+  const f = savedThenFails();
+  const h = await f.w.hold('P');
+  f.failNext();
+  await assert.rejects(h.release(), /host down/);
+  assert.deepEqual(f.list(), []);
+  const h2 = await f.w.hold('P');
+  await h2.release();
+  assert.deepEqual(f.list(), []);
+});
+
+test('a hold whose save fails keeps no hold and takes its entry back', async () => {
+  const f = savedThenFails([{ symbol: 'A', ai: false }]);
+  f.failNext();
+  await assert.rejects(f.w.hold('P'), /host down/);
+  assert.deepEqual(f.list(), [{ symbol: 'A', ai: false }]);
+  // no hold record left: an AI add then remove of the symbol is not postponed
+  await f.w.aiEdit(['P'], []);
+  await f.w.aiEdit([], ['P']);
+  assert.deepEqual(f.list(), [{ symbol: 'A', ai: false }]);
+});
+
+test('a hold whose save and take-back both fail rejects with the first error', async () => {
+  const f = savedThenFails();
+  f.failNext(2);
+  await assert.rejects(f.w.hold('P'), /host down/);
+  await f.w.aiEdit([], ['P']);
+  assert.deepEqual(f.list(), []);
+});
+
+test('a user edit whose save fails still ends the removed holds', async () => {
+  const f = savedThenFails();
+  const removed: string[][] = [];
+  f.w.onUserRemoved(s => removed.push(s));
+  const h = await f.w.hold('P');
+  f.failNext();
+  await assert.rejects(f.w.userEdit(() => []), /host down/);
+  assert.deepEqual(removed, [['P']]);
+  await h.release();
+  assert.deepEqual(f.list(), []);
+});

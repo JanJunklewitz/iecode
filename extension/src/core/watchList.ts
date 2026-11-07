@@ -42,14 +42,17 @@ export class WatchList {
   userEdit(edit: (current: WatchEntry[]) => WatchEntry[]): Promise<void> {
     return this.step(async () => {
       const next = edit(this.deps.entries());
-      await this.deps.set(next);
+      // `set` may throw after the list was saved (host start), so the holds follow `next` either way
+      const failed = await this.deps.set(next).then(() => undefined, (e: unknown) => ({ e }));
       const left = new Set(next.map(e => key(e.symbol)));
       const removed: string[] = [];
       for (const [k, rec] of this.holds) if (!left.has(k)) { removed.push(rec.symbol); this.holds.delete(k); }
-      if (!removed.length) return;
-      for (const l of [...this.listeners]) {
-        try { l(removed); } catch { /* a listener must not fail an edit that is already saved */ }
+      if (removed.length) {
+        for (const l of [...this.listeners]) {
+          try { l(removed); } catch { /* a listener must not fail an edit that is already saved */ }
+        }
       }
+      if (failed) throw failed.e;
     });
   }
 
@@ -64,7 +67,18 @@ export class WatchList {
         const next = [...current, { symbol: name, ai: true }];
         const tooMany = watchLimitError(next.length);
         if (tooMany) throw new Error(tooMany);
-        await this.deps.set(next);
+        try {
+          await this.deps.set(next);
+        } catch (e) {
+          // the refused wait never releases: take back the entry it may have saved, unless another hold needs it
+          if (!this.held(k)) {
+            const after = this.deps.entries();
+            if (after.some(x => x.ai && x.symbol.toLowerCase() === k)) {
+              await this.deps.set(after.filter(x => x.symbol.toLowerCase() !== k)).catch(() => undefined);
+            }
+          }
+          throw e;
+        }
       }
       let rec = this.holds.get(k);
       if (!rec) this.holds.set(k, rec = { symbol: name, tokens: new Set(), added: false });
@@ -86,15 +100,19 @@ export class WatchList {
     return this.step(async () => {
       const rec = this.holds.get(k);
       if (!rec?.tokens.has(token)) return;
-      if (rec.tokens.size === 1 && rec.added) {
-        const current = this.deps.entries();
-        // the user taking the entry over (ai = false) keeps it
-        if (current.some(e => e.ai && e.symbol.toLowerCase() === k)) {
-          await this.deps.set(current.filter(e => e.symbol.toLowerCase() !== k));
+      // the token goes even when `set` throws (it may have saved): the list keeps whatever was saved, no retry
+      try {
+        if (rec.tokens.size === 1 && rec.added) {
+          const current = this.deps.entries();
+          // the user taking the entry over (ai = false) keeps it
+          if (current.some(e => e.ai && e.symbol.toLowerCase() === k)) {
+            await this.deps.set(current.filter(e => e.symbol.toLowerCase() !== k));
+          }
         }
+      } finally {
+        rec.tokens.delete(token);
+        if (!rec.tokens.size) this.holds.delete(k);
       }
-      rec.tokens.delete(token);
-      if (!rec.tokens.size) this.holds.delete(k);
     });
   }
 
