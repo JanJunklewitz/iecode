@@ -8,6 +8,10 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 - **IECode: Set up this PC** and the `install.ps1` one-liner install the CLI when VS Code was started from PowerShell 7: Windows PowerShell inherited PowerShell 7's module path and stopped with "Get-FileHash was not recognized". The installer no longer needs `Get-FileHash` or `Expand-Archive`, and the extension starts it without the inherited module path.
 - The installer's log in the **IECode** output shows "●", "…" and umlauts instead of `�??`.
 
+### Claude Code and ADS
+- Installing or updating the CLI no longer disconnects Claude Code. The installer deleted the connect state together with the old CLI, so every window stopped serving the ADS tools ("No VS Code window with IECode is open") until **IECode: Connect Claude Code** ran again.
+- `ads_symbols`, `adsSymbols` and **Add Variable to ADS Watch…** list the symbols of library projects that were built, e.g. a module with its own `MAIN`. Before, a workspace with only library projects got "No PLC projects in this workspace".
+
 ## 0.2.10
 
 ### Editor

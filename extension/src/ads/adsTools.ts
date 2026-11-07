@@ -65,7 +65,8 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const missing: string[] = [];
       const unreadable: string[] = [];
       let total = 0;
-      const units = state.current.units.filter(u => !u.plc.isLibrary);
+      // a library project can run too (a module with its own MAIN): it counts once it was built
+      const units = state.current.units;
       for (const u of units) {
         try {
           for (const s of (await fromBuild(u.plc, true)).symbols) {
@@ -73,7 +74,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
             if (++total <= MAX_SYMBOLS) matches.push(`${s.name} : ${s.type}`);
           }
         } catch (e) {
-          if (e instanceof NoBuildOutputError) missing.push(u.plc.name);
+          if (e instanceof NoBuildOutputError) { if (!u.plc.isLibrary) missing.push(u.plc.name); }
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
