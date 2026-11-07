@@ -63,3 +63,9 @@ test('null, NaN and Inf are never valid', () => {
   assert.equal(isValid('real', '-Infinity'), false);
   assert.equal(isValid('string', ''), true);
 });
+
+test('an integer value must be a decimal integer text', () => {
+  assert.equal(isValid('integer', ''), false);
+  assert.equal(isValid('integer', '0x10'), false);
+  assert.equal(isValid('integer', '-12'), true);
+});

@@ -85,6 +85,7 @@ export function applicable(cond: WaitCondition, cls: ValueClass): string | undef
 
 export function isValid(cls: ValueClass, text: string | null): boolean {
   if (text === null) return false;
+  if (cls === 'integer') return /^-?\d+$/.test(text);
   if (cls === 'real') return text.trim() !== '' && Number.isFinite(Number(text));
   return true;
 }

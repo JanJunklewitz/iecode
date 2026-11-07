@@ -15,7 +15,7 @@ function emitter<T>() {
   };
 }
 
-interface FakeOpts { holdLate?: boolean; holdError?: string; readyError?: string }
+interface FakeOpts { holdLate?: boolean; holdError?: string; readyError?: string; holdThrows?: string; readyThrows?: string; timerThrows?: string }
 
 function fake(opts: FakeOpts = {}) {
   const samples = emitter<SampleBatch>();
@@ -29,19 +29,23 @@ function fake(opts: FakeOpts = {}) {
   let resolveHold: (() => void) | undefined;
   const deps: WaitDeps = {
     hold: () => {
+      if (opts.holdThrows) throw new Error(opts.holdThrows);
       if (opts.holdError) return Promise.reject(new Error(opts.holdError));
       const h = { release: async () => { released++; } };
       if (opts.holdLate) return new Promise(r => { resolveHold = () => { held++; r(h); }; });
       held++;
       return Promise.resolve(h);
     },
-    ready: () => opts.readyError ? Promise.reject(new Error(opts.readyError)) : Promise.resolve(),
+    ready: () => {
+      if (opts.readyThrows) throw new Error(opts.readyThrows);
+      return opts.readyError ? Promise.reject(new Error(opts.readyError)) : Promise.resolve();
+    },
     onSamples: samples.on,
     onEnded: ended.on,
     onUserRemoved: removed.on,
     monotonicMs: () => mono,
     wallMs: () => wall,
-    setTimer: (ms, fn) => { const t = { ms, fn, disposed: false }; timers.push(t); return { dispose: () => { t.disposed = true; } }; },
+    setTimer: (ms, fn) => { if (opts.timerThrows) throw new Error(opts.timerThrows); const t = { ms, fn, disposed: false }; timers.push(t); return { dispose: () => { t.disposed = true; } }; },
   };
   return {
     deps, samples, ended, removed, timers,
@@ -236,5 +240,54 @@ test('a host that fails to start refuses the wait', async () => {
   const f = fake({ readyError: 'ADS host did not start' });
   const w = start(f, '= TRUE');
   assert.deepEqual(await w.p, { kind: 'refused', reason: 'ADS host did not start' });
+  assert.equal(f.released(), 1);
+});
+
+test('a type change during the wait ends it with that reason', async () => {
+  const f = fake();
+  const w = start(f, '= 7', 'P ');
+  await tick();
+  f.samples.emit({ gen: 1, items: [item('P', 'INT')], rows: [{ t: T0, v: ['3'] }] });
+  await tick();
+  assert.equal(w.outcome(), undefined);
+  f.samples.emit({ gen: 2, items: [item('P', 'DINT')], rows: [{ t: T0 + 1, v: ['7'] }] });
+  assert.deepEqual(await w.p, { kind: 'ended', reason: 'the type of P changed from INT to DINT' });
+  assert.equal(f.released(), 1);
+});
+
+test('a setTimer that throws refuses the wait and leaves no subscription', async () => {
+  const f = fake({ timerThrows: 'no timer' });
+  const w = start(f, '= TRUE');
+  assert.deepEqual(await w.p, { kind: 'refused', reason: 'no timer' });
+  assert.equal(f.samples.count() + f.ended.count() + f.removed.count(), 0);
+  assert.equal(f.held(), 0);
+});
+
+test('a hold that throws synchronously refuses the wait', async () => {
+  const f = fake({ holdThrows: 'hold broke' });
+  const w = start(f, '= TRUE');
+  assert.deepEqual(await w.p, { kind: 'refused', reason: 'hold broke' });
+  assert.equal(f.samples.count() + f.ended.count() + f.removed.count(), 0);
+  assert.ok(f.timers.every(t => t.disposed));
+});
+
+test('a ready() that throws synchronously refuses the wait and releases the hold', async () => {
+  const f = fake({ readyThrows: 'ready broke' });
+  const w = start(f, '= TRUE');
+  assert.deepEqual(await w.p, { kind: 'refused', reason: 'ready broke' });
+  await tick();
+  assert.equal(f.released(), 1);
+  assert.equal(f.samples.count() + f.ended.count() + f.removed.count(), 0);
+});
+
+test('a throw while checking a batch refuses the wait', async () => {
+  const f = fake();
+  const w = start(f, '= TRUE');
+  await tick();
+  const broken = { symbol: 'P', type: undefined as unknown as string, numeric: false, error: null };
+  assert.doesNotThrow(() => f.samples.emit({ gen: 1, items: [broken], rows: rows(['TRUE']) }));
+  const o = await w.p;
+  assert.equal(o.kind, 'refused');
+  assert.match((o as { reason: string }).reason, /toUpperCase/);
   assert.equal(f.released(), 1);
 });
