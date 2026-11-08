@@ -102,7 +102,8 @@ export function waitResultText(o: { symbol: string; condition: WaitCondition; ou
     }
     case 'timeout': {
       const last = out.last === undefined ? 'no valid value observed' : `last value ${out.last}`;
-      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}\n${sampled}` };
+      const seen = out.seenEnum ? `; enum names seen: ${out.seenEnum.join(', ')} (a name never seen may be misspelled)` : '';
+      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}${seen}\n${sampled}` };
     }
     case 'ended': return { text: `Wait ended: ${out.reason}` };
     case 'refused': return { text: `Error: ${out.reason}`, isError: true };

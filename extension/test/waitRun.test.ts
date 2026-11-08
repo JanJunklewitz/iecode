@@ -157,6 +157,24 @@ test('timeout reports the last valid value', async () => {
   assert.equal(f.released(), 1);
 });
 
+test('timeout of an enum compared by name lists the names seen', async () => {
+  const f = fake();
+  const w = start(f, '= eNoSuchStep');
+  await tick();
+  f.samples.emit({ gen: 1, items: [item('P', 'E_Step')], rows: [{ t: T0, v: ['eIdle'], e: [0] }, { t: T0 + 1, v: ['eRun'], e: [1] }, { t: T0 + 2, v: ['eIdle'], e: [0] }] });
+  f.fireTimers();
+  assert.deepEqual(await w.p, { kind: 'timeout', last: 'eIdle', seconds: 5, seenEnum: ['eIdle', 'eRun'] });
+});
+
+test('timeout of an enum compared by number does not list names', async () => {
+  const f = fake();
+  const w = start(f, '= 7');
+  await tick();
+  f.samples.emit({ gen: 1, items: [item('P', 'E_Step')], rows: [{ t: T0, v: ['eIdle'], e: [0] }] });
+  f.fireTimers();
+  assert.deepEqual(await w.p, { kind: 'timeout', last: 'eIdle', seconds: 5 });
+});
+
 test('cancel ends at once and releases the hold', async () => {
   const f = fake();
   const ac = new AbortController();

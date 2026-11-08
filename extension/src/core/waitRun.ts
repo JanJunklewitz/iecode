@@ -23,7 +23,8 @@ export interface WaitDeps {
 
 export type WaitOutcome =
   | { kind: 'met'; t: number; value: string; firstObservation: boolean; elapsedMs: number }
-  | { kind: 'timeout'; last: string | undefined; seconds: number }
+  // seenEnum: set only for an enum compared by name; the names observed, so a misspelled member is recognisable
+  | { kind: 'timeout'; last: string | undefined; seconds: number; seenEnum?: string[] }
   | { kind: 'ended'; reason: string }
   | { kind: 'refused'; reason: string }
   | { kind: 'cancelled' };
@@ -51,6 +52,7 @@ export function runWait(
     let checkedType = '';            // item.type of that row; a later change (download) ends the wait
     let baseline: string | undefined; // first valid value: the `changes` baseline
     let last: string | undefined;     // last valid value, for the timeout
+    const seenEnum = new Set<string>(); // enum names observed while comparing an enum by name
 
     const subs: { dispose(): void }[] = [];
     const onAbort = (): void => finish({ kind: 'cancelled' });
@@ -97,6 +99,7 @@ export function runWait(
         }
         if (first) baseline = text;
         last = text;
+        if (cls === 'enum' && req.condition.op !== 'changes' && req.condition.op !== 'contains' && req.condition.literal.kind === 'name') seenEnum.add(text);
       }
     }
 
@@ -109,7 +112,7 @@ export function runWait(
       subs.push(deps.onSamples(onBatch));
       subs.push(deps.onEnded(reason => finish({ kind: 'ended', reason })));
       subs.push(deps.onUserRemoved(symbols => { if (symbols.some(s => key(s) === want)) finish({ kind: 'ended', reason: USER_REMOVED }); }));
-      subs.push(deps.setTimer(Math.max(0, deadline - deps.monotonicMs()), () => finish({ kind: 'timeout', last, seconds: req.timeoutSeconds })));
+      subs.push(deps.setTimer(Math.max(0, deadline - deps.monotonicMs()), () => finish({ kind: 'timeout', last, seconds: req.timeoutSeconds, ...seenEnum.size ? { seenEnum: [...seenEnum] } : {} })));
 
       deps.hold(req.symbol).then(
         h => {

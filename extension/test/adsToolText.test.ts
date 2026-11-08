@@ -117,6 +117,8 @@ test('waitResultText words every outcome', () => {
     { text: `Not met within 30 s: MAIN.x changes; last value 2\n${sampled}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: undefined, seconds: 30 } }),
     { text: `Not met within 30 s: MAIN.x changes; no valid value observed\n${sampled}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: 'eIdle', seconds: 30, seenEnum: ['eIdle', 'eRun'] } }),
+    { text: `Not met within 30 s: MAIN.x changes; last value eIdle; enum names seen: eIdle, eRun (a name never seen may be misspelled)\n${sampled}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'ended', reason: 'host stopped' } }), { text: 'Wait ended: host stopped' });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'refused', reason: 'nope' } }), { text: 'Error: nope', isError: true });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Wait cancelled.' });
