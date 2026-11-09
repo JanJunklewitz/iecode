@@ -1,6 +1,6 @@
 # ADS Wishlist Master Plan
 
-> **Status: master plan with rough sub-plans.** Each sub-plan is a rough task list; before building a task, expand it into TDD steps with superpowers:writing-plans, then run it with superpowers:subagent-driven-development or superpowers:executing-plans.
+> **Status: master plan; the sub-plans A to E are detailed TDD plans** (each with open decisions at its end). Run them with superpowers:subagent-driven-development or superpowers:executing-plans.
 
 **Goal:** Build every wish of the ADS MCP wishlist that is not implemented yet, in an order that fixes wrong results first, saves the most agent time next, and touches the CLI only once it pays off.
 
