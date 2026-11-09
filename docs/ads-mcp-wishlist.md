@@ -3,6 +3,7 @@
 What an AI agent would like from the `iecode` ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_write`, `ads_scope`, `ads_wait`), collected during simulation tests against a running PLC. Items are ordered by how much context or time they save. Status as of 2026-11-09, branch `feature/ads-mcp-wishlist`.
 
 - Roadmap with design and review: [plans/2026-11-06-ads-mcp-wishlist.md](superpowers/plans/2026-11-06-ads-mcp-wishlist.md) (phase numbers below refer to it).
+- Master plan and sub-plans for the open items: [plans/2026-11-09-ads-wishlist-master-plan.md](superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
 - Detailed plan of the first item: [plans/2026-11-06-ads-wait.md](superpowers/plans/2026-11-06-ads-wait.md).
 
 Status values: **Done** (merged on the branch and unit-tested), **Planned** (in the roadmap, not built), **New** (asked for, not yet in the roadmap), **Out of scope** (decided against, with the reason).
