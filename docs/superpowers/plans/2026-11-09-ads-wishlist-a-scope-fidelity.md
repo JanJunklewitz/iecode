@@ -40,6 +40,8 @@ See the master plan. In addition:
 **Interfaces:**
 - Produces: `thinKeepingChanges<T>(rows: T[], max: number, differs: (a: T, b: T) => boolean): { rows: T[]; changes: number; droppedChanges: number }` in `adswatch.ts`; `scopeText` header line `N of M samples shown, K value changes kept`, added only when rows were left out.
 
+Columns that change in more than a quarter of `maxRows` places are continuous signals: they are thinned evenly (`fillEvenly`) and named in the header (`evenly thinned (fast-changing): …`), so a ramp still spans the whole window; only the other columns are held to the keep-every-change rule.
+
 Steps (to expand): failing test with a 1990-row step counter and 14 changes → all 14 transitions are in the output, header names `200 of 1990`; keep the last row of every run of equal values and the first row of the next run (two rows per transition); if the kept rows exceed `max`, keep the newest `max` and report `droppedChanges`; replace the `downsample` call in `scopeText` (`downsample` itself stays for its other callers); update the existing `scopeText` tests only where the new header appears.
 
 ### A2: `maxRows`, `decimals` and change times in the summary

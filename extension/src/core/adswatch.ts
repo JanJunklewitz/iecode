@@ -190,6 +190,15 @@ export function thinKeepingChanges<T>(rows: T[], max: number, differs: (a: T, b:
   return { rows: rows.slice(from), changes, droppedChanges: edge.slice(0, from + 1).filter(Boolean).length };
 }
 
+/** Adds evenly spaced rows of `all` to `kept` until `max` rows are shown; the result keeps the order of `all`. */
+export function fillEvenly<T>(all: T[], kept: T[], max: number): T[] {
+  const have = new Set(kept);
+  const rest = all.filter(r => !have.has(r));
+  const room = Math.min(rest.length, Math.max(0, max - kept.length));
+  for (let i = 0; i < room; i++) have.add(rest[room === 1 ? 0 : Math.round(i * (rest.length - 1) / (room - 1))]);
+  return all.filter(r => have.has(r));
+}
+
 /** No reply within the time limit; for a write that was sent, the outcome is unknown. */
 export class RequestTimeout extends Error {}
 
@@ -298,14 +307,22 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
   const shownMaps = maps.slice(0, maxColumns);
   const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
   if (times.length > 0) {
-    const thin = thinKeepingChanges(times, maxRows, (a, b) => shownMaps.some(m => m.get(a) !== m.get(b)));
+    // A column that changes in more than a quarter of maxRows places is a continuous signal: its changes are not
+    // events, so it is thinned evenly; the other columns keep every change.
+    const changeCount = (m: Map<number, number>) => times.reduce((n, t, i) => n + (i > 0 && m.get(t) !== m.get(times[i - 1]) ? 1 : 0), 0);
+    const fast = shownMaps.map(m => changeCount(m) > maxRows / 4);
+    const slowMaps = shownMaps.filter((_, i) => !fast[i]);
+    const thin = thinKeepingChanges(times, maxRows, (a, b) => slowMaps.some(m => m.get(a) !== m.get(b)));
+    const rowsShown = thin.droppedChanges === 0 && fast.some(Boolean) ? fillEvenly(times, thin.rows, maxRows) : thin.rows;
     lines.push('');
-    if (thin.rows.length < times.length) {
+    if (rowsShown.length < times.length) {
       const lost = thin.droppedChanges > 0 ? `; ${thin.droppedChanges} earlier changes not shown, narrow seconds or symbols` : ' kept';
-      lines.push(`${thin.rows.length} of ${times.length} samples shown, ${thin.changes} value changes${lost}`);
+      const events = slowMaps.length > 0 ? `, ${thin.changes} value changes${lost}` : '';
+      const thinned = fast.some(Boolean) ? `; evenly thinned (fast-changing): ${shown.filter((_, i) => fast[i]).join(', ')}` : '';
+      lines.push(`${rowsShown.length} of ${times.length} samples shown${events}${thinned}`);
     }
     lines.push(['t[s]', ...shown].join('\t'));
-    for (const t of thin.rows) {
+    for (const t of rowsShown) {
       lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => m.get(t) ?? '')].join('\t'));
     }
     if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);

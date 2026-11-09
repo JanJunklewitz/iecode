@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -186,6 +186,42 @@ test('scopeText never drops a value change of a step counter and says it thinned
   const values = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t')[1]);
   assert.deepEqual([...new Set(values)], steps.map(String));
   assert.match(text, /\d+ of 1990 samples shown, 7 value changes kept/);
+});
+
+test('fillEvenly tops a kept set up to the limit with evenly spaced rows', () => {
+  const all = Array.from({ length: 1000 }, (_, i) => i);
+  const out = fillEvenly(all, [0, 500, 999], 100);
+  assert.equal(out.length, 100);
+  assert.deepEqual(out.slice(), out.slice().sort((a, b) => a - b));
+  assert.ok(out.includes(500));
+  assert.deepEqual(fillEvenly(all, [0, 999], 2), [0, 999]);
+});
+
+test('scopeText thins a fast-changing column evenly and still keeps every step', () => {
+  const steps = [0, 7, 109, 150];
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.fTemp'), item('MAIN.nStep')]);
+  b.push(1, Array.from({ length: 2000 }, (_, i) => ({ t: i * 10, v: [String(i), String(steps[Math.floor(i / 500)])] })));
+  const text = scopeText(b, ['MAIN.fTemp', 'MAIN.nStep'], 100000, 19990);
+  const data = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t'));
+  assert.equal(data.length, 200);
+  assert.deepEqual([...new Set(data.map(d => d[2]))], steps.map(String));
+  assert.equal(data[0][1], '0');
+  assert.equal(data.at(-1)![1], '1999');
+  assert.ok(data.filter(d => Number(d[1]) > 500 && Number(d[1]) < 1500).length > 50);
+  assert.match(text, /200 of 2000 samples shown, 3 value changes kept; evenly thinned \(fast-changing\): MAIN\.fTemp/);
+});
+
+test('scopeText with only fast-changing columns spans the whole window', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.fTemp')]);
+  b.push(1, Array.from({ length: 10000 }, (_, i) => ({ t: i * 10, v: [String(i)] })));
+  const text = scopeText(b, ['MAIN.fTemp'], 100000, 99990);
+  const data = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t'));
+  assert.equal(data.length, 200);
+  assert.equal(data[0][1], '0');
+  assert.equal(data.at(-1)![1], '9999');
+  assert.match(text, /200 of 10000 samples shown; evenly thinned \(fast-changing\): MAIN\.fTemp/);
 });
 
 test('scopeText has no thinning header when every row is shown', () => {
