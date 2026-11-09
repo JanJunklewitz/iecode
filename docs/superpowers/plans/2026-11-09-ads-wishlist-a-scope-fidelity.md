@@ -38,7 +38,7 @@ See the master plan. In addition:
 ### A1: Lossless thinning and an honest header (priority 1, correctness)
 
 **Interfaces:**
-- Produces: `thinKeepingChanges<T>(rows: T[], max: number, differs: (a: T, b: T) => boolean): { rows: T[]; droppedChanges: number }` in `adswatch.ts`; `scopeText` header line `N of M samples shown, K value changes kept`, added only when rows were left out.
+- Produces: `thinKeepingChanges<T>(rows: T[], max: number, differs: (a: T, b: T) => boolean): { rows: T[]; changes: number; droppedChanges: number }` in `adswatch.ts`; `scopeText` header line `N of M samples shown, K value changes kept`, added only when rows were left out.
 
 Steps (to expand): failing test with a 1990-row step counter and 14 changes → all 14 transitions are in the output, header names `200 of 1990`; keep the last row of every run of equal values and the first row of the next run (two rows per transition); if the kept rows exceed `max`, keep the newest `max` and report `droppedChanges`; replace the `downsample` call in `scopeText` (`downsample` itself stays for its other callers); update the existing `scopeText` tests only where the new header appears.
 

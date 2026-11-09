@@ -6,6 +6,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 ### Claude Code and ADS
 - New tool `ads_wait` (Copilot: `adsWait`) waits until a PLC variable meets a condition (=, <>, <, <=, >, >=, changes, contains), with a timeout of up to 120 s. The variable shows in the **ADS Watch** view while the wait runs, and removing it there ends the wait. When an enum compared by name times out, the result lists the enum names seen, so a misspelled member is easy to spot.
+- `ads_scope` no longer drops value changes when it thins a long window: both rows around every change stay, and a line such as `200 of 1990 samples shown, 14 value changes kept` says when the table shows fewer rows than were sampled.
 
 ## 0.2.11
 

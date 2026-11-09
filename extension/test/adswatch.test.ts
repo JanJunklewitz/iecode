@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -156,6 +156,43 @@ test('scopeText summarises and limits rows', () => {
   assert.match(text, /GVL\.nCount.*min=5.*max=5/);
   const dataRows = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l));
   assert.ok(dataRows.length <= 200 && dataRows.length > 100);
+});
+
+test('thinKeepingChanges keeps both sides of every transition', () => {
+  const r = Array.from({ length: 1000 }, (_, i) => (i < 300 ? 0 : i < 301 ? 1 : i < 900 ? 2 : 3));
+  const out = thinKeepingChanges(r, 200, (a, b) => a !== b);
+  assert.equal(out.changes, 3);
+  assert.equal(out.droppedChanges, 0);
+  assert.deepEqual([...new Set(out.rows)], [0, 1, 2, 3]);
+  assert.equal(out.rows.length, 7);
+  assert.deepEqual(thinKeepingChanges([1, 2, 3], 200, (a, b) => a !== b).rows, [1, 2, 3]);
+});
+
+test('thinKeepingChanges shows the newest rows when changes exceed the limit', () => {
+  const r = Array.from({ length: 1000 }, (_, i) => i);
+  const out = thinKeepingChanges(r, 200, (a, b) => a !== b);
+  assert.equal(out.rows.length, 200);
+  assert.equal(out.rows.at(-1), 999);
+  assert.equal(out.changes, 999);
+  assert.ok(out.droppedChanges > 700);
+});
+
+test('scopeText never drops a value change of a step counter and says it thinned', () => {
+  const steps = [0, 7, 109, 150, 210, 300, 410, 500];
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.nStep')]);
+  b.push(1, Array.from({ length: 1990 }, (_, i) => ({ t: i * 10, v: [String(steps[Math.min(steps.length - 1, Math.floor(i / 240))])] })));
+  const text = scopeText(b, ['MAIN.nStep'], 100000, 19890);
+  const values = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t')[1]);
+  assert.deepEqual([...new Set(values)], steps.map(String));
+  assert.match(text, /\d+ of 1990 samples shown, 7 value changes kept/);
+});
+
+test('scopeText has no thinning header when every row is shown', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('A')]);
+  b.push(1, rows(11));
+  assert.doesNotMatch(scopeText(b, ['A'], 100000, 10000), /samples shown/);
 });
 
 test('PendingRequests', async () => {

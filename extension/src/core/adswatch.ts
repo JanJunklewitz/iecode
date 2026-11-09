@@ -175,6 +175,21 @@ export function downsample<T>(rows: T[], max: number): T[] {
   return out;
 }
 
+/**
+ * Thins rows to at most `max` without losing a value change: both rows around every transition stay (the last of a
+ * run and the first of the next). Only when the transitions alone exceed `max` are the newest `max` rows returned;
+ * `droppedChanges` counts the transitions that are then missing, so the caller can say so.
+ */
+export function thinKeepingChanges<T>(rows: T[], max: number, differs: (a: T, b: T) => boolean): { rows: T[]; changes: number; droppedChanges: number } {
+  const edge = rows.map((r, i) => i > 0 && differs(rows[i - 1], r));
+  const changes = edge.filter(Boolean).length;
+  if (rows.length <= max) return { rows, changes, droppedChanges: 0 };
+  const keep = rows.filter((_, i) => i === 0 || i === rows.length - 1 || edge[i] || edge[i + 1]);
+  if (keep.length <= max) return { rows: keep, changes, droppedChanges: 0 };
+  const from = rows.length - Math.max(0, max);
+  return { rows: rows.slice(from), changes, droppedChanges: edge.slice(0, from + 1).filter(Boolean).length };
+}
+
 /** No reply within the time limit; for a write that was sent, the outcome is unknown. */
 export class RequestTimeout extends Error {}
 
@@ -283,8 +298,14 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
   const shownMaps = maps.slice(0, maxColumns);
   const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
   if (times.length > 0) {
-    lines.push('', ['t[s]', ...shown].join('\t'));
-    for (const t of downsample(times, maxRows)) {
+    const thin = thinKeepingChanges(times, maxRows, (a, b) => shownMaps.some(m => m.get(a) !== m.get(b)));
+    lines.push('');
+    if (thin.rows.length < times.length) {
+      const lost = thin.droppedChanges > 0 ? `; ${thin.droppedChanges} earlier changes not shown, narrow seconds or symbols` : ' kept';
+      lines.push(`${thin.rows.length} of ${times.length} samples shown, ${thin.changes} value changes${lost}`);
+    }
+    lines.push(['t[s]', ...shown].join('\t'));
+    for (const t of thin.rows) {
       lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => m.get(t) ?? '')].join('\t'));
     }
     if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);
