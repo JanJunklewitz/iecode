@@ -47,3 +47,57 @@
     - Filter checkboxes at the top of the view, one per category, plus noise filters (GUID-only changes, build info and timestamps/counters, whitespace/reordering). The state is persisted (extension `globalState` or a setting, so it also applies to the CLI). Defaults: everything on except layout and metadata; all noise filters on. Show how many changes each filter hides.
     - Each change shows added / removed / changed with old -> new value, and a link to the line in the raw XML diff.
   - Open questions: see the research document (embedded data types when the PLC project is in the same repo, other `.xti` types and `.tsproj`, license names).
+- [ ] **ADS write allowlist and ARMED expiry**: restrict which variables an AI may write and let `auto` write access lapse.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#b-ads-write-allowlist-and-armed-mode). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (per-symbol `writeAllowlist` as third gate), [idomp/twincat-mcp-public](https://github.com/idomp/twincat-mcp-public) (SAFE / ARMED mode, armed expires after 5 minutes), [eponce00/twincat-mcp](https://github.com/eponce00/twincat-mcp) (expiring, scoped grants).
+  - Idea: extend `iecode.ads.aiWrites` (off / confirm / auto) with glob patterns for allowed symbols and an expiry for `auto`. Replaces the "AI write allowlist" line under the ADS item above.
+- [ ] **Read-only diagnostics tools for AI**: TwinCAT state, event / runtime error list, log tail, NC axis and IO state as read-only tools, plus a "what is wrong right now" bundle.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#c-read-only-diagnostics-for-ai). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (`tc_state`, `tc_event_list`, `tc_runtime_error_list`, `tc_log_read`, `tc_diagnose_*`, `nc_read_axis`, `io_read_group`).
+  - Open: the logger source is the same question as in the log file viewer item; decide it once for both.
+- [ ] **XML structure checks and OOP rules**: validate `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` after edits by hand or by AI (GUID format and uniqueness, LineIds, method wrappers, naming prefixes) and check IEC 61131-3 OOP rules (override signature, `FB_init` super call, interface contract, abstract instantiation).
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#g-xml-structure-checks-and-oop-rules). Prior art: [agenticcontrolio/twincat-validator-mcp](https://github.com/agenticcontrolio/twincat-validator-mcp) (structure checks, 21 OOP checks, auto-fix, health score).
+  - Idea: `iecode check` rules plus Problems-panel diagnostics on save; auto-fix only for the safe structural cases.
+- [ ] **Metadata-only changes in the SCM view**: mark files whose only change is XAE metadata (new `TmcHash`, new `ProductVersion`, build timestamps) so they do not look like real changes, and offer "discard" for them.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (group "Build output (no code changes)"). The noise sources are already listed in [docs/research/xti-diff](docs/research/xti-diff/README.md).
+  - Idea: reuse the noise filters of the config diff to decide "nothing but noise"; show the group in the IECode SCM view next to "Compare with HEAD".
+- [ ] **Config diff: logical vs. formal changes and hiding equal items**: split every change into "logical" (changes plant behaviour) and "formal" (only matters for project handling, e.g. LineIds, GUIDs, offsets), and add a "hide equal items" / "changed only" filter.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). Prior art: Beckhoff TcProjectCompare ([manual](https://download.beckhoff.com/download/document/automation/twincat3/TC3_Project_Compare_Tool_EN.pdf), section 5.3.1: formal changes marked with a bar, "Hide equal items + formal changes").
+  - Idea: map the existing categories and noise filters to logical / formal as a top-level switch; apply to the config diff and the IO links diff.
+- [ ] **IO link consistency checks**: find dead links (link to a symbol that no longer exists), type mismatches between linked variables, unlinked variables, and inputs linked twice.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). No other tool found that does this.
+  - Idea: new rules in `iecode check` and warnings in the IO links view; the IO links parser and the PLC symbol list already exist.
+- [ ] **Semantic EtherCAT topology diff**: compare the device tree of two versions (devices, slots / modules, PDO mapping, DC settings) by identity instead of as raw XML.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). Related: the `.xti` survey in [docs/research/xti-diff](docs/research/xti-diff/README.md) shows which parts of the config matter. TcProjectCompare only offers a generic XML comparison here.
+  - Open: which `.xti` / `.tsproj` parts hold the topology, how large the files get, how to match renamed devices.
+- [ ] **Per-object history and staging**: history of one object (POU, method, property, ...) following renames and moves, and staging / discarding a single method instead of the whole file.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#7-more-ideas-ranked-by-interest-for-iecode). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (views "TwinCAT Changes", "TwinCAT Commits", "TwinCAT History").
+  - Idea: history first (read-only, lower risk); staging needs a partial write into the git index and is the harder part.
+- [ ] **ADS Scope export and summary**: export recordings as CSV, save and reload them, and give AI a readable summary (min / max, edges, time between edges).
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#e-record--export-of-scope-data). Prior art: [idomp/twincat-mcp-public](https://github.com/idomp/twincat-mcp-public) (ADS record to CSV without a TE13xx license).
+  - Idea: replaces the Beckhoff Scope for simple timing checks; the summary is a new return value of the scope tool.
+- [ ] **ADS MCP: request keys**: a repeated write with the same key returns the first receipt instead of writing again, so a retry never writes twice.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#j-ai-facing-robustness-from-the-job-based-mcps). Prior art: [eponce00/twincat-mcp](https://github.com/eponce00/twincat-mcp) (a key reused with different arguments is rejected).
+- [ ] **ADS MCP: bounded results**: output limits and paging for all tools, upper bounds for the number of subscriptions and the wait duration.
+  - Research: same section as above. Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (`maxNotifications`, `maxWaitUntilMs`, `maxEvents`, `maxLogBytes`), [eponce00/twincat-mcp](https://github.com/eponce00/twincat-mcp) (paged job results).
+  - Idea: make the limits settings; compare with the limits `ads_wait` already has.
+- [ ] **ADS MCP: `ads_sequence`**: several steps in one call, all validated before the first one runs; no nested sequences.
+  - Research: same section as above. Prior art: [eponce00/twincat-mcp](https://github.com/eponce00/twincat-mcp) (`workflow.sequence`, up to 32 steps).
+  - Open: how the write gate (`iecode.ads.aiWrites`) applies per step, and what a mid-sequence failure leaves behind.
+- [ ] **Merge by identity in the merge editor**: use the semantic model instead of lines to resolve GUID and LineIds conflicts automatically.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: Beckhoff TcProjectCompare ([manual](https://download.beckhoff.com/download/document/automation/twincat3/TC3_Project_Compare_Tool_EN.pdf): merge direction, accept single / block / all).
+  - Idea: builds on the config diff, which already compares by identity.
+- [ ] **Project view: search and filter in the tree**: filter the tree by name and kind.
+  - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (Go to Object, Find in Folder / Project).
+- [ ] **Mark unused objects**: flag objects that no task can reach (not called from any program, not referenced).
+  - Research: same section as above. Builds on the dependency graph.
+  - Open: how to treat objects only used through interfaces, FB_init or libraries.
+- [ ] **Dependency graph as Mermaid export**: export the graph of `iecode.showGraph` as Mermaid text for docs and pull requests.
+  - Research: same section as above.
+- [ ] **Libraries: outdated versions and version diff**: show which libraries have newer versions available and compare two versions as ST.
+  - Research: same section as above. Builds on `iecode.libraries` and the ST compare.
+- [ ] **git blame per method**: blame for a method, property or action of the ST view instead of XML lines.
+  - Research: same section as above. Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (optional line blame, known to misattribute the first and last line of a section).
+- [ ] **ST formatter on the TcTidier engine**: "Format Document" for the ST view; the result is written back into the XML like any edit. Config: `.tctidier.json` (indent, alignment of declarations / assignments / named parameters, blank lines between CASE branches, one-line IF, print width).
+  - Research and decisions: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#f-formatter-for-st). Engine: [CodePiercerTechnology/TcTidier](https://github.com/CodePiercerTechnology/TcTidier) (MIT, TypeScript, `src/native/` has no `vscode` dependency).
+  - Decision: vendor `src/native/` into the extension and refresh it with `scripts/sync-tctidier.ps1 <commit>` (records the commit in `VENDOR.md`, copies the licence, applies local `.patch` files). No local edits of vendored files; `git subtree` and submodules rejected.
+  - Before adopting (about 2 hours): idempotent, nothing changed inside strings / comments / pragmas, no diff noise on `testdata/`, add a "format twice" test; ask the author about a shared library.
+  - Also: add the TcTidier copyright to `NOTICE`.
