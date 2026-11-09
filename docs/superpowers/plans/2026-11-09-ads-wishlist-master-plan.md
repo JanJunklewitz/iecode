@@ -75,6 +75,11 @@ Shared files that force sequential merges: `adsToolText.ts`, `toolInput.ts`, `pa
 2. Plan C7b, persistent and configuration guard: first check whether the build output marks persistent symbols; if it does not, the user lists path prefixes in a setting.
 3. Plan E6, alarms: a spike decides whether the EventLogger proxy dependency is acceptable (licence, redistribution, remote access); no dependency before a go.
 4. Plan E7, PLC-cycle timestamps: only for symbols of one task. Order across several tasks is a TODO item.
+5. Plan B5: the target line `ADS target: <target>` goes on the last line of watch, write and wait results, so the verdict words stay first.
+6. Plan A4: the summary line of every symbol that changed gets `changes=K (first at ..., last at ...)`; constant symbols stay byte-identical.
+7. Plan C6: the old value is read before every AI write (one extra ADS read per write call), so the journal and restore are complete.
+8. Plan E3: if the stale-sampling cause is the idle stop, sampling stays alive 300 s after the last AI call (`iecode.ads.aiKeepAliveSeconds`).
+9. All other open decisions listed at the end of Plans A to E are taken as the plans' own recommendations (for example: journal in memory only, `edges` with `changesOnly` is an error, `ads_config` is a session override, per-symbol rates go in a `rates` map, hidden variables are listed and not readable).
 
 ## Definition of done per sub-plan
 
