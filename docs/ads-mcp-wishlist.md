@@ -22,8 +22,8 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_scope` never drops a value change when it thins a long window | **New, priority 1 (correctness)** | A 25 s scope of a step counter (1990 samples) printed 200 rows and nothing said that 1790 samples were missing. The reader concluded the wrong failing step. Keep the first and last sample of every run of equal values (or min/max per bucket) so every transition survives. |
-| Say it when rows are dropped | **New, priority 1** | Header line such as `200 of 1990 samples shown, 14 value changes kept` plus a `lossy` marker. |
+| `ads_scope` never drops a value change when it thins a long window | Done (Plan A1) | Every transition survives thinning (first and last row of each run kept); a column that changes constantly is thinned evenly. Tests in `adswatch.test.ts`: `thinKeepingChanges keeps both sides of every transition`, `scopeText never drops a value change of a step counter and says it thinned`, `scopeText thins a fast-changing column evenly and still keeps every step`. |
+| Say it when rows are dropped | Done (Plan A1) | Header line such as `200 of 1990 samples shown, 14 value changes kept`, with a note when transitions are not shown. Tests: `scopeText never drops a value change of a step counter and says it thinned`, `scopeText has no thinning header when every row is shown`. |
 | Change-only mode (`changesOnly`): one row per value change with its time | Planned (Phase 2) | Also the cheap default for step counters, enums and BOOLs. Never thinned, newest 200 rows plus a note. |
 | STRING and WSTRING history in the scope | Planned (Phase 2) | Today `ads_scope` answers "no numeric samples". Needed for step descriptions and error texts, which are empty again once the machine has handled the error. The change log keeps text, with its own entry cap. |
 | `maxRows` and `decimals` options | New | Lets the caller ask for 20 rows. |
