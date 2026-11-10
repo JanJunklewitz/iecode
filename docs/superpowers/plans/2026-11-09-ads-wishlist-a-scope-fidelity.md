@@ -789,3 +789,17 @@ A1 (done) -> A2 -> A3 -> A4 -> A5 -> A6 -> A7 -> A8. A2 and A3 are independent a
 2. **Summary line suffix.** A4 appends `changes=K (first at ..., last at ...)` to the summary of every symbol that changed, so the default `ads_scope` text is no longer byte-identical for such symbols (constant symbols are). Recommendation: accept; it is the wishlist item "time of the first and last change". Alternative: show the suffix only with `changesOnly`.
 3. **Null samples (read errors) in the change log.** Recommendation (built in A3): skipped, the last good text stays the comparison base, so an error burst is not a flood of changes. Alternative: log `(read error)` as a value, so a symbol going bad shows in `changesOnly`.
 4. **Copilot scope input validation (A2).** The Copilot tool now rejects invalid input with `Invalid arguments: ...` like `adsWait`; before, it passed raw values on. Recommendation: accept.
+
+
+## Review amendments (2026-11-10)
+
+From the engineering review of this plan. These override the task text above where they differ; apply them while building the named task.
+
+1. **Alias-safe type classes (A3, A4, A7).** The CLI sends the type name of the symbol, which can be an alias (`T_MaxString`, a BOOL alias). `isText` and the BOOL check must not be plain regexes on `STRING(n)` / `BOOL`. Reuse the type-to-class table of `extension/src/core/waitCondition.ts` (it already decides unknown names by the value). Add tests with an alias STRING and an alias BOOL for A3 (quoted summary, escaped cell), A5 (an empty string is not an unchanged cell) and A7 (alias BOOL gets edges).
+2. **Host message on the no-samples path (A6).** `scopeSummaryText` returns `No samples yet ...` before `gapNote` runs. Append the last host message there too, and test "no samples ever plus a host error". Replace the tautological A6 assertion (expected value built by `gapNote` itself) by a literal string.
+3. **Dropped history in summaries and edges (A4, A7).** When `ChangeLog.olderDropped` is true, the summary line says `changes>=K (older changes dropped)` instead of `changes=K`, and `edgesText` ends with `older edges dropped` and ignores the classification of the first retained entry when `startUnknown`. Test: a noisy REAL under the cap, summary and edges.
+4. **Size limit of `changesOnly` (A5).** The row limit is not a character limit. When the text would exceed `MAX_TOOL_TEXT`, drop the oldest rows (not the newest) and say how many; test with long quoted texts.
+5. **Order.** A7 also depends on A5 (the `changesOnly` parser field for the conflict check). Order stays A1 -> A8 but A7 consumes A5.
+6. **Intended output changes.** A4 also changes the summary line of constant non-numeric symbols (`changes=0 last="Run"`); A2 adds input validation to the Copilot scope tool. Both are listed in the master's intended changes.
+7. **Module size.** Put the change log, `changesRows` and `edgesText` in a new `extension/src/core/scopeChanges.ts` instead of growing `adswatch.ts` (476 lines, a merge hotspot for B, C and E). `ScopeBuffer` keeps the log and exports its types.
+8. **Test gaps to add:** `maxRows` 1 and 2; `decimals` on `1e-7` and `-0.00`; `changes()` with `fromMs` after the cutoff; the cap split over several items; `setSeconds` shrinking the log; a constant symbol and two symbols changing at the same sample in `changesOnly`; more than 20 symbols. Drop the `MAX_CHANGE_ENTRIES === 100_000` constant pin.

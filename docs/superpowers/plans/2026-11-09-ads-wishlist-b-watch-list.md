@@ -1025,3 +1025,19 @@ git commit -s -m "Mark the watch list wishes as done" -m "Diff results, groups, 
 - **Ordering risk:** B1-B5 tests build on fixtures (`none`, `wbase`) that later tasks widen; each later task lists the fixture edit. Because B5 runs second, the strings of B1's tests end with `ADS target: local` after B5 (stated in B5).
 - **Placeholders:** none; the `<var1>` style names appear only in the manual check as stand-ins for variables of the simulation project, which cannot be named in a public plan.
 - **Known limits, accepted:** the parked entries are invisible in the ADS Watch view (only `ads_watch {}` lists them); the stored list (parked included) is not capped, only the sampled list is limited to 200; the confirmation dialog cannot be closed by VS Code when the call times out, it is only ignored.
+
+
+## Review amendments (2026-11-10)
+
+From the engineering review of this plan. These override the task text above where they differ.
+
+1. **Result shape (B1, B2, B3b).** The three keys B3b adds to `AiEditResult` (`grouped`, `ungrouped`, `switchedOn`) are optional and omitted when no group is involved, so the exact `deepEqual` assertions of B1 and B2 stay valid. `removeGroup` results follow the same rule.
+2. **Shared test fake (B2, B3b, B3c).** Move the list fake of `watchList.test.ts` into `extension/test/watchFixtures.ts` (exported `fakeList`) in B2; B3b changes it once (`set(entries, active)`, `groupsOff`, `setGroupsOff`) and lists `watchRequest.test.ts` among its test files.
+3. **Stale group keys (B3b).** `save()` prunes `groupsOff` keys that have no member. Tests: a key left after the user's Clear, after a take-over and after a released hold; a new group never reports "it was off".
+4. **Limits (B3b).** The 200 limit applies to the active (sampled) list in `host.setEntries`; the stored list (parked included) is capped at 1000 entries with the error `At most 1000 variables can be kept in the watch list.` Test both.
+5. **Mid-wait target (B5).** `adsTools.wait` captures `host.target()` before `runWait`. Test: a target change during the wait names the old target. Refusals before any host contact, `Wait cancelled.` and failure texts of a host that did not start get no target line; the text of B5 is corrected to say so.
+6. **Confirmation dialog (B2).** Use the gate policy's `dialogMs` (as the write gate does) instead of a fixed 120 s, serialise the dialogs, and re-check `!ai` inside the list step before removing a user entry; tests for a changed entry between confirm and edit and for two parallel `force` calls.
+7. **Groups and the host (B3b).** State what happens to `host.setWatched` (dead code: delete it, or adapt it so it keeps `groups`). `ads_scope` and `ads_read` keep answering for parked symbols with `Parked in group <name>` instead of "Not watched". Switching a group off drops the history of its symbols; the result text says so. `removeGroup` of a held entry removes it when the wait ends (set `rec.added`), with a test.
+8. **Partial failure (B3c).** `setGroupsOff` is written only after `save()` succeeded. If `enable: true` fails on the limit after an add, the result still shows the diff of the add. Parser rules: `removeGroup` with `clearAi` and `group` with `list: true` are errors.
+9. **B4.** Report only errors that mean "not found", not transient ones (no connection, timeout); a transient error does not mark the symbol as reported.
+10. **B1.** `lmTools.ts` now validates the watch input (`Invalid arguments: ...`); this is an intended change and goes into the master list and the CHANGELOG. B3a: `watchRename` already drops groups (`adswatch.ts:393`); only `watchEdit` changes.
