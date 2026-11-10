@@ -157,12 +157,12 @@ Sequential implementation, no parallelization opportunity: the seven shared file
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Outside Review | native Claude subagent (Codex not installed) | Independent 2nd opinion | 1 | completed (no outside provider coverage) | 9 findings, 5 accepted |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open | 10 issues, 0 critical gaps |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | issues_open | master 10 issues, sub-plans A-E 61 issues (all accepted ones applied as amendments), 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
 - **OUTSIDE COVERAGE:** native fallback completed; no external provider ran.
-- **VERDICT:** Eng review applied; all tasks done. Re-run is not needed unless the sub-plans change.
+- **VERDICT:** Eng review applied to the master plan and to sub-plans A-E (amendments at the end of each); all accepted tasks done. Re-run is not needed unless the sub-plans change.
 
 
 NO UNRESOLVED DECISIONS
