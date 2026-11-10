@@ -820,3 +820,11 @@ From the second, independent review. These override round 1 and the task text.
 9. **Escaping (A4, A5).** `shownText` escapes `\` as `\\`, `"` as `\"`, newline as `\n`, tab as `\t`; the cut marker is `...` after at most 80 characters. Tested through the printed summary and cells; `shownText` is not exported for the test.
 10. **Wiring (A2, A5, A7).** `ScopeOptions` contains `changesOnly`, `edges`, `maxRows`, `decimals`; one test in `mcpTools.test.ts` spies on `scope` with every new parameter and checks that an invalid combination never reaches it. The change-only branch does not build the numeric maps.
 11. **Live check (A8).** Close all views and leases, wait for the real host stop (30 s), then check the stale line. Compare skipped tests by reason, not by a fixed count.
+
+
+## Open questions to ask at task start
+
+Put each question to the user with its recommendation when the named task starts; write the answer and the date under it.
+
+1. **A3, memory budget of the change log.** The log keeps the full text of the last non-null sample per item (`lastText_`, not cut) and up to 100,000 entries of up to 256 characters each, about 50 MB for text in the worst case; trimming uses `splice(0, n)` on arrays of that size on every push. Question: accept this budget, or cut `lastText_` and use a queue with a start index? Recommendation: cut the compared text at the same length as the stored one and use a start index; measure the push cost at 200 items and 10 ms before and after.
+2. **A5, rows versus characters.** Question: is dropping the oldest rows (the newest stay) the wanted rule for every mode, or should the agent get an error asking for fewer symbols when the head and summaries alone exceed the limit? Recommendation: drop rows first, then summaries beyond 50 symbols, never the footer.

@@ -929,3 +929,14 @@ From the second, independent review. These override round 1 and the task text.
 17. **Compilable steps (E1, E4, E5).** The signature, the real `adsTools()` implementation, the descriptor fixtures (`mcpTools.test.ts` lines 42, 45, 78, 222), the manifest and the registrations land in one compiling step; before that only the isolated pure tests are expected green.
 18. **Release (E9).** An outcome matrix over the eight go/no-go combinations of E2, E6, E7 decides manifest, labels, docs, tests and the table entry; `everyMs`/`r` and the `rates` test are conditional on the E2 go. E9 owns the release pin (Plan C round 2 item 9). The E4 commit lists `hostProtocol.ts` and `hostProtocol.test.ts`.
 19. **Serializer (E4).** The serializer uses `JsonIgnoreCondition.Never`, so `WatchStateData` gets `JsonIgnore(WhenWritingNull)` on the optional counters, and the missing-counter case is tested from the serialized reply to `parsePlcState`.
+
+
+## Open questions to ask at task start
+
+Put each question to the user with its recommendation when the named task starts; write the answer and the date under it.
+
+1. **E1, memory confirmation threshold.** The threshold is still a value count (`CONFIG_CONFIRM_VALUES`) although the estimate now has components (numeric values, text values, change log). Question: which byte reference should trigger the confirmation? Recommendation: 128 MB as the conservative total, measured with real text symbols in step 1.
+2. **E2, sample age per symbol.** With per-symbol rates a fresh fast symbol hides an old slow one in `newestSample`, and no task prints a reliable age for watch results (the wishlist asks for it). Question: add a per-symbol age line to `ads_watch` and `ads_scope` summaries, with a stale rule that depends on the rate? Recommendation: yes, in E2 after the go; list-wide sampling activity and the age of one symbol are shown separately.
+3. **E3, keep-alive default and cost.** Keeping sampling alive for 300 s keeps the whole sampling running (the TODO notes about 16 % host CPU at 21 symbols and 10 ms). Question: is 300 s the right default, and should it depend on the number of symbols? Recommendation: measure CPU at 21 and 200 symbols in the E3 reproduction; default 120 s above 50 symbols, 300 s below.
+4. **E4 and E7, spike facts.** Names of the system info symbols, the task index, whether the cycle counter is a 32-bit value and how it behaves after a restart, `OnlineChangeCnt` after a restart, and the time base and precision of notifications are not known. Question: confirm the result of each spike before the text and manifest claims are pinned. Recommendation: no manifest sentence about a restart signature before the spike is recorded.
+5. **E6, EventLogger.** Package and licence, redistribution, history access, remote access. Question: go, no-go or partial go after the spike (master decision 3)? Recommendation: no dependency before a written go.

@@ -523,3 +523,13 @@ From the second, independent review. These override round 1 and the task text.
 17. **Expand and the watch limit (D7b).** Capacity is checked inside the serialised list edit on the de-duplicated final list; all read limits (`OmittedMembers`, `OmittedNotExpanded`, array and depth notes) also appear in the watch result. Tests: list full while removing and expanding, concurrent add.
 18. **Property hints (D4).** Visibility and hint suitability are separate; `visible()` keeps accepting any `monitoring` attribute. Tests: `'call'`, `'variable'`, a `P_` path (live check).
 19. **Small fixes.** D1 test: bind the second build explicitly (no `built2`) and import `basename`. D6 spike: no `SymbolVersion` debug command exists; name an available read path or a throwaway SDK helper.
+
+
+## Open questions to ask at task start
+
+Put each question to the user with its recommendation when the named task starts; write the answer and the date under it.
+
+1. **D5 and D6, cost of the online symbol list.** The symbol table is uploaded before any filter, and the real SDK cost (upload time, table size, sub-symbol materialisation) is unknown. Question: what is the acceptable time and size for `ads_symbols` with `source: online` on a large project? Recommendation: measure upload, walk and selection separately in D6 and accept up to 10 s on a local runtime; above that make online opt-in only (never `auto`).
+2. **D4 and D8, property names.** The wishlist names `P_` properties; the fixtures only use `Busy`. Question: does the real ADS symbol name of a monitored property follow the `P_` pattern? Recommendation: settle it in the D8 live check with a library project before the hint text is pinned.
+3. **D6, identity of a loaded build.** Question: if the runtime only gives a counter or a timestamp that cannot be tied to a build file, is `timestamps agree within <tolerance>` enough, or should D6b be dropped? Recommendation: keep the weaker wording; drop D6b if even the timestamp is not readable.
+4. **D7, leaf budget.** Question: is 1000 leaves per request the right limit for a struct read? Recommendation: start with 1000 and the 200 default per structure, raise it only with a measured sum-read time.

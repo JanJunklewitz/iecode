@@ -1015,3 +1015,13 @@ From the second, independent review. These override round 1 and the task text. I
 12. **Logging.** Failed and unknown results (batch items and the pulse reset) are logged at the result transition, not only in the outer catch of `adsWrite.ts`; test the log.
 13. **Wire contract per protocol (C0).** `cli/README.md` gets one compact table per protocol: ops, request fields, reply fields, proof semantics; the real messages are fixtures in the TS and C# tests.
 14. **Limits stated in the text (C7a, C7b, manifest).** The allow-list limits symbol names, not machines; delete the sentence "auto-approve can be used on a simulation without risk to a real target". An empty `persistentPaths` with no build marker protects nothing.
+
+
+## Open questions to ask at task start
+
+Put each question to the user with its recommendation when the named task starts; write the answer and the date under it.
+
+1. **C0, host newer than the extension.** `negotiate` refuses a host with a higher protocol than the extension and switches every ADS tool off, although entries and replies are additive. Question: keep that (roadmap D14/D23) or accept a newer host with the capabilities of the extension's own protocol? Recommendation: keep refusing for now; revisit if users report ADS tools off after a CLI update.
+2. **C6a, journal inside `ads_write`.** `journal: true` is read-only but lives in the mutating tool, so a client that gates the write tool also gates the journal. Question: move it to a read-only tool (`ads_journal`)? Recommendation: keep it in `ads_write` for the first release (one tool less in the manifest), move it if a client's permission prompt is a problem.
+3. **C1 and C7b, persistent marker.** After the spike: does the build output mark persistent (and RETAIN) symbols, also for members, arrays and function-block instances? Question: variant A (use the marker) or variant B (the user lists path prefixes)? Recommendation: A only if the spike proves it for members and arrays and the program of the build can be tied to the target; otherwise B with the documented limit that an empty list protects nothing.
+4. **C4, pulse safety.** The hold time has no guaranteed maximum. Question: is `pulseMs` acceptable for safety-relevant bits at all, or should it be refused for symbols in a configured list? Recommendation: accept with the written warning and the PLC-side reset advice; add the refusal list only if a user asks.

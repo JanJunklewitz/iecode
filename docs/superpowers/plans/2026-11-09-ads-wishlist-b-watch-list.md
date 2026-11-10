@@ -1060,3 +1060,9 @@ From the second, independent review. These override round 1 and the task text.
 11. **Parked reads (round 1 item 7, corrected).** `ads_read` still reads a parked symbol once and adds `(parked in group X, not sampled)`; `ads_scope` says there is no running history for it. No change to the one-shot read. The manifest text and the intended-change table say so.
 12. **Persisted groups (B3a).** `parseWatchList` drops `groups` for `ai: false`, trims, de-duplicates case-insensitively and drops invalid names. Tests: user entry with groups, duplicate spellings.
 13. **B6 step 2.4:** `Add an entry in the view, then try to remove it through the tool`; the dialog wait comes from the policy in use.
+
+## Open questions to ask at task start
+
+Put each question to the user with its recommendation when the named task starts; write the answer and the date under it.
+
+1. **B3a and B3b, limits.** The numbers are choices, not measurements: 1000 stored entries, 8 groups per entry, 50 groups in total, names up to 64 characters. Question: are these the right limits? Recommendation: keep them; raise only if a real list needs more.

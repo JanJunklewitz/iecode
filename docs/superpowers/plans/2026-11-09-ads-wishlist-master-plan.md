@@ -193,6 +193,24 @@ All other results stay byte-identical; every task keeps a pinned test for an unc
 
 **Status of the wishlist.** Rows already done by A1 (never drop a value change, say when rows are dropped) and the persisted watch list are set to Done in the wishlist before PR1 is opened; partly done rows are split into "done" and "remaining".
 
+### Open questions to ask when the task starts
+
+The reviews left some points open on purpose: they depend on a measurement, a spike or a product choice. Each sub-plan ends with a section `## Open questions to ask at task start`. When you start the named task, put the question to the user with the recommendation before writing code; do not decide it silently. A question is closed by writing the answer and the date under it.
+
+| Question | Task | Plan |
+|---|---|---|
+| Protocol: keep refusing a host newer than the extension? | C0 | C |
+| Journal read-only action inside the mutating `ads_write` tool? | C6a | C |
+| Persistent marker: variant A (build output) or B (path prefixes) | C1, C7b | C |
+| Memory budget of the change log and trimming strategy; rows versus characters | A3, A5 | A |
+| Limits of the watch list (entries, groups) | B3a, B3b | B |
+| Sample age per symbol with per-symbol rates | E2 | E |
+| Keep-alive default and its CPU cost | E3 | E |
+| Memory confirmation threshold in bytes | E1 | E |
+| SystemInfo names, task index, counter reset, notification time base | E4, E7 | E |
+| EventLogger package, history access, licence | E6 | E |
+| Online symbol upload cost and the `P_` property names | D5, D6, D8 | D |
+
 ### Sub-plan review (2026-11-10)
 
 Each sub-plan was reviewed separately (references checked against the code, architecture, tests, performance, failure modes). The accepted corrections are in the section `## Review amendments (2026-11-10)` at the end of each sub-plan; they override the task text. Counts: A 3 critical / 8 informational, B 5 / 10, C 6 / 9, D 6 / 9, E 6 / 4 findings. Cross-plan decisions: protocol entries are frozen by the CLI release (Plan C amendment 1); one missing-feature text and one capability API owned by C0 (Plans D, E); A3's `ChangeLog` shape is what E5 consumes; the guards refuse when they cannot decide, see "Guards" in the second round.
