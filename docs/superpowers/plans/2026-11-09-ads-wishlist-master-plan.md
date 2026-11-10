@@ -18,9 +18,9 @@ These apply to every sub-plan.
 - Every tool is declared once in `extension/package.json` (`languageModelTools`) and served by both `buildMcpTools` and `lmTools.ts`; the manifest parity test must stay green. New parameters are optional; old calls keep byte-identical results unless a task says otherwise (intended changes: the `ads_watch` result of B1, the target line of B5, the summary line of A4 for symbols with a change log, input validation in the Copilot scope and watch tools (A2, B1), the `ads_write` schema and description of C3c, and the stale warning tolerance of D1).
 - Decisions live in pure `extension/src/core/` modules, because the node tests cannot load `vscode`. `src/ads/` only wires.
 - Writes keep the write gate guarantees: one confirmation per AI write operation, "Not written" only with proof, "outcome unknown" after a timeout.
-- CLI changes: one immutable entry per protocol number in a version table in `host.ts` (an entry is frozen by the CLI release, not by a merge: features of later plans join the open entry until a CLI with that protocol is released, then the next plan opens a new entry); replies change additively; the extension accepts hosts from protocol 1 up to its own and switches off only the missing features (roadmap D14, D23). Task C0 builds this table; every other CLI-touching task depends on it.
+- CLI changes: one immutable entry per protocol number in a version table in `extension/src/core/hostProtocol.ts` (an entry is frozen by the CLI release, not by a merge: features of later plans join the open entry until a CLI with that protocol is released, then the next plan opens a new entry); replies change additively; the extension accepts hosts from protocol 1 up to its own and switches off only the missing features (roadmap D14, D23). Task C0 builds this table; every other CLI-touching task depends on it.
 - Tests: `cd extension && npm test`. `dotnet test` only through the PowerShell tool, never chained with `dotnet build`, nothing heavy in parallel.
-- One pull request per sub-plan (A, B, C, D, E), merged in that order, each with its CHANGELOG lines in the style of the `ads_wait` entry. Release trains (below) only say when a CLI release is needed; they are not pull requests. If a plan's pull request grows past about 15 tasks, split it at a protocol boundary.
+- Pull requests are cut as the delivery slices of "Second review round" below (A; B; the extension-only rest; then the CLI parts of C, D, E), each with its CHANGELOG lines in the style of the `ads_wait` entry. Release trains (below) only say when a CLI release is needed; they are not pull requests. If a plan's pull request grows past about 15 tasks, split it at a protocol boundary.
 
 ## Sub-plans
 
@@ -151,13 +151,55 @@ Sequential implementation, no parallelization opportunity: the seven shared file
 - [x] T3 (P2) Plan E3: already starts with a reproduction and a decision table before any keep-alive code, so no change was needed (R7 only aligned the master wording).
 - [x] T4 (P3) Plan A and B: PR wording aligned with the one-PR-per-plan rule.
 
+
+
+### Second review round (independent model, 2026-11-10)
+
+An independent reviewer read this plan and every sub-plan including the first amendments. The accepted corrections are in the section `## Review amendments, round 2` at the end of each sub-plan and below. Precedence if texts disagree: round 2 amendments, then round 1 amendments, then the task text of a sub-plan, then this master plan, then the roadmap.
+
+**Delivery slices instead of one PR per plan (replaces the PR rule above).** The first rule made the T1 gate unreachable: the extension-only tasks of C, D and E sat in PRs that also carry CLI work. Pull requests are cut by deliverable:
+
+| Slice | Contents | CLI release |
+|---|---|---|
+| PR1 | Plan A (A2-A8) | no |
+| PR2 | Plan B | no |
+| PR3 | Extension-only rest: X0 (move the Copilot registration into a table in `core/` and test it against the manifest), C0, C5, C3a, C3b, C7a, D1-D4 (not D2b), E1, E5, E8 | no |
+| gate | Use PR1-PR3 for a while, then decide (below) | |
+| PR4 | Plan C CLI part: C1 (spike, may run earlier), C2, C3c, C4, C6a, C6b, C7b, C8 | yes (protocol 2) |
+| PR5 | Plan D CLI part: D2b, D5, D5b, D6, D6b, D7, D7b, D8 | same release as PR4 or protocol 3 |
+| PR6 | Plan E CLI part: E3, E4, E2 (after go), E9; T3 (E6, E7) only after a go | with PR4/PR5 or next |
+
+A sub-plan's own `## Order` stays valid inside its slices. E5 needs no CLI and moves to PR3 (it needs A3, A5, E1 and `ads_wait`). D2 (enum members) is in PR3, D2b (alias names on write, CLI) in PR5; the "T2" train name now means PR4-PR6.
+
+**Gate before PR4 (concrete).** Baseline: write down 5 diagnosis tasks (for example a stuck sequence, a state-machine overview, a counter check) and count agent tool calls and wrong conclusions with the old tools. After PR1-PR3 are released, repeat them. PR4-PR6 start only for a feature family that a recorded real use case asks for (batch/pulse/restore, struct read and online symbols, runtime and alarms are three families). The estimates (13-19 days) exclude the availability of a simulation target and the live checks; add 30 % until a target is available `[estimated]`.
+
+**Guards: what "fail closed" means (replaces the one-line claim).** The write guards refuse when they cannot decide (an error, an invalid setting, an unknown persistent classification). A symbol that the build output does not know, a stale build, or a build of another program counts as unknown, not as unprotected; unknown needs its own confirmation, never auto-approval. With an empty `persistentPaths` list and no marker in the build output nothing is classified persistent (accepted by decision 2; documented as a limit). The guards are not isolation: an agent with the same user rights can change settings or call the CLI directly, and a symbol allow-list does not separate a simulation from a machine (the same symbol names exist on both). Remove the sentence that auto-approve is "without risk to a real target".
+
+**Wording corrections.** Decision 7: the pre-read is one read call to the host, but the host reads symbol by symbol (N ADS reads, sequential, on the host thread); the cost is N reads, not one request. Decision 6 is read as: constant numeric symbols stay byte-identical; non-numeric symbols with a change log get the `changes=K` form. The version table lives in `extension/src/core/hostProtocol.ts` (C0), not in `host.ts`.
+
+**Intended output changes (table replaces the list).**
+
+| Tool | Change | Task |
+|---|---|---|
+| `ads_watch` | diff result, `list`, group lines, target line last | B1, B3c, B5 |
+| `ads_write`, `ads_wait` | target line; batch and `done` result kinds, new schema and description | B5, C3b, C3c |
+| `ads_write` | BOOL read-back wording (neutral: the value read back differs) | C5 |
+| `ads_scope` | `changes=K` lines, no-sample host note, options | A2-A7 |
+| `ads_symbols` | build header, stale tolerance (also in the Interface view), enum members | D1, D2 |
+| all ADS tools | sampling notices at the top of watch, scope, read | E3 |
+| Copilot watch and scope tools | input validation (`Invalid arguments`) | A2, B1 |
+
+All other results stay byte-identical; every task keeps a pinned test for an unchanged case.
+
+**Status of the wishlist.** Rows already done by A1 (never drop a value change, say when rows are dropped) and the persisted watch list are set to Done in the wishlist before PR1 is opened; partly done rows are split into "done" and "remaining".
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Outside Review | native Claude subagent (Codex not installed) | Independent 2nd opinion | 1 | completed (no outside provider coverage) | 9 findings, 5 accepted |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | issues_open | master 10 issues, sub-plans A-E 61 issues (all accepted ones applied as amendments), 0 critical gaps |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | issues_open | master 10 issues, sub-plans A-E 61 issues (round 1) plus an independent second round (about 100 findings, accepted ones applied as round 2 amendments), 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 

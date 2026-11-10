@@ -53,7 +53,7 @@
 
 ## Order
 
-B1 -> B5 -> B2 -> B3a -> B3b -> B3c -> B4 -> B6. B1 and B5 are small and ship first; B2 introduces `runWatchRequest`, which B3c extends; B3b depends on B3a; B4 is independent of groups but comes after them so the "Not resolved" line lands in the final `watchResultText` shape. One pull request for the whole plan (merged after Plan A), one commit per task.
+B1 -> B5 -> B2 -> B3a -> B3b -> B3c -> B4 -> B6. B1 and B5 are small and ship first; B2 introduces `runWatchRequest`, which B3c extends; B3b depends on B3a; B4 is independent of groups but comes after them so the "Not resolved" line lands in the final `watchResultText` shape. One pull request for the whole plan (merged after Plan A; see the delivery slices in the master plan), one commit per task.
 
 ---
 
@@ -1041,3 +1041,22 @@ From the engineering review of this plan. These override the task text above whe
 8. **Partial failure (B3c).** `setGroupsOff` is written only after `save()` succeeded. If `enable: true` fails on the limit after an add, the result still shows the diff of the add. Parser rules: `removeGroup` with `clearAi` and `group` with `list: true` are errors.
 9. **B4.** Report only errors that mean "not found", not transient ones (no connection, timeout); a transient error does not mark the symbol as reported.
 10. **B1.** `lmTools.ts` now validates the watch input (`Invalid arguments: ...`); this is an intended change and goes into the master list and the CHANGELOG. B3a: `watchRename` already drops groups (`adswatch.ts:393`); only `watchEdit` changes.
+
+
+## Review amendments, round 2 (2026-11-10)
+
+From the second, independent review. These override round 1 and the task text.
+
+1. **One state commit (B3b, replaces round 1 item 3 in part).** `save(next, off)` takes the next entries and the next switched-off group names as arguments and computes the active list from them. `host.setEntries(entries, active, off)` persists entries and `off` in one `workspaceState` update before it contacts the host; the persisted state is the intended state, and `afterHello` resyncs the host after a failed host call. No separate `setGroupsOff` after `save`. Tests: failure before the save, after the save, at the host call.
+2. **Group and enable are one transition (B3b, B3c).** `add` with `group` and `enable` computes the final state once and validates only that (200 active limit on the final active list). `add` with `enable: false` parks without ever sampling; a bare `enable` does not run an add step. Tests: 200 active plus one parked entry; large switched-off group; repeated switch-off; a concurrent wait.
+3. **Cancel protection (B2).** The signal and the deadline are checked inside the serialised list step right before the mutation; an abort during the dialog aborts the whole call before any change (no AI entries removed either). One confirmation coordinator per window, injected through the host and shared by MCP and Copilot, with the gate's `dialogMs`, `operationMs` and `maxQueued`. Tests: abort before the call, during the dialog, after consent before the edit, late consent after a timeout, MCP and Copilot in parallel; a user entry removed and re-added under the same name needs a new consent.
+4. **Green after every task (B3b, B4).** B3b migrates every `WatchList` construction in the tests, including the failure fakes (`watchList.test.ts` lines 94-110). B4 uses real not-found fixtures and separate transient fixtures; the exclude test marks a real missing symbol. The history note of round 1 item 7 goes into the exact B3c expectations.
+5. **Hold release (B3b).** `release` computes the active list from the tokens that remain after the release; the old whole-list check `watchLimitError(next.length)` in `hold` is replaced by the active-list check. Tests: wait on a parked symbol ends and the symbol stops being sampled; more than 200 stored but fewer active entries.
+6. **Result text and history (B3b, B3c).** `switched off (N symbols, not sampled now)` counts only symbols that really leave the active set (another group or a hold keeps a symbol active). History is dropped by set difference as `ScopeBuffer.setItems` does. `rec.added` is set only for entries orphaned by the removal, not for an entry still in another group.
+7. **Unresolved notes (B4).** State is observed at confirmed item updates; fetching pending notes is separate. Parked or unknown state never counts as removed. The classification matches the real CLI text (`Symbol '<x>' not found on ...` plus the hidden hint), tested with that text.
+8. **Group limits (B3a, B3b).** At most 8 groups per entry, 50 groups in total, names up to 64 characters, checked before the mutation; entries without groups stay unchanged.
+9. **B1 overlap.** `add` and `remove` naming the same symbol in one call is an error: `A is in both add and remove`. Test with a new and an existing symbol, case-insensitive.
+10. **Target line and text limit (B5).** Reserve space for the target line and status lines and cut only the list part; a note counts as delivered only when it is in the final text. Tests on the real tool result.
+11. **Parked reads (round 1 item 7, corrected).** `ads_read` still reads a parked symbol once and adds `(parked in group X, not sampled)`; `ads_scope` says there is no running history for it. No change to the one-shot read. The manifest text and the intended-change table say so.
+12. **Persisted groups (B3a).** `parseWatchList` drops `groups` for `ai: false`, trims, de-duplicates case-insensitively and drops invalid names. Tests: user entry with groups, duplicate spellings.
+13. **B6 step 2.4:** `Add an entry in the view, then try to remove it through the tool`; the dialog wait comes from the policy in use.
