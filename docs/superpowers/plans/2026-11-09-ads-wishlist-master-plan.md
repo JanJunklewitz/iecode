@@ -15,10 +15,10 @@
 These apply to every sub-plan.
 
 - Public repository: no internal project, module or machine names, symbol paths or data in code, tests, docs or commits. Commit author and `Signed-off-by` use the GitHub noreply address; commit messages are English with a 1-3 sentence why-body.
-- Every tool is declared once in `extension/package.json` (`languageModelTools`) and served by both `buildMcpTools` and `lmTools.ts`; the manifest parity test must stay green. New parameters are optional; old calls keep byte-identical results unless a task says otherwise (intended changes: the `ads_watch` result of B1, the target line of B5, and the `changes=K (...)` summary suffix of A4 for symbols that changed).
+- Every tool is declared once in `extension/package.json` (`languageModelTools`) and served by both `buildMcpTools` and `lmTools.ts`; the manifest parity test must stay green. New parameters are optional; old calls keep byte-identical results unless a task says otherwise (intended changes: the `ads_watch` result of B1, the target line of B5, the summary line of A4 for symbols with a change log, input validation in the Copilot scope and watch tools (A2, B1), the `ads_write` schema and description of C3c, and the stale warning tolerance of D1).
 - Decisions live in pure `extension/src/core/` modules, because the node tests cannot load `vscode`. `src/ads/` only wires.
 - Writes keep the write gate guarantees: one confirmation per AI write operation, "Not written" only with proof, "outcome unknown" after a timeout.
-- CLI changes: one immutable entry per protocol number in a version table in `host.ts`; replies change additively; the extension accepts hosts from protocol 1 up to its own and switches off only the missing features (roadmap D14, D23). Task C0 builds this table; every other CLI-touching task depends on it.
+- CLI changes: one immutable entry per protocol number in a version table in `host.ts` (an entry is frozen by the CLI release, not by a merge: features of later plans join the open entry until a CLI with that protocol is released, then the next plan opens a new entry); replies change additively; the extension accepts hosts from protocol 1 up to its own and switches off only the missing features (roadmap D14, D23). Task C0 builds this table; every other CLI-touching task depends on it.
 - Tests: `cd extension && npm test`. `dotnet test` only through the PowerShell tool, never chained with `dotnet build`, nothing heavy in parallel.
 - One pull request per sub-plan (A, B, C, D, E), merged in that order, each with its CHANGELOG lines in the style of the `ads_wait` entry. Release trains (below) only say when a CLI release is needed; they are not pull requests. If a plan's pull request grows past about 15 tasks, split it at a protocol boundary.
 
@@ -166,3 +166,7 @@ Sequential implementation, no parallelization opportunity: the seven shared file
 
 
 NO UNRESOLVED DECISIONS
+
+### Sub-plan review (2026-11-10)
+
+Each sub-plan was reviewed separately (references checked against the code, architecture, tests, performance, failure modes). The accepted corrections are in the section `## Review amendments (2026-11-10)` at the end of each sub-plan; they override the task text. Counts: A 3 critical / 8 informational, B 5 / 10, C 6 / 9, D 6 / 9, E 6 / 4 findings. Cross-plan decisions: protocol entries are frozen by the CLI release (Plan C amendment 1); one missing-feature text and one capability API owned by C0 (Plans D, E); A3's `ChangeLog` shape is what E5 consumes; persistent and allow-list guards fail closed (Plan C amendments 5-6).
