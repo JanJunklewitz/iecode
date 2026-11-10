@@ -193,6 +193,10 @@ All other results stay byte-identical; every task keeps a pinned test for an unc
 
 **Status of the wishlist.** Rows already done by A1 (never drop a value change, say when rows are dropped) and the persisted watch list are set to Done in the wishlist before PR1 is opened; partly done rows are split into "done" and "remaining".
 
+### Sub-plan review (2026-11-10)
+
+Each sub-plan was reviewed separately (references checked against the code, architecture, tests, performance, failure modes). The accepted corrections are in the section `## Review amendments (2026-11-10)` at the end of each sub-plan; they override the task text. Counts: A 3 critical / 8 informational, B 5 / 10, C 6 / 9, D 6 / 9, E 6 / 4 findings. Cross-plan decisions: protocol entries are frozen by the CLI release (Plan C amendment 1); one missing-feature text and one capability API owned by C0 (Plans D, E); A3's `ChangeLog` shape is what E5 consumes; the guards refuse when they cannot decide, see "Guards" in the second round.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
@@ -209,6 +213,3 @@ All other results stay byte-identical; every task keeps a pinned test for an unc
 
 NO UNRESOLVED DECISIONS
 
-### Sub-plan review (2026-11-10)
-
-Each sub-plan was reviewed separately (references checked against the code, architecture, tests, performance, failure modes). The accepted corrections are in the section `## Review amendments (2026-11-10)` at the end of each sub-plan; they override the task text. Counts: A 3 critical / 8 informational, B 5 / 10, C 6 / 9, D 6 / 9, E 6 / 4 findings. Cross-plan decisions: protocol entries are frozen by the CLI release (Plan C amendment 1); one missing-feature text and one capability API owned by C0 (Plans D, E); A3's `ChangeLog` shape is what E5 consumes; persistent and allow-list guards fail closed (Plan C amendments 5-6).
