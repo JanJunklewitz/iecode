@@ -781,7 +781,7 @@ git commit -s -m "Document the ads_scope options and close the scope wishlist it
 
 ## Order
 
-A1 (done) -> A2 -> A3 -> A4 -> A5 -> A6 -> A7 -> A8. A2 and A3 are independent and could be built in either order; A4 needs A2 and A3, A5 needs A4, A7 needs A3 and A4, A6 is independent (could go right after A2). A1 and A2 can ship alone as a first PR if A3-A7 slip (the manifest text of A8 then mentions only what exists).
+A1 (done) -> A2 -> A3 -> A4 -> A5 -> A6 -> A7 -> A8. A2 and A3 are independent and could be built in either order; A4 needs A2 and A3, A5 needs A4, A7 needs A3 and A4, A6 is independent (could go right after A2). If A3-A7 slip, A1 and A2 can ship as the plan's PR on their own (the manifest text of A8 then mentions only what exists).
 
 ## Open decisions
 

@@ -45,7 +45,7 @@
 
 ## Order
 
-C0 -> C5 -> C3a -> C3b -> C7a (all extension only, release train T1 possible) -> C1 -> C2 -> C3c -> C4 -> C6a -> C6b -> C7b -> C8. C1 needs only a simulation target and can run while the extension-only tasks are built. C3c is the first task that needs C2's host op; C4 with a single item works on protocol 1.
+C0 -> C5 -> C3a -> C1 -> C3b -> C7a (all extension only except the C1 spike, release train T1 possible; C1 runs before C3b so the "one ADS request" wording is not pinned before the SDK check) -> C2 -> C3c -> C4 -> C6a -> C6b -> C7b -> C8. C1 needs only a simulation target and can run while the extension-only tasks are built. C3c is the first task that needs C2's host op; C4 with a single item works on protocol 1.
 
 ---
 

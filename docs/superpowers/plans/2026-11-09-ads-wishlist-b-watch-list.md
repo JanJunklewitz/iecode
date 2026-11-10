@@ -53,7 +53,7 @@
 
 ## Order
 
-B1 -> B5 -> B2 -> B3a -> B3b -> B3c -> B4 -> B6. B1 and B5 are small and ship first; B2 introduces `runWatchRequest`, which B3c extends; B3b depends on B3a; B4 is independent of groups but comes after them so the "Not resolved" line lands in the final `watchResultText` shape. One pull request for the whole plan (wave 1 of the master plan), one commit per task.
+B1 -> B5 -> B2 -> B3a -> B3b -> B3c -> B4 -> B6. B1 and B5 are small and ship first; B2 introduces `runWatchRequest`, which B3c extends; B3b depends on B3a; B4 is independent of groups but comes after them so the "Not resolved" line lands in the final `watchResultText` shape. One pull request for the whole plan (merged after Plan A), one commit per task.
 
 ---
 
