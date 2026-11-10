@@ -6,6 +6,8 @@ import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
+import { WatchList } from '../core/watchList';
+import type { SampleBatch } from '../core/waitRun';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -49,23 +51,31 @@ export class AdsHost implements vscode.Disposable {
     return AdsHost.instance;
   }
 
-  private readonly samples = new vscode.EventEmitter<void>();
+  private readonly samples = new vscode.EventEmitter<SampleBatch>();
   private readonly itemsChanged = new vscode.EventEmitter<void>();
   private readonly stateChanged = new vscode.EventEmitter<AdsState>();
+  private readonly ended = new vscode.EventEmitter<string>();
+  /** Rows of the current gen with the items of their columns; fires only for a batch with rows (an item error arrives as a row with a null value). */
   readonly onSamples = this.samples.event;
   /** The resolved watch items changed (types, errors, list). */
   readonly onItems = this.itemsChanged.event;
   readonly onState = this.stateChanged.event;
+  /** The running host went away (stop, restart, exit) or the target changed; carries the reason. */
+  readonly onEnded = this.ended.event;
   readonly buffer: ScopeBuffer;
+  /** The one owner of every list edit (user, AI, wait holds). */
+  readonly list: WatchList;
 
   private proc: ChildProcessWithoutNullStreams | undefined;
   /** "<target>:<port>" the running child was started with; a write must go to a child started for the confirmed target. */
   private procKey: string | undefined;
-  private ready: Promise<void> | undefined;
+  private ready_: Promise<void> | undefined;
   private pending = new PendingRequests();
   private nextId = 1;
   private gen = -1;
   private items_: WatchItem[] = [];
+  // the columns of the rows of `gen`; items_ may already show a list whose watch reply is still out
+  private genItems: WatchItem[] = [];
   private state_: AdsState = { connected: false };
   private intervalMs: number;
   private leases = 0;
@@ -76,13 +86,16 @@ export class AdsHost implements vscode.Disposable {
   private written = new Map<string, string>();
   private stopped = new WeakSet<ChildProcessWithoutNullStreams>();
   private readonly disposables: vscode.Disposable[] = [];
+  // after dispose() nothing may start a child again (e.g. a wait hold released late)
+  private disposed = false;
 
   private constructor(private readonly ctx: vscode.ExtensionContext) {
     const s = settings();
     this.buffer = new ScopeBuffer(clampBufferSeconds(s.bufferSeconds));
     this.intervalMs = s.intervalMs;
     this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
-    this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, vscode.workspace.onDidChangeConfiguration(e => {
+    this.list = new WatchList({ entries: () => this.entries(), set: e => this.setEntries(e) });
+    this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, this.ended, vscode.workspace.onDidChangeConfiguration(e => {
       const targetChanged = e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port');
       if (targetChanged) {
         // samples and read-back values of the old target must not be shown under the new one, also while no host runs
@@ -90,6 +103,8 @@ export class AdsHost implements vscode.Disposable {
         this.written.clear();
         this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
         this.itemsChanged.fire();
+        // before the restart below, so a wait reports the target change rather than the restart
+        this.ended.fire('The ADS target changed.');
       }
       if (targetChanged || e.affectsConfiguration('iecode.cliPath')) {
         this.failure = undefined;
@@ -147,8 +162,11 @@ export class AdsHost implements vscode.Disposable {
 
   /** Sets the list by name; symbols already watched keep their AI flag, new ones count as the user's. */
   async setWatched(symbols: string[]): Promise<WatchItem[]> {
-    const flags = new Map(this.entries().map(e => [e.symbol.toLowerCase(), e.ai]));
-    return this.setEntries(symbols.map(symbol => ({ symbol, ai: flags.get(symbol.trim().toLowerCase()) ?? false })));
+    await this.list.userEdit(current => {
+      const flags = new Map(current.map(e => [e.symbol.toLowerCase(), e.ai]));
+      return symbols.map(symbol => ({ symbol, ai: flags.get(symbol.trim().toLowerCase()) ?? false }));
+    });
+    return this.items_;
   }
 
   async setEntries(entries: WatchEntry[]): Promise<WatchItem[]> {
@@ -169,11 +187,12 @@ export class AdsHost implements vscode.Disposable {
     const known = new Map(this.items_.map(i => [i.symbol, i]));
     this.items_ = list.map(symbol => known.get(symbol) ?? { symbol, type: '', numeric: false, error: null });
     this.itemsChanged.fire();
-    // an empty list needs no host; a running one stops polling
-    if (list.length === 0 && !this.proc) return this.items_;
+    // an empty list needs no host; a running one stops polling; a disposed host starts none
+    if (this.disposed || (list.length === 0 && !this.proc)) return this.items_;
     return this.leased(async () => {
       await this.ensure(true);
-      this.applyItems(await this.request({ op: 'watch', symbols: list }) as { gen: number; items: WatchItem[] });
+      // applied inside the reply line, so samples of the new gen right behind it already find their items
+      await this.request({ op: 'watch', symbols: list }, d => this.applyItems(d as { gen: number; items: WatchItem[] }));
       return this.items_;
     });
   }
@@ -230,8 +249,8 @@ export class AdsHost implements vscode.Disposable {
 
   async setInterval(ms: number): Promise<void> {
     this.intervalMs = clampInterval(ms);
-    if (this.proc && this.ready) {
-      await this.ready;
+    if (this.proc && this.ready_) {
+      await this.ready_;
       await this.request({ op: 'interval', ms: this.intervalMs });
     }
   }
@@ -247,7 +266,13 @@ export class AdsHost implements vscode.Disposable {
     return new vscode.Disposable(() => { if (!done) { done = true; this.release(); } });
   }
 
+  /** Resolves on the host's hello; starts it if needed, also after a failed start (a tool call is a user action). */
+  ready(): Promise<void> {
+    return this.ensure(true);
+  }
+
   dispose(): void {
+    this.disposed = true;
     clearTimeout(this.idleTimer);
     this.stop('The ADS host stopped.');
     this.disposables.forEach(d => d.dispose());
@@ -276,22 +301,23 @@ export class AdsHost implements vscode.Disposable {
 
   /** Starts the host if needed and resolves on its hello. `byUser`: retry after a failed start and show errors. */
   private ensure(byUser = false): Promise<void> {
-    if (this.ready) return this.ready;
+    if (this.disposed) return Promise.reject(new Error('The ADS host was shut down.'));
+    if (this.ready_) return this.ready_;
     if (this.failure && !byUser) return Promise.reject(this.failure);
     this.failure = undefined;
     const p: Promise<void> = this.start().catch((e: Error) => {
       // a host we stopped ourselves (restart, idle) is no start failure, and a newer start must stay
-      if (!(e instanceof StartError) || (this.ready !== p && this.ready !== undefined)) {
-        if (this.ready === p) this.ready = undefined;
+      if (!(e instanceof StartError) || (this.ready_ !== p && this.ready_ !== undefined)) {
+        if (this.ready_ === p) this.ready_ = undefined;
         throw e;
       }
-      this.ready = undefined;
+      this.ready_ = undefined;
       this.failure = e;
       this.setState({ connected: false, error: e.message });
       void this.report(e);
       throw e;
     });
-    this.ready = p;
+    this.ready_ = p;
     return p;
   }
 
@@ -317,6 +343,7 @@ export class AdsHost implements vscode.Disposable {
     this.proc = child;
     this.procKey = `${s.target}:${s.port}`;
     this.gen = -1;
+    this.genItems = [];
     // writing to a host that just died must not throw in the extension host
     child.stdin.on('error', () => undefined);
     let hello = false;
@@ -382,7 +409,7 @@ export class AdsHost implements vscode.Disposable {
     try {
       await this.request({ op: 'interval', ms: this.intervalMs });
       const list = this.watched();
-      if (list.length && this.proc === child) this.applyItems(await this.request({ op: 'watch', symbols: list }) as { gen: number; items: WatchItem[] });
+      if (list.length && this.proc === child) await this.request({ op: 'watch', symbols: list }, d => this.applyItems(d as { gen: number; items: WatchItem[] }));
     } catch (e) {
       if (this.proc === child) output.warn(`ADS host: ${(e as Error).message}`);
     }
@@ -391,9 +418,10 @@ export class AdsHost implements vscode.Disposable {
   private exited(child: ChildProcessWithoutNullStreams, reason: string) {
     if (this.proc !== child) return;
     this.proc = undefined;
-    this.ready = undefined;
+    this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.setState({ connected: false, error: this.failure?.message ?? (this.leases > 0 ? reason : undefined) });
+    this.ended.fire(reason);
   }
 
   private stop(reason: string) {
@@ -401,9 +429,10 @@ export class AdsHost implements vscode.Disposable {
     if (!child) return;
     this.stopped.add(child);
     this.proc = undefined;
-    this.ready = undefined;
+    this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.setState({ connected: false });
+    this.ended.fire(reason);
     // the host answers what it has read and exits when stdin closes; kill if it hangs in an ADS call
     child.stdin.end();
     setTimeout(() => { if (child.exitCode === null) child.kill(); }, 3000).unref();
@@ -416,16 +445,19 @@ export class AdsHost implements vscode.Disposable {
 
   // ---- messages ----
 
-  private request(body: Record<string, unknown>): Promise<unknown> {
+  private request(body: Record<string, unknown>, onData?: (data: unknown) => void): Promise<unknown> {
     const child = this.proc;
     if (!child) return Promise.reject(new Error('The ADS host is not running.'));
-    return this.send(child, body);
+    return this.send(child, body, onData);
   }
 
-  /** Writes the request to this child; synchronous, so a caller can guard and send without an await in between. */
-  private send(child: ChildProcessWithoutNullStreams, body: Record<string, unknown>): Promise<unknown> {
+  /**
+   * Writes the request to this child; synchronous, so a caller can guard and send without an await in between.
+   * `onData` runs on an ok reply while its line is handled, before the next line.
+   */
+  private send(child: ChildProcessWithoutNullStreams, body: Record<string, unknown>, onData?: (data: unknown) => void): Promise<unknown> {
     const id = this.nextId++;
-    const reply = this.pending.add(id, REQUEST_MS);
+    const reply = this.pending.add(id, REQUEST_MS, onData);
     child.stdin.write(JSON.stringify({ id, ...body }) + '\n');
     return reply;
   }
@@ -433,11 +465,15 @@ export class AdsHost implements vscode.Disposable {
   private handle(msg: HostMessage) {
     if (!('event' in msg)) return this.pending.settle(msg);
     switch (msg.event) {
-      case 'samples':
+      case 'samples': {
         this.buffer.push(msg.gen, msg.rows);
-        if (this.written.size) this.written.clear();
-        this.samples.fire();
+        const cleared = this.written.size > 0;
+        if (cleared) this.written.clear();
+        // rows of another gen have no known columns (the buffer drops them too); the views still redraw the cleared values
+        if (msg.gen === this.gen) this.samples.fire({ gen: msg.gen, items: this.genItems, rows: msg.rows });
+        else if (cleared) this.itemsChanged.fire();
         break;
+      }
       case 'items':
         this.applyItems(msg);
         break;
@@ -452,6 +488,7 @@ export class AdsHost implements vscode.Disposable {
     if (data.gen < this.gen) return;
     this.gen = data.gen;
     this.buffer.setItems(data.gen, data.items);
+    this.genItems = data.items;
     this.items_ = data.items;
     this.itemsChanged.fire();
   }

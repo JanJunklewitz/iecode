@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, parseReadInput, parseScopeInput, parseWriteInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -43,4 +43,21 @@ test('toolInput optional fields', () => {
 test('toolInput write symbol and value', () => {
   assert.equal(parseWriteInput({ symbol: '  ', value: '1' }).ok, false);
   assert.deepEqual(parseWriteInput({ symbol: 'a', value: '' }), { ok: true, value: { symbol: 'a', value: '' } });
+});
+
+test('toolInput wait input', () => {
+  assert.equal(parseWaitInput({ condition: '= 1' }).ok, false);
+  assert.equal(parseWaitInput({ symbol: '  ', condition: '= 1' }).ok, false);
+  assert.equal(parseWaitInput({ symbol: 'a' }).ok, false);
+  const bad = parseWaitInput({ symbol: 'a', condition: 'nonsense' });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.match(bad.error, /changes/);
+  const t = (timeoutSeconds?: unknown) => parseWaitInput({ symbol: 'a', condition: 'changes', timeoutSeconds });
+  const secs = (p: ReturnType<typeof t>) => p.ok ? p.value.timeoutSeconds : p.error;
+  assert.equal(secs(t(0)), 1);
+  assert.equal(secs(t(500)), 120);
+  assert.equal(secs(t(7.4)), 7);
+  assert.equal(secs(t()), 30);
+  assert.equal(secs(t('10')), 'timeoutSeconds must be a finite number');
+  assert.deepEqual(parseWaitInput({ symbol: 'a', condition: 'changes' }), { ok: true, value: { symbol: 'a', condition: { op: 'changes' }, timeoutSeconds: 30 } });
 });

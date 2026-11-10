@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, watchFailureText, watchListText, watchResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -104,4 +104,24 @@ test('capText result never exceeds the limit', () => {
   assert.equal(capText('y'.repeat(MAX_TOOL_TEXT)).length, MAX_TOOL_TEXT);
   assert.equal(capText('z', 10), 'z');
   assert.ok(capText('z'.repeat(1000), TRUNCATED.length + 5).length <= TRUNCATED.length + 5);
+});
+
+test('waitResultText words every outcome', () => {
+  const base = { symbol: 'MAIN.x', condition: { op: 'changes' } as const, intervalMs: 100, clock: (ms: number) => `T${ms}` };
+  const sampled = 'Sampled every 100 ms; changes between samples are not seen.';
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'met', t: 5, value: '3', firstObservation: false, elapsedMs: 1234 } }),
+    { text: `Condition met at T5 (after 1.23 s): MAIN.x = 3\n${sampled}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'met', t: 5, value: '3', firstObservation: true, elapsedMs: 0 } }),
+    { text: `Condition met at T5 (after 0.00 s): MAIN.x = 3 (true at the first observation)\n${sampled}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: '2', seconds: 30 } }),
+    { text: `Not met within 30 s: MAIN.x changes; last value 2\n${sampled}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: undefined, seconds: 30 } }),
+    { text: `Not met within 30 s: MAIN.x changes; no valid value observed\n${sampled}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: 'eIdle', seconds: 30, seenEnum: ['eIdle', 'eRun'] } }),
+    { text: `Not met within 30 s: MAIN.x changes; last value eIdle; enum names seen: eIdle, eRun (a name never seen may be misspelled)\n${sampled}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'ended', reason: 'host stopped' } }), { text: 'Wait ended: host stopped' });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'refused', reason: 'nope' } }), { text: 'Error: nope', isError: true });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Wait cancelled.' });
+  assert.equal(COPILOT_NAMES.wait, 'adsWait');
+  assert.equal(MCP_NAMES.wait, 'ads_wait');
 });

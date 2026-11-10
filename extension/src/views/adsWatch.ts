@@ -122,7 +122,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   const add = async (symbols: string[]) => {
     try {
       // symbols the AI added become the user's when the user adds them
-      await host.setEntries(watchEdit(host.entries(), symbols));
+      await host.list.userEdit(current => watchEdit(current, symbols));
     } catch (e) {
       showError(e);
     }
@@ -187,11 +187,11 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   reg('iecode.adsWatchRemove', async (n?: WatchItem, all?: WatchItem[]) => {
     const drop = new Set(selected(n, all).map(s => s.toLowerCase()));
     if (!drop.size) return;
-    try { await host.setWatched(host.watched().filter(s => !drop.has(s.toLowerCase()))); } catch (e) { showError(e); }
+    try { await host.list.userEdit(current => current.filter(e => !drop.has(e.symbol.toLowerCase()))); } catch (e) { showError(e); }
   });
 
   reg('iecode.adsWatchClear', async () => {
-    try { await host.setWatched([]); } catch (e) { showError(e); }
+    try { await host.list.userEdit(() => []); } catch (e) { showError(e); }
   });
 
   reg('iecode.adsWatchWrite', async (n?: WatchItem) => {
@@ -223,7 +223,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     if (!symbol) return;
     const typed = await vscode.window.showInputBox({ prompt: 'ADS name to watch (full path, e.g. MAIN.fbMotor.bEnable)', value: symbol, validateInput: v => (v.trim() ? undefined : 'Enter a name') });
     if (typed === undefined || typed.trim() === symbol) return;
-    try { await host.setEntries(watchRename(host.entries(), symbol, typed)); } catch (e) { showError(e); }
+    try { await host.list.userEdit(current => watchRename(current, symbol, typed)); } catch (e) { showError(e); }
   });
 
   reg('iecode.adsWatchCopy', async (n?: WatchItem) => {

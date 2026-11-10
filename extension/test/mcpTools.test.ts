@@ -39,7 +39,7 @@ function deferred<T>(): Deferred<T> {
 const tick = () => new Promise<void>(r => setImmediate(r));
 
 const POLICY: GatePolicy = { dialogMs: 100_000, operationMs: 150_000, maxQueued: 10 };
-const descriptors: ToolDescriptor[] = ['symbols', 'watch', 'read', 'scope', 'write'].map(x => ({
+const descriptors: ToolDescriptor[] = ['symbols', 'watch', 'read', 'scope', 'wait', 'write'].map(x => ({
   name: `ads_${x}`, description: `Description of ${x}.`, inputSchema: { type: 'object', properties: { x: { type: 'string' } } },
 }));
 const fns = (over: Partial<AdsToolFns> = {}): AdsToolFns => ({
@@ -47,6 +47,7 @@ const fns = (over: Partial<AdsToolFns> = {}): AdsToolFns => ({
   watch: async i => ({ text: `watch ${JSON.stringify(i)}` }),
   read: async i => ({ text: `read ${JSON.stringify(i)}` }),
   scope: i => ({ text: `scope ${JSON.stringify(i)}` }),
+  wait: async i => ({ text: `wait ${i.symbol}` }),
   ...over,
 });
 
@@ -71,11 +72,11 @@ const result = async (p: Promise<string | undefined>) => JSON.parse((await p) ??
 
 // ---- tests ----
 
-test('tools/list names the five ads_ tools with their schemas', async () => {
+test('tools/list names the six ads_ tools with their schemas', async () => {
   const r = rig();
   const list = JSON.parse((await r.session.handle(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })))!).result.tools;
-  assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_write']);
-  assert.deepEqual(list[4].inputSchema, descriptors[4].inputSchema);
+  assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write']);
+  assert.deepEqual(list[5].inputSchema, descriptors[5].inputSchema);
   assert.equal(list[0].description, 'Description of symbols.');
 });
 
@@ -90,6 +91,26 @@ test('read tools pass validated arguments and refuse invalid ones', async () => 
   const bad = await result(r.session.handle(call(3, 'ads_read', { symbols: 'MAIN.x' })));
   assert.equal(bad.isError, true);
   assert.match(bad.content[0].text, /Invalid arguments: symbols must be an array of strings/);
+});
+
+test("ads_wait passes validated arguments and the call's signal", async () => {
+  const seen: { input: unknown; signal: unknown }[] = [];
+  const r = rig({ wait: async (input, signal) => { seen.push({ input, signal }); return { text: 'waited' }; } });
+  const res = await result(r.session.handle(call(20, 'ads_wait', { symbol: 'P', condition: '= TRUE' })));
+  assert.equal(res.content[0].text, 'waited');
+  assert.equal(seen.length, 1);
+  assert.equal((seen[0].input as { timeoutSeconds: number }).timeoutSeconds, 30);
+  assert.equal((seen[0].input as { symbol: string }).symbol, 'P');
+  assert.ok(seen[0].signal instanceof AbortSignal);
+});
+
+test('ads_wait with a bad condition never reaches the tool', async () => {
+  let reached = false;
+  const r = rig({ wait: async () => { reached = true; return { text: 'x' }; } });
+  const res = await result(r.session.handle(call(21, 'ads_wait', { symbol: 'P', condition: 'bogus' })));
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /^Invalid arguments:/);
+  assert.equal(reached, false);
 });
 
 test('ads_write reaches gate.run with via MCP and the bound target', async () => {
@@ -194,14 +215,16 @@ test('policy is undefined when the timeout leaves no room for a dialog', () => {
   assert.deepEqual(gatePolicyFor(21_000), { dialogMs: 6_000, operationMs: 11_000, maxQueued: 10 });
 });
 
-test('the manifest declares the five tools in client-neutral words', () => {
+test('the manifest declares the six tools in client-neutral words', () => {
   // out/test/*.js -> the extension's package.json is two levels up
   const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
   const found = descriptorsFromManifest(manifest);
-  assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_write']);
+  assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write']);
+  const wait = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')).contributes.languageModelTools.find((t: { name: string }) => t.name === 'iecode_ads_wait');
+  assert.deepEqual(wait.inputSchema.required, ['symbol', 'condition']);
   for (const d of found) {
     assert.ok(d.description.length > 20);
-    assert.doesNotMatch(d.description, /#?ads(Watch|Scope|Read|Write|Symbols)\b/, `${d.name} names a Copilot tool`);
+    assert.doesNotMatch(d.description, /#?ads(Watch|Scope|Read|Write|Symbols|Wait)\b/, `${d.name} names a Copilot tool`);
     assert.doesNotMatch(d.description, /Always Allow/, `${d.name} carries a per-client approval detail`);
   }
 });

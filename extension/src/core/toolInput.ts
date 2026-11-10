@@ -1,6 +1,7 @@
 // Validation of ADS tool arguments that come from outside VS Code (MCP clients send untrusted JSON).
 
 import { MAX_WATCHED } from './adswatch';
+import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -82,4 +83,26 @@ export function parseWriteInput(raw: unknown): Parsed<{ symbol: string; value: s
   const value = str(o, 'value', MAX_VALUE_LENGTH, true);
   if (isErr(value)) return fail(value.error);
   return { ok: true, value: { symbol, value: value ?? '' } };
+}
+
+export const WAIT_DEFAULT_SECONDS = 30;
+export const WAIT_MAX_SECONDS = 120;
+
+export function parseWaitInput(raw: unknown): Parsed<{ symbol: string; condition: WaitCondition; timeoutSeconds: number }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const symbol = str(o, 'symbol', MAX_SYMBOL_LENGTH, true);
+  if (isErr(symbol)) return fail(symbol.error);
+  if (!symbol || !symbol.trim()) return fail('symbol must not be blank');
+  const text = str(o, 'condition', MAX_CONDITION_LENGTH, true);
+  if (isErr(text)) return fail(text.error);
+  const condition = parseCondition(text ?? '');
+  if (!condition.ok) return fail(condition.error);
+  const t = o.timeoutSeconds;
+  let timeoutSeconds = WAIT_DEFAULT_SECONDS;
+  if (t !== undefined && t !== null) {
+    if (typeof t !== 'number' || !Number.isFinite(t)) return fail('timeoutSeconds must be a finite number');
+    timeoutSeconds = Math.min(WAIT_MAX_SECONDS, Math.max(1, Math.round(t)));
+  }
+  return { ok: true, value: { symbol, condition: condition.value, timeoutSeconds } };
 }

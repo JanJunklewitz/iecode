@@ -350,6 +350,16 @@ test('rejectAll after a settings restart is a host exit', async () => {
   await assert.rejects(open, (e: Error) => e instanceof HostGone && /restarted/.test(e.message));
 });
 
+test('a watch reply installs its items before the next line of the same chunk', () => {
+  const pending = new PendingRequests();
+  const buffer = new ScopeBuffer(60);
+  void pending.add(7, 1000, d => { const r = d as { gen: number; items: WatchItem[] }; buffer.setItems(r.gen, r.items); });
+  // reply and first samples arrive in one stdout chunk and are dispatched in one synchronous loop
+  pending.settle({ id: 7, ok: true, data: { gen: 3, items: [{ symbol: 'P', type: 'BOOL', numeric: false, error: null }] } });
+  buffer.push(3, [{ t: 1000, v: ['TRUE'] }]);
+  assert.equal(buffer.latest('P')?.value, 'TRUE');
+});
+
 test('host error keeps the written field', async () => {
   assert.deepEqual(parseHostLine('{"id":1,"ok":false,"error":"x","written":"no"}'), { id: 1, ok: false, error: 'x', written: 'no' });
   const p = new PendingRequests();
