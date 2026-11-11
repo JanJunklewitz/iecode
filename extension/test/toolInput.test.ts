@@ -132,3 +132,7 @@ test('parseWatchInput reads the group fields and rejects contradictory ones', ()
 test('wantsFullList is false for a group operation', () => {
   assert.equal(wantsFullList({ add: [], remove: [], group: 'T1', enable: false }), false);
 });
+
+test('a group cannot be combined with list', () => {
+  assert.deepEqual(parseWatchInput({ group: 'T1', add: ['a'], list: true }), { ok: false, error: 'list cannot be combined with group' });
+});

@@ -79,6 +79,7 @@ export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
     if (v !== undefined) flags[field] = v;
   }
   if (flags.force && !remove.length) return fail('force needs remove');
+  if (flags.group !== undefined && flags.list) return fail('list cannot be combined with group');
   if (flags.enable !== undefined && flags.group === undefined) return fail('enable needs group');
   if (flags.removeGroup !== undefined && flags.group === undefined) return fail('removeGroup needs group');
   if (flags.enable !== undefined && flags.removeGroup) return fail('enable and removeGroup cannot be combined');

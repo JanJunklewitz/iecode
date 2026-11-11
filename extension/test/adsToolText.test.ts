@@ -66,7 +66,7 @@ test('watch result: group lines', () => {
     'Added: a\nGroup T1: a\nGroup T1 switched on (it was off)\nNot grouped (added by the user): U\nWatch list: 3 symbols, 2 switched off\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
   const op = (action: 'on' | 'off' | 'removed' | 'none') => watchResultText({ ...wbase, parked: 0, result: { ...none, declined: [], grouped: [], ungrouped: [], switchedOn: false, groupOp: { name: 'T1', action, members: 3 } } });
   assert.equal(op('on'), 'Group T1 switched on (3 symbols)\nWatch list: 3 symbols\nADS target: local');
-  assert.equal(op('off'), 'Group T1 switched off (3 symbols, not sampled now)\nWatch list: 3 symbols\nADS target: local');
+  assert.equal(op('off'), 'Group T1 switched off (3 symbols, not sampled now; their history is dropped)\nWatch list: 3 symbols\nADS target: local');
   assert.equal(op('removed'), 'Group T1 removed\nWatch list: 3 symbols\nADS target: local');
   assert.equal(op('none'), 'No group named T1\nWatch list: 3 symbols\nADS target: local');
 });

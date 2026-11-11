@@ -10,9 +10,8 @@ function fakeList(initial: WatchEntry[] = []) {
   let active: string[] = [];
   const w = new WatchList({
     entries: () => list,
-    set: async (e, a) => { await Promise.resolve(); list = e; active = a; },
+    set: async (e, a, o) => { await Promise.resolve(); list = e; active = a; off = o; },
     groupsOff: () => off,
-    setGroupsOff: async k => { off = k; },
   });
   return { w, list: () => list, active: () => active };
 }
@@ -84,4 +83,11 @@ test('add with enable: false prepares a switched-off group', async () => {
   await runWatchRequest(f.w, { add: ['A'], remove: [], group: 'T1', enable: false }, yes, new AbortController().signal);
   assert.deepEqual(f.active(), []);
   assert.equal(f.list().length, 1);
+});
+
+test('an aborted request changes nothing, not even the AI entries', async () => {
+  const f = fakeList([{ symbol: 'U', ai: false }, { symbol: 'A', ai: true }]);
+  const abort = new AbortController();
+  await assert.rejects(runWatchRequest(f.w, { add: [], remove: ['U', 'A'], force: true }, async () => { abort.abort(); return false; }, abort.signal), /cancelled/);
+  assert.equal(f.list().length, 2);
 });

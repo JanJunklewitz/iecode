@@ -2,15 +2,17 @@
 // reads the list when the step runs, so concurrent callers never overwrite each other's entries. No vscode imports.
 
 import { WatchEntry, watchEdit, watchLimitError } from './adswatch';
-import { activeSymbols, addToGroup, dropGroup, groupKey, isActive } from './watchGroups';
+import { MAX_GROUPS_PER_ENTRY, MAX_GROUPS_TOTAL, activeSymbols, addToGroup, dropGroup, groupKey, groupSummaries, isActive } from './watchGroups';
+
+/** The saved list (parked entries included) holds at most this many entries; only the sampled ones are limited to 200. */
+export const MAX_STORED = 1000;
 
 export interface WatchListDeps {
   entries(): WatchEntry[];
-  /** Saves the list; `active` are the symbols to sample (the list minus switched-off groups, plus held symbols). */
-  set(entries: WatchEntry[], active: string[]): Promise<unknown>;
+  /** Saves the list and the keys of the switched-off groups in one state; `active` are the symbols to sample (the list minus switched-off groups, plus held symbols). */
+  set(entries: WatchEntry[], active: string[], off: string[]): Promise<unknown>;
   /** Keys (`groupKey`) of the switched-off groups. */
   groupsOff(): string[];
-  setGroupsOff(keys: string[]): Promise<unknown>;
 }
 
 export interface WaitHold { readonly symbol: string; release(): Promise<void> }
@@ -31,6 +33,8 @@ export interface AiEditResult {
   grouped?: string[];
   ungrouped?: string[];
   switchedOn?: boolean;
+  /** Entries in the group after an add with a group. */
+  groupMembers?: number;
 }
 
 export interface AiEditOptions {
@@ -40,6 +44,10 @@ export interface AiEditOptions {
   clearAi?: boolean;
   /** Label the added (and already present AI) symbols with this group; a switched-off group is switched on. */
   group?: string;
+  /** With group: the final state of the group in the same step (false parks the added entries without ever sampling them). */
+  enable?: boolean;
+  /** Checked inside the list step, right before the change: an aborted call changes nothing. */
+  signal?: AbortSignal;
 }
 
 function uniqueNames(names: string[]): string[] {
@@ -81,14 +89,28 @@ export class WatchList {
       let next = watchEdit(current, add, [], true).filter(e => !drop.has(key(e.symbol)));
       let off = this.deps.groupsOff();
       if (opts.group !== undefined) {
+        const k = groupKey(opts.group);
+        const existed = current.some(e => hasGroup(e, k));
         const g = addToGroup(next, uniqueNames(add), opts.group);
+        if (g.entries.some(e => (e.groups?.length ?? 0) > MAX_GROUPS_PER_ENTRY)) throw new Error(`A variable can be in at most ${MAX_GROUPS_PER_ENTRY} groups.`);
+        if (groupSummaries(g.entries, []).length > MAX_GROUPS_TOTAL) throw new Error(`The watch list can hold at most ${MAX_GROUPS_TOTAL} groups.`);
         next = g.entries;
         result.grouped = g.grouped;
         result.ungrouped = g.refused;
-        const k = groupKey(opts.group);
-        result.switchedOn = off.includes(k) && g.grouped.length > 0;
-        if (result.switchedOn) off = off.filter(x => x !== k);
+        result.groupMembers = next.filter(e => hasGroup(e, k)).length;
+        const wasOff = existed && off.includes(k);
+        // one transition: the final state of the group is decided here and validated once by save()
+        if (opts.enable === false) {
+          result.switchedOn = false;
+          if (!off.includes(k) && result.groupMembers > 0) off = [...off, k];
+        } else if (g.grouped.length > 0 || opts.enable === true) {
+          result.switchedOn = wasOff && opts.enable !== true;
+          off = off.filter(x => x !== k);
+        } else {
+          result.switchedOn = false;
+        }
       }
+      if (opts.signal?.aborted) throw new Error('The request was cancelled.');
       await this.save(next, off);
       for (const a of add) { const rec = this.holds.get(key(a)); if (rec) rec.added = false; }
       for (const r of postponed) { const rec = this.holds.get(key(r)); if (rec) rec.added = true; }
@@ -107,10 +129,15 @@ export class WatchList {
     return this.step(async () => {
       const current = this.deps.entries();
       const k = groupKey(name);
-      const members = current.filter(e => hasGroup(e, k)).length;
-      if (!members) return { found: false, members: 0 };
-      const off = this.deps.groupsOff().filter(x => x !== k);
+      if (!current.some(e => hasGroup(e, k))) return { found: false, members: 0 };
+      const before = this.deps.groupsOff();
+      const off = before.filter(x => x !== k);
       if (!enabled) off.push(k);
+      const held = this.heldSymbols();
+      const was = new Set(activeSymbols(current, before, held).map(x => x.toLowerCase()));
+      const will = new Set(activeSymbols(current, off, held).map(x => x.toLowerCase()));
+      // only the symbols that really start or stop being sampled count (another group or a hold may keep one)
+      const members = enabled ? [...will].filter(x => !was.has(x)).length : [...was].filter(x => !will.has(x)).length;
       await this.save(current, off);
       return { found: true, members };
     });
@@ -128,7 +155,11 @@ export class WatchList {
       const next: WatchEntry[] = [];
       for (const e of current) {
         if (!hasGroup(e, k)) next.push(e);
-        else if (held.includes(e.symbol)) next.push({ symbol: e.symbol, ai: e.ai });
+        else if (held.includes(e.symbol)) {
+          next.push({ symbol: e.symbol, ai: e.ai });
+          const rec = this.holds.get(key(e.symbol));
+          if (rec && e.ai) rec.added = true;
+        }
         else { const kept = dropped.entries.find(x => x.symbol === e.symbol); if (kept) next.push(kept); }
       }
       await this.save(next, this.deps.groupsOff().filter(x => x !== k));
@@ -233,14 +264,18 @@ export class WatchList {
     return [...this.holds.values()].filter(r => r.tokens.size > 0).map(r => r.symbol);
   }
 
-  /** Every write of the list: computes the sampled list, refuses an over-limit one before anything is written, then saves. */
+  /**
+   * Every write of the list: computes the sampled list from the next entries and the next switched-off groups, drops
+   * switched-off keys without a member, refuses an over-limit state before anything is written, then saves entries and
+   * keys in one state.
+   */
   private async save(next: WatchEntry[], off: string[] = this.deps.groupsOff()): Promise<void> {
-    const active = activeSymbols(next, off, this.heldSymbols());
+    const pruned = off.filter(k => next.some(e => hasGroup(e, k)));
+    const active = activeSymbols(next, pruned, this.heldSymbols());
+    if (next.length > MAX_STORED) throw new Error(`At most ${MAX_STORED} variables can be kept in the watch list.`);
     const tooMany = watchLimitError(active.length);
     if (tooMany) throw new Error(tooMany);
-    const before = this.deps.groupsOff();
-    if (off.length !== before.length || off.some((x, i) => x !== before[i])) await this.deps.setGroupsOff(off);
-    await this.deps.set(next, active);
+    await this.deps.set(next, active, pruned);
   }
 
   // A failed step rejects only its own call; the chain goes on with the next one.

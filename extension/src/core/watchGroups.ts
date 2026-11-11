@@ -4,6 +4,8 @@
 import type { WatchEntry } from './adswatch';
 
 export const MAX_GROUP_LENGTH = 64;
+export const MAX_GROUPS_PER_ENTRY = 8;
+export const MAX_GROUPS_TOTAL = 50;
 
 export const groupKey = (name: string): string => name.trim().toLowerCase();
 

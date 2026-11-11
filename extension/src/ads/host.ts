@@ -103,7 +103,7 @@ export class AdsHost implements vscode.Disposable {
     this.buffer = new ScopeBuffer(clampBufferSeconds(s.bufferSeconds));
     this.intervalMs = s.intervalMs;
     this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
-    this.list = new WatchList({ entries: () => this.entries(), set: (e, a) => this.setEntries(e, a), groupsOff: () => this.groupsOff(), setGroupsOff: k => this.setGroupsOff(k) });
+    this.list = new WatchList({ entries: () => this.entries(), set: (e, a, o) => this.setEntries(e, a, o), groupsOff: () => this.groupsOff() });
     this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, this.ended, vscode.workspace.onDidChangeConfiguration(e => {
       const targetChanged = e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port');
       if (targetChanged) {
@@ -175,25 +175,13 @@ export class AdsHost implements vscode.Disposable {
     return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
   }
 
-  async setGroupsOff(keys: string[]): Promise<void> {
-    await this.ctx.workspaceState.update(KEY_OFF, keys);
-  }
 
   /** The saved list with the AI flag per entry. */
   entries(): WatchEntry[] {
     return parseWatchList(this.ctx.workspaceState.get<unknown>(KEY, []));
   }
 
-  /** Sets the list by name; symbols already watched keep their AI flag, new ones count as the user's. */
-  async setWatched(symbols: string[]): Promise<WatchItem[]> {
-    await this.list.userEdit(current => {
-      const flags = new Map(current.map(e => [e.symbol.toLowerCase(), e.ai]));
-      return symbols.map(symbol => ({ symbol, ai: flags.get(symbol.trim().toLowerCase()) ?? false }));
-    });
-    return this.items_;
-  }
-
-  async setEntries(entries: WatchEntry[], active?: string[]): Promise<WatchItem[]> {
+  async setEntries(entries: WatchEntry[], active?: string[], off?: string[]): Promise<WatchItem[]> {
     // ADS names are case-insensitive
     const seen = new Set<string>();
     const kept: WatchEntry[] = [];
@@ -209,7 +197,8 @@ export class AdsHost implements vscode.Disposable {
     // a list the host rejects must not be saved: it would be re-sent and fail on every start
     const tooMany = watchLimitError(list.length);
     if (tooMany) throw new Error(tooMany);
-    await this.ctx.workspaceState.update(KEY, kept);
+    // entries and switched-off groups are one state: both are stored before the host is contacted
+    await Promise.all([this.ctx.workspaceState.update(KEY, kept), ...(off ? [this.ctx.workspaceState.update(KEY_OFF, off)] : [])]);
     this.active = list;
     const known = new Map(this.items_.map(i => [i.symbol, i]));
     this.items_ = list.map(symbol => known.get(symbol) ?? { symbol, type: '', numeric: false, error: null });

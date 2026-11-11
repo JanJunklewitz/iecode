@@ -10,9 +10,8 @@ function fake(initial: WatchEntry[] = [], offInitial: string[] = []) {
   const sets: WatchEntry[][] = [];
   const w = new WatchList({
     entries: () => list,
-    set: async (e, a) => { await Promise.resolve(); list = e; active = a; sets.push(e); },
+    set: async (e, a, o) => { await Promise.resolve(); list = e; active = a; off = o; sets.push(e); },
     groupsOff: () => off,
-    setGroupsOff: async k => { await Promise.resolve(); off = k; },
   });
   return { w, list: () => list, sets, active: () => active, off: () => off };
 }
@@ -101,7 +100,7 @@ test('a second release changes nothing', async () => {
 test('a failed save rejects its call and the next one still runs', async () => {
   let list: WatchEntry[] = [];
   let fail = true;
-  const w = new WatchList({ entries: () => list, set: async e => { if (fail) throw new Error('disk full'); list = e; }, groupsOff: () => [], setGroupsOff: async () => undefined });
+  const w = new WatchList({ entries: () => list, set: async e => { if (fail) throw new Error('disk full'); list = e; }, groupsOff: () => [] });
   await assert.rejects(w.aiEdit(['A'], []), /disk full/);
   fail = false;
   await w.aiEdit(['B'], []);
@@ -112,7 +111,7 @@ test('a failed save rejects its call and the next one still runs', async () => {
 function savedThenFails(initial: WatchEntry[] = []) {
   let list = initial;
   let failures = 0;
-  const w = new WatchList({ entries: () => list, set: async e => { list = e; if (failures > 0) { failures--; throw new Error('host down'); } }, groupsOff: () => [], setGroupsOff: async () => undefined });
+  const w = new WatchList({ entries: () => list, set: async e => { list = e; if (failures > 0) { failures--; throw new Error('host down'); } }, groupsOff: () => [] });
   return { w, list: () => list, failNext: (n = 1) => { failures = n; } };
 }
 
@@ -268,6 +267,7 @@ test('removeGroup removes the entries no other group needs and reports held ones
   assert.deepEqual(r, { found: true, removed: [], held: ['A'] });
   assert.deepEqual(f.list().map(e => e.symbol), ['A', 'B']);
   await h.release();
+  assert.deepEqual(f.list().map(e => e.symbol), ['B']);
   assert.deepEqual(await f.w.removeGroup('T2'), { found: true, removed: ['B'], held: [] });
   assert.deepEqual(f.off(), []);
 });
@@ -299,4 +299,60 @@ test('the user taking an AI entry over drops its group', async () => {
   const f = fake([{ symbol: 'A', ai: true, groups: ['T1'] }]);
   await f.w.userEdit(c => watchEdit(c, ['a']));
   assert.deepEqual(f.list(), [{ symbol: 'A', ai: false }]);
+});
+
+test('a stale switched-off key is dropped on the next save and a new group never reports it was off', async () => {
+  const f = fake([], ['t1']);
+  const r = await f.w.aiEdit(['A'], [], { group: 'T1' });
+  assert.equal(r.switchedOn, false);
+  assert.deepEqual(f.off(), []);
+  assert.deepEqual(f.active(), ['A']);
+});
+
+test('add with a group and enable: false parks the entries without ever sampling them', async () => {
+  const f = fake();
+  const r = await f.w.aiEdit(['A', 'B'], [], { group: 'T1', enable: false });
+  assert.deepEqual([r.grouped, r.groupMembers], [['A', 'B'], 2]);
+  assert.deepEqual(f.sets.length, 1);
+  assert.deepEqual(f.active(), []);
+  assert.deepEqual(f.off(), ['t1']);
+});
+
+test('the limit of 200 applies to the final active list of an add with enable: false', async () => {
+  const user = Array.from({ length: 200 }, (_, i) => ({ symbol: `S${i}`, ai: false }));
+  const f = fake(user);
+  await f.w.aiEdit(['P'], [], { group: 'T1', enable: false });
+  assert.equal(f.list().length, 201);
+  assert.equal(f.active().length, 200);
+  await assert.rejects(f.w.aiEdit(['Q'], [], { group: 'T2' }), /200/);
+});
+
+test('the stored list is capped at 1000 entries', async () => {
+  const big = Array.from({ length: 1000 }, (_, i) => ({ symbol: `P${i}`, ai: true, groups: ['G'] }));
+  const f = fake(big, ['g']);
+  await assert.rejects(f.w.aiEdit(['X'], [], { group: 'G' }), /At most 1000 variables/);
+  assert.equal(f.list().length, 1000);
+});
+
+test('a variable is in at most 8 groups and the list holds at most 50 groups', async () => {
+  const f = fake([{ symbol: 'A', ai: true, groups: ['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'g7', 'g8'] }]);
+  await assert.rejects(f.w.aiEdit(['A'], [], { group: 'g9' }), /at most 8 groups/);
+  const many = Array.from({ length: 50 }, (_, i) => ({ symbol: `S${i}`, ai: true, groups: [`g${i}`] }));
+  const g = fake(many);
+  await assert.rejects(g.w.aiEdit(['Z'], [], { group: 'new' }), /at most 50 groups/);
+  assert.equal(g.sets.length, 0);
+});
+
+test('an aborted call changes nothing', async () => {
+  const f = fake([{ symbol: 'A', ai: true }]);
+  const abort = new AbortController();
+  abort.abort();
+  await assert.rejects(f.w.aiEdit(['B'], ['A'], { signal: abort.signal }), /cancelled/);
+  assert.equal(f.sets.length, 0);
+});
+
+test('setGroup counts only the symbols that really start or stop being sampled', async () => {
+  const f = fake([{ symbol: 'A', ai: true, groups: ['T1', 'T2'] }, { symbol: 'B', ai: true, groups: ['T1'] }]);
+  assert.deepEqual(await f.w.setGroup('T1', false), { found: true, members: 1 });
+  assert.deepEqual(f.active(), ['A']);
 });

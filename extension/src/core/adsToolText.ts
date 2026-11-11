@@ -106,7 +106,7 @@ export function watchResultText(o: WatchResultInput): string {
   const symbols = (n: number) => `${n} symbol${n === 1 ? '' : 's'}`;
   if (op) {
     if (op.action === 'on') lines.push(`Group ${op.name} switched on (${symbols(op.members)})`);
-    else if (op.action === 'off') lines.push(`Group ${op.name} switched off (${symbols(op.members)}, not sampled now)`);
+    else if (op.action === 'off') lines.push(`Group ${op.name} switched off (${symbols(op.members)}, not sampled now; their history is dropped)`);
     else if (op.action === 'removed') lines.push(`Group ${op.name} removed`);
     else lines.push(`No group named ${op.name}`);
   }
