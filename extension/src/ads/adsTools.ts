@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, sourceObjects } from '../core/adsinterface';
 import { pickEnum } from '../core/enumLookup';
+import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
@@ -19,7 +20,7 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean }
+export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number }
 export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
@@ -129,29 +130,31 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       // Copilot hands the input over unparsed
       const enumName = typeof input.enumType === 'string' ? input.enumType.trim() : '';
       if (enumName) return ok(await enumAnswer(state.current.units, enumName));
-      const typed = (input.filter ?? '').trim();
-      const filter = typed.toLowerCase();
-      const matches: string[] = [];
+      const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+      const query: SymbolQuery = {
+        filter: str(input.filter), prefix: str(input.prefix), type: str(input.type),
+        offset: typeof input.offset === 'number' && Number.isInteger(input.offset) && input.offset > 0 ? input.offset : 0,
+      };
+      const typed = queryText(query);
+      const filter = query.filter.toLowerCase();
+      const all: string[] = [];
       const missing: string[] = [];
       const unreadable: string[] = [];
       const headers: string[] = [];
-      let total = 0;
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
       for (const u of units) {
         try {
           const built = await fromBuild(u.plc, true);
           headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
-          for (const s of built.symbols) {
-            if (filter && !s.name.toLowerCase().includes(filter)) continue;
-            if (++total <= MAX_SYMBOLS) matches.push(`${s.name} : ${s.type}`);
-          }
+          for (const s of built.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
         } catch (e) {
           if (e instanceof NoBuildOutputError) { if (!u.plc.isLibrary) missing.push(u.plc.name); }
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      const listing = symbolsText({ headers, matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length });
+      const matches = all.slice(query.offset, query.offset + PAGE_SIZE);
+      const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 

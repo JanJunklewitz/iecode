@@ -1428,7 +1428,7 @@
         "toolReferenceName": "adsSymbols",
         "displayName": "ADS Symbols",
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
-        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), at most 100. Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1451,6 +1451,21 @@
             "hidden": {
               "type": "boolean",
               "description": "Also list variables marked {attribute 'hide'}: they have no ADS symbol and cannot be read."
+            },
+            "prefix": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Start of the ADS name; a trailing dot, e.g. MAIN.fbMotor., lists only the direct members of that instance with their types."
+            },
+            "type": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Only symbols of this type, e.g. BOOL or FB_Drive; arrays match their element type."
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Skip this many matches; pages are 100 rows."
             }
           }
         }

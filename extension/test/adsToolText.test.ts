@@ -96,10 +96,10 @@ test('a watch call that partly fails keeps the partial state and is an error', (
 });
 
 test('symbols listing', () => {
-  const base = { headers: [] as string[], matches: ['MAIN.a : INT'], total: 1, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
+  const base = { headers: [] as string[], offset: 0, matches: ['MAIN.a : INT'], total: 1, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
   assert.equal(symbolsText(base), 'MAIN.a : INT');
   assert.equal(symbolsText({ ...base, matches: [], total: 0, typed: 'zz' }), 'No symbols match "zz".');
-  assert.equal(symbolsText({ ...base, total: 103 }), 'MAIN.a : INT\n(3 more not listed; use a narrower filter)');
+  assert.equal(symbolsText({ ...base, total: 103 }), 'MAIN.a : INT\n(3 more not listed; narrow the filter or continue with offset 100)');
   assert.equal(symbolsText({ ...base, missing: ['P1', 'P2'], unreadable: ['P3 (bad)'] }),
     'MAIN.a : INT\nNot built, so not listed (no .tmc): P1, P2\nBuild output unreadable, so not listed: P3 (bad)');
   assert.equal(symbolsText({ ...base, headers: ['H1', 'H2'] }), 'H1\nH2\nMAIN.a : INT');
@@ -268,4 +268,10 @@ test('hiddenText lists hidden variables and counts the rest', () => {
   const head = "Hidden (marked {attribute 'hide'}, so no ADS symbol and not readable; a property with {attribute 'monitoring' := 'call'} may expose the value):";
   assert.equal(hiddenText(['MAIN.fbDrive.bBusy : BOOL'], 1), `${head}\nMAIN.fbDrive.bBusy : BOOL`);
   assert.equal(hiddenText(['MAIN.fbDrive.bBusy : BOOL'], 3), `${head}\nMAIN.fbDrive.bBusy : BOOL\n(2 more hidden variables not listed)`);
+});
+
+test('symbols listing: a page past the end says so instead of "no symbols match"', () => {
+  const base = { headers: [] as string[], matches: [] as string[], total: 357, max: 100, offset: 400, typed: 'a', missing: [], unreadable: [], units: 1 };
+  assert.equal(symbolsText(base), 'No rows at offset 400: 357 symbols match.');
+  assert.equal(symbolsText({ ...base, matches: ['MAIN.a : INT'], offset: 100 }), 'MAIN.a : INT\n(rows 101-200 of 357; 157 more, continue with offset 200)');
 });

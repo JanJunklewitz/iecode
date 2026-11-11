@@ -39,7 +39,7 @@ function str(o: Record<string, unknown>, field: string, max: number, required: b
 
 const isErr = (x: unknown): x is { error: string } => typeof x === 'object' && x !== null;
 
-export interface SymbolsRequest { filter: string; enumType?: string; hidden?: boolean }
+export interface SymbolsRequest { filter: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number }
 
 export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   const o = asObject(raw);
@@ -50,7 +50,16 @@ export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   if (isErr(enumType)) return fail(enumType.error);
   const hidden = o.hidden;
   if (hidden !== undefined && hidden !== null && typeof hidden !== 'boolean') return fail('hidden must be true or false');
+  const prefix = str(o, 'prefix', MAX_SYMBOL_LENGTH, false);
+  if (isErr(prefix)) return fail(prefix.error);
+  const type = str(o, 'type', MAX_SYMBOL_LENGTH, false);
+  if (isErr(type)) return fail(type.error);
+  const offset = o.offset;
+  if (offset !== undefined && offset !== null && (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)) return fail('offset must be a whole number of 0 or more');
   const value: SymbolsRequest = { filter: filter ?? '' };
+  if (prefix?.trim()) value.prefix = prefix.trim();
+  if (type?.trim()) value.type = type.trim();
+  if (typeof offset === 'number') value.offset = offset;
   if (enumType?.trim()) value.enumType = enumType.trim();
   if (typeof hidden === 'boolean') value.hidden = hidden;
   return { ok: true, value };

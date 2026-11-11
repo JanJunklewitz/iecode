@@ -158,6 +158,13 @@ test('parseWriteInput refuses a bad batch before any dialog, with the item named
   assert.equal(parseWriteInput({ writes: Array.from({ length: 20 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }).ok, true);
 });
 
+test('parseSymbolsInput takes prefix, type and offset', () => {
+  assert.deepEqual(parseSymbolsInput({ prefix: 'MAIN.', type: 'BOOL', offset: 100 }), { ok: true, value: { filter: '', prefix: 'MAIN.', type: 'BOOL', offset: 100 } });
+  assert.deepEqual(parseSymbolsInput({ offset: -1 }), { ok: false, error: 'offset must be a whole number of 0 or more' });
+  assert.deepEqual(parseSymbolsInput({ offset: 1.5 }), { ok: false, error: 'offset must be a whole number of 0 or more' });
+  assert.deepEqual(parseSymbolsInput({ prefix: 5 }), { ok: false, error: 'prefix must be a string' });
+});
+
 test('parseSymbolsInput takes enumType and hidden and leaves absent keys out', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'x', enumType: 'E_Mode', hidden: true }), { ok: true, value: { filter: 'x', enumType: 'E_Mode', hidden: true } });
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });

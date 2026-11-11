@@ -2,6 +2,7 @@
 // wording is pinned by tests and does not drift between the two clients.
 
 import { EnumInfo, sharedValues } from './tmc';
+import { pageNote } from './symbolQuery';
 import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
@@ -125,9 +126,11 @@ export function watchFailureText(error: string, list: string): ToolText {
   return { text: `${error}\nWatch list now:\n${list}`, isError: true };
 }
 
-export function symbolsText(o: { headers: string[]; matches: string[]; total: number; max: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
-  const lines = [...o.headers, o.matches.length ? o.matches.join('\n') : `No symbols match "${o.typed}".`];
-  if (o.total > o.max) lines.push(`(${o.total - o.max} more not listed; use a narrower filter)`);
+export function symbolsText(o: { headers: string[]; matches: string[]; total: number; max: number; offset: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
+  const none = o.total > 0 ? pageNote({ total: o.total, offset: o.offset, pageSize: o.max })! : `No symbols match "${o.typed}".`;
+  const lines = [...o.headers, o.matches.length ? o.matches.join('\n') : none];
+  const note = o.matches.length ? pageNote({ total: o.total, offset: o.offset, pageSize: o.max }) : undefined;
+  if (note) lines.push(note);
   if (o.missing.length) lines.push(`Not built, so not listed (no .tmc): ${o.missing.join(', ')}`);
   if (o.unreadable.length) lines.push(`Build output unreadable, so not listed: ${o.unreadable.join('; ')}`);
   if (!o.units) lines.push('No PLC projects in this workspace.');
