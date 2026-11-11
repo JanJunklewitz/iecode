@@ -9,8 +9,9 @@ import { COPILOT_NAMES } from '../core/adsToolText';
 import { parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
 import { lmToolEntries } from '../core/lmToolTable';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
+import { writePolicyReason } from '../core/writePolicy';
 import { sendToAiChat } from '../commands/aiChat';
-import { aiWritesSetting, workspaceTarget } from './aiSettings';
+import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
 import { SCOPE_SECONDS, adsTools, newest, scopeSummary } from './adsTools';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -87,6 +88,10 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
     prepareInvocation(opts) {
       const symbol = show(opts.input.symbol), value = show(opts.input.value);
+      // outside the allowed paths the gate refuses without a dialog; asking the user first would be pointless
+      if (writePolicyReason([opts.input.symbol], { allowedPaths: aiWritePathsSetting() }) !== undefined) {
+        return { invocationMessage: 'Not writing: outside the allowed paths' };
+      }
       const setting = aiWritesSetting();
       const redirected = workspaceTarget();
       const decision = aiWriteDecision(setting, redirected);

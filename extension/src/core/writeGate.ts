@@ -50,6 +50,8 @@ export interface GateDeps {
   send(op: WriteOp, beforeSend: () => string | undefined): Promise<WriteResult>;
   /** The user approved after the request ended (cancelled, timed out, shut down): nothing was written. */
   lateApproval(op: WriteOp, reason: string): void;
+  /** The user's path allow-list: a returned text refuses the op (asked before any dialog and again right before sending). */
+  policy?(op: WriteOp): string | undefined;
 }
 
 export interface GatePolicy {
@@ -203,6 +205,8 @@ export class WriteGate {
   private async process(s: OpState): Promise<void> {
     const { op } = s;
     const names = namesOf(op);
+    const outside = this.deps.policy?.(op);
+    if (outside !== undefined) return this.flip(s, outside);
     const now = this.deps.decision();
     if (op.via === 'Copilot') {
       if (!op.prepared) return this.flip(s, `it needs the user's confirmation now; call ${names.write} again`);
@@ -258,6 +262,8 @@ export class WriteGate {
     if (this.disposed) return SHUTDOWN;
     if (s.signal.aborted) return CANCELLED;
     if (this.clock.now() >= s.deadlineAt) return TOO_LONG;
+    const outside = this.deps.policy?.(s.op);
+    if (outside !== undefined) return outside;
     const now = this.deps.decision();
     if (now === 'refuse') return OFF;
     if (!writeStillApproved(s.approved, now)) return `it needs the user's confirmation now; call ${namesOf(s.op).write} again`;

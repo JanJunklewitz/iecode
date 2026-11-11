@@ -4,9 +4,10 @@
 
 import * as vscode from 'vscode';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
-import { GatePolicy, WriteGate, WriteOp, WriteResult, sendOutcome } from '../core/writeGate';
+import { GatePolicy, WriteGate, WriteOp, WriteResult, itemsOf, sendOutcome } from '../core/writeGate';
+import { writePolicyReason } from '../core/writePolicy';
 import { output } from '../cli/iecode';
-import { aiWritesSetting, workspaceTarget } from './aiSettings';
+import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
 import { AdsHost } from './host';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -16,6 +17,7 @@ export function adsWriteGate(host: AdsHost, workspaceName: () => string, policy:
   return new WriteGate({
     decision: () => aiWriteDecision(aiWritesSetting(), workspaceTarget()),
     targetKey: () => host.targetKey(),
+    policy: op => writePolicyReason(itemsOf(op).map(i => i.symbol), { allowedPaths: aiWritePathsSetting() }),
 
     // The raw choice: a modal cannot be closed from outside, so an answer after a cancellation still arrives here and
     // the gate decides what it means.

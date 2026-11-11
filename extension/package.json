@@ -1366,6 +1366,15 @@
           "default": "off",
           "scope": "application",
           "markdownDescription": "Whether AI tools (GitHub Copilot Chat in agent mode, Claude Code) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
+        },
+        "iecode.ads.aiWritePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "Path prefixes AI tools may write, e.g. `MAIN.Sim` or `GVL.Test`. A prefix matches the symbol itself and everything below it, not other names that merely start with the same letters. Empty (default): every symbol is allowed. User settings only, so a workspace cannot widen it. The list limits symbol names, not machines: it does not say which PLC a name is written on."
         }
       }
     },

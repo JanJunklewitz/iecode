@@ -530,3 +530,26 @@ test('writeResultIsError: a done batch is an error when any item was not written
   assert.equal(writeResultIsError({ kind: 'done', items: [w, w] }), false);
   assert.equal(writeResultIsError({ kind: 'done', items: [w, { symbol: 'b', status: 'notWritten', reason: 'x' }] }), true);
 });
+
+test('gate refuses a write outside the allowed paths without a dialog, also inside a batch', async () => {
+  const r = rig();
+  const text = 'MAIN.b is outside the paths the user allows for AI writes (iecode.ads.aiWritePaths: MAIN.Sim)';
+  (r.gate as unknown as { deps: GateDeps }).deps.policy = () => text;
+  const res = await r.gate.run(op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] }), ac().signal);
+  assert.deepEqual(res, { kind: 'refused', reason: text });
+  assert.equal(r.confirms.length, 0);
+  assert.equal(r.sent.length, 0);
+});
+
+test('gate asks the policy again right before sending', async () => {
+  const r = rig();
+  let outside = false;
+  (r.gate as unknown as { deps: GateDeps }).deps.policy = () => (outside ? 'the setting changed' : undefined);
+  const p = r.gate.run(op(), ac().signal);
+  await tick();
+  outside = true;
+  r.confirms[0].answer.resolve(true);
+  const res = await p;
+  assert.equal(refused(res), 'the setting changed');
+  assert.equal(r.sent.length, 0);
+});
