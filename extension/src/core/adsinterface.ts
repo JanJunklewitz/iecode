@@ -517,3 +517,49 @@ export function enumFromSource(objects: { file: string; view: string }[], typeNa
   }
   return { name: root.name, base: baseType, members };
 }
+
+// ---- property hints ----
+
+/**
+ * A property is hinted only when it carries {attribute 'monitoring' := 'call'}: that is the form the build output
+ * lists as a symbol (a plain `'monitoring'` attribute decides visibility in `declaration`, not suitability here).
+ */
+function monitoringCall(v: PlcSymbol, obj: IndexedObject): boolean {
+  return linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'\s*:=\s*'call'/i.test(l));
+}
+
+/** `bBusy`, `P_Busy` and `Busy` all give `busy`: no leading P_, no 1-3 lower-case letters of a Hungarian prefix. */
+function coreName(n: string): string {
+  return n.replace(/^[Pp]_/, '').replace(/^[a-z]{1,3}(?=[A-Z])/, '').toLowerCase();
+}
+
+/**
+ * Full names (at most 3) of properties with {attribute 'monitoring' := 'call'} that match the last segment of a symbol
+ * that was not found, e.g. the hidden MAIN.fbDrive.bBusy and its property MAIN.fbDrive.Busy. Anything unresolvable gives [].
+ */
+export function matchingProperties(objects: { file: string; view: string }[], symbol: string): string[] {
+  const segments = symbol.trim().split('.');
+  if (segments.length < 2 || segments.some(s => !s.trim())) return [];
+  const index = new SymbolIndex();
+  for (const o of objects) index.update(o.file, o.view);
+  const bare = (s: string) => s.replace(/\[[^\]]*\]/g, '').trim();
+  let type: string | undefined = bare(segments[0]);
+  const root = type ? index.find(type)?.root : undefined;
+  if (!root || (root.kind !== 'GVL' && root.kind !== 'PROGRAM')) return [];
+  for (const seg of segments.slice(1, -1)) {
+    const name = bare(seg).toLowerCase();
+    const members: { sym: PlcSymbol }[] = index.membersOf(type);
+    type = members.find(m => (m.sym.kind === 'VARIABLE' || m.sym.kind === 'FIELD') && m.sym.name.toLowerCase() === name)?.sym.type;
+    if (!type) return [];
+  }
+  const wanted = coreName(bare(segments[segments.length - 1]));
+  const parent = segments.slice(0, -1).join('.');
+  return index.membersOf(type)
+    .filter(m => m.sym.kind === 'PROPERTY' && coreName(m.sym.name) === wanted && monitoringCall(m.sym, m.obj))
+    .map(m => `${parent}.${m.sym.name}`)
+    .slice(0, 3);
+}
+
+export async function matchingPropertiesAt(plc: PlcProject, symbol: string): Promise<string[]> {
+  return matchingProperties(await sourceObjects(plc), symbol);
+}

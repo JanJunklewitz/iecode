@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { basename, join } from 'path';
 import { SRC, ENUM_TMC } from './symbolFixtures';
 import { pickEnum } from '../src/core/enumLookup';
-import { enumFromSource } from '../src/core/adsinterface';
+import { enumFromSource, matchingProperties } from '../src/core/adsinterface';
 import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromFile, fromSource, fromSourceAt, fromTmc, NoBuildOutputError, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
 import { loadPlcProject } from '../src/core/projects';
 
@@ -291,4 +291,23 @@ test('pickEnum prefers the build output and falls back to the source', () => {
   assert.equal(pickEnum(ENUM_TMC, SRC, 'E_Step')!.origin, 'source');
   assert.equal(pickEnum(undefined, SRC, 'E_Nope'), undefined);
   assert.equal(pickEnum('not xml at all', SRC, 'E_Step')!.origin, 'source');
+});
+
+test('matchingProperties finds the monitoring-call property of a hidden variable', () => {
+  assert.deepEqual(matchingProperties(SRC, 'MAIN.fbDrive.bBusy'), ['MAIN.fbDrive.Busy']);
+  assert.deepEqual(matchingProperties(SRC, 'MAIN.aDrives[2].bBusy'), ['MAIN.aDrives[2].Busy']);
+  assert.deepEqual(matchingProperties(SRC, 'MAIN.fbDrive.nState'), []);
+  assert.deepEqual(matchingProperties(SRC, 'MAIN.fbDrive.bPlain'), []);   // the property Plain has no monitoring attribute
+  assert.deepEqual(matchingProperties(SRC, 'NOPE.x.bBusy'), []);
+  assert.deepEqual(matchingProperties(SRC, 'MAIN.bBusy'), []);
+  assert.deepEqual(matchingProperties(SRC, 'MAIN.fbDrive.P_Busy'), ['MAIN.fbDrive.Busy']);
+  assert.deepEqual(matchingProperties(SRC, ''), []);
+});
+
+test('matchingProperties: a property named with the P_ prefix matches the hidden variable', () => {
+  const src = [
+    { file: 'FB_Lock.TcPOU', view: "FUNCTION_BLOCK FB_Lock\nVAR\n    {attribute 'hide'}\n    bActive : BOOL;\nEND_VAR\n//---- IMPLEMENTATION ----\n//==== PROPERTY P_Active ====\n{attribute 'monitoring' := 'call'}\nPROPERTY PUBLIC P_Active : BOOL\n" },
+    { file: 'MAIN.TcPOU', view: 'PROGRAM MAIN\nVAR\n    fbLock : FB_Lock;\nEND_VAR\n//---- IMPLEMENTATION ----\nfbLock();\n' },
+  ];
+  assert.deepEqual(matchingProperties(src, 'MAIN.fbLock.bActive'), ['MAIN.fbLock.P_Active']);
 });

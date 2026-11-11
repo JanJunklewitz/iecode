@@ -4,14 +4,14 @@
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
-import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, sourceObjects } from '../core/adsinterface';
+import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, matchingPropertiesAt, sourceObjects } from '../core/adsinterface';
 import { pickEnum } from '../core/enumLookup';
 import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
@@ -107,6 +107,17 @@ async function enumAnswer(units: readonly Unit[], name: string): Promise<string>
   return noEnumText(name);
 }
 
+/** A courtesy: names a matching property of the source for a symbol that was not found; a failing source read just gives none. */
+async function propertyHint(units: readonly Unit[], symbol: string): Promise<string | undefined> {
+  for (const u of units) {
+    try {
+      const props = await matchingPropertiesAt(u.plc, symbol);
+      if (props.length) return propertyHintText(props);
+    } catch { /* the original error stays */ }
+  }
+  return undefined;
+}
+
 /** Variables marked {attribute 'hide'}: from the source only (the build output does not list them). */
 async function hiddenAnswer(units: readonly Unit[], filter: string): Promise<string> {
   const rows: string[] = [];
@@ -169,7 +180,13 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       }
       const taken = result.removed.filter(r => owned.has(r.toLowerCase())).length;
       if (taken) output.info(`AI removed ${taken} variable${taken === 1 ? '' : 's'} the user added (confirmed)`);
-      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
+      const hints: string[] = [];
+      for (const i of host.items()) {
+        if (!i.error || !/not found/i.test(i.error) || !result.added.some(a => a.toLowerCase() === i.symbol.toLowerCase())) continue;
+        const h = await propertyHint(state.current.units, i.symbol);
+        if (h) hints.push(`Hint for ${i.symbol}: ${h}`);
+      }
+      return ok(watchResultText({ hints, full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {
@@ -190,7 +207,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
             }
           }
           if (others.length) {
-            for (const r of await host.read(others)) rows.push(readOnceRow(r));
+            for (const r of await host.read(others)) rows.push(readOnceRow(/not found/i.test(r.error ?? '') ? { ...r, hint: await propertyHint(state.current.units, r.symbol) } : r));
           }
           return ok(readText(host.target(), rows));
         });

@@ -65,6 +65,8 @@ export interface WatchResultInput {
   list: string;
   result: WatchRunResult;
   addErrors: string[];
+  /** One line per added symbol that was not found but has a matching property. */
+  hints?: string[];
   count: number;
   intervalMs: number;
   names: ToolNames;
@@ -113,6 +115,7 @@ export function watchResultText(o: WatchResultInput): string {
     else lines.push(`No group named ${op.name}`);
   }
   for (const e of o.addErrors) lines.push(`Error: ${e}`);
+  for (const h of o.hints ?? []) lines.push(h);
   const unresolved = unresolvedText(o.unresolved);
   if (unresolved) lines.push(unresolved);
   lines.push(o.full ? o.list : `Watch list: ${symbols(o.count)}${o.parked > 0 ? `, ${o.parked} switched off` : ''}`);
@@ -162,7 +165,7 @@ export function hiddenText(rows: string[], total: number): string {
   return lines.join('\n');
 }
 
-export interface ReadRow { symbol: string; type: string; value: string | null; error: string | null; age?: string }
+export interface ReadRow { symbol: string; type: string; value: string | null; error: string | null; age?: string; hint?: string }
 
 /** A watched symbol; `age` only for a value from the sample buffer (a value read back by a write has no time). */
 export function readRow(r: ReadRow): string {
@@ -172,7 +175,14 @@ export function readRow(r: ReadRow): string {
 
 /** A symbol that was read once, not watched. */
 export function readOnceRow(r: ReadRow): string {
-  return r.error ? `${r.symbol} : error ${r.error}` : `${r.symbol} : ${r.type || '?'} = ${r.value}`;
+  return r.error ? `${r.symbol} : error ${r.error}${r.hint ? ` ${r.hint}` : ''}` : `${r.symbol} : ${r.type || '?'} = ${r.value}`;
+}
+
+/** The hint for a symbol that was not found but has a matching property in the source. */
+export function propertyHintText(props: string[]): string {
+  return props.length === 1
+    ? `Matching property in the source code: ${props[0]} (monitoring call); try that name.`
+    : `Matching properties in the source code: ${props.join(', ')} (monitoring call); try one of those names.`;
 }
 
 export const readText = (target: string, rows: string[]): string => `Values on ${target}:\n${rows.join('\n')}`;

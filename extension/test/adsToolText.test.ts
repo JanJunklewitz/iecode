@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -274,4 +274,23 @@ test('symbols listing: a page past the end says so instead of "no symbols match"
   const base = { headers: [] as string[], matches: [] as string[], total: 357, max: 100, offset: 400, typed: 'a', missing: [], unreadable: [], units: 1 };
   assert.equal(symbolsText(base), 'No rows at offset 400: 357 symbols match.');
   assert.equal(symbolsText({ ...base, matches: ['MAIN.a : INT'], offset: 100 }), 'MAIN.a : INT\n(rows 101-200 of 357; 157 more, continue with offset 200)');
+});
+
+test('propertyHintText and its place in a read row and a watch result', () => {
+  assert.equal(propertyHintText(['MAIN.fbDrive.Busy']), 'Matching property in the source code: MAIN.fbDrive.Busy (monitoring call); try that name.');
+  assert.equal(propertyHintText(['A', 'B']), 'Matching properties in the source code: A, B (monitoring call); try one of those names.');
+  const row = { symbol: 'MAIN.fbDrive.bBusy', type: '', value: null, error: "Symbol 'MAIN.fbDrive.bBusy' not found on local." };
+  assert.equal(readOnceRow({ ...row, hint: propertyHintText(['MAIN.fbDrive.Busy']) }),
+    "MAIN.fbDrive.bBusy : error Symbol 'MAIN.fbDrive.bBusy' not found on local. Matching property in the source code: MAIN.fbDrive.Busy (monitoring call); try that name.");
+  assert.equal(readOnceRow(row), "MAIN.fbDrive.bBusy : error Symbol 'MAIN.fbDrive.bBusy' not found on local.");
+});
+
+test('watch result: a property hint is its own line after the error', () => {
+  const none = { added: [], already: [], removed: [], missing: [], kept: [], declined: [], held: [] };
+  const hint = 'Hint for MAIN.x.bBusy: Matching property in the source code: MAIN.x.Busy (monitoring call); try that name.';
+  const text = watchResultText({
+    target: 'local', parked: 0, unresolved: [], full: false, list: '', count: 1, intervalMs: 100, names: MCP_NAMES,
+    result: { ...none, added: ['MAIN.x.bBusy'] }, addErrors: ['MAIN.x.bBusy : not found'], hints: [hint],
+  });
+  assert.match(text, /\nError: MAIN\.x\.bBusy : not found\nHint for MAIN\.x\.bBusy: Matching property in the source code: MAIN\.x\.Busy \(monitoring call\); try that name\.\n/);
 });
