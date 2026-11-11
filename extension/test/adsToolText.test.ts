@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -19,12 +19,31 @@ test('watch list text marks who added the entries', () => {
     'MAIN.a : INT [added by the user]\nMAIN.b : ? (error: Symbol not found) [added by AI]');
 });
 
-test('watch result text names the scope tool of the client', () => {
-  const args = { list: 'L', kept: ['MAIN.a'], added: true, intervalMs: 100 };
-  assert.equal(watchResultText({ ...args, names: COPILOT_NAMES }),
-    'L\nNot removed (added by the user, only the user can remove them): MAIN.a\nNew values arrive every 100 ms; use adsScope for the history.');
-  assert.equal(watchResultText({ ...args, kept: [], names: MCP_NAMES }), 'L\nNew values arrive every 100 ms; use ads_scope for the history.');
-  assert.equal(watchResultText({ list: 'L', kept: [], added: false, intervalMs: 100, names: MCP_NAMES }), 'L');
+const none = { added: [], already: [], removed: [], kept: [], held: [], missing: [] };
+const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none };
+
+test('watch result: a diff names only what changed, plus the count', () => {
+  assert.equal(watchResultText({ ...wbase, result: { ...none, added: ['MAIN.a', 'MAIN.b'], removed: ['MAIN.c'] } }),
+    'Added: MAIN.a, MAIN.b\nRemoved: MAIN.c\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.');
+  assert.equal(watchResultText({ ...wbase, count: 1, names: COPILOT_NAMES, result: { ...none, added: ['MAIN.a'] } }),
+    'Added: MAIN.a\nWatch list: 1 symbol\nNew values arrive every 100 ms; use adsScope for the history.');
+  assert.equal(watchResultText({ ...wbase, result: { ...none, removed: ['MAIN.c'] } }), 'Removed: MAIN.c\nWatch list: 3 symbols');
+});
+
+test('watch result: every refusal and error has its own line, in a fixed order', () => {
+  assert.equal(watchResultText({ ...wbase, addErrors: ['MAIN.x : Symbol not found'],
+    result: { added: ['MAIN.x'], already: ['a'], removed: [], kept: ['U'], held: ['h'], missing: ['m'] } }),
+    'Added: MAIN.x\nAlready in the list: a\nNot in the list: m\nNot removed (added by the user, only the user can remove them): U\nKept until a running wait ends: h\nError: MAIN.x : Symbol not found\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.');
+});
+
+test('watch result: the full list replaces the count; an empty call is the list alone', () => {
+  assert.equal(watchResultText({ ...wbase, full: true }), 'L');
+  assert.equal(watchResultText({ ...wbase, full: true, result: { ...none, added: ['a'] } }),
+    'Added: a\nL\nNew values arrive every 100 ms; use ads_scope for the history.');
+});
+
+test('addErrorLines names the stored spelling of added symbols with an error', () => {
+  assert.deepEqual(addErrorLines([item('MAIN.a'), item('main.b', '', 'Symbol not found')], ['MAIN.B', 'MAIN.a']), ['main.b : Symbol not found']);
 });
 
 test('a watch call that partly fails keeps the partial state and is an error', () => {

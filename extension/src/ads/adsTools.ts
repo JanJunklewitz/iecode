@@ -6,16 +6,17 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
-import { ScopeArgs } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
+import type { AiEditResult } from '../core/watchList';
 import { WaitDeps, runWait } from '../core/waitRun';
 import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
 export interface SymbolsInput { filter: string }
-export interface WatchInput { add?: string[]; remove?: string[] }
+export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
 export interface WaitInput { symbol: string; condition: WaitCondition; timeoutSeconds: number }
@@ -85,16 +86,16 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       return ok(symbolsText({ matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
     },
 
-    async watch(input: WatchInput): Promise<ToolText> {
-      const { add = [], remove = [] } = input;
-      let kept: string[];
+    async watch(input: WatchInput, _signal?: AbortSignal): Promise<ToolText> {
+      const { add, remove } = input;
+      let result: AiEditResult;
       try {
-        ({ kept } = await leased(host, () => host.list.aiEdit(add, remove)));
+        result = await leased(host, () => host.list.aiEdit(add, remove));
       } catch (e) {
         const f = watchFailureText(errorText(e), list(host));
         return { ...f, text: capText(f.text) };
       }
-      return ok(watchResultText({ list: list(host), kept, added: add.length > 0, intervalMs: host.sampling().intervalMs, names }));
+      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, intervalMs: host.sampling().intervalMs, names }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {

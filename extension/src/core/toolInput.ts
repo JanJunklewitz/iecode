@@ -45,14 +45,28 @@ export function parseSymbolsInput(raw: unknown): Parsed<{ filter: string }> {
   return { ok: true, value: { filter: filter ?? '' } };
 }
 
-export function parseWatchInput(raw: unknown): Parsed<{ add: string[]; remove: string[] }> {
+/** An optional boolean; null or undefined counts as missing. */
+function bool(o: Record<string, unknown>, field: string): boolean | undefined | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return undefined;
+  return typeof v === 'boolean' ? v : { error: `${field} must be a boolean` };
+}
+
+export interface WatchRequest { add: string[]; remove: string[]; list?: boolean }
+
+/** The full list is returned for an empty call and for `list: true`. */
+export const wantsFullList = (r: WatchRequest): boolean => r.list === true || (!r.add.length && !r.remove.length);
+
+export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const add = stringArray(o, 'add');
   if (typeof add === 'string') return fail(add);
   const remove = stringArray(o, 'remove');
   if (typeof remove === 'string') return fail(remove);
-  return { ok: true, value: { add, remove } };
+  const list = bool(o, 'list');
+  if (isErr(list)) return fail(list.error);
+  return { ok: true, value: list === undefined ? { add, remove } : { add, remove, list } };
 }
 
 export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {

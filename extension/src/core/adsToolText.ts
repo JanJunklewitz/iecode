@@ -4,6 +4,7 @@
 import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
+import type { AiEditResult } from './watchList';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
 export interface ToolNames { watch: string; scope: string; write: string; wait: string }
@@ -31,10 +32,35 @@ export function watchListText(items: WatchItem[], entries: WatchEntry[]): string
   return items.map(i => `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${i.error})` : ''}${ai.has(i.symbol.toLowerCase()) ? ' [added by AI]' : ' [added by the user]'}`).join('\n');
 }
 
-export function watchResultText(o: { list: string; kept: string[]; added: boolean; intervalMs: number; names: ToolNames }): string {
-  const lines = [o.list];
-  if (o.kept.length) lines.push(`Not removed (added by the user, only the user can remove them): ${o.kept.join(', ')}`);
-  if (o.added) lines.push(`New values arrive every ${o.intervalMs} ms; use ${o.names.scope} for the history.`);
+export interface WatchResultInput {
+  full: boolean;
+  list: string;
+  result: AiEditResult;
+  addErrors: string[];
+  count: number;
+  intervalMs: number;
+  names: ToolNames;
+}
+
+/** `<stored symbol> : <error>` for each added symbol the host could not resolve. */
+export function addErrorLines(items: WatchItem[], added: string[]): string[] {
+  const wanted = new Set(added.map(a => a.toLowerCase()));
+  return items.filter(i => i.error && wanted.has(i.symbol.toLowerCase())).map(i => `${i.symbol} : ${i.error}`);
+}
+
+/** What the call changed (and the count), or the full list for an empty call and `list: true`. */
+export function watchResultText(o: WatchResultInput): string {
+  const r = o.result;
+  const lines: string[] = [];
+  if (r.added.length) lines.push(`Added: ${r.added.join(', ')}`);
+  if (r.already.length) lines.push(`Already in the list: ${r.already.join(', ')}`);
+  if (r.removed.length) lines.push(`Removed: ${r.removed.join(', ')}`);
+  if (r.missing.length) lines.push(`Not in the list: ${r.missing.join(', ')}`);
+  if (r.kept.length) lines.push(`Not removed (added by the user, only the user can remove them): ${r.kept.join(', ')}`);
+  if (r.held.length) lines.push(`Kept until a running wait ends: ${r.held.join(', ')}`);
+  for (const e of o.addErrors) lines.push(`Error: ${e}`);
+  lines.push(o.full ? o.list : `Watch list: ${o.count} symbol${o.count === 1 ? '' : 's'}`);
+  if (r.added.length) lines.push(`New values arrive every ${o.intervalMs} ms; use ${o.names.scope} for the history.`);
   return lines.join('\n');
 }
 

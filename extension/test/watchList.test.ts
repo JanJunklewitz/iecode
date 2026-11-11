@@ -150,3 +150,20 @@ test('a user edit whose save fails still ends the removed holds', async () => {
   await h.release();
   assert.deepEqual(f.list(), []);
 });
+
+test('aiEdit reports what it added, what was there, what it removed and what it refused', async () => {
+  const f = fake([{ symbol: 'U', ai: false }, { symbol: 'X', ai: true }]);
+  const r = await f.w.aiEdit(['A', 'u', ' B ', 'a'], ['x', 'zz', 'U']);
+  assert.deepEqual(r, { added: ['A', 'B'], already: ['u'], removed: ['x'], kept: ['U'], held: [], missing: ['zz'] });
+  assert.deepEqual(f.list().map(e => e.symbol), ['U', 'A', 'B']);
+});
+
+test('aiEdit says a removal was postponed by a running wait', async () => {
+  const f = fake();
+  const h = await f.w.hold('P');
+  const r = await f.w.aiEdit([], ['p']);
+  assert.deepEqual(r, { added: [], already: [], removed: [], kept: [], held: ['p'], missing: [] });
+  assert.equal(f.list().length, 1);
+  await h.release();
+  assert.equal(f.list().length, 0);
+});

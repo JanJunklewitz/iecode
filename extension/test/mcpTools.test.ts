@@ -104,6 +104,15 @@ test("ads_wait passes validated arguments and the call's signal", async () => {
   assert.ok(seen[0].signal instanceof AbortSignal);
 });
 
+test("ads_watch passes the parsed fields and the call's signal", async () => {
+  const seen: { input: unknown; signal: unknown }[] = [];
+  const r = rig({ watch: async (input, signal) => { seen.push({ input, signal }); return { text: 'watched' }; } });
+  const res = await result(r.session.handle(call(22, 'ads_watch', { add: ['A'], list: true })));
+  assert.equal(res.content[0].text, 'watched');
+  assert.deepEqual(seen[0].input, { add: ['A'], remove: [], list: true });
+  assert.ok(seen[0].signal instanceof AbortSignal);
+});
+
 test('ads_wait with a bad condition never reaches the tool', async () => {
   let reached = false;
   const r = rig({ wait: async () => { reached = true; return { text: 'x' }; } });
@@ -222,6 +231,8 @@ test('the manifest declares the six tools in client-neutral words', () => {
   assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write']);
   const wait = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')).contributes.languageModelTools.find((t: { name: string }) => t.name === 'iecode_ads_wait');
   assert.deepEqual(wait.inputSchema.required, ['symbol', 'condition']);
+  const watch = found.find(d => d.name === 'ads_watch') as { inputSchema: { properties: { list: { type: string } } } };
+  assert.equal(watch.inputSchema.properties.list.type, 'boolean');
   for (const d of found) {
     assert.ok(d.description.length > 20);
     assert.doesNotMatch(d.description, /#?ads(Watch|Scope|Read|Write|Symbols|Wait)\b/, `${d.name} names a Copilot tool`);

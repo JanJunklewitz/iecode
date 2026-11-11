@@ -12,6 +12,25 @@ interface HoldRecord { symbol: string; tokens: Set<object>; added: boolean }
 
 const key = (s: string): string => s.trim().toLowerCase();
 
+/** What one AI edit did, per requested name (trimmed, de-duplicated case-insensitively). */
+export interface AiEditResult {
+  added: string[];
+  already: string[];
+  removed: string[];
+  kept: string[];
+  held: string[];
+  missing: string[];
+}
+
+function uniqueNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names.map(x => x.trim())) {
+    if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n); }
+  }
+  return out;
+}
+
 export class WatchList {
   private chain: Promise<unknown> = Promise.resolve();
   private readonly holds = new Map<string, HoldRecord>();
@@ -19,12 +38,19 @@ export class WatchList {
 
   constructor(private readonly deps: WatchListDeps) {}
 
-  /** AI add/remove (ads_watch). Returns the removals refused because the user owns them. */
-  aiEdit(add: string[], remove: string[]): Promise<{ kept: string[] }> {
+  /** AI add/remove (ads_watch). Says what was added, already there, removed, refused (user's entry), postponed (wait) or unknown. */
+  aiEdit(add: string[], remove: string[]): Promise<AiEditResult> {
     return this.step(async () => {
       const current = this.deps.entries();
-      const edited = watchEdit(current, add, remove, true);
-      const kept = remove.filter(r => edited.some(e => e.symbol.toLowerCase() === key(r)));
+      const result: AiEditResult = { added: [], already: [], removed: [], kept: [], held: [], missing: [] };
+      for (const a of uniqueNames(add)) (current.some(e => key(e.symbol) === key(a)) ? result.already : result.added).push(a);
+      for (const r of uniqueNames(remove)) {
+        const entry = current.find(e => key(e.symbol) === key(r));
+        if (!entry) result.missing.push(r);
+        else if (!entry.ai) result.kept.push(r);
+        else if (this.held(key(r))) result.held.push(r);
+        else result.removed.push(r);
+      }
       // a held entry stays until its last hold releases; only the removal of what a hold needs is postponed
       const postponed = remove.filter(r => this.held(key(r)));
       const next = watchEdit(watchEdit(current, add, [], true), [], remove.filter(r => !this.held(key(r))), true);
@@ -34,7 +60,7 @@ export class WatchList {
         const rec = this.holds.get(key(r));
         if (rec && current.some(e => e.ai && e.symbol.toLowerCase() === key(r))) rec.added = true;
       }
-      return { kept };
+      return result;
     });
   }
 

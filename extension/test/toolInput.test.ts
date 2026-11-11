@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -88,4 +88,18 @@ test('toolInput scope edges', () => {
   assert.equal(both.ok, false);
   if (!both.ok) assert.match(both.error, /edges and changesOnly cannot be combined/);
   assert.equal(parseScopeInput({ edges: false, changesOnly: true }).ok, true);
+});
+
+test('parseWatchInput reads list and leaves it out when absent', () => {
+  assert.deepEqual(parseWatchInput({ list: true }), { ok: true, value: { add: [], remove: [], list: true } });
+  assert.deepEqual(parseWatchInput({ add: ['a'] }), { ok: true, value: { add: ['a'], remove: [] } });
+  assert.deepEqual(parseWatchInput({ list: null }), { ok: true, value: { add: [], remove: [] } });
+  assert.deepEqual(parseWatchInput({ list: 'yes' }), { ok: false, error: 'list must be a boolean' });
+});
+
+test('wantsFullList is true for an empty call and for list: true', () => {
+  assert.equal(wantsFullList({ add: [], remove: [] }), true);
+  assert.equal(wantsFullList({ add: ['a'], remove: [] }), false);
+  assert.equal(wantsFullList({ add: [], remove: ['b'] }), false);
+  assert.equal(wantsFullList({ add: ['a'], remove: [], list: true }), true);
 });
