@@ -50,7 +50,7 @@ const list = (host: AdsHost) => watchListText(host.items(), host.entries());
 
 /** Summary and table of the symbols over the last seconds, up to their newest sample. */
 export function scopeSummary(host: AdsHost, symbols: string[], seconds: number, options: ScopeOptions = {}): string {
-  return scopeSummaryText({ buffer: host.buffer, symbols, seconds, target: host.target(), intervalMs: host.sampling().intervalMs, now: Date.now(), clock, options });
+  return scopeSummaryText({ buffer: host.buffer, symbols, seconds, target: host.target(), intervalMs: host.sampling().intervalMs, now: Date.now(), clock, options, state: host.state(), ended: host.lastEnded() });
 }
 
 /** Time of the newest sample of the symbols, or undefined while there is none. */

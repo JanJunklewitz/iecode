@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, changeEntries, CUT_MARK, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, hostNote, changeEntries, CUT_MARK, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -679,4 +679,28 @@ test('a capped change log says the count is a lower bound', () => {
   b.setItems(1, [real('MAIN.f')]);
   b.push(1, at(Array.from({ length: 50 }, (_, i) => String(i + 0.5))));
   assert.match(scopeText(b, ['MAIN.f'], 1000, 49000), /^MAIN\.f: min=.* count=50 changes>=10 \(older changes dropped; first retained at -9\.0 s, last at 0\.0 s\)$/m);
+});
+
+test('gap note adds the host message when sampling is stale', () => {
+  const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+  assert.equal(gapNote(0, 61_000, () => '10:00:00', 'Last host message: x.'), `No samples since 10:00:00: ${tail} Last host message: x.`);
+  assert.equal(gapNote(60_000, 61_000, () => '10:00:00', 'Last host message: x.'), undefined);
+  assert.equal(gapNote(undefined, 1, () => '10:00:00', 'Last host message: x.'), `No samples yet: ${tail}`);
+});
+
+test('hostNote names the last host message, the last end and a missing connection', () => {
+  const clock = (ms: number) => `T${ms}`;
+  const bs = String.fromCharCode(92);
+  assert.equal(hostNote({ connected: false, error: 'Port 851 not found.' }, undefined, clock), 'Last host message: Port 851 not found.');
+  assert.equal(hostNote({ connected: false }, undefined, clock), 'The ADS host is not connected.');
+  assert.equal(hostNote({ connected: true }, undefined, clock), undefined);
+  assert.equal(hostNote(undefined, undefined, clock), undefined);
+  assert.equal(hostNote({ connected: false, error: 'a\nb' }, undefined, clock), `Last host message: a${bs}nb`);
+  // idle stop and settings restart leave no state error, the end carries the reason
+  assert.equal(hostNote({ connected: false }, { reason: 'The ADS host stopped (idle).', at: 5000 }, clock), 'The ADS host ended at T5000: The ADS host stopped (idle).');
+  // error, then reconnect: the end explains a gap that began with it, not one that began later
+  assert.equal(hostNote({ connected: true }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock, 4000), 'The ADS host ended at T5000: The ADS host exited (code 1).');
+  assert.equal(hostNote({ connected: true }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock, 6000), undefined);
+  assert.equal(hostNote({ connected: false, error: 'boom' }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock),
+    'Last host message: boom The ADS host ended at T5000: The ADS host exited (code 1).');
 });

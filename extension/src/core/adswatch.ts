@@ -309,10 +309,25 @@ export function sampleAge(newestMs: number | undefined, nowMs: number): string |
 }
 
 /** Tells why values may be missing: samples only arrive while the watch view or the scope keeps the host alive. */
-export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms: number) => string): string | undefined {
+export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms: number) => string, extra?: string): string | undefined {
   const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
   if (newestMs === undefined) return `No samples yet: ${tail}`;
-  return nowMs - newestMs < STALE_MS ? undefined : `No samples since ${clock(newestMs)}: ${tail}`;
+  return nowMs - newestMs < STALE_MS ? undefined : `No samples since ${clock(newestMs)}: ${tail}${extra ? ` ${extra}` : ''}`;
+}
+
+/** Why the host process last ended and when; kept across a reconnect (the state only holds the current error). */
+export interface HostEnd { reason: string; at: number }
+
+/**
+ * What the host says about a stall: its last message, why it last ended (only when that end is not older than the
+ * newest sample, so it can explain the gap), or that it is not connected. Undefined when there is nothing to add.
+ */
+export function hostNote(state: { connected: boolean; error?: string } | undefined, ended: HostEnd | undefined, clock: (ms: number) => string, newestMs?: number): string | undefined {
+  const parts: string[] = [];
+  if (state?.error) parts.push(`Last host message: ${oneLine(state.error)}`);
+  if (ended && (newestMs === undefined || ended.at >= newestMs)) parts.push(`The ADS host ended at ${clock(ended.at)}: ${oneLine(ended.reason)}`);
+  if (parts.length === 0 && state && !state.connected) parts.push('The ADS host is not connected.');
+  return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
 /** Most symbols that get a column in the scope table (the summaries cover all of them). */

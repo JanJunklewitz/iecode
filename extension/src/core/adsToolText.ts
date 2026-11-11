@@ -1,7 +1,7 @@
 // Result texts of the ADS tools, shared by the Copilot tools and the MCP server. Pure: plain data in, text out, so the
 // wording is pinned by tests and does not drift between the two clients.
 
-import { ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, scopeText } from './adswatch';
+import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
 
@@ -78,10 +78,11 @@ export function newestSample(buffer: ScopeBuffer, symbols: string[]): number | u
   return t === -Infinity ? undefined : t;
 }
 
-export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; seconds: number; target: string; intervalMs: number; now: number; clock: (ms: number) => string; options?: ScopeOptions }): string {
+export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; seconds: number; target: string; intervalMs: number; now: number; clock: (ms: number) => string; options?: ScopeOptions; state?: { connected: boolean; error?: string }; ended?: HostEnd }): string {
   const end = newestSample(o.buffer, o.symbols);
-  if (end === undefined) return `No samples yet for ${o.symbols.join(', ')}. The values are sampled every ${o.intervalMs} ms while the ADS host runs.`;
-  const gap = gapNote(end, o.now, o.clock);
+  const note = hostNote(o.state, o.ended, o.clock, end);
+  if (end === undefined) return `No samples yet for ${o.symbols.join(', ')}. The values are sampled every ${o.intervalMs} ms while the ADS host runs.${note ? ` ${note}` : ''}`;
+  const gap = gapNote(end, o.now, o.clock, note);
   const head = `ADS ${o.options?.changesOnly ? 'value changes' : 'values'} of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
   return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, { maxChars: SCOPE_TEXT_BUDGET, ...o.options })}`;
 }

@@ -146,3 +146,27 @@ test('scope summary keeps the whole answer inside the tool text limit', () => {
     assert.ok(out.includes('first 20 of 200 symbols'));
   }
 });
+
+const STALE_TAIL = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+
+test('scope with a stale newest sample names the host state', () => {
+  const out = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 70_000, clock, state: { connected: false, error: 'Port 851 not found.' } });
+  assert.ok(out.startsWith(`No samples since 10:00:00: ${STALE_TAIL} Last host message: Port 851 not found.\nADS values of the last 60 s`), out);
+});
+
+test('scope with a stale newest sample names why the host ended', () => {
+  const out = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 70_000, clock, state: { connected: false }, ended: { reason: 'The ADS host stopped (idle).', at: 3000 } });
+  assert.ok(out.startsWith(`No samples since 10:00:00: ${STALE_TAIL} The ADS host ended at 10:00:00: The ADS host stopped (idle).\n`), out);
+});
+
+test('scope with fresh samples ignores the host state', () => {
+  const fresh = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, state: { connected: false, error: 'x' } });
+  assert.ok(fresh.startsWith('ADS values of the last 60 s'), fresh);
+});
+
+test('scope without any sample names the host message', () => {
+  const b = new ScopeBuffer(300);
+  b.setItems(1, [item('a')]);
+  assert.equal(scopeSummaryText({ buffer: b, symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 1000, clock, state: { connected: false, error: 'boom' } }),
+    'No samples yet for a. The values are sampled every 100 ms while the ADS host runs. Last host message: boom');
+});

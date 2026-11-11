@@ -4,7 +4,7 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import { HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
+import { HostEnd, HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { WatchList } from '../core/watchList';
 import type { SampleBatch } from '../core/waitRun';
@@ -80,6 +80,7 @@ export class AdsHost implements vscode.Disposable {
   private intervalMs: number;
   private leases = 0;
   private idleTimer: NodeJS.Timeout | undefined;
+  private lastEnded_: HostEnd | undefined;
   // a failed start is not retried by itself (view visibility, scope), only by a user action or a settings change
   private failure: StartError | undefined;
   // value read back by a write, shown until the next sample brings the real one; keyed in lower case (ADS names are case-insensitive)
@@ -135,6 +136,9 @@ export class AdsHost implements vscode.Disposable {
   }
 
   state(): AdsState { return this.state_; }
+
+  /** Why and when the host process last ended; survives a reconnect, unlike the state's error. */
+  lastEnded(): HostEnd | undefined { return this.lastEnded_; }
 
   items(): WatchItem[] { return this.items_; }
 
@@ -420,6 +424,7 @@ export class AdsHost implements vscode.Disposable {
     this.proc = undefined;
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
+    this.lastEnded_ = { reason, at: Date.now() };
     this.setState({ connected: false, error: this.failure?.message ?? (this.leases > 0 ? reason : undefined) });
     this.ended.fire(reason);
   }
@@ -431,6 +436,7 @@ export class AdsHost implements vscode.Disposable {
     this.proc = undefined;
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
+    this.lastEnded_ = { reason, at: Date.now() };
     this.setState({ connected: false });
     this.ended.fire(reason);
     // the host answers what it has read and exits when stdin closes; kill if it hangs in an ADS call
