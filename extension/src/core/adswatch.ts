@@ -35,7 +35,7 @@ export function hostStartFailure(helloSeen: boolean, exitCode: number | null, el
   return undefined;
 }
 
-import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES, changeEntries, changesTable } from './scopeChanges';
+import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES, changeEntries, changesTable, edgesTable, relSeconds } from './scopeChanges';
 export { ChangeEntry, ChangeLog, MAX_CHANGE_ENTRIES, MAX_CHANGE_TEXT, CUT_MARK, changeEntries } from './scopeChanges';
 
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
@@ -333,12 +333,6 @@ export function hostNote(state: { connected: boolean; error?: string } | undefin
 /** Most symbols that get a column in the scope table (the summaries cover all of them). */
 export const MAX_SCOPE_COLUMNS = 20;
 
-/** "-9.4" (one decimal, never "-0.0"); seconds relative to `now`. */
-function relSeconds(t: number, now: number): string {
-  const r = ((t - now) / 1000).toFixed(1);
-  return r === '-0.0' ? '0.0' : r;
-}
-
 /** One-line text for a summary: cut at 80 characters with "...", backslash, quote, CR, LF and TAB escaped, quoted when `quote`. */
 const ESCAPES: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\r": "\\r", "\n": "\\n", "\t": "\\t" };
 function shownText(text: string, quote: boolean): string {
@@ -369,7 +363,7 @@ function summaryLine(buf: ScopeBuffer, s: string, seconds: number, now: number, 
 export const UNKNOWN_START = 'unknown (history dropped)';
 
 /** `maxChars` is the budget of the whole text (see assemble); unset means no limit. */
-export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number; changesOnly?: boolean; maxChars?: number }
+export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number; changesOnly?: boolean; edges?: boolean; maxChars?: number }
 
 /** Integers unchanged; other numbers rounded with toFixed(decimals); decimals undefined = String(n). */
 export function formatNumber(n: number, decimals?: number): string {
@@ -420,8 +414,16 @@ function assemble(p: ScopeParts, maxChars: number): string {
   return r.text;
 }
 
+/** Rising and falling edges of BOOL symbols with their times; other symbols are named as ignored. */
+export function edgesText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
+  const from = now - seconds * 1000;
+  const t = edgesTable(symbols.map(name => ({ name, type: buf.typeOf(name), log: buf.changes(name, from) })), { now, seconds, maxRows: opts.maxRows ?? 200 });
+  return assemble({ summaries: t.summaries, notes: t.notes, header: t.header, rows: t.rows, footer: [] }, opts.maxChars ?? Infinity);
+}
+
 // Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
 export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
+  if (opts.edges) return edgesText(buf, symbols, seconds, now, opts);
   const maxRows = opts.maxRows ?? 200;
   const maxColumns = opts.maxColumns ?? MAX_SCOPE_COLUMNS;
   const d = opts.decimals;

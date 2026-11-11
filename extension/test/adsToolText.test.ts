@@ -170,3 +170,14 @@ test('scope without any sample names the host message', () => {
   assert.equal(scopeSummaryText({ buffer: b, symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 1000, clock, state: { connected: false, error: 'boom' } }),
     'No samples yet for a. The values are sampled every 100 ms while the ADS host runs. Last host message: boom');
 });
+
+test('scope summary in edges mode has its own head and closing line', () => {
+  const b = new ScopeBuffer(300);
+  b.setItems(1, [{ symbol: 'GVL.bBusy', type: 'BOOL', numeric: true, error: null }]);
+  b.push(1, [{ t: 0, v: ['FALSE'] }, { t: 1000, v: ['TRUE'] }]);
+  assert.equal(scopeSummaryText({ buffer: b, symbols: ['GVL.bBusy'], seconds: 60, target: 'local', intervalMs: 100, now: 1500, clock, options: { edges: true } }), [
+    'ADS edges of the last 60 s up to the newest sample (target local):',
+    'GVL.bBusy: edges=1 (1 rising, 0 falling), now TRUE', '',
+    't[s]\tsymbol\tedge', '0.000\tGVL.bBusy\trising',
+    'Sampled every 100 ms; edges shorter than one sample are not seen.'].join('\n'));
+});

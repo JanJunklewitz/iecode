@@ -228,3 +228,20 @@ test('the manifest declares the six tools in client-neutral words', () => {
     assert.doesNotMatch(d.description, /Always Allow/, `${d.name} carries a per-client approval detail`);
   }
 });
+
+test('ads_scope passes every new option and never sees an invalid combination', async () => {
+  const seen: unknown[] = [];
+  const r = rig({ scope: i => { seen.push(i); return { text: 'scoped' }; } });
+  const all = await result(r.session.handle(call(30, 'ads_scope', { symbols: ['a'], seconds: 30, maxRows: 5, decimals: 2, edges: true })));
+  assert.equal(all.content[0].text, 'scoped');
+  assert.deepEqual(seen, [{ symbols: ['a'], seconds: 30, maxRows: 5, decimals: 2, edges: true }]);
+  await result(r.session.handle(call(31, 'ads_scope', { changesOnly: true })));
+  assert.deepEqual(seen.at(-1), { symbols: [], changesOnly: true });
+  const before = seen.length;
+  const both = await result(r.session.handle(call(32, 'ads_scope', { edges: true, changesOnly: true })));
+  assert.equal(both.isError, true);
+  assert.match(both.content[0].text, /edges and changesOnly cannot be combined/);
+  const bad = await result(r.session.handle(call(33, 'ads_scope', { maxRows: 'x' })));
+  assert.equal(bad.isError, true);
+  assert.equal(seen.length, before);
+});

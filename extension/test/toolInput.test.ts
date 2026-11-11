@@ -80,3 +80,12 @@ test('toolInput scope changesOnly', () => {
   assert.deepEqual(parseScopeInput({ changesOnly: null }), { ok: true, value: { symbols: [] } });
   assert.deepEqual(parseScopeInput({ changesOnly: 'yes' }), { ok: false, error: 'changesOnly must be true or false' });
 });
+
+test('toolInput scope edges', () => {
+  assert.deepEqual(parseScopeInput({ edges: true }), { ok: true, value: { symbols: [], edges: true } });
+  assert.deepEqual(parseScopeInput({ edges: 1 }), { ok: false, error: 'edges must be true or false' });
+  const both = parseScopeInput({ edges: true, changesOnly: true });
+  assert.equal(both.ok, false);
+  if (!both.ok) assert.match(both.error, /edges and changesOnly cannot be combined/);
+  assert.equal(parseScopeInput({ edges: false, changesOnly: true }).ok, true);
+});

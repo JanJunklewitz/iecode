@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ScopeBuffer, WatchItem, scopeText } from '../src/core/adswatch';
+import { ScopeBuffer, WatchItem, edgesText, scopeText } from '../src/core/adswatch';
 
 const item = (symbol: string): WatchItem => ({ symbol, type: 'INT', numeric: true, error: null });
 const real = (symbol: string): WatchItem => ({ symbol, type: 'REAL', numeric: true, error: null });
@@ -136,4 +136,75 @@ test('summaries beyond 50 symbols are cut last, with a count', () => {
   assert.match(out, /first 20 of 200 symbols/);
   assert.ok(out.includes('GVL.aVeryLongSymbolNameForTheBudgetTest049: min='));
   assert.ok(!out.includes('GVL.aVeryLongSymbolNameForTheBudgetTest050: min='));
+});
+
+test('edgesText lists rising and falling edges of a BOOL', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('MAIN.bBusy')]);
+  b.push(1, at(['FALSE', 'TRUE', 'TRUE', 'FALSE', 'FALSE', 'TRUE']));
+  assert.equal(edgesText(b, ['MAIN.bBusy'], 100, 5000), [
+    'MAIN.bBusy: edges=3 (2 rising, 1 falling), now TRUE', '',
+    't[s]\tsymbol\tedge', '-4.000\tMAIN.bBusy\trising', '-2.000\tMAIN.bBusy\tfalling', '0.000\tMAIN.bBusy\trising'].join('\n'));
+});
+
+test('edgesText says so for a constant BOOL, a non-BOOL, an alias and a symbol without samples', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('GVL.bDone'), item('MAIN.nStep'), bool('GVL.bX'), { symbol: 'GVL.bAlias', type: 'T_Flag', numeric: true, error: null }]);
+  b.push(1, [{ t: 0, v: ['FALSE', '1', null, 'TRUE'] }, { t: 1000, v: ['FALSE', '2', null, 'FALSE'] }]);
+  assert.equal(edgesText(b, ['GVL.bDone', 'MAIN.nStep', 'GVL.bX', 'GVL.bAlias'], 100, 1000), [
+    'GVL.bDone: no edges in the last 100 s, stays FALSE',
+    'MAIN.nStep: not a BOOL, ignored',
+    'GVL.bX: no samples in the last 100 s',
+    'GVL.bAlias: type T_Flag is an alias, not proven BOOL; use ads_read'].join('\n'));
+});
+
+test('edgesText shows the newest edges beyond the row limit', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('GVL.bFlag')]);
+  b.push(1, at(Array.from({ length: 251 }, (_, i) => (i % 2 === 0 ? 'FALSE' : 'TRUE')), 10));
+  const out = edgesText(b, ['GVL.bFlag'], 100, 2500);
+  assert.match(out, /^GVL\.bFlag: edges=250 \(125 rising, 125 falling\), now FALSE$/m);
+  assert.match(out, /^50 earlier edges not shown, narrow seconds or symbols$/m);
+  assert.equal(out.split('\n').filter(l => /\t(rising|falling)$/.test(l)).length, 200);
+  assert.equal(edgesText(b, ['GVL.bFlag'], 100, 2500, { maxRows: 5 }).split('\n').filter(l => /\t(rising|falling)$/.test(l)).length, 5);
+});
+
+test('edgesText cannot date an edge across a read error', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('B')]);
+  b.push(1, at(['FALSE', null, 'TRUE', 'FALSE']));
+  assert.equal(edgesText(b, ['B'], 100, 3000), [
+    'B: edges=2 (1 rising, 1 falling), now FALSE', '',
+    't[s]\tsymbol\tedge', 'unknown between -3.000 and -1.000\tB\trising', '0.000\tB\tfalling'].join('\n'));
+  const failing = new ScopeBuffer(100000);
+  failing.setItems(1, [bool('B')]);
+  failing.push(1, at(['FALSE', 'TRUE', null]));
+  assert.match(edgesText(failing, ['B'], 100, 2000), /^B: edges=1 \(1 rising, 0 falling\), now TRUE reading failed since 0\.0 s$/m);
+});
+
+test('edgesText with a capped log counts retained edges only', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 10);
+  b.setItems(1, [bool('B')]);
+  b.push(1, at(Array.from({ length: 50 }, (_, i) => (i % 2 === 0 ? 'FALSE' : 'TRUE'))));
+  const out = edgesText(b, ['B'], 100, 49000);
+  assert.match(out, /^B: edges>=10 \(5 rising, 5 falling; 10 retained edges, older edges dropped\), now TRUE$/m);
+  assert.equal(out.split('\n').filter(l => /\t(rising|falling)$/.test(l)).length, 10);
+});
+
+test('edgesText keeps the whole answer inside the budget', () => {
+  const names = Array.from({ length: 30 }, (_, i) => `GVL.bFlag${i}`);
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, names.map(bool));
+  b.push(1, Array.from({ length: 50 }, (_, i) => ({ t: i * 1000, v: names.map(() => (i % 2 === 0 ? 'FALSE' : 'TRUE')) })));
+  const out = edgesText(b, names, 100, 49000, { maxRows: 200, maxChars: 4000 });
+  assert.ok(out.length <= 4000, `length ${out.length}`);
+  assert.match(out, /earlier rows not shown \(output size limit\)/);
+  assert.ok(out.includes('GVL.bFlag29: edges=49'));
+});
+
+test('scopeText with edges delegates to the edge list', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('B')]);
+  b.push(1, at(['FALSE', 'TRUE']));
+  assert.equal(scopeText(b, ['B'], 100, 1000, { edges: true }), edgesText(b, ['B'], 100, 1000));
 });

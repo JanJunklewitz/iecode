@@ -1542,6 +1542,10 @@
             "changesOnly": {
               "type": "boolean",
               "description": "One row per value change instead of one per sample; also lists STRING values. Never thinned."
+            },
+            "edges": {
+              "type": "boolean",
+              "description": "List rising and falling edges of BOOL symbols with their times instead of the table; other types are named as ignored. Do not combine with changesOnly."
             }
           }
         }

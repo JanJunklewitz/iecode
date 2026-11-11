@@ -83,8 +83,10 @@ export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; se
   const note = hostNote(o.state, o.ended, o.clock, end);
   if (end === undefined) return `No samples yet for ${o.symbols.join(', ')}. The values are sampled every ${o.intervalMs} ms while the ADS host runs.${note ? ` ${note}` : ''}`;
   const gap = gapNote(end, o.now, o.clock, note);
-  const head = `ADS ${o.options?.changesOnly ? 'value changes' : 'values'} of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
-  return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, { maxChars: SCOPE_TEXT_BUDGET, ...o.options })}`;
+  const view = o.options?.edges ? 'edges' : o.options?.changesOnly ? 'value changes' : 'values';
+  const closing = o.options?.edges ? `\nSampled every ${o.intervalMs} ms; edges shorter than one sample are not seen.` : '';
+  const head = `ADS ${view} of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
+  return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, { maxChars: SCOPE_TEXT_BUDGET, ...o.options })}${closing}`;
 }
 
 export function scopeToolText(summary: string | undefined, unwatched: string[], names: ToolNames): string {
