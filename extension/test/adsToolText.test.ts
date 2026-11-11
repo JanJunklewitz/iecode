@@ -144,6 +144,8 @@ test('scope tool text names the watch tool of the client', () => {
   assert.equal(scopeToolText('S', ['x'], MCP_NAMES), 'Not watched, so no history (add them with ads_watch): x\n\nS');
   assert.equal(scopeToolText('S', [], MCP_NAMES), 'S');
   assert.equal(scopeToolText(undefined, ['x'], MCP_NAMES), 'Not watched, so no history (add them with ads_watch): x');
+  assert.equal(scopeToolText('S', [], MCP_NAMES, ['MAIN.b [group T2]']),
+    'Switched off, so no history (switch the group on with ads_watch: group and enable true): MAIN.b [group T2]\n\nS');
 });
 
 test('scope table keeps 20 symbols', () => {
@@ -185,8 +187,8 @@ test('waitResultText words every outcome', () => {
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: 'eIdle', seconds: 30, seenEnum: ['eIdle', 'eRun'] } }),
     { text: `Not met within 30 s: MAIN.x changes; last value eIdle; enum names seen: eIdle, eRun (a name never seen may be misspelled)\n${sampled}${tl}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'ended', reason: 'host stopped' } }), { text: `Wait ended: host stopped${tl}` });
-  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'refused', reason: 'nope' } }), { text: `Error: nope${tl}`, isError: true });
-  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: `Wait cancelled.${tl}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'refused', reason: 'nope' } }), { text: 'Error: nope', isError: true });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Wait cancelled.' });
   assert.equal(COPILOT_NAMES.wait, 'adsWait');
   assert.equal(MCP_NAMES.wait, 'ads_wait');
 });

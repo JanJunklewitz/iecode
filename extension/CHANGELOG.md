@@ -13,6 +13,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - `ads_watch` can clear everything the AI added (`clearAi`) in one call, and can remove entries you added after you confirm a dialog (`remove` with `force`). Without the confirmation your entries stay.
 - `ads_watch` supports named groups: symbols added with `group` can be switched off (`enable: false`) to keep the sample rate for the few that matter, switched on again, or removed in one call. Only entries the AI added can be in a group; the list shows the switched-off ones.
 - `ads_watch` says once which saved entries no longer resolve on the target (for example after a rebuild renamed a variable), and keeps them in the list.
+- `adsWatch` (Copilot) now checks its arguments like the Claude Code tool does and answers `Invalid arguments: ...` instead of guessing.
 
 ## 0.2.11
 

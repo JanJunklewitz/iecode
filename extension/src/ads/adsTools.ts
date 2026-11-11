@@ -51,7 +51,7 @@ function watchedName(host: AdsHost, symbol: string): string | undefined {
 const CONFIRM_REMOVE_MS = 120_000;
 
 /** The dialog is raced against the call's signal and a timer: VS Code cannot close a modal, so a late answer is ignored. */
-const confirmRemove: ConfirmUserRemoval = (symbols, signal) => new Promise<boolean>(resolve => {
+const askRemoval: ConfirmUserRemoval = (symbols, signal) => new Promise<boolean>(resolve => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   const done = (answer: boolean) => {
@@ -67,6 +67,14 @@ const confirmRemove: ConfirmUserRemoval = (symbols, signal) => new Promise<boole
   timer = setTimeout(() => done(false), CONFIRM_REMOVE_MS);
   vscode.window.showWarningMessage(confirmRemoveText(symbols), { modal: true }, 'Remove').then(a => done(a === 'Remove'), () => done(false));
 });
+
+/** One dialog at a time for MCP and Copilot calls alike; a call that waits its turn with an aborted signal answers "no" without a dialog. */
+let dialogs: Promise<unknown> = Promise.resolve();
+const confirmRemove: ConfirmUserRemoval = (symbols, signal) => {
+  const answer = dialogs.then(() => askRemoval(symbols, signal));
+  dialogs = answer.catch(() => undefined);
+  return answer;
+};
 
 const list = (host: AdsHost) => watchListText(host.items(), host.entries(), host.groupsOff());
 
@@ -155,7 +163,10 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const found = asked.map(s => watchedName(host, s));
       const watched = found.filter((n): n is string => !!n);
       const unwatched = asked.filter((_, i) => !found[i]);
-      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly, edges: input.edges }) : undefined, unwatched, names));
+      const parkedEntries = host.entries().filter(e => e.groups?.length && unwatched.some(u => u.trim().toLowerCase() === e.symbol.toLowerCase()));
+      const parkedNames = new Set(parkedEntries.map(e => e.symbol.toLowerCase()));
+      const parked = parkedEntries.map(e => `${e.symbol} [group ${e.groups?.join(', ')}]`);
+      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly, edges: input.edges }) : undefined, unwatched.filter(u => !parkedNames.has(u.trim().toLowerCase())), names, parked));
     },
 
     async wait(input: WaitInput, signal: AbortSignal): Promise<ToolText> {
@@ -169,9 +180,11 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
         wallMs: () => Date.now(),
         setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
       };
+      // the target the wait started on: a settings change during the wait must not be named as its target
+      const target = host.target();
       // the host keeps running for the whole wait, whatever way it ends
       const outcome = await leased(host, () => runWait(deps, input, signal));
-      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target: host.target() });
+      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target });
       return { ...r, text: capText(r.text) };
     },
   };

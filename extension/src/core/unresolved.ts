@@ -4,6 +4,9 @@ import type { WatchItem } from './adswatch';
 
 export interface UnresolvedEntry { symbol: string; error: string }
 
+/** The host's text for a symbol the target does not know ("Symbol 'x' not found on ..."); no connection or a timeout is not this. */
+const NOT_FOUND = /not found/i;
+
 export class UnresolvedNotes {
   private readonly reported = new Set<string>();
 
@@ -13,7 +16,7 @@ export class UnresolvedNotes {
    * so it is reported again if it breaks again.
    */
   take(items: WatchItem[], exclude: string[] = []): UnresolvedEntry[] {
-    const broken = new Map(items.filter(i => i.error).map(i => [i.symbol.toLowerCase(), i]));
+    const broken = new Map(items.filter(i => i.error && NOT_FOUND.test(i.error)).map(i => [i.symbol.toLowerCase(), i]));
     for (const k of [...this.reported]) if (!broken.has(k)) this.reported.delete(k);
     const skip = new Set(exclude.map(e => e.trim().toLowerCase()));
     const out: UnresolvedEntry[] = [];

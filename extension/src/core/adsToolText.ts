@@ -170,8 +170,9 @@ export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; se
   return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, { maxChars: SCOPE_TEXT_BUDGET, ...o.options })}${closing}`;
 }
 
-export function scopeToolText(summary: string | undefined, unwatched: string[], names: ToolNames): string {
+export function scopeToolText(summary: string | undefined, unwatched: string[], names: ToolNames, parked: string[] = []): string {
   const lines: string[] = [];
+  if (parked.length) lines.push(`Switched off, so no history (switch the group on with ${names.watch}: group and enable true): ${parked.join(', ')}`);
   if (unwatched.length) lines.push(`Not watched, so no history (add them with ${names.watch}): ${unwatched.join(', ')}`);
   if (summary) lines.push(summary);
   return lines.join('\n\n');
@@ -193,7 +194,7 @@ export function waitResultText(o: { symbol: string; condition: WaitCondition; ou
       return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}${seen}\n${sampled}${tl}` };
     }
     case 'ended': return { text: `Wait ended: ${out.reason}${tl}` };
-    case 'refused': return { text: `Error: ${out.reason}${tl}`, isError: true };
-    case 'cancelled': return { text: `Wait cancelled.${tl}` };
+    case 'refused': return { text: `Error: ${out.reason}`, isError: true };
+    case 'cancelled': return { text: 'Wait cancelled.' };
   }
 }
