@@ -35,6 +35,9 @@ export function hostStartFailure(helloSeen: boolean, exitCode: number | null, el
   return undefined;
 }
 
+import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES } from './scopeChanges';
+export { ChangeEntry, ChangeLog, MAX_CHANGE_ENTRIES, MAX_CHANGE_TEXT, CUT_MARK, changeEntries } from './scopeChanges';
+
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 const TIMESPAN = /^(-)?(?:(\d+)\.)?(\d+):(\d{2}):(\d{2})(?:\.(\d+))?$/;
 
@@ -69,9 +72,11 @@ export class ScopeBuffer {
   private series_ = new Map<string, Point[]>();
   private latest_ = new Map<string, { t: number; value: string | null }>();
   private newest = -Infinity;
+  private readonly log: ChangeLogStore;
 
-  constructor(seconds: number, private readonly maxValues = 2_000_000) {
+  constructor(seconds: number, private readonly maxValues = 2_000_000, maxChanges = MAX_CHANGE_ENTRIES) {
     this.ms = seconds * 1000;
+    this.log = new ChangeLogStore(maxChanges);
   }
 
   setSeconds(seconds: number): void {
@@ -91,6 +96,7 @@ export class ScopeBuffer {
     const keep = new Set(items.map(i => i.symbol));
     for (const k of [...this.series_.keys()]) if (!keep.has(k)) this.series_.delete(k);
     for (const k of [...this.latest_.keys()]) if (!keep.has(k)) this.latest_.delete(k);
+    this.log.keepOnly(keep);
     this.trim();
   }
 
@@ -101,6 +107,7 @@ export class ScopeBuffer {
       this.items.forEach((it, i) => {
         const text = r.v[i] ?? null;
         this.latest_.set(it.symbol, { t: r.t, value: text });
+        this.log.add(it.symbol, r.t, text);
         const e = r.e?.[i];
         const y = it.numeric || (e !== undefined && e !== null) ? numericValue(text, e) : undefined;
         if (y === undefined) return;
@@ -116,11 +123,28 @@ export class ScopeBuffer {
   clear(): void {
     this.series_.clear();
     this.latest_.clear();
+    this.log.clear();
     this.newest = -Infinity;
   }
 
   latest(symbol: string): { t: number; value: string | null } | undefined {
     return this.latest_.get(symbol);
+  }
+
+  /** The type name of the current item. */
+  typeOf(symbol: string): string | undefined {
+    return this.items.find(i => i.symbol === symbol)?.type;
+  }
+
+  /** An item the host does not report as numeric is shown as text, whatever its type name (aliases included). */
+  isText(symbol: string): boolean {
+    const it = this.items.find(i => i.symbol === symbol);
+    return it !== undefined && !it.numeric;
+  }
+
+  /** Changes of the symbol since fromMs; a window longer than the buffer is clamped to the buffer, like the numeric series. */
+  changes(symbol: string, fromMs: number): ChangeLog {
+    return this.log.changes(symbol, fromMs, this.newest, this.ms);
   }
 
   series(symbol: string, fromMs: number): Point[] {
@@ -144,6 +168,7 @@ export class ScopeBuffer {
       n = Math.max(n, s.length - cap);
       if (n > 0) s.splice(0, n);
     }
+    this.log.trim(this.newest, this.ms, this.items.length);
   }
 }
 

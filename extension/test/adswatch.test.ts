@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, changeEntries, CUT_MARK, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -488,4 +488,124 @@ test('scopeText decimals handles tiny and negative-zero values', () => {
   assert.equal(formatNumber(1e-7, 3), '0.000');
   assert.equal(formatNumber(-0.001, 2), '0.00');
   assert.equal(formatValueText('1e-7', 2), '0.00');
+});
+
+const textItem = (symbol: string): WatchItem => ({ symbol, type: 'STRING(80)', numeric: false, error: null });
+const at = (values: (string | null)[], step = 1000) => values.map((v, i) => ({ t: i * step, v: [v] }));
+
+test('change log keeps the first sample and every change, nothing else', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['0', '0', '1', '1', '2']));
+  const log = b.changes('S', 0);
+  assert.deepEqual(log.entries, [{ t: 0, text: '0', first: true }, { t: 2000, text: '1' }, { t: 4000, text: '2' }]);
+  assert.equal(log.start, undefined);
+  assert.equal(log.startUnknown, false);
+  assert.equal(log.olderDropped, false);
+  assert.equal(changeEntries(log).length, 2);
+});
+
+test('a null sample is no change and does not reset the comparison', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['1', null, '1', '2']));
+  assert.deepEqual(b.changes('S', 0).entries, [{ t: 0, text: '1', first: true }, { t: 3000, text: '2' }]);
+});
+
+test('the log keeps one predecessor so the window start value is known', () => {
+  const b = new ScopeBuffer(10);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 31 }, (_, i) => (i < 5 ? '0' : i < 25 ? '7' : '1'))));
+  const log = b.changes('S', 20000);
+  assert.deepEqual(log.start, { t: 5000, text: '7' });
+  assert.deepEqual(log.entries, [{ t: 25000, text: '1' }]);
+  assert.equal(log.startUnknown, false);
+  assert.equal(log.coveredFromMs, 20000);
+});
+
+test('a change exactly at the window start is an entry, its predecessor the start', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['0', '0', '1', '1']));
+  const log = b.changes('S', 2000);
+  assert.deepEqual(log.start, { t: 0, text: '0', first: true });
+  assert.deepEqual(log.entries, [{ t: 2000, text: '1' }]);
+});
+
+test('the entry cap drops the oldest entries and says so', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 10);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 50 }, (_, i) => String(i))));
+  const log = b.changes('S', 0);
+  assert.equal(log.entries.length, 10);
+  assert.equal(log.entries.at(-1)!.text, '49');
+  assert.equal(log.olderDropped, true);
+  assert.equal(log.startUnknown, true);
+  assert.equal(log.coveredFromMs, 40000);
+  assert.equal(changeEntries(log).length, 10);
+});
+
+test('the entry cap is split over the watched symbols', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 20);
+  b.setItems(1, [item('A'), item('B')]);
+  b.push(1, Array.from({ length: 50 }, (_, i) => ({ t: i * 1000, v: [String(i), 'x'] })));
+  assert.equal(b.changes('A', 0).entries.length, 10);
+  assert.equal(b.changes('B', 0).entries.length, 1);
+});
+
+test('long texts are stored cut but compared in full', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [textItem('S')]);
+  const a = 'x'.repeat(256);
+  b.push(1, at([a + 'a', a + 'a', a + 'b', 'short']));
+  const e = b.changes('S', 0).entries;
+  assert.equal(e.length, 3);
+  assert.equal(e[0].text, a + CUT_MARK);
+  assert.equal(e[1].text, a + CUT_MARK);
+  assert.equal(e[2].text, 'short');
+});
+
+test('setItems drops the log of a removed symbol and clear drops all logs', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('A'), item('B')]);
+  b.push(1, [{ t: 0, v: ['1', '2'] }, { t: 1000, v: ['3', '4'] }]);
+  b.setItems(2, [item('A')]);
+  assert.equal(b.changes('B', 0).entries.length, 0);
+  assert.equal(b.changes('A', 0).entries.length, 2);
+  b.clear();
+  assert.equal(b.changes('A', 0).entries.length, 0);
+  b.push(2, [{ t: 5000, v: ['3'] }]);
+  assert.deepEqual(b.changes('A', 0).entries, [{ t: 5000, text: '3', first: true }]);
+});
+
+test('a request longer than the buffer is clamped and says what the log covers', () => {
+  const b = new ScopeBuffer(10);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 31 }, (_, i) => String(i % 2))));
+  const log = b.changes('S', -1_000_000);
+  assert.equal(log.coveredFromMs, 20000);
+  assert.deepEqual(log.start, { t: 19000, text: '1' });
+});
+
+test('shrinking the window trims the log and growing it again does not bring history back', () => {
+  const b = new ScopeBuffer(100);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 31 }, (_, i) => String(i))));
+  b.setSeconds(10);
+  assert.equal(b.changes('S', 0).entries.length, 11);
+  b.setSeconds(100);
+  const log = b.changes('S', 0);
+  assert.equal(log.entries.length, 12);   // the 11 in the window plus the kept predecessor
+  assert.equal(log.coveredFromMs, 20000);
+});
+
+test('isText follows numeric, not the type name; typeOf follows the item', () => {
+  const b = new ScopeBuffer(100);
+  b.setItems(1, [textItem('S'), item('N'), { symbol: 'A', type: 'T_Alias', numeric: false, error: null }]);
+  assert.equal(b.isText('S'), true);
+  assert.equal(b.isText('A'), true);
+  assert.equal(b.isText('N'), false);
+  assert.equal(b.isText('nope'), false);
+  assert.equal(b.typeOf('N'), 'INT');
+  assert.equal(b.typeOf('nope'), undefined);
 });
