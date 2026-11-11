@@ -92,7 +92,7 @@ Shared files that force sequential merges: `adsToolText.ts`, `toolInput.ts`, `pa
 
 - Wishlist rows changed from New or Planned to Done, with the test names in the table.
 - `npm test` green; `dotnet test` green for CLI tasks.
-- A manual check against a simulation target for every tool that changed, recorded in the PR (the `ads_wait` live check is still open and is done together with Plan A).
+- A manual check against a simulation target for every tool that changed, recorded in the PR (done for Plan A and `ads_wait` on 2026-11-11 against a simulation: changesOnly, edges, maxRows, decimals, the stall note and `ads_wait` changes and timeout all behaved as specified; open observation: `changesOnly` has no row limit per fast-changing column, e.g. a TIME elapsed counter fills all 200 rows).
 - CHANGELOG entry per user-visible change.
 
 ## First action
