@@ -20,7 +20,7 @@ test('watch list text marks who added the entries', () => {
 });
 
 const none = { added: [], already: [], removed: [], kept: [], held: [], missing: [], declined: [] };
-const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none, target: 'local' };
+const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none, target: 'local', parked: 0 };
 
 test('watch result: a diff names only what changed, plus the count', () => {
   assert.equal(watchResultText({ ...wbase, result: { ...none, added: ['MAIN.a', 'MAIN.b'], removed: ['MAIN.c'] } }),
@@ -58,6 +58,25 @@ test('confirmRemoveText lists the entries and cuts a long list', () => {
 test('watch result: a declined removal has its own line', () => {
   assert.equal(watchResultText({ ...wbase, result: { ...none, declined: ['U'], removed: ['A'] } }),
     'Removed: A\nNot removed (the user did not confirm): U\nWatch list: 3 symbols\nADS target: local');
+});
+
+test('watch result: group lines', () => {
+  const r = { ...none, declined: [], added: ['a'], grouped: ['a'], ungrouped: ['U'], switchedOn: true };
+  assert.equal(watchResultText({ ...wbase, group: 'T1', parked: 2, result: r }),
+    'Added: a\nGroup T1: a\nGroup T1 switched on (it was off)\nNot grouped (added by the user): U\nWatch list: 3 symbols, 2 switched off\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
+  const op = (action: 'on' | 'off' | 'removed' | 'none') => watchResultText({ ...wbase, parked: 0, result: { ...none, declined: [], grouped: [], ungrouped: [], switchedOn: false, groupOp: { name: 'T1', action, members: 3 } } });
+  assert.equal(op('on'), 'Group T1 switched on (3 symbols)\nWatch list: 3 symbols\nADS target: local');
+  assert.equal(op('off'), 'Group T1 switched off (3 symbols, not sampled now)\nWatch list: 3 symbols\nADS target: local');
+  assert.equal(op('removed'), 'Group T1 removed\nWatch list: 3 symbols\nADS target: local');
+  assert.equal(op('none'), 'No group named T1\nWatch list: 3 symbols\nADS target: local');
+});
+
+test('the full list shows groups and the parked entries; without groups it is unchanged', () => {
+  const entries = [{ symbol: 'MAIN.a', ai: true, groups: ['T1'] }, { symbol: 'MAIN.b', ai: true, groups: ['T2'] }];
+  assert.equal(watchListText([item('MAIN.a')], entries, ['t2']),
+    'MAIN.a : INT [added by AI] [group T1]\nSwitched off (not sampled): MAIN.b [group T2]\nGroups: T1 on (1), T2 off (1)');
+  assert.equal(watchListText([], entries.slice(1), ['t2']),
+    'The ADS watch list is empty.\nSwitched off (not sampled): MAIN.b [group T2]\nGroups: T2 off (1)');
 });
 
 test('addErrorLines names the stored spelling of added symbols with an error', () => {

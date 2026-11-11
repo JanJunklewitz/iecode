@@ -8,9 +8,18 @@ import type { WatchRequest } from './toolInput';
 /** Asks the user once to remove these entries they added; true = yes. */
 export type ConfirmUserRemoval = (symbols: string[], signal: AbortSignal) => Promise<boolean>;
 
-export interface WatchRunResult extends AiEditResult { declined: string[] }
+export interface GroupOp { name: string; action: 'on' | 'off' | 'removed' | 'none'; members: number }
+
+export interface WatchRunResult extends AiEditResult { declined: string[]; groupOp?: GroupOp }
 
 export async function runWatchRequest(list: WatchList, req: WatchRequest, confirm: ConfirmUserRemoval, signal: AbortSignal): Promise<WatchRunResult> {
+  if (req.removeGroup && req.group !== undefined) {
+    const g = await list.removeGroup(req.group);
+    return {
+      added: [], already: [], removed: g.removed, kept: [], held: g.held, missing: [], declined: [],
+      groupOp: { name: req.group, action: g.found ? 'removed' : 'none', members: g.removed.length + g.held.length },
+    };
+  }
   let removeUser: string[] = [];
   let declined: string[] = [];
   if (req.force && req.remove.length) {
@@ -21,7 +30,12 @@ export async function runWatchRequest(list: WatchList, req: WatchRequest, confir
       if (yes) removeUser = owned; else declined = owned;
     }
   }
-  const r = await list.aiEdit(req.add, req.remove, { removeUser, clearAi: req.clearAi });
+  const r = await list.aiEdit(req.add, req.remove, { removeUser, clearAi: req.clearAi, group: req.group });
   const refused = new Set(declined.map(d => d.toLowerCase()));
-  return { ...r, kept: r.kept.filter(k => !refused.has(k.toLowerCase())), declined };
+  const out: WatchRunResult = { ...r, kept: r.kept.filter(k => !refused.has(k.toLowerCase())), declined };
+  if (req.enable !== undefined && req.group !== undefined) {
+    const g = await list.setGroup(req.group, req.enable);
+    out.groupOp = { name: req.group, action: g.found ? (req.enable ? 'on' : 'off') : 'none', members: g.members };
+  }
+  return out;
 }

@@ -11,6 +11,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - `ads_watch` (Copilot: `adsWatch`) answers an add or remove with only what changed and the count (`Watch list: 57 symbols`) instead of the whole list; call it with no arguments or `list: true` for the full list.
 - Results of `ads_watch`, `ads_write` and `ads_wait` end with the line `ADS target: <target>`, so a result always says which PLC it came from.
 - `ads_watch` can clear everything the AI added (`clearAi`) in one call, and can remove entries you added after you confirm a dialog (`remove` with `force`). Without the confirmation your entries stay.
+- `ads_watch` supports named groups: symbols added with `group` can be switched off (`enable: false`) to keep the sample rate for the few that matter, switched on again, or removed in one call. Only entries the AI added can be in a group; the list shows the switched-off ones.
 
 ## 0.2.11
 

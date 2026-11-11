@@ -5,6 +5,7 @@ import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hos
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
 import type { WatchRunResult } from './watchRequest';
+import { groupSummaries, isActive } from './watchGroups';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
 export interface ToolNames { watch: string; scope: string; write: string; wait: string }
@@ -26,10 +27,22 @@ export function capText(text: string, limit = MAX_TOOL_TEXT): string {
   return `${text.slice(0, room)}\n${TRUNCATED}`.slice(0, limit);
 }
 
-export function watchListText(items: WatchItem[], entries: WatchEntry[]): string {
-  if (!items.length) return 'The ADS watch list is empty.';
-  const ai = new Set(entries.filter(e => e.ai).map(e => e.symbol.toLowerCase()));
-  return items.map(i => `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${i.error})` : ''}${ai.has(i.symbol.toLowerCase()) ? ' [added by AI]' : ' [added by the user]'}`).join('\n');
+/** The full list. `off` holds the keys of switched-off groups; their entries are listed apart, not sampled. */
+export function watchListText(items: WatchItem[], entries: WatchEntry[], off: readonly string[] = []): string {
+  const byName = new Map(entries.map(e => [e.symbol.toLowerCase(), e]));
+  const label = (e: WatchEntry | undefined) => (e?.groups?.length ? ` [group ${e.groups.join(', ')}]` : '');
+  const lines = items.length
+    ? items.map(i => {
+      const e = byName.get(i.symbol.toLowerCase());
+      return `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${i.error})` : ''}${e?.ai ? ' [added by AI]' : ' [added by the user]'}${label(e)}`;
+    })
+    : ['The ADS watch list is empty.'];
+  const shown = new Set(items.map(i => i.symbol.toLowerCase()));
+  const parked = entries.filter(e => !shown.has(e.symbol.toLowerCase()) && !isActive(e, off));
+  if (parked.length) lines.push(`Switched off (not sampled): ${parked.map(e => `${e.symbol}${label(e)}`).join(', ')}`);
+  const groups = groupSummaries(entries, off);
+  if (groups.length) lines.push(`Groups: ${groups.map(g => `${g.name} ${g.on ? 'on' : 'off'} (${g.count})`).join(', ')}`);
+  return lines.join('\n');
 }
 
 export const targetLine = (target: string): string => `ADS target: ${target}`;
@@ -39,6 +52,10 @@ export const targetOfKey = (key: string): string => (key.endsWith(':851') ? key.
 
 export interface WatchResultInput {
   target: string;
+  /** Name of the group of an add with `group`. */
+  group?: string;
+  /** Entries in the list that are not sampled (switched-off groups). */
+  parked: number;
   full: boolean;
   list: string;
   result: WatchRunResult;
@@ -73,8 +90,19 @@ export function watchResultText(o: WatchResultInput): string {
   if (r.kept.length) lines.push(`Not removed (added by the user, only the user can remove them): ${r.kept.join(', ')}`);
   if (r.declined.length) lines.push(`Not removed (the user did not confirm): ${r.declined.join(', ')}`);
   if (r.held.length) lines.push(`Kept until a running wait ends: ${r.held.join(', ')}`);
+  if (r.grouped?.length) lines.push(`Group ${o.group}: ${r.grouped.join(', ')}`);
+  if (r.switchedOn) lines.push(`Group ${o.group} switched on (it was off)`);
+  if (r.ungrouped?.length) lines.push(`Not grouped (added by the user): ${r.ungrouped.join(', ')}`);
+  const op = r.groupOp;
+  const symbols = (n: number) => `${n} symbol${n === 1 ? '' : 's'}`;
+  if (op) {
+    if (op.action === 'on') lines.push(`Group ${op.name} switched on (${symbols(op.members)})`);
+    else if (op.action === 'off') lines.push(`Group ${op.name} switched off (${symbols(op.members)}, not sampled now)`);
+    else if (op.action === 'removed') lines.push(`Group ${op.name} removed`);
+    else lines.push(`No group named ${op.name}`);
+  }
   for (const e of o.addErrors) lines.push(`Error: ${e}`);
-  lines.push(o.full ? o.list : `Watch list: ${o.count} symbol${o.count === 1 ? '' : 's'}`);
+  lines.push(o.full ? o.list : `Watch list: ${symbols(o.count)}${o.parked > 0 ? `, ${o.parked} switched off` : ''}`);
   if (r.added.length) lines.push(`New values arrive every ${o.intervalMs} ms; use ${o.names.scope} for the history.`);
   lines.push(targetLine(o.target));
   return lines.join('\n');

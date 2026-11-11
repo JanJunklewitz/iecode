@@ -113,3 +113,22 @@ test('parseWatchInput reads force and clearAi with their rules', () => {
   assert.deepEqual(parseWatchInput({ clearAi: true, add: ['a'] }), { ok: false, error: 'clearAi cannot be combined with add or remove' });
   assert.equal(wantsFullList({ add: [], remove: [], clearAi: true }), false);
 });
+
+test('parseWatchInput reads the group fields and rejects contradictory ones', () => {
+  assert.deepEqual(parseWatchInput({ add: ['a'], group: ' T1 ' }), { ok: true, value: { add: ['a'], remove: [], group: 'T1' } });
+  assert.deepEqual(parseWatchInput({ group: 'T1', enable: false }), { ok: true, value: { add: [], remove: [], group: 'T1', enable: false } });
+  assert.deepEqual(parseWatchInput({ group: 'T1', removeGroup: true }), { ok: true, value: { add: [], remove: [], group: 'T1', removeGroup: true } });
+  const bad = (raw: unknown, error: string) => assert.deepEqual(parseWatchInput(raw), { ok: false, error });
+  bad({ enable: true }, 'enable needs group');
+  bad({ removeGroup: true }, 'removeGroup needs group');
+  bad({ group: 'T1', enable: true, removeGroup: true }, 'enable and removeGroup cannot be combined');
+  bad({ group: 'T1', removeGroup: true, add: ['a'] }, 'removeGroup cannot be combined with add or remove');
+  bad({ group: 'T1', remove: ['a'] }, 'group cannot be combined with remove; use removeGroup to remove a whole group');
+  bad({ group: 'T1' }, 'group needs add, enable or removeGroup');
+  bad({ group: ' ', add: ['a'] }, 'group must not be blank');
+  bad({ group: 'T1', add: ['a'], clearAi: true }, 'clearAi cannot be combined with add, remove or group');
+});
+
+test('wantsFullList is false for a group operation', () => {
+  assert.equal(wantsFullList({ add: [], remove: [], group: 'T1', enable: false }), false);
+});

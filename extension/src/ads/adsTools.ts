@@ -68,7 +68,7 @@ const confirmRemove: ConfirmUserRemoval = (symbols, signal) => new Promise<boole
   vscode.window.showWarningMessage(confirmRemoveText(symbols), { modal: true }, 'Remove').then(a => done(a === 'Remove'), () => done(false));
 });
 
-const list = (host: AdsHost) => watchListText(host.items(), host.entries());
+const list = (host: AdsHost) => watchListText(host.items(), host.entries(), host.groupsOff());
 
 /** Summary and table of the symbols over the last seconds, up to their newest sample. */
 export function scopeSummary(host: AdsHost, symbols: string[], seconds: number, options: ScopeOptions = {}): string {
@@ -118,7 +118,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       }
       const taken = result.removed.filter(r => owned.has(r.toLowerCase())).length;
       if (taken) output.info(`AI removed ${taken} variable${taken === 1 ? '' : 's'} the user added (confirmed)`);
-      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, intervalMs: host.sampling().intervalMs, names, target: host.target() }));
+      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {
