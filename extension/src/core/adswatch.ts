@@ -346,9 +346,10 @@ function summaryLine(buf: ScopeBuffer, s: string, seconds: number, now: number, 
   const log = buf.changes(s, now - seconds * 1000);
   const ch = changeEntries(log);
   const newest = log.entries.at(-1) ?? log.start;
+  const when = (e: { t: number; after?: number }) => (e.after === undefined ? `${relSeconds(e.t, now)} s` : `unknown (between ${relSeconds(e.after, now)} and ${relSeconds(e.t, now)} s)`);
   const times = ch.length === 0 ? '' : log.olderDropped
-    ? ` (older changes dropped; first retained at ${relSeconds(ch[0].t, now)} s, last at ${relSeconds(ch[ch.length - 1].t, now)} s)`
-    : ` (first at ${relSeconds(ch[0].t, now)} s, last at ${relSeconds(ch[ch.length - 1].t, now)} s)`;
+    ? ` (older changes dropped; first retained at ${when(ch[0])}, last at ${when(ch[ch.length - 1])})`
+    : ` (first at ${when(ch[0])}, last at ${when(ch[ch.length - 1])})`;
   const count = `changes${log.olderDropped ? '>=' : '='}${ch.length}`;
   const failed = log.failedSince === undefined ? '' : ` reading failed since ${relSeconds(log.failedSince, now)} s (last valid at ${relSeconds(log.lastValidT ?? log.failedSince, now)} s)`;
   if (sum) {
@@ -374,7 +375,7 @@ export function formatNumber(n: number, decimals?: number): string {
 
 /** A numeric text with a fraction or exponent is rounded to `decimals`; everything else (also null) is returned as is. */
 export function formatValueText(text: string | null, decimals?: number): string | null {
-  if (text === null || decimals === undefined || !NUMBER.test(text)) return text;
+  if (text === null || decimals === undefined || !NUMBER.test(text) || /^[+-]?\d+$/.test(text)) return text;
   return formatNumber(Number(text), decimals);
 }
 
@@ -396,8 +397,13 @@ function joinParts(p: ScopeParts, summaries: string[], notes: string[], rows: st
  */
 function assemble(p: ScopeParts, maxChars: number): string {
   const whole = joinParts(p, p.summaries, p.notes, p.rows);
-  if (whole.length <= maxChars || p.header === undefined) return whole;
+  if (whole.length <= maxChars) return whole;
   let summaries = p.summaries;
+  const cutSummaries = () => [...summaries.slice(0, MAX_BUDGET_SUMMARIES), `(${summaries.length - MAX_BUDGET_SUMMARIES} more summaries not shown: output size limit)`];
+  if (p.header === undefined) {
+    if (summaries.length > MAX_BUDGET_SUMMARIES) summaries = cutSummaries();
+    return summaries.join('\n');
+  }
   const fit = (): { text: string; kept: number } => {
     const note = (n: number) => `${n} earlier rows not shown (output size limit), narrow seconds or symbols`;
     const base = joinParts(p, summaries, [...p.notes, note(p.rows.length)], []).length;
@@ -408,7 +414,7 @@ function assemble(p: ScopeParts, maxChars: number): string {
   };
   let r = fit();
   if (r.text.length > maxChars && summaries.length > MAX_BUDGET_SUMMARIES) {
-    summaries = [...summaries.slice(0, MAX_BUDGET_SUMMARIES), `(${summaries.length - MAX_BUDGET_SUMMARIES} more summaries not shown: output size limit)`];
+    summaries = cutSummaries();
     r = fit();
   }
   return r.text;
@@ -417,7 +423,7 @@ function assemble(p: ScopeParts, maxChars: number): string {
 /** Rising and falling edges of BOOL symbols with their times; other symbols are named as ignored. */
 export function edgesText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
   const from = now - seconds * 1000;
-  const t = edgesTable(symbols.map(name => ({ name, type: buf.typeOf(name), log: buf.changes(name, from) })), { now, seconds, maxRows: opts.maxRows ?? 200 });
+  const t = edgesTable(symbols.map(name => ({ name, type: buf.typeOf(name), log: buf.changes(name, from) })), { now, seconds, requestedStart: from, maxRows: opts.maxRows ?? 200 });
   return assemble({ summaries: t.summaries, notes: t.notes, header: t.header, rows: t.rows, footer: [] }, opts.maxChars ?? Infinity);
 }
 
@@ -446,7 +452,7 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
   // A column that changes in more than a quarter of maxRows places is a continuous signal: its changes are not
   // events, so it is thinned evenly; the other columns keep every change.
   const changeCount = (m: Map<number, number>) => times.reduce((n, t, i) => n + (i > 0 && m.get(t) !== m.get(times[i - 1]) ? 1 : 0), 0);
-  const fast = shownMaps.map(m => changeCount(m) > maxRows / 4);
+  const fast = shownMaps.map(m => changeCount(m) > Math.max(maxRows / 4, 10));
   const slowMaps = shownMaps.filter((_, i) => !fast[i]);
   const thin = thinKeepingChanges(times, maxRows, (a, b) => slowMaps.some(m => m.get(a) !== m.get(b)));
   const rowsShown = thin.droppedChanges === 0 && fast.some(Boolean) ? fillEvenly(times, thin.rows, maxRows) : thin.rows;

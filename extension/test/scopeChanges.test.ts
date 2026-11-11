@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ScopeBuffer, WatchItem, edgesText, scopeText } from '../src/core/adswatch';
+import { ScopeBuffer, WatchItem, edgesText, formatValueText, scopeText } from '../src/core/adswatch';
 
 const item = (symbol: string): WatchItem => ({ symbol, type: 'INT', numeric: true, error: null });
 const real = (symbol: string): WatchItem => ({ symbol, type: 'REAL', numeric: true, error: null });
@@ -142,7 +142,7 @@ test('edgesText lists rising and falling edges of a BOOL', () => {
   const b = new ScopeBuffer(100000);
   b.setItems(1, [bool('MAIN.bBusy')]);
   b.push(1, at(['FALSE', 'TRUE', 'TRUE', 'FALSE', 'FALSE', 'TRUE']));
-  assert.equal(edgesText(b, ['MAIN.bBusy'], 100, 5000), [
+  assert.equal(edgesText(b, ['MAIN.bBusy'], 5, 5000), [
     'MAIN.bBusy: edges=3 (2 rising, 1 falling), now TRUE', '',
     't[s]\tsymbol\tedge', '-4.000\tMAIN.bBusy\trising', '-2.000\tMAIN.bBusy\tfalling', '0.000\tMAIN.bBusy\trising'].join('\n'));
 });
@@ -151,10 +151,10 @@ test('edgesText says so for a constant BOOL, a non-BOOL, an alias and a symbol w
   const b = new ScopeBuffer(100000);
   b.setItems(1, [bool('GVL.bDone'), item('MAIN.nStep'), bool('GVL.bX'), { symbol: 'GVL.bAlias', type: 'T_Flag', numeric: true, error: null }]);
   b.push(1, [{ t: 0, v: ['FALSE', '1', null, 'TRUE'] }, { t: 1000, v: ['FALSE', '2', null, 'FALSE'] }]);
-  assert.equal(edgesText(b, ['GVL.bDone', 'MAIN.nStep', 'GVL.bX', 'GVL.bAlias'], 100, 1000), [
-    'GVL.bDone: no edges in the last 100 s, stays FALSE',
+  assert.equal(edgesText(b, ['GVL.bDone', 'MAIN.nStep', 'GVL.bX', 'GVL.bAlias'], 1, 1000), [
+    'GVL.bDone: no edges in the last 1 s, stays FALSE',
     'MAIN.nStep: not a BOOL, ignored',
-    'GVL.bX: no samples in the last 100 s',
+    'GVL.bX: no samples in the last 1 s',
     'GVL.bAlias: type T_Flag is an alias, not proven BOOL; use ads_read'].join('\n'));
 });
 
@@ -173,7 +173,7 @@ test('edgesText cannot date an edge across a read error', () => {
   const b = new ScopeBuffer(100000);
   b.setItems(1, [bool('B')]);
   b.push(1, at(['FALSE', null, 'TRUE', 'FALSE']));
-  assert.equal(edgesText(b, ['B'], 100, 3000), [
+  assert.equal(edgesText(b, ['B'], 3, 3000), [
     'B: edges=2 (1 rising, 1 falling), now FALSE', '',
     't[s]\tsymbol\tedge', 'unknown between -3.000 and -1.000\tB\trising', '0.000\tB\tfalling'].join('\n'));
   const failing = new ScopeBuffer(100000);
@@ -207,4 +207,53 @@ test('scopeText with edges delegates to the edge list', () => {
   b.setItems(1, [bool('B')]);
   b.push(1, at(['FALSE', 'TRUE']));
   assert.equal(scopeText(b, ['B'], 100, 1000, { edges: true }), edgesText(b, ['B'], 100, 1000));
+});
+
+test('decimals never touches an integer text, however large', () => {
+  assert.equal(formatValueText('18446744073709551615', 2), '18446744073709551615');
+  assert.equal(formatValueText('-5', 2), '-5');
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [{ symbol: 'U', type: 'ULINT', numeric: true, error: null }]);
+  b.push(1, [{ t: 0, v: ['9007199254740993'] }, { t: 1000, v: ['18446744073709551615'] }]);
+  const out = scopeText(b, ['U'], 100000, 1000, { changesOnly: true, decimals: 2 });
+  assert.deepEqual(dataRows(out), ['-1.000\t9007199254740993', '0.000\t18446744073709551615']);
+  assert.ok(out.includes('last=18446744073709551615'));
+});
+
+test('the budget also cuts summaries when there is no table', () => {
+  const names = Array.from({ length: 200 }, (_, i) => `GVL.aVeryLongSymbolNameForTheBudgetTest${String(i).padStart(3, '0')}`);
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, names.map(item));
+  b.push(1, [{ t: 0, v: names.map(() => '1') }]);
+  const out = edgesText(b, names, 100, 0, { maxChars: 6000 });
+  assert.ok(out.length <= 6000, `length ${out.length}`);
+  assert.match(out, /^\(150 more summaries not shown: output size limit\)$/m);
+});
+
+test('a small maxRows does not turn a step counter into a fast-changing column', () => {
+  const steps = [0, 7, 14, 21, 28, 35, 42, 49];
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.nStep')]);
+  b.push(1, Array.from({ length: 1000 }, (_, i) => ({ t: i * 10, v: [String(steps[Math.min(7, Math.floor(i / 125))])] })));
+  const out = scopeText(b, ['MAIN.nStep'], 100000, 9990, { maxRows: 20 });
+  assert.doesNotMatch(out, /fast-changing/);
+  assert.deepEqual([...new Set(dataRows(out).map(l => l.split('\t')[1]))], steps.map(String));
+});
+
+test('a change across a read error is dated as unknown in changesOnly and in the summary', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('B')]);
+  b.push(1, at(['FALSE', null, null, 'TRUE']));
+  const out = scopeText(b, ['B'], 100000, 3000, { changesOnly: true });
+  assert.deepEqual(dataRows(out).length, 1);
+  assert.ok(out.includes('unknown between -3.000 and 0.000\t'), out);
+  assert.match(out, /changes=1 \(first at unknown \(between -3\.0 and 0\.0 s\), last at unknown \(between -3\.0 and 0\.0 s\)\)/);
+});
+
+test('edges says when the history is shorter than the request', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [bool('GVL.bDone')]);
+  b.push(1, at(['FALSE', 'FALSE', 'FALSE']));
+  assert.equal(edgesText(b, ['GVL.bDone'], 60, 2000), ['GVL.bDone: no edges in the last 60 s, stays FALSE', 'history covers only the last 2 s'].join('\n'));
+  assert.doesNotMatch(edgesText(b, ['GVL.bDone'], 2, 2000), /history covers/);
 });

@@ -148,7 +148,13 @@ export function changesTable(names: string[], logs: ChangeLog[], o: {
   const row = (t: number): string[] => { let r = rows.get(t); if (!r) rows.set(t, r = names.map(() => '')); return r; };
   const t0 = Math.max(o.requestedStart, covered);
   const startCells = logs.map((l, i) => (l.start ? o.cell(i, l.start.text) : l.startUnknown ? o.unknownText : ''));
-  logs.forEach((l, i) => { for (const e of l.entries) row(e.t)[i] = o.cell(i, e.text); });
+  const labels = new Map<number, string>();
+  logs.forEach((l, i) => {
+    for (const e of l.entries) {
+      row(e.t)[i] = o.cell(i, e.text);
+      if (e.after !== undefined && !labels.has(e.t)) labels.set(e.t, `unknown between ${((e.after - o.now) / 1000).toFixed(3)} and ${((e.t - o.now) / 1000).toFixed(3)}`);
+    }
+  });
   const events = [...rows.keys()].sort((a, b) => a - b);
   const startRow = startCells.some(c => c !== '') && !rows.has(t0);
   if (startRow) startCells.forEach((c, i) => { row(t0)[i] = c; });
@@ -160,7 +166,7 @@ export function changesTable(names: string[], logs: ChangeLog[], o: {
     const hidden = events.length - times.length;
     if (hidden > 0) notes.push(`${hidden} earlier rows not shown, narrow seconds or symbols`);
   }
-  return { notes, header: ['t[s]', ...names].join('\t'), rows: times.map(t => [((t - o.now) / 1000).toFixed(3), ...rows.get(t)!].join('\t')) };
+  return { notes, header: ['t[s]', ...names].join('\t'), rows: times.map(t => [labels.get(t) ?? ((t - o.now) / 1000).toFixed(3), ...rows.get(t)!].join('\t')) };
 }
 
 /** "-9.4" (one decimal, never "-0.0"); seconds relative to `now`. */
@@ -185,7 +191,7 @@ export interface EdgeInput { name: string; type: string | undefined; log: Change
 export interface EdgesTable { summaries: string[]; notes: string[]; header?: string; rows: string[] }
 
 /** The `edges` view: one summary line per symbol and, when edges exist, a table of them (newest `maxRows`). */
-export function edgesTable(inputs: EdgeInput[], o: { now: number; seconds: number; maxRows: number }): EdgesTable {
+export function edgesTable(inputs: EdgeInput[], o: { now: number; seconds: number; requestedStart: number; maxRows: number }): EdgesTable {
   const summaries: string[] = [];
   const edges: { t: number; index: number; label: string; kind: string }[] = [];
   inputs.forEach((s, index) => {
@@ -206,9 +212,12 @@ export function edgesTable(inputs: EdgeInput[], o: { now: number; seconds: numbe
       edges.push({ t: e.t, index, label: when, kind: e.text === 'TRUE' ? 'rising' : 'falling' });
     }
   });
-  if (edges.length === 0) return { summaries, notes: [], rows: [] };
+  const known = inputs.filter(s => edgeKind(s.type) === 'bool' && (s.log.entries.length > 0 || s.log.start !== undefined)).map(s => s.log.coveredFromMs);
+  const covered = known.length > 0 ? Math.min(...known) : o.requestedStart;
+  const coverage = o.requestedStart < covered ? `history covers only the last ${Math.round((o.now - covered) / 1000)} s` : undefined;
+  if (edges.length === 0) return { summaries: coverage ? [...summaries, coverage] : summaries, notes: [], rows: [] };
   edges.sort((a, b) => a.t - b.t || a.index - b.index);
-  const notes: string[] = [];
+  const notes: string[] = coverage ? [coverage] : [];
   const shown = edges.slice(Math.max(0, edges.length - o.maxRows));
   if (shown.length < edges.length) notes.push(`${edges.length - shown.length} earlier edges not shown, narrow seconds or symbols`);
   return { summaries, notes, header: 't[s]\tsymbol\tedge', rows: shown.map(e => `${e.label}\t${inputs[e.index].name}\t${e.kind}`) };

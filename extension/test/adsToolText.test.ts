@@ -128,7 +128,7 @@ test('waitResultText words every outcome', () => {
 
 test('scope summary passes maxRows to the table', () => {
   assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { maxRows: 2 } }),
-    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\n2 of 3 samples shown; evenly thinned (fast-changing): a\nt[s]\ta\n-2.000\t0\n0.000\t2');
+    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\n2 of 3 samples shown, 2 value changes; 1 earlier changes not shown, narrow seconds or symbols\nt[s]\ta\n-1.000\t1\n0.000\t2');
 });
 
 test('scope summary in changesOnly mode names the view in its head line', () => {
@@ -175,8 +175,8 @@ test('scope summary in edges mode has its own head and closing line', () => {
   const b = new ScopeBuffer(300);
   b.setItems(1, [{ symbol: 'GVL.bBusy', type: 'BOOL', numeric: true, error: null }]);
   b.push(1, [{ t: 0, v: ['FALSE'] }, { t: 1000, v: ['TRUE'] }]);
-  assert.equal(scopeSummaryText({ buffer: b, symbols: ['GVL.bBusy'], seconds: 60, target: 'local', intervalMs: 100, now: 1500, clock, options: { edges: true } }), [
-    'ADS edges of the last 60 s up to the newest sample (target local):',
+  assert.equal(scopeSummaryText({ buffer: b, symbols: ['GVL.bBusy'], seconds: 1, target: 'local', intervalMs: 100, now: 1500, clock, options: { edges: true } }), [
+    'ADS edges of the last 1 s up to the newest sample (target local):',
     'GVL.bBusy: edges=1 (1 rising, 0 falling), now TRUE', '',
     't[s]\tsymbol\tedge', '0.000\tGVL.bBusy\trising',
     'Sampled every 100 ms; edges shorter than one sample are not seen.'].join('\n'));
