@@ -1530,6 +1530,14 @@
             "seconds": {
               "type": "number",
               "description": "Time span in seconds, default 60."
+            },
+            "maxRows": {
+              "type": "number",
+              "description": "Most table rows, 1-200, default 200."
+            },
+            "decimals": {
+              "type": "number",
+              "description": "Round fractional numbers to this many decimals, 0-9 (integers stay as they are)."
             }
           }
         }

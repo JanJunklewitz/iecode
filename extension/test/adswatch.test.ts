@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -457,4 +457,35 @@ test('write outcome not sent only with proof', () => {
   assert.equal(writeStage({ error: new HostGone('g') }).kind, 'unknown');
   assert.equal(writeStage({ error: new Error('plain') }).kind, 'unknown');
   assert.equal(writeStage({ error: 'not an error' }).kind, 'unknown');
+});
+
+const real = (symbol: string): WatchItem => ({ symbol, type: 'REAL', numeric: true, error: null });
+
+test('scopeText honours maxRows and says it thinned', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.fTemp')]);
+  b.push(1, Array.from({ length: 1000 }, (_, i) => ({ t: i * 10, v: [String(i)] })));
+  const text = scopeText(b, ['MAIN.fTemp'], 100000, 9990, { maxRows: 20 });
+  const data = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l));
+  assert.equal(data.length, 20);
+  assert.match(text, /20 of 1000 samples shown; evenly thinned \(fast-changing\): MAIN\.fTemp/);
+});
+
+test('scopeText rounds numbers to decimals but never pads integers', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [real('MAIN.f')]);
+  b.push(1, [{ t: 0, v: ['1.23456'] }, { t: 1000, v: ['2.5'] }, { t: 2000, v: ['3'] }]);
+  const text = scopeText(b, ['MAIN.f'], 100000, 2000, { decimals: 2 });
+  assert.match(text, /^MAIN\.f: min=1\.23 max=3 last=3 count=3$/m);
+  assert.deepEqual(text.split('\n').filter(l => /^-?\d/.test(l)), ['-2.000\t1.23', '-1.000\t2.50', '0.000\t3']);
+  assert.equal(formatValueText('2.56789', 1), '2.6');
+  assert.equal(formatValueText('Running', 1), 'Running');
+  assert.equal(formatValueText(null, 1), null);
+  assert.equal(formatNumber(2.5), '2.5');
+});
+
+test('scopeText decimals handles tiny and negative-zero values', () => {
+  assert.equal(formatNumber(1e-7, 3), '0.000');
+  assert.equal(formatNumber(-0.001, 2), '0.00');
+  assert.equal(formatValueText('1e-7', 2), '0.00');
 });

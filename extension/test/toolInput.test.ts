@@ -61,3 +61,15 @@ test('toolInput wait input', () => {
   assert.equal(secs(t('10')), 'timeoutSeconds must be a finite number');
   assert.deepEqual(parseWaitInput({ symbol: 'a', condition: 'changes' }), { ok: true, value: { symbol: 'a', condition: { op: 'changes' }, timeoutSeconds: 30 } });
 });
+
+test('toolInput scope maxRows and decimals are clamped, never thrown', () => {
+  const v = (o: unknown) => { const p = parseScopeInput(o); return p.ok ? p.value : p.error; };
+  assert.deepEqual(v({ maxRows: 20.6, decimals: 2 }), { symbols: [], maxRows: 21, decimals: 2 });
+  assert.equal((v({ maxRows: 0 }) as { maxRows: number }).maxRows, 1);
+  assert.equal((v({ maxRows: 5000 }) as { maxRows: number }).maxRows, 200);
+  assert.equal((v({ decimals: -3 }) as { decimals: number }).decimals, 0);
+  assert.equal((v({ decimals: 12 }) as { decimals: number }).decimals, 9);
+  assert.equal(v({ maxRows: 'x' }), 'maxRows must be a finite number');
+  assert.equal(v({ decimals: NaN }), 'decimals must be a finite number');
+  assert.deepEqual(v({ symbols: ['a'], seconds: 30 }), { symbols: ['a'], seconds: 30 });   // unchanged: absent fields stay absent
+});

@@ -4,7 +4,7 @@
 import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import type { WaitCondition } from './waitCondition';
-import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed } from './toolInput';
+import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs } from './toolInput';
 import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
@@ -15,7 +15,7 @@ export interface AdsToolFns {
   symbols(input: { filter: string }): Promise<ToolText>;
   watch(input: { add?: string[]; remove?: string[] }): Promise<ToolText>;
   read(input: { symbols?: string[] }): Promise<ToolText>;
-  scope(input: { symbols?: string[]; seconds?: number }): ToolText | Promise<ToolText>;
+  scope(input: Partial<ScopeArgs>): ToolText | Promise<ToolText>;
   wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
 }
 

@@ -125,3 +125,8 @@ test('waitResultText words every outcome', () => {
   assert.equal(COPILOT_NAMES.wait, 'adsWait');
   assert.equal(MCP_NAMES.wait, 'ads_wait');
 });
+
+test('scope summary passes maxRows to the table', () => {
+  assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { maxRows: 2 } }),
+    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3\n\n2 of 3 samples shown; evenly thinned (fast-changing): a\nt[s]\ta\n-2.000\t0\n0.000\t2');
+});

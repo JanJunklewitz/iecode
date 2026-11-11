@@ -293,14 +293,32 @@ export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms:
 /** Most symbols that get a column in the scope table (the summaries cover all of them). */
 export const MAX_SCOPE_COLUMNS = 20;
 
+export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number }
+
+/** Integers unchanged; other numbers rounded with toFixed(decimals); decimals undefined = String(n). */
+export function formatNumber(n: number, decimals?: number): string {
+  if (decimals === undefined || Number.isInteger(n)) return String(n);
+  const r = n.toFixed(decimals);
+  return /^-0(.0*)?$/.test(r) ? r.slice(1) : r;
+}
+
+/** A numeric text with a fraction or exponent is rounded to `decimals`; everything else (also null) is returned as is. */
+export function formatValueText(text: string | null, decimals?: number): string | null {
+  if (text === null || decimals === undefined || !NUMBER.test(text)) return text;
+  return formatNumber(Number(text), decimals);
+}
+
 // Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
-export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, maxRows = 200, maxColumns = MAX_SCOPE_COLUMNS): string {
+export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
+  const maxRows = opts.maxRows ?? 200;
+  const maxColumns = opts.maxColumns ?? MAX_SCOPE_COLUMNS;
+  const d = opts.decimals;
   const lines: string[] = [];
   const maps = symbols.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
   for (const s of symbols) {
     const sum = buf.summary(s, seconds, now);
     lines.push(sum
-      ? `${s}: min=${sum.min} max=${sum.max} last=${sum.last} count=${sum.count}`
+      ? `${s}: min=${formatNumber(sum.min, d)} max=${formatNumber(sum.max, d)} last=${formatValueText(sum.last, d)} count=${sum.count}`
       : `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`);
   }
   const shown = symbols.slice(0, maxColumns);
@@ -323,7 +341,7 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
     }
     lines.push(['t[s]', ...shown].join('\t'));
     for (const t of rowsShown) {
-      lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => m.get(t) ?? '')].join('\t'));
+      lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => { const y = m.get(t); return y === undefined ? '' : formatNumber(y, d); })].join('\t'));
     }
     if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);
   }

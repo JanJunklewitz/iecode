@@ -5,7 +5,8 @@
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
-import { oneLine, sampleAge } from '../core/adswatch';
+import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
+import { ScopeArgs } from '../core/toolInput';
 import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { WaitDeps, runWait } from '../core/waitRun';
@@ -16,7 +17,7 @@ export type { ToolNames, ToolText };
 export interface SymbolsInput { filter: string }
 export interface WatchInput { add?: string[]; remove?: string[] }
 export interface ReadInput { symbols?: string[] }
-export interface ScopeInput { symbols?: string[]; seconds?: number }
+export type ScopeInput = Partial<ScopeArgs>;
 export interface WaitInput { symbol: string; condition: WaitCondition; timeoutSeconds: number }
 
 const MAX_SYMBOLS = 100;
@@ -48,8 +49,8 @@ function watchedName(host: AdsHost, symbol: string): string | undefined {
 const list = (host: AdsHost) => watchListText(host.items(), host.entries());
 
 /** Summary and table of the symbols over the last seconds, up to their newest sample. */
-export function scopeSummary(host: AdsHost, symbols: string[], seconds: number): string {
-  return scopeSummaryText({ buffer: host.buffer, symbols, seconds, target: host.target(), intervalMs: host.sampling().intervalMs, now: Date.now(), clock });
+export function scopeSummary(host: AdsHost, symbols: string[], seconds: number, options: ScopeOptions = {}): string {
+  return scopeSummaryText({ buffer: host.buffer, symbols, seconds, target: host.target(), intervalMs: host.sampling().intervalMs, now: Date.now(), clock, options });
 }
 
 /** Time of the newest sample of the symbols, or undefined while there is none. */
@@ -130,7 +131,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const found = asked.map(s => watchedName(host, s));
       const watched = found.filter((n): n is string => !!n);
       const unwatched = asked.filter((_, i) => !found[i]);
-      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds) : undefined, unwatched, names));
+      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals }) : undefined, unwatched, names));
     },
 
     async wait(input: WaitInput, signal: AbortSignal): Promise<ToolText> {
