@@ -431,6 +431,16 @@ test('writeResultText for all kinds', () => {
     'Outcome unknown: no reply. Do not write again on your own; read MAIN.x and ask the user.\nADS target: A');
 });
 
+test('writeResultText tells a bit that differs after an accepted write from a plain read-back', () => {
+  const o = op('MAIN.bStart', { value: 'TRUE' });
+  assert.equal(writeResultText({ kind: 'written', readBack: 'FALSE' }, o),
+    'Written (accepted by ADS), but MAIN.bStart then reads back as FALSE, not TRUE: it changed after the write (the PLC may have changed it). Read it again before acting on it.\nADS target: A');
+  assert.equal(writeResultText({ kind: 'written', readBack: 'TRUE' }, o), 'Written. MAIN.bStart reads back as TRUE (the PLC may change it again).\nADS target: A');
+  // INT and STRING keep the old wording
+  assert.equal(writeResultText({ kind: 'written', readBack: '0' }, op('MAIN.n', { value: '1' })), 'Written. MAIN.n reads back as 0 (the PLC may change it again).\nADS target: A');
+  assert.equal(writeResultText({ kind: 'written', readBack: 'abd' }, op('MAIN.s', { value: 'abc' })), 'Written. MAIN.s reads back as abd (the PLC may change it again).\nADS target: A');
+});
+
 test('writeResultIsError marks refused and unknown, not a written value', () => {
   assert.equal(writeResultIsError({ kind: 'written', readBack: '1' }), false);
   assert.equal(writeResultIsError({ kind: 'written', readBack: null, readBackError: 'x' }), false);

@@ -3,6 +3,7 @@
 // the clock through Clock, so the rules are unit-tested without VS Code.
 
 import { WriteDecision, writeStillApproved } from './adswatch';
+import { readBackChanged, sentence } from './writeText';
 import { COPILOT_NAMES, MCP_NAMES, ToolNames, targetLine, targetOfKey } from './adsToolText';
 
 /** The write was not sent: refused before the request left, or the host proved it did not send it. `alreadyShown`: a failed host start. */
@@ -78,8 +79,6 @@ export function sendOutcome(e: unknown): WriteResult {
   return e instanceof WriteNotSent ? refusal(reason) : { kind: 'unknown', reason };
 }
 
-const sentence = (s: string) => s.replace(/\.$/, '');
-
 export function writeResultText(r: WriteResult, op: WriteOp): string {
   return `${writeVerdict(r, op)}\n${targetLine(targetOfKey(op.targetKey))}`;
 }
@@ -87,6 +86,9 @@ export function writeResultText(r: WriteResult, op: WriteOp): string {
 function writeVerdict(r: WriteResult, op: WriteOp): string {
   switch (r.kind) {
     case 'written':
+      if (r.readBack !== null && readBackChanged(op.value, r.readBack)) {
+        return `Written (accepted by ADS), but ${op.symbol} then reads back as ${r.readBack}, not ${op.value}: it changed after the write (the PLC may have changed it). Read it again before acting on it.`;
+      }
       return r.readBack === null
         ? `Written, but ${op.symbol} could not be read back: ${sentence(r.readBackError ?? 'unknown error')}. Read it before acting on the value.`
         : `Written. ${op.symbol} reads back as ${r.readBack} (the PLC may change it again).`;
