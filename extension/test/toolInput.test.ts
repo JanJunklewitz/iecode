@@ -157,3 +157,11 @@ test('parseWriteInput refuses a bad batch before any dialog, with the item named
   assert.equal(err({ writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'B', value: '1' }, { symbol: ' main.A ', value: '2' }] }), 'writes[2] repeats writes[0]: MAIN.a');
   assert.equal(parseWriteInput({ writes: Array.from({ length: 20 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }).ok, true);
 });
+
+test('parseSymbolsInput takes enumType and hidden and leaves absent keys out', () => {
+  assert.deepEqual(parseSymbolsInput({ filter: 'x', enumType: 'E_Mode', hidden: true }), { ok: true, value: { filter: 'x', enumType: 'E_Mode', hidden: true } });
+  assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
+  assert.deepEqual(parseSymbolsInput({ enumType: '' }), { ok: true, value: { filter: '' } });
+  assert.deepEqual(parseSymbolsInput({ hidden: 'yes' }), { ok: false, error: 'hidden must be true or false' });
+  assert.deepEqual(parseSymbolsInput({ enumType: 5 }), { ok: false, error: 'enumType must be a string' });
+});

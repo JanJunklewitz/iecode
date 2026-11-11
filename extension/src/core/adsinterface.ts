@@ -20,11 +20,14 @@ import { PlcSymbol } from '../lang/parser';
 import { isEncrypted, PlcProject } from './projects';
 import { filesAt, repoRoot, show } from './git';
 import { newerSources } from './symbolOrigin';
+import { EnumInfo, EnumMember } from './tmc';
 
 export interface AdsSymbol {
   /** Full ADS name, e.g. MAIN.fbMotor.bEnable or GVL_IO.aValues. */
   name: string;
   type: string;
+  /** Source only, listed on request: declared with {attribute 'hide'}, so there is no ADS symbol. */
+  hidden?: boolean;
   /** Size in bits (build output only). */
   bitSize?: number;
   comment?: string;
@@ -239,20 +242,25 @@ const HIDDEN = new Set(['VAR_TEMP', 'VAR_STAT', 'VAR_INST', 'VAR_EXTERNAL', 'VAR
  * constants only in GVLs (instances of function blocks don't hold them); properties only with {attribute 'monitoring'}.
  */
 function visible(v: PlcSymbol, obj: IndexedObject): boolean {
+  return declaration(v, obj) === 'visible';
+}
+
+/** 'hidden' only for a declaration that would be a symbol if it did not carry {attribute 'hide'}; 'skip' for everything else that is no symbol. */
+function declaration(v: PlcSymbol, obj: IndexedObject): 'visible' | 'hidden' | 'skip' {
   if (v.kind === 'PROPERTY')
-    return !!v.type && linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'/i.test(l));
-  if (v.kind !== 'VARIABLE' && v.kind !== 'FIELD') return false;
-  if (v.scope && HIDDEN.has(v.scope)) return false;
-  if (v.modifiers?.includes('CONSTANT') && obj.root?.kind !== 'GVL') return false;
+    return !!v.type && linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'/i.test(l)) ? 'visible' : 'skip';
+  if (v.kind !== 'VARIABLE' && v.kind !== 'FIELD') return 'skip';
+  if (v.scope && HIDDEN.has(v.scope)) return 'skip';
+  if (v.modifiers?.includes('CONSTANT') && obj.root?.kind !== 'GVL') return 'skip';
   const lines = linesOf(obj);
   const hide = /\{\s*attribute\s+'hide'\s*\}/i;
-  if (hide.test(lines[v.range.line]?.slice(0, v.range.col) ?? '')) return false;
+  if (hide.test(lines[v.range.line]?.slice(0, v.range.col) ?? '')) return 'hidden';
   for (let l = v.range.line - 1; l >= 0; l--) {
     const t = lines[l].trim();
     if (!t.startsWith('{')) break;
-    if (hide.test(t)) return false;
+    if (hide.test(t)) return 'hidden';
   }
-  return true;
+  return 'visible';
 }
 
 /** Comment of a declaration: after it on the same line, or // lines directly above. */
@@ -273,7 +281,7 @@ function areaOf(v: PlcSymbol): string | undefined {
 const plainType = (t?: string) => !!t && !/^(POINTER|REFERENCE)\s+TO\b|^ARRAY\b/i.test(t.trim());
 
 /** Symbols of a PLC project from its object views (decoded .TcPOU / .TcGVL / .TcDUT). */
-export function fromSource(objects: { file: string; view: string }[], members = false): AdsInterface {
+export function fromSource(objects: { file: string; view: string }[], members = false, hidden = false): AdsInterface {
   const index = new SymbolIndex();
   for (const o of objects) index.update(o.file, o.view);
   const constants = constantsOf(index);
@@ -282,7 +290,9 @@ export function fromSource(objects: { file: string; view: string }[], members = 
   const expand = (parent: string, type: string | undefined, path: Set<string>, depth: number) => {
     if (depth > MAX_DEPTH || !plainType(type) || path.has(U(type!))) return;
     for (const { sym, obj } of index.membersOf(type)) {
-      if (!visible(sym, obj)) continue;
+      const d = declaration(sym, obj);
+      if (d === 'hidden' && hidden) out.push({ name: `${parent}.${sym.name}`, type: adsType(sym, constants), comment: commentOf(sym, obj), area: areaOf(sym), hidden: true });
+      if (d !== 'visible') continue;
       const name = `${parent}.${sym.name}`, t = adsType(sym, constants);
       out.push({ name, type: t, comment: commentOf(sym, obj), area: areaOf(sym) });
       expand(name, t, new Set([...path, U(type!)]), depth + 1);
@@ -293,7 +303,9 @@ export function fromSource(objects: { file: string; view: string }[], members = 
     if (!root || (root.kind !== 'GVL' && root.kind !== 'PROGRAM')) continue;
     roots.push(root.name);
     for (const v of root.children) {
-      if (!visible(v, obj)) continue;
+      const d = declaration(v, obj);
+      if (d === 'hidden' && hidden) out.push({ name: `${root.name}.${v.name}`, type: adsType(v, constants), comment: commentOf(v, obj), area: areaOf(v), hidden: true });
+      if (d !== 'visible') continue;
       const name = `${root.name}.${v.name}`, t = adsType(v, constants);
       out.push({ name, type: t, comment: commentOf(v, obj), area: areaOf(v) });
       if (members) expand(name, t, new Set(), 1);
@@ -330,7 +342,12 @@ export async function fromBuild(plc: PlcProject, members = false): Promise<AdsIn
 }
 
 /** Interface from the source code in the working copy, or at a git commit when `ref` is set. */
-export async function fromSourceAt(plc: PlcProject, ref: string | undefined, members = false): Promise<AdsInterface> {
+export async function fromSourceAt(plc: PlcProject, ref: string | undefined, members = false, hidden = false): Promise<AdsInterface> {
+  return fromSource(await sourceObjects(plc, ref), members, hidden);
+}
+
+/** The decoded object views of a PLC project (working copy, or a git commit with `ref`). */
+export async function sourceObjects(plc: PlcProject, ref?: string): Promise<{ file: string; view: string }[]> {
   const objects: { file: string; view: string }[] = [];
   const add = (file: string, xml: string | undefined) => {
     if (!xml || isEncrypted(xml)) return;
@@ -343,7 +360,7 @@ export async function fromSourceAt(plc: PlcProject, ref: string | undefined, mem
     if (!root) throw new Error(`${plc.file} is not in a git repository`);
     for (const f of await filesAt(root, ref, plc.dir, ['.tcpou', '.tcgvl', '.tcdut'])) add(f, await show(root, ref, f));
   }
-  return fromSource(objects, members);
+  return objects;
 }
 
 /** Only the symbols that aren't a member of another symbol in the list. */
@@ -433,4 +450,70 @@ export function adsChangesToCsv(changes: AdsChange[]): string {
 /** JSON snapshot in the CLI's format, for `iecode ads diff --against <file>`. */
 export function toSnapshot(project: string, symbols: AdsSymbol[], members: boolean): string {
   return JSON.stringify({ format: SNAPSHOT_FORMAT, project, members, symbols }, null, 2) + '\n';
+}
+
+// ---- enum types from the source ----
+
+/** A plain integer literal as a decimal string: 12, -3, 16#FF_FF, 2#101, 8#17; anything else (expression, INT#5) is unknown. */
+function literalValue(expr: string): string | undefined {
+  const t = expr.trim();
+  const based = /^(2|8|16)#([0-9A-Fa-f_]+)$/.exec(t);
+  try {
+    if (based) {
+      const digits = based[2].replace(/_/g, '');
+      const prefix = { '2': '0b', '8': '0o', '16': '0x' }[based[1] as '2' | '8' | '16'];
+      return digits ? BigInt(prefix + digits).toString() : undefined;
+    }
+    if (/^-?\d[\d_]*$/.test(t)) return BigInt(t.replace(/_/g, '')).toString();
+  } catch { /* not a number */ }
+  return undefined;
+}
+
+/**
+ * Members of an enum declaration. Values: an initial literal, else the previous value + 1 (the first is 0); an
+ * unknown value (an expression) makes the following implicit members unknown until the next literal. Several
+ * members may stand on one line, so the body is split at the commas of the top level, not by line.
+ */
+export function enumFromSource(objects: { file: string; view: string }[], typeName: string): EnumInfo | undefined {
+  const index = new SymbolIndex();
+  for (const o of objects) index.update(o.file, o.view);
+  const obj = index.find(typeName);
+  const root = obj?.root;
+  if (!obj || !root || root.kind !== 'ENUM') return undefined;
+  const lines = linesOf(obj).slice(root.full.line, root.full.endLine + 1);
+  // per member: its text and the `//` comment that ends its line
+  const items: { text: string; comment?: string }[] = [];
+  let depth = 0, cur = '', base: string | undefined, seenOpen = false, closed = false, pending: string | undefined;
+  const flush = () => { if (cur.trim()) items.push({ text: cur.trim(), comment: pending }); cur = ''; pending = undefined; };
+  for (const raw of lines) {
+    if (closed) break;
+    const c = /\/\/(.*)$/.exec(raw);
+    const code = (c ? raw.slice(0, c.index) : raw).replace(/\(\*[\s\S]*?\*\)/g, '');
+    for (const ch of code) {
+      if (closed) { base = (base ?? '') + ch; continue; }
+      if (ch === '(') { depth++; if (depth === 1 && !seenOpen) { seenOpen = true; continue; } }
+      if (ch === ')') { depth--; if (depth === 0) { flush(); closed = true; continue; } }
+      if (!seenOpen) continue;
+      if (ch === ',' && depth === 1) flush(); else cur += ch;
+    }
+    const text = c?.[1].trim() || undefined;
+    if (text && seenOpen) { if (cur.trim()) pending = text; else if (items.length) items[items.length - 1].comment ??= text; }
+  }
+  const baseType = /^\s*([A-Za-z_][\w.]*)/.exec(base ?? '')?.[1];
+  const members: EnumMember[] = [];
+  let next: bigint | undefined = 0n;
+  for (const it of items) {
+    const m = /^([A-Za-z_]\w*)\s*(?::=\s*([\s\S]*))?$/.exec(it.text);
+    if (!m) continue;
+    let value: string | undefined;
+    if (m[2] !== undefined) {
+      value = literalValue(m[2]);
+      next = value === undefined ? undefined : BigInt(value) + 1n;
+    } else {
+      value = next?.toString();
+      next = next === undefined ? undefined : next + 1n;
+    }
+    members.push({ name: m[1], value, ...(it.comment ? { comment: it.comment } : {}) });
+  }
+  return { name: root.name, base: baseType, members };
 }

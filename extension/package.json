@@ -1428,7 +1428,7 @@
         "toolReferenceName": "adsSymbols",
         "displayName": "ADS Symbols",
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
-        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), at most 100. Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), at most 100. Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1442,11 +1442,17 @@
               "type": "string",
               "maxLength": 512,
               "description": "Part of the ADS name to search for, e.g. \"MAIN.\" or \"nCounter\"; empty lists the first 100."
+            },
+            "enumType": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Name of an enum type, e.g. E_Mode: returns its members with values, so valid values for the write and wait tools are known."
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Also list variables marked {attribute 'hide'}: they have no ADS symbol and cannot be read."
             }
-          },
-          "required": [
-            "filter"
-          ]
+          }
         }
       },
       {

@@ -175,3 +175,22 @@ export function parseTmc(xml: string): TmcFile {
 
   return { vendor: textOf(kid(kid(root, 'Vendor') ?? root, 'Name'), src), modules, types };
 }
+
+/** One member of an enum type; `value` is a decimal string (never a JS number) or undefined when it is not known. */
+export interface EnumMember { name: string; value?: string; comment?: string }
+export interface EnumInfo { name: string; base?: string; members: EnumMember[] }
+
+/** An enum type by name or Namespace.name, case-insensitive. */
+export function findEnum(file: TmcFile, typeName: string): EnumInfo | undefined {
+  const want = typeName.trim().toLowerCase();
+  const t = file.types.find(x => x.kind === 'enum' && (x.name.toLowerCase() === want || (x.namespace ? `${x.namespace}.${x.name}`.toLowerCase() === want : false)));
+  if (!t) return undefined;
+  return { name: t.name, base: t.base, members: t.enumValues.map(e => ({ name: e.text, value: e.value, comment: e.comment })) };
+}
+
+/** Values that two or more members share (aliases), in declaration order; unknown values form no group. */
+export function sharedValues(e: EnumInfo): { value: string; names: string[] }[] {
+  const byValue = new Map<string, string[]>();
+  for (const m of e.members) if (m.value !== undefined) byValue.set(m.value, [...(byValue.get(m.value) ?? []), m.name]);
+  return [...byValue].filter(([, n]) => n.length > 1).map(([value, names]) => ({ value, names }));
+}

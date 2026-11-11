@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -249,4 +249,23 @@ test('scope summary in edges mode has its own head and closing line', () => {
     'GVL.bBusy: edges=1 (1 rising, 0 falling), now TRUE', '',
     't[s]\tsymbol\tedge', '0.000\tGVL.bBusy\trising',
     'Sampled every 100 ms; edges shorter than one sample are not seen.'].join('\n'));
+});
+
+test('enumText lists members, notes shared values and unknown values', () => {
+  const info = { name: 'E_Mode', base: 'INT', members: [{ name: 'Off', value: '0' }, { name: 'Run', value: '1', comment: 'Normal operation' }, { name: 'Start', value: '1' }] };
+  assert.equal(enumText({ info, from: 'the build output of PLC1' }),
+    'Enum E_Mode (INT), from the build output of PLC1:\n  Off = 0\n  Run = 1  // Normal operation\n  Start = 1\nNote: Run and Start share the value 1; a read shows Run, so compare by number.');
+  // an alias write is not known to work: the note says so unless the CLI is known to support it
+  assert.match(enumText({ info, from: 'x', aliasWrite: 'unknown' }), /compare by number\. Writing a later name by its name may need a newer iecode CLI: write the number\.$/);
+  assert.doesNotMatch(enumText({ info, from: 'x', aliasWrite: 'supported' }), /newer iecode CLI/);
+  const three = { name: 'E', members: [{ name: 'A', value: '1' }, { name: 'B', value: '1' }, { name: 'C', value: '1' }] };
+  assert.match(enumText({ info: three, from: 'x' }), /\nNote: A, B and C share the value 1; a read shows A, so compare by number\.$/);
+  assert.match(enumText({ info: { name: 'E', members: [{ name: 'A' }] }, from: 'x' }), /^Enum E, from x:\n {2}A = \(unknown value\)\nNote: a value marked unknown/);
+  assert.equal(noEnumText('E_X'), 'No enum type "E_X" found in the build output or the source code of the workspace PLC projects.');
+});
+
+test('hiddenText lists hidden variables and counts the rest', () => {
+  const head = "Hidden (marked {attribute 'hide'}, so no ADS symbol and not readable; a property with {attribute 'monitoring' := 'call'} may expose the value):";
+  assert.equal(hiddenText(['MAIN.fbDrive.bBusy : BOOL'], 1), `${head}\nMAIN.fbDrive.bBusy : BOOL`);
+  assert.equal(hiddenText(['MAIN.fbDrive.bBusy : BOOL'], 3), `${head}\nMAIN.fbDrive.bBusy : BOOL\n(2 more hidden variables not listed)`);
 });

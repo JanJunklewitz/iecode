@@ -39,12 +39,21 @@ function str(o: Record<string, unknown>, field: string, max: number, required: b
 
 const isErr = (x: unknown): x is { error: string } => typeof x === 'object' && x !== null;
 
-export function parseSymbolsInput(raw: unknown): Parsed<{ filter: string }> {
+export interface SymbolsRequest { filter: string; enumType?: string; hidden?: boolean }
+
+export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const filter = str(o, 'filter', MAX_SYMBOL_LENGTH, false);
   if (isErr(filter)) return fail(filter.error);
-  return { ok: true, value: { filter: filter ?? '' } };
+  const enumType = str(o, 'enumType', MAX_SYMBOL_LENGTH, false);
+  if (isErr(enumType)) return fail(enumType.error);
+  const hidden = o.hidden;
+  if (hidden !== undefined && hidden !== null && typeof hidden !== 'boolean') return fail('hidden must be true or false');
+  const value: SymbolsRequest = { filter: filter ?? '' };
+  if (enumType?.trim()) value.enumType = enumType.trim();
+  if (typeof hidden === 'boolean') value.hidden = hidden;
+  return { ok: true, value };
 }
 
 /** An optional boolean; null or undefined counts as missing. */

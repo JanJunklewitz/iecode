@@ -4,11 +4,13 @@
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
-import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
+import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, sourceObjects } from '../core/adsinterface';
+import { pickEnum } from '../core/enumLookup';
+import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
@@ -17,7 +19,7 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter: string }
+export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean }
 export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
@@ -87,6 +89,36 @@ export function scopeSummary(host: AdsHost, symbols: string[], seconds: number, 
 /** Time of the newest sample of the symbols, or undefined while there is none. */
 export const newest = (host: AdsHost, symbols: string[]) => newestSample(host.buffer, symbols);
 
+
+type Unit = WorkspaceState['current']['units'][number];
+
+/** The members of an enum type, from the build output of the first project that has it, else from the source. */
+async function enumAnswer(units: readonly Unit[], name: string): Promise<string> {
+  for (const u of units) {
+    const tmcFile = await findTmc(u.plc.file);
+    const tmc = tmcFile ? await fsp.readFile(tmcFile, 'utf8').catch(() => undefined) : undefined;
+    const hit = pickEnum(tmc, await sourceObjects(u.plc), name);
+    if (hit) {
+      // alias writes by name need the CLI part of the enum alias work, which no released CLI has yet
+      return enumText({ info: hit.info, from: `${hit.origin === 'build' ? 'the build output' : 'the source code'} of ${u.plc.name}`, aliasWrite: 'unknown' });
+    }
+  }
+  return noEnumText(name);
+}
+
+/** Variables marked {attribute 'hide'}: from the source only (the build output does not list them). */
+async function hiddenAnswer(units: readonly Unit[], filter: string): Promise<string> {
+  const rows: string[] = [];
+  let total = 0;
+  for (const u of units) {
+    for (const s of (await fromSourceAt(u.plc, undefined, true, true).catch(() => undefined))?.symbols ?? []) {
+      if (!s.hidden || (filter && !s.name.toLowerCase().includes(filter))) continue;
+      if (++total <= MAX_SYMBOLS) rows.push(`${s.name} : ${s.type}`);
+    }
+  }
+  return total ? hiddenText(rows, total) : 'No hidden variables match.';
+}
+
 export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, names: ToolNames) {
   const host = AdsHost.get(ctx);
 
@@ -94,6 +126,9 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
     host,
 
     async symbols(input: SymbolsInput): Promise<ToolText> {
+      // Copilot hands the input over unparsed
+      const enumName = typeof input.enumType === 'string' ? input.enumType.trim() : '';
+      if (enumName) return ok(await enumAnswer(state.current.units, enumName));
       const typed = (input.filter ?? '').trim();
       const filter = typed.toLowerCase();
       const matches: string[] = [];
@@ -116,7 +151,8 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      return ok(symbolsText({ headers, matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
+      const listing = symbolsText({ headers, matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length });
+      return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 
     async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {

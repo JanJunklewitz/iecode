@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { basename, join } from 'path';
+import { SRC, ENUM_TMC } from './symbolFixtures';
+import { pickEnum } from '../src/core/enumLookup';
+import { enumFromSource } from '../src/core/adsinterface';
 import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromFile, fromSource, fromSourceAt, fromTmc, NoBuildOutputError, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
 import { loadPlcProject } from '../src/core/projects';
 
@@ -252,4 +255,40 @@ test('ADS interface: fixture project from source, build output, stale check, CSV
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('source: hidden variables are listed only on request and flagged', () => {
+  assert.ok(!fromSource(SRC, true).symbols.some(s => s.name === 'MAIN.fbDrive.bBusy'));
+  const r = fromSource(SRC, true, true);
+  assert.deepEqual(r.symbols.filter(s => s.hidden).map(s => s.name), ['MAIN.fbDrive.bBusy', 'MAIN.fbDrive.bPlain']);
+  assert.equal(r.symbols.find(s => s.name === 'MAIN.fbDrive.nState')!.hidden, undefined);
+});
+
+test('enumFromSource reads explicit and implicit values', () => {
+  const mode = enumFromSource(SRC, 'E_Mode')!;
+  assert.deepEqual(mode.members.map(m => `${m.name}=${m.value}`), ['Off=0', 'Run=1', 'Start=1']);
+  assert.equal(mode.members[1].comment, 'normal operation');
+  assert.equal(mode.base, 'INT');
+  assert.deepEqual(enumFromSource(SRC, 'E_Step')!.members.map(m => `${m.name}=${m.value}`), ['Idle=0', 'Fill=5', 'Drain=6', 'Done=16']);
+  assert.equal(enumFromSource(SRC, 'ST_Axis'), undefined);
+});
+
+test('enumFromSource: several members on one line, an expression and a negative value', () => {
+  const view = (body: string) => [{ file: 'E_X.TcDUT', view: `TYPE E_X :\n(\n${body}\n);\nEND_TYPE\n` }];
+  assert.deepEqual(enumFromSource(view('    A, B := 5, C'), 'E_X')!.members.map(m => `${m.name}=${m.value}`), ['A=0', 'B=5', 'C=6']);
+  // an unknown value makes the implicit successors unknown until the next literal
+  assert.deepEqual(enumFromSource(view('    A := GVL.BASE + 2,\n    B,\n    C := 10,\n    D'), 'E_X')!.members.map(m => `${m.name}=${m.value}`),
+    ['A=undefined', 'B=undefined', 'C=10', 'D=11']);
+  assert.deepEqual(enumFromSource(view('    Neg := -2,\n    Next,\n    Typed := INT#5,\n    Bin := 2#101,\n    Hex := 16#FF_FF'), 'E_X')!.members.map(m => `${m.name}=${m.value}`),
+    ['Neg=-2', 'Next=-1', 'Typed=undefined', 'Bin=5', 'Hex=65535']);
+  // values stay exact beyond 2^53
+  assert.equal(enumFromSource(view('    Big := 9007199254740993'), 'E_X')!.members[0].value, '9007199254740993');
+});
+
+test('pickEnum prefers the build output and falls back to the source', () => {
+  assert.equal(pickEnum(ENUM_TMC, SRC, 'E_Mode')!.origin, 'build');
+  assert.equal(pickEnum(undefined, SRC, 'E_Step')!.origin, 'source');
+  assert.equal(pickEnum(ENUM_TMC, SRC, 'E_Step')!.origin, 'source');
+  assert.equal(pickEnum(undefined, SRC, 'E_Nope'), undefined);
+  assert.equal(pickEnum('not xml at all', SRC, 'E_Step')!.origin, 'source');
 });

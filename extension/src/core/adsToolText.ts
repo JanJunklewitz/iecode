@@ -1,6 +1,7 @@
 // Result texts of the ADS tools, shared by the Copilot tools and the MCP server. Pure: plain data in, text out, so the
 // wording is pinned by tests and does not drift between the two clients.
 
+import { EnumInfo, sharedValues } from './tmc';
 import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
@@ -130,6 +131,31 @@ export function symbolsText(o: { headers: string[]; matches: string[]; total: nu
   if (o.missing.length) lines.push(`Not built, so not listed (no .tmc): ${o.missing.join(', ')}`);
   if (o.unreadable.length) lines.push(`Build output unreadable, so not listed: ${o.unreadable.join('; ')}`);
   if (!o.units) lines.push('No PLC projects in this workspace.');
+  return lines.join('\n');
+}
+
+/** Whether the iecode CLI of the running host can write an enum member by its alias name (needs a newer CLI before it ships). */
+export type AliasWrite = 'supported' | 'unsupported' | 'unknown';
+
+/** Members of an enum type with values; names that share a value are noted, because a read shows only the first. */
+export function enumText(o: { info: EnumInfo; from: string; aliasWrite?: AliasWrite }): string {
+  const { info } = o;
+  const lines = [`Enum ${info.name}${info.base ? ` (${info.base})` : ''}, from ${o.from}:`];
+  for (const m of info.members) lines.push(`  ${m.name} = ${m.value ?? '(unknown value)'}${m.comment ? `  // ${m.comment}` : ''}`);
+  for (const g of sharedValues(info)) {
+    const names = g.names.length > 2 ? `${g.names.slice(0, -1).join(', ')} and ${g.names[g.names.length - 1]}` : g.names.join(' and ');
+    lines.push(`Note: ${names} share the value ${g.value}; a read shows ${g.names[0]}, so compare by number.${o.aliasWrite && o.aliasWrite !== 'supported' ? ' Writing a later name by its name may need a newer iecode CLI: write the number.' : ''}`);
+  }
+  if (info.members.some(m => m.value === undefined)) lines.push('Note: a value marked unknown comes from an expression the extension cannot evaluate; read the variable or build the project to get it.');
+  return lines.join('\n');
+}
+
+export const noEnumText = (name: string): string => `No enum type "${name}" found in the build output or the source code of the workspace PLC projects.`;
+
+/** Variables marked {attribute 'hide'}: listed for the source only, they have no ADS symbol. */
+export function hiddenText(rows: string[], total: number): string {
+  const lines = ["Hidden (marked {attribute 'hide'}, so no ADS symbol and not readable; a property with {attribute 'monitoring' := 'call'} may expose the value):", ...rows];
+  if (total > rows.length) lines.push(`(${total - rows.length} more hidden variables not listed)`);
   return lines.join('\n');
 }
 
