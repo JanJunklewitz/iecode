@@ -6,7 +6,7 @@ import { runWatchRequest } from '../src/core/watchRequest';
 
 function fakeList(initial: WatchEntry[] = []) {
   let list = initial;
-  const w = new WatchList({ entries: () => list, set: async e => { await Promise.resolve(); list = e; } });
+  const w = new WatchList({ entries: () => list, set: async e => { await Promise.resolve(); list = e; }, groupsOff: () => [], setGroupsOff: async () => undefined });
   return { w, list: () => list };
 }
 const signal = () => new AbortController().signal;

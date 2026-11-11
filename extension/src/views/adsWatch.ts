@@ -134,7 +134,7 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   reg('iecode.adsWatchAdd', async () => {
     const room = MAX_WATCHED - host.watched().length;
     if (room <= 0) return void vscode.window.showWarningMessage(`IECode: the ADS watch already has ${MAX_WATCHED} variables, the most it can hold. Remove some first.`);
-    const watched = new Set(host.watched().map(s => s.toLowerCase()));
+    const watched = new Set(host.entries().map(e => e.symbol.toLowerCase()));
     // a library project can run too (a module with its own MAIN): it counts once it was built
     const units = state.current.units;
     const picks: Pick[] = [];

@@ -1,13 +1,20 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { WatchList } from '../src/core/watchList';
-import { WatchEntry } from '../src/core/adswatch';
+import { WatchEntry, watchEdit } from '../src/core/adswatch';
 
-function fake(initial: WatchEntry[] = []) {
+function fake(initial: WatchEntry[] = [], offInitial: string[] = []) {
   let list = initial;
+  let off = offInitial;
+  let active: string[] = [];
   const sets: WatchEntry[][] = [];
-  const w = new WatchList({ entries: () => list, set: async e => { await Promise.resolve(); list = e; sets.push(e); } });
-  return { w, list: () => list, sets };
+  const w = new WatchList({
+    entries: () => list,
+    set: async (e, a) => { await Promise.resolve(); list = e; active = a; sets.push(e); },
+    groupsOff: () => off,
+    setGroupsOff: async k => { await Promise.resolve(); off = k; },
+  });
+  return { w, list: () => list, sets, active: () => active, off: () => off };
 }
 
 test('a hold adds an AI entry and its release removes it', async () => {
@@ -94,7 +101,7 @@ test('a second release changes nothing', async () => {
 test('a failed save rejects its call and the next one still runs', async () => {
   let list: WatchEntry[] = [];
   let fail = true;
-  const w = new WatchList({ entries: () => list, set: async e => { if (fail) throw new Error('disk full'); list = e; } });
+  const w = new WatchList({ entries: () => list, set: async e => { if (fail) throw new Error('disk full'); list = e; }, groupsOff: () => [], setGroupsOff: async () => undefined });
   await assert.rejects(w.aiEdit(['A'], []), /disk full/);
   fail = false;
   await w.aiEdit(['B'], []);
@@ -105,7 +112,7 @@ test('a failed save rejects its call and the next one still runs', async () => {
 function savedThenFails(initial: WatchEntry[] = []) {
   let list = initial;
   let failures = 0;
-  const w = new WatchList({ entries: () => list, set: async e => { list = e; if (failures > 0) { failures--; throw new Error('host down'); } } });
+  const w = new WatchList({ entries: () => list, set: async e => { list = e; if (failures > 0) { failures--; throw new Error('host down'); } }, groupsOff: () => [], setGroupsOff: async () => undefined });
   return { w, list: () => list, failNext: (n = 1) => { failures = n; } };
 }
 
@@ -198,4 +205,98 @@ test('a user entry that a wait holds is not removed even when confirmed', async 
 test('userOwned names the requested entries the user added', () => {
   const f = fake([{ symbol: 'U', ai: false }, { symbol: 'A', ai: true }]);
   assert.deepEqual(f.w.userOwned(['u', 'a', 'zz']), ['u']);
+});
+
+test('add with a group labels the entries; switching the group off stops sampling but keeps the entries', async () => {
+  const f = fake();
+  const r = await f.w.aiEdit(['A', 'B'], [], { group: 'T1' });
+  assert.deepEqual([r.added, r.grouped, r.ungrouped, r.switchedOn], [['A', 'B'], ['A', 'B'], [], false]);
+  assert.deepEqual(f.list(), [{ symbol: 'A', ai: true, groups: ['T1'] }, { symbol: 'B', ai: true, groups: ['T1'] }]);
+  assert.deepEqual(await f.w.setGroup('t1', false), { found: true, members: 2 });
+  assert.deepEqual(f.active(), []);
+  assert.equal(f.list().length, 2);
+  await f.w.setGroup('T1', true);
+  assert.deepEqual(f.active(), ['A', 'B']);
+});
+
+test('adding to a switched-off group switches it on', async () => {
+  const f = fake([{ symbol: 'A', ai: true, groups: ['T1'] }], ['t1']);
+  const r = await f.w.aiEdit(['B'], [], { group: 'T1' });
+  assert.equal(r.switchedOn, true);
+  assert.deepEqual(f.off(), []);
+  assert.deepEqual(f.active(), ['A', 'B']);
+});
+
+test('a symbol in two groups is sampled until both are off', async () => {
+  const f = fake();
+  await f.w.aiEdit(['A'], [], { group: 'T1' });
+  await f.w.aiEdit(['A'], [], { group: 'T2' });
+  assert.deepEqual(f.list(), [{ symbol: 'A', ai: true, groups: ['T1', 'T2'] }]);
+  await f.w.setGroup('T1', false);
+  assert.deepEqual(f.active(), ['A']);
+  await f.w.setGroup('T2', false);
+  assert.deepEqual(f.active(), []);
+});
+
+test('a group switched off while a wait holds a symbol keeps it sampled until the wait ends', async () => {
+  const f = fake();
+  await f.w.aiEdit(['P'], [], { group: 'T1' });
+  const h = await f.w.hold('P');
+  await f.w.setGroup('T1', false);
+  assert.deepEqual(f.active(), ['P']);
+  await h.release();
+  assert.deepEqual(f.active(), []);
+  assert.equal(f.list().length, 1);
+});
+
+test('a hold on a parked entry starts sampling it and parks it again on release', async () => {
+  const f = fake([{ symbol: 'P', ai: true, groups: ['T1'] }], ['t1']);
+  const h = await f.w.hold('P');
+  assert.deepEqual(f.active(), ['P']);
+  await h.release();
+  assert.deepEqual(f.active(), []);
+  assert.deepEqual(f.list(), [{ symbol: 'P', ai: true, groups: ['T1'] }]);
+});
+
+test('removeGroup removes the entries no other group needs and reports held ones', async () => {
+  const f = fake();
+  await f.w.aiEdit(['A', 'B'], [], { group: 'T1' });
+  await f.w.aiEdit(['B'], [], { group: 'T2' });
+  await f.w.setGroup('T1', false);
+  const h = await f.w.hold('A');
+  const r = await f.w.removeGroup('T1');
+  assert.deepEqual(r, { found: true, removed: [], held: ['A'] });
+  assert.deepEqual(f.list().map(e => e.symbol), ['A', 'B']);
+  await h.release();
+  assert.deepEqual(await f.w.removeGroup('T2'), { found: true, removed: ['B'], held: [] });
+  assert.deepEqual(f.off(), []);
+});
+
+test('a user entry cannot join a group', async () => {
+  const f = fake([{ symbol: 'U', ai: false }]);
+  const r = await f.w.aiEdit(['U'], [], { group: 'T1' });
+  assert.deepEqual([r.already, r.ungrouped, r.grouped], [['U'], ['U'], []]);
+  assert.deepEqual(f.list(), [{ symbol: 'U', ai: false }]);
+});
+
+test('an unknown group changes nothing', async () => {
+  const f = fake([{ symbol: 'A', ai: true }]);
+  assert.deepEqual(await f.w.setGroup('nope', false), { found: false, members: 0 });
+  assert.deepEqual(await f.w.removeGroup('nope'), { found: false, removed: [], held: [] });
+  assert.equal(f.sets.length, 0);
+  assert.equal(f.w.groupState('nope'), 'none');
+});
+
+test('switching a group on over the limit is refused and the group stays off', async () => {
+  const user = Array.from({ length: 150 }, (_, i) => ({ symbol: `S${i}`, ai: false }));
+  const parked = Array.from({ length: 60 }, (_, i) => ({ symbol: `P${i}`, ai: true, groups: ['T1'] }));
+  const f = fake([...user, ...parked], ['t1']);
+  await assert.rejects(f.w.setGroup('T1', true), /200/);
+  assert.deepEqual(f.off(), ['t1']);
+});
+
+test('the user taking an AI entry over drops its group', async () => {
+  const f = fake([{ symbol: 'A', ai: true, groups: ['T1'] }]);
+  await f.w.userEdit(c => watchEdit(c, ['a']));
+  assert.deepEqual(f.list(), [{ symbol: 'A', ai: false }]);
 });
