@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -20,7 +20,7 @@ test('watch list text marks who added the entries', () => {
 });
 
 const none = { added: [], already: [], removed: [], kept: [], held: [], missing: [], declined: [] };
-const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none, target: 'local', parked: 0 };
+const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none, target: 'local', parked: 0, unresolved: [] as { symbol: string; error: string }[] };
 
 test('watch result: a diff names only what changed, plus the count', () => {
   assert.equal(watchResultText({ ...wbase, result: { ...none, added: ['MAIN.a', 'MAIN.b'], removed: ['MAIN.c'] } }),
@@ -77,6 +77,14 @@ test('the full list shows groups and the parked entries; without groups it is un
     'MAIN.a : INT [added by AI] [group T1]\nSwitched off (not sampled): MAIN.b [group T2]\nGroups: T1 on (1), T2 off (1)');
   assert.equal(watchListText([], entries.slice(1), ['t2']),
     'The ADS watch list is empty.\nSwitched off (not sampled): MAIN.b [group T2]\nGroups: T2 off (1)');
+});
+
+test('unresolved text and its place in the watch result', () => {
+  assert.equal(unresolvedText([]), undefined);
+  assert.equal(unresolvedText([{ symbol: 'MAIN.a', error: 'Symbol not found' }]),
+    'Not resolved on the target (kept in the list; rebuild the project or remove them):\nMAIN.a : Symbol not found');
+  assert.equal(watchResultText({ ...wbase, unresolved: [{ symbol: 'MAIN.a', error: 'Symbol not found' }], addErrors: ['MAIN.x : e'], result: { ...none, added: ['MAIN.x'] } }),
+    'Added: MAIN.x\nError: MAIN.x : e\nNot resolved on the target (kept in the list; rebuild the project or remove them):\nMAIN.a : Symbol not found\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
 });
 
 test('addErrorLines names the stored spelling of added symbols with an error', () => {

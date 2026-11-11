@@ -9,6 +9,7 @@ import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { WatchList } from '../core/watchList';
 import type { SampleBatch } from '../core/waitRun';
 import { activeSymbols } from '../core/watchGroups';
+import { UnresolvedNotes } from '../core/unresolved';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -77,6 +78,8 @@ export class AdsHost implements vscode.Disposable {
   private nextId = 1;
   private gen = -1;
   private items_: WatchItem[] = [];
+  /** Saved entries that stopped resolving, reported once per symbol by ads_watch. */
+  readonly unresolved = new UnresolvedNotes();
   // the symbols the host samples (set by setEntries); undefined until the list was saved in this session
   private active: string[] | undefined;
   // the columns of the rows of `gen`; items_ may already show a list whose watch reply is still out
@@ -107,6 +110,7 @@ export class AdsHost implements vscode.Disposable {
         // samples and read-back values of the old target must not be shown under the new one, also while no host runs
         this.buffer.clear();
         this.written.clear();
+        this.unresolved.reset();
         this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
         this.itemsChanged.fire();
         // before the restart below, so a wait reports the target change rather than the restart

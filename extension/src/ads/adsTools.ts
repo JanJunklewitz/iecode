@@ -118,7 +118,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       }
       const taken = result.removed.filter(r => owned.has(r.toLowerCase())).length;
       if (taken) output.info(`AI removed ${taken} variable${taken === 1 ? '' : 's'} the user added (confirmed)`);
-      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, intervalMs: host.sampling().intervalMs, names, target: host.target() }));
+      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {

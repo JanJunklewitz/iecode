@@ -5,6 +5,7 @@ import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hos
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
 import type { WatchRunResult } from './watchRequest';
+import type { UnresolvedEntry } from './unresolved';
 import { groupSummaries, isActive } from './watchGroups';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
@@ -56,6 +57,8 @@ export interface WatchResultInput {
   group?: string;
   /** Entries in the list that are not sampled (switched-off groups). */
   parked: number;
+  /** Saved entries that stopped resolving and were not reported yet. */
+  unresolved: UnresolvedEntry[];
   full: boolean;
   list: string;
   result: WatchRunResult;
@@ -80,6 +83,12 @@ export function confirmRemoveText(symbols: string[]): string {
 }
 
 /** What the call changed (and the count), or the full list for an empty call and `list: true`. */
+/** Saved entries that no longer resolve, as a block of lines; undefined when there are none. */
+export function unresolvedText(entries: UnresolvedEntry[]): string | undefined {
+  if (!entries.length) return undefined;
+  return ['Not resolved on the target (kept in the list; rebuild the project or remove them):', ...entries.map(e => `${e.symbol} : ${e.error}`)].join('\n');
+}
+
 export function watchResultText(o: WatchResultInput): string {
   const r = o.result;
   const lines: string[] = [];
@@ -102,6 +111,8 @@ export function watchResultText(o: WatchResultInput): string {
     else lines.push(`No group named ${op.name}`);
   }
   for (const e of o.addErrors) lines.push(`Error: ${e}`);
+  const unresolved = unresolvedText(o.unresolved);
+  if (unresolved) lines.push(unresolved);
   lines.push(o.full ? o.list : `Watch list: ${symbols(o.count)}${o.parked > 0 ? `, ${o.parked} switched off` : ''}`);
   if (r.added.length) lines.push(`New values arrive every ${o.intervalMs} ms; use ${o.names.scope} for the history.`);
   lines.push(targetLine(o.target));
