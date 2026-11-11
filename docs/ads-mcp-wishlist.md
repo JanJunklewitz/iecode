@@ -52,12 +52,12 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_watch` returns only the diff and the count; a `list` option shows everything | Planned (Phase 1) | Today every call echoes the whole list (55 entries). |
-| Named watch groups, switchable and removable in one call | New | Keeps the sample rate high for the few symbols that matter. |
-| Let the AI remove entries the user added after a confirmation, or clear the AI-added ones in one call | New | |
+| `ads_watch` returns only the diff and the count; a `list` option shows everything | Done | `toolInput.test.ts`, `adsToolText.test.ts`. The result names what the call changed and the count; `list: true` shows everything. Live check 2026-11-11 ok. |
+| Done (Plan B) | `watchList.test.ts`, `watchGroups.test.ts`, `watchRequest.test.ts`. Groups are labels on the AI's entries; switching one off parks its symbols (not sampled, kept in the list). A running wait keeps its symbol sampled. Live check 2026-11-11 ok. |
+| Done (Plan B) | `watchRequest.test.ts`, `watchList.test.ts`. `force` asks the user once in a dialog (cancel and the 120 s timeout both keep the entries); `clearAi` removes only the AI's entries. Live check 2026-11-11 ok. |
 | Per-symbol sample rate (10 ms for pulses, 500 ms for texts) | New | Needs a host change. |
 | Poll interval and buffer length settable through MCP, with a read-only call for the current values | New | The scope panel has time span, poll and buffer, but the tools only take `seconds` and `symbols`; the poll rate is the user setting `iecode.ads.sampleIntervalMs`. A 90 s module init needs a bigger buffer. Optional confirmation when memory use rises. |
-| Persist the AI watch list in the workspace; report entries that no longer resolve after a build | New | |
+| Done (Plan B) | `unresolved.test.ts`, `adswatch.test.ts`. The list and the switched-off groups survive a window reload; entries that stop resolving are reported once. `npm test`: 521 tests, 520 passed, 0 failed, 1 skipped. Live check 2026-11-11 ok. |
 
 ## 5. Writes and sequences
 
@@ -93,7 +93,7 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 | Item | Status | Notes |
 |---|---|---|
 | Allow-list of path prefixes for AI writes (`iecode.ads.aiWrites`) | New | So `auto` can be used on a simulation without risk on a real target. Also listed in `TODO.md`. |
-| Show the connected target in every tool result header, including writes and watch | New | Reads already print it. |
+| Done (Plan B) | `adsToolText.test.ts`, `writeGate.test.ts`. Watch, write and wait results end with `ADS target: <target>`. Live check 2026-11-11 ok. |
 | Refuse PERSISTENT or configuration writes unless confirmed; list the persistent symbols changed in a session | New | |
 | Aliases for long paths | Planned, deferred (Phase 6) | Small saving, hidden state in every input. Revisit after the output-volume items are in. |
 
