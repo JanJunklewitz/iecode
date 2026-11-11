@@ -704,3 +704,13 @@ test('hostNote names the last host message, the last end and a missing connectio
   assert.equal(hostNote({ connected: false, error: 'boom' }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock),
     'Last host message: boom The ADS host ended at T5000: The ADS host exited (code 1).');
 });
+
+test('parseWatchList keeps groups, drops blanks and leaves old entries untouched', () => {
+  assert.deepEqual(parseWatchList([{ symbol: 'a', ai: true, groups: ['T1', ' ', 5] }, { symbol: 'b', ai: true, groups: [] }, 'c']),
+    [{ symbol: 'a', ai: true, groups: ['T1'] }, { symbol: 'b', ai: true }, { symbol: 'c', ai: false }]);
+});
+
+test('the user taking over or renaming an AI entry clears its groups', () => {
+  assert.deepEqual(watchEdit([{ symbol: 'a', ai: true, groups: ['T1'] }], ['A']), [{ symbol: 'a', ai: false }]);
+  assert.deepEqual(watchRename([{ symbol: 'a', ai: true, groups: ['T1'] }], 'a', 'a2'), [{ symbol: 'a2', ai: false }]);
+});
