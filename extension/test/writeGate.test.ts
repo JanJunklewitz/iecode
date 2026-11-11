@@ -422,13 +422,13 @@ test('gate shares one queue for Copilot and MCP', async () => {
 
 test('writeResultText for all kinds', () => {
   const o = op('MAIN.x');
-  assert.equal(writeResultText({ kind: 'written', readBack: '5' }, o), 'Written. MAIN.x reads back as 5 (the PLC may change it again).');
+  assert.equal(writeResultText({ kind: 'written', readBack: '5' }, o), 'Written. MAIN.x reads back as 5 (the PLC may change it again).\nADS target: A');
   assert.equal(writeResultText({ kind: 'written', readBack: null, readBackError: 'link down' }, o),
-    'Written, but MAIN.x could not be read back: link down. Read it before acting on the value.');
-  assert.equal(writeResultText({ kind: 'refused', reason: 'the request was cancelled' }, o), 'Not written: the request was cancelled.');
-  assert.equal(writeResultText({ kind: 'refused', reason: 'ends with a dot.' }, o), 'Not written: ends with a dot.');
+    'Written, but MAIN.x could not be read back: link down. Read it before acting on the value.\nADS target: A');
+  assert.equal(writeResultText({ kind: 'refused', reason: 'the request was cancelled' }, o), 'Not written: the request was cancelled.\nADS target: A');
+  assert.equal(writeResultText({ kind: 'refused', reason: 'ends with a dot.' }, o), 'Not written: ends with a dot.\nADS target: A');
   assert.equal(writeResultText({ kind: 'unknown', reason: 'no reply' }, o),
-    'Outcome unknown: no reply. Do not write again on your own; read MAIN.x and ask the user.');
+    'Outcome unknown: no reply. Do not write again on your own; read MAIN.x and ask the user.\nADS target: A');
 });
 
 test('writeResultIsError marks refused and unknown, not a written value', () => {

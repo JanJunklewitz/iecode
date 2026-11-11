@@ -32,7 +32,13 @@ export function watchListText(items: WatchItem[], entries: WatchEntry[]): string
   return items.map(i => `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${i.error})` : ''}${ai.has(i.symbol.toLowerCase()) ? ' [added by AI]' : ' [added by the user]'}`).join('\n');
 }
 
+export const targetLine = (target: string): string => `ADS target: ${target}`;
+
+/** "<target>:<port>" (the gate's key) as the user knows it: the default port 851 is left out. */
+export const targetOfKey = (key: string): string => (key.endsWith(':851') ? key.slice(0, -4) : key);
+
 export interface WatchResultInput {
+  target: string;
   full: boolean;
   list: string;
   result: AiEditResult;
@@ -61,6 +67,7 @@ export function watchResultText(o: WatchResultInput): string {
   for (const e of o.addErrors) lines.push(`Error: ${e}`);
   lines.push(o.full ? o.list : `Watch list: ${o.count} symbol${o.count === 1 ? '' : 's'}`);
   if (r.added.length) lines.push(`New values arrive every ${o.intervalMs} ms; use ${o.names.scope} for the history.`);
+  lines.push(targetLine(o.target));
   return lines.join('\n');
 }
 
@@ -123,21 +130,22 @@ export function scopeToolText(summary: string | undefined, unwatched: string[], 
 }
 
 /** The resolution is the sample interval; the closing line keeps an agent from reading a missed change as proof it never happened. */
-export function waitResultText(o: { symbol: string; condition: WaitCondition; outcome: WaitOutcome; intervalMs: number; clock: (ms: number) => string }): ToolText {
+export function waitResultText(o: { symbol: string; condition: WaitCondition; outcome: WaitOutcome; intervalMs: number; clock: (ms: number) => string; target: string }): ToolText {
   const out = o.outcome;
+  const tl = `\n${targetLine(o.target)}`;
   const sampled = `Sampled every ${o.intervalMs} ms; changes between samples are not seen.`;
   switch (out.kind) {
     case 'met': {
       const first = out.firstObservation ? ' (true at the first observation)' : '';
-      return { text: `Condition met at ${o.clock(out.t)} (after ${(out.elapsedMs / 1000).toFixed(2)} s): ${o.symbol} = ${out.value}${first}\n${sampled}` };
+      return { text: `Condition met at ${o.clock(out.t)} (after ${(out.elapsedMs / 1000).toFixed(2)} s): ${o.symbol} = ${out.value}${first}\n${sampled}${tl}` };
     }
     case 'timeout': {
       const last = out.last === undefined ? 'no valid value observed' : `last value ${out.last}`;
       const seen = out.seenEnum ? `; enum names seen: ${out.seenEnum.join(', ')} (a name never seen may be misspelled)` : '';
-      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}${seen}\n${sampled}` };
+      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}${seen}\n${sampled}${tl}` };
     }
-    case 'ended': return { text: `Wait ended: ${out.reason}` };
-    case 'refused': return { text: `Error: ${out.reason}`, isError: true };
-    case 'cancelled': return { text: 'Wait cancelled.' };
+    case 'ended': return { text: `Wait ended: ${out.reason}${tl}` };
+    case 'refused': return { text: `Error: ${out.reason}${tl}`, isError: true };
+    case 'cancelled': return { text: `Wait cancelled.${tl}` };
   }
 }

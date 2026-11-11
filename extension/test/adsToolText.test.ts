@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -20,26 +20,32 @@ test('watch list text marks who added the entries', () => {
 });
 
 const none = { added: [], already: [], removed: [], kept: [], held: [], missing: [] };
-const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none };
+const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none, target: 'local' };
 
 test('watch result: a diff names only what changed, plus the count', () => {
   assert.equal(watchResultText({ ...wbase, result: { ...none, added: ['MAIN.a', 'MAIN.b'], removed: ['MAIN.c'] } }),
-    'Added: MAIN.a, MAIN.b\nRemoved: MAIN.c\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.');
+    'Added: MAIN.a, MAIN.b\nRemoved: MAIN.c\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
   assert.equal(watchResultText({ ...wbase, count: 1, names: COPILOT_NAMES, result: { ...none, added: ['MAIN.a'] } }),
-    'Added: MAIN.a\nWatch list: 1 symbol\nNew values arrive every 100 ms; use adsScope for the history.');
-  assert.equal(watchResultText({ ...wbase, result: { ...none, removed: ['MAIN.c'] } }), 'Removed: MAIN.c\nWatch list: 3 symbols');
+    'Added: MAIN.a\nWatch list: 1 symbol\nNew values arrive every 100 ms; use adsScope for the history.\nADS target: local');
+  assert.equal(watchResultText({ ...wbase, result: { ...none, removed: ['MAIN.c'] } }), 'Removed: MAIN.c\nWatch list: 3 symbols\nADS target: local');
 });
 
 test('watch result: every refusal and error has its own line, in a fixed order', () => {
   assert.equal(watchResultText({ ...wbase, addErrors: ['MAIN.x : Symbol not found'],
     result: { added: ['MAIN.x'], already: ['a'], removed: [], kept: ['U'], held: ['h'], missing: ['m'] } }),
-    'Added: MAIN.x\nAlready in the list: a\nNot in the list: m\nNot removed (added by the user, only the user can remove them): U\nKept until a running wait ends: h\nError: MAIN.x : Symbol not found\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.');
+    'Added: MAIN.x\nAlready in the list: a\nNot in the list: m\nNot removed (added by the user, only the user can remove them): U\nKept until a running wait ends: h\nError: MAIN.x : Symbol not found\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
 });
 
 test('watch result: the full list replaces the count; an empty call is the list alone', () => {
-  assert.equal(watchResultText({ ...wbase, full: true }), 'L');
+  assert.equal(watchResultText({ ...wbase, full: true }), 'L\nADS target: local');
   assert.equal(watchResultText({ ...wbase, full: true, result: { ...none, added: ['a'] } }),
-    'Added: a\nL\nNew values arrive every 100 ms; use ads_scope for the history.');
+    'Added: a\nL\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
+});
+
+test('target line and the default port', () => {
+  assert.equal(targetLine('local'), 'ADS target: local');
+  assert.equal(targetOfKey('local:851'), 'local');
+  assert.equal(targetOfKey('172.20.30.60.1.1:852'), '172.20.30.60.1.1:852');
 });
 
 test('addErrorLines names the stored spelling of added symbols with an error', () => {
@@ -126,21 +132,22 @@ test('capText result never exceeds the limit', () => {
 });
 
 test('waitResultText words every outcome', () => {
-  const base = { symbol: 'MAIN.x', condition: { op: 'changes' } as const, intervalMs: 100, clock: (ms: number) => `T${ms}` };
+  const base = { symbol: 'MAIN.x', condition: { op: 'changes' } as const, intervalMs: 100, clock: (ms: number) => `T${ms}`, target: 'local' };
   const sampled = 'Sampled every 100 ms; changes between samples are not seen.';
+  const tl = '\nADS target: local';
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'met', t: 5, value: '3', firstObservation: false, elapsedMs: 1234 } }),
-    { text: `Condition met at T5 (after 1.23 s): MAIN.x = 3\n${sampled}` });
+    { text: `Condition met at T5 (after 1.23 s): MAIN.x = 3\n${sampled}${tl}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'met', t: 5, value: '3', firstObservation: true, elapsedMs: 0 } }),
-    { text: `Condition met at T5 (after 0.00 s): MAIN.x = 3 (true at the first observation)\n${sampled}` });
+    { text: `Condition met at T5 (after 0.00 s): MAIN.x = 3 (true at the first observation)\n${sampled}${tl}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: '2', seconds: 30 } }),
-    { text: `Not met within 30 s: MAIN.x changes; last value 2\n${sampled}` });
+    { text: `Not met within 30 s: MAIN.x changes; last value 2\n${sampled}${tl}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: undefined, seconds: 30 } }),
-    { text: `Not met within 30 s: MAIN.x changes; no valid value observed\n${sampled}` });
+    { text: `Not met within 30 s: MAIN.x changes; no valid value observed\n${sampled}${tl}` });
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'timeout', last: 'eIdle', seconds: 30, seenEnum: ['eIdle', 'eRun'] } }),
-    { text: `Not met within 30 s: MAIN.x changes; last value eIdle; enum names seen: eIdle, eRun (a name never seen may be misspelled)\n${sampled}` });
-  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'ended', reason: 'host stopped' } }), { text: 'Wait ended: host stopped' });
-  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'refused', reason: 'nope' } }), { text: 'Error: nope', isError: true });
-  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Wait cancelled.' });
+    { text: `Not met within 30 s: MAIN.x changes; last value eIdle; enum names seen: eIdle, eRun (a name never seen may be misspelled)\n${sampled}${tl}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'ended', reason: 'host stopped' } }), { text: `Wait ended: host stopped${tl}` });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'refused', reason: 'nope' } }), { text: `Error: nope${tl}`, isError: true });
+  assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: `Wait cancelled.${tl}` });
   assert.equal(COPILOT_NAMES.wait, 'adsWait');
   assert.equal(MCP_NAMES.wait, 'ads_wait');
 });

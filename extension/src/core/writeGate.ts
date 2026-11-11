@@ -3,7 +3,7 @@
 // the clock through Clock, so the rules are unit-tested without VS Code.
 
 import { WriteDecision, writeStillApproved } from './adswatch';
-import { COPILOT_NAMES, MCP_NAMES, ToolNames } from './adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, ToolNames, targetLine, targetOfKey } from './adsToolText';
 
 /** The write was not sent: refused before the request left, or the host proved it did not send it. `alreadyShown`: a failed host start. */
 export class WriteNotSent extends Error {
@@ -81,6 +81,10 @@ export function sendOutcome(e: unknown): WriteResult {
 const sentence = (s: string) => s.replace(/\.$/, '');
 
 export function writeResultText(r: WriteResult, op: WriteOp): string {
+  return `${writeVerdict(r, op)}\n${targetLine(targetOfKey(op.targetKey))}`;
+}
+
+function writeVerdict(r: WriteResult, op: WriteOp): string {
   switch (r.kind) {
     case 'written':
       return r.readBack === null

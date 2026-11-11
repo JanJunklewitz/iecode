@@ -9,6 +9,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - `ads_scope` no longer drops value changes when it thins a long window: both rows around every change stay, and a line such as `200 of 1990 samples shown, 14 value changes kept` says when the table shows fewer rows than were sampled. A signal that changes in almost every sample (a ramp, a noisy analog value) is thinned evenly instead, and the line names it.
 - `ads_scope` has new options. `changesOnly` lists one row per value change with the value at the start of the window, never thinned, and also shows STRING values; `edges` lists rising and falling edges of BOOL symbols with their times; `maxRows` and `decimals` shorten the table. The summary line says how often a symbol changed and when, and a scope that has stopped getting samples names the last host message.
 - `ads_watch` (Copilot: `adsWatch`) answers an add or remove with only what changed and the count (`Watch list: 57 symbols`) instead of the whole list; call it with no arguments or `list: true` for the full list.
+- Results of `ads_watch`, `ads_write` and `ads_wait` end with the line `ADS target: <target>`, so a result always says which PLC it came from.
 
 ## 0.2.11
 

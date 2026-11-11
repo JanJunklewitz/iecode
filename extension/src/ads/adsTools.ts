@@ -95,7 +95,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
         const f = watchFailureText(errorText(e), list(host));
         return { ...f, text: capText(f.text) };
       }
-      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, intervalMs: host.sampling().intervalMs, names }));
+      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {
@@ -148,7 +148,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       };
       // the host keeps running for the whole wait, whatever way it ends
       const outcome = await leased(host, () => runWait(deps, input, signal));
-      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock });
+      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target: host.target() });
       return { ...r, text: capText(r.text) };
     },
   };
