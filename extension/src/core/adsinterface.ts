@@ -19,6 +19,7 @@ import { SymbolIndex, IndexedObject } from '../lang/index';
 import { PlcSymbol } from '../lang/parser';
 import { isEncrypted, PlcProject } from './projects';
 import { filesAt, repoRoot, show } from './git';
+import { newerSources } from './symbolOrigin';
 
 export interface AdsSymbol {
   /** Full ADS name, e.g. MAIN.fbMotor.bEnable or GVL_IO.aValues. */
@@ -36,8 +37,11 @@ export interface AdsInterface {
   symbols: AdsSymbol[];
   /** The .tmc the symbols were read from (build output). */
   file?: string;
-  /** Build output older than the source files. */
+  /** Build output older than the source files (by more than the clock-skew tolerance). */
   stale?: boolean;
+  /** Build output: when it was written, and the source files newer than it (newest first), set by fromBuild. */
+  builtAt?: Date;
+  newerSources?: string[];
   /** Source: names of the GVLs and programs (the first part of every symbol name). */
   roots?: string[];
 }
@@ -319,8 +323,10 @@ export async function fromBuild(plc: PlcProject, members = false): Promise<AdsIn
   const file = await findTmc(plc.file);
   if (!file) throw new NoBuildOutputError(`No build output for ${plc.name}: TwinCAT writes ${plc.name}.tmc next to the .plcproj when it builds the PLC project. Build it first, or show the interface from the source code.`);
   const built = (await fs.stat(file)).mtimeMs;
-  const times = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(f => fs.stat(f).then(s => s.mtimeMs, () => 0)));
-  return { origin: 'build', file, stale: times.some(t => t > built), symbols: fromTmc(await fs.readFile(file, 'utf8'), members) };
+  // a file that cannot be read is skipped, as before
+  const times = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(f => fs.stat(f).then(s => ({ file: f, mtimeMs: s.mtimeMs }), () => ({ file: f, mtimeMs: 0 }))));
+  const newer = newerSources(built, times);
+  return { origin: 'build', file, stale: newer.length > 0, builtAt: new Date(built), newerSources: newer, symbols: fromTmc(await fs.readFile(file, 'utf8'), members) };
 }
 
 /** Interface from the source code in the working copy, or at a git commit when `ref` is set. */

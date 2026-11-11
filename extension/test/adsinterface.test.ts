@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { diffInterfaces, diffSymbols, evaluate, fromBuild, fromFile, fromSource, fromSourceAt, fromTmc, NoBuildOutputError, symbolsToCsv, toSnapshot } from '../src/core/adsinterface';
 import { loadPlcProject } from '../src/core/projects';
 
@@ -213,7 +213,16 @@ test('ADS interface: fixture project from source, build output, stale check, CSV
     assert.equal(built.stale, false);
     assert.equal(built.symbols.length, 5);
     utimesSync(plc.objects[0].file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
-    assert.equal((await fromBuild(plc)).stale, true);
+    const built2 = await fromBuild(plc);
+    assert.equal(built2.stale, true);
+    assert.deepEqual(built2.newerSources, [basename(plc.objects[0].file)]);
+    assert.ok(Math.abs(built.builtAt!.getTime() - now.getTime()) < 1500);
+    // one second of clock skew is not stale
+    const skew = new Date(now.getTime() + 1000);
+    for (const f of [plc.file, ...plc.objects.map(o => o.file)]) utimesSync(f, skew, skew);
+    const skewed = await fromBuild(plc);
+    assert.equal(skewed.stale, false);
+    assert.deepEqual(skewed.newerSources, []);
 
     assert.match(symbolsToCsv(built.symbols), /^Name;Type;BitSize;Area;Comment\nGVL\.aValues;ARRAY \[0\.\.9\] OF INT;160;PlcTask Internal;\n/);
     const snap = JSON.parse(toSnapshot('PLC1', built.symbols, false));

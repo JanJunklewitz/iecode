@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
+import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
 import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
@@ -98,12 +99,15 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const matches: string[] = [];
       const missing: string[] = [];
       const unreadable: string[] = [];
+      const headers: string[] = [];
       let total = 0;
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
       for (const u of units) {
         try {
-          for (const s of (await fromBuild(u.plc, true)).symbols) {
+          const built = await fromBuild(u.plc, true);
+          headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
+          for (const s of built.symbols) {
             if (filter && !s.name.toLowerCase().includes(filter)) continue;
             if (++total <= MAX_SYMBOLS) matches.push(`${s.name} : ${s.type}`);
           }
@@ -112,7 +116,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      return ok(symbolsText({ matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
+      return ok(symbolsText({ headers, matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
     },
 
     async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {

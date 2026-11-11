@@ -96,12 +96,14 @@ test('a watch call that partly fails keeps the partial state and is an error', (
 });
 
 test('symbols listing', () => {
-  const base = { matches: ['MAIN.a : INT'], total: 1, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
+  const base = { headers: [] as string[], matches: ['MAIN.a : INT'], total: 1, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
   assert.equal(symbolsText(base), 'MAIN.a : INT');
   assert.equal(symbolsText({ ...base, matches: [], total: 0, typed: 'zz' }), 'No symbols match "zz".');
   assert.equal(symbolsText({ ...base, total: 103 }), 'MAIN.a : INT\n(3 more not listed; use a narrower filter)');
   assert.equal(symbolsText({ ...base, missing: ['P1', 'P2'], unreadable: ['P3 (bad)'] }),
     'MAIN.a : INT\nNot built, so not listed (no .tmc): P1, P2\nBuild output unreadable, so not listed: P3 (bad)');
+  assert.equal(symbolsText({ ...base, headers: ['H1', 'H2'] }), 'H1\nH2\nMAIN.a : INT');
+  assert.equal(symbolsText({ ...base, headers: ['H1'], matches: [], total: 0, typed: 'zz' }), 'H1\nNo symbols match "zz".');
   assert.equal(symbolsText({ ...base, matches: [], total: 0, units: 0 }), 'No symbols match "a".\nNo PLC projects in this workspace.');
 });
 

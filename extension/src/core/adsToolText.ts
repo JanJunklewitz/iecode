@@ -124,8 +124,8 @@ export function watchFailureText(error: string, list: string): ToolText {
   return { text: `${error}\nWatch list now:\n${list}`, isError: true };
 }
 
-export function symbolsText(o: { matches: string[]; total: number; max: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
-  const lines = [o.matches.length ? o.matches.join('\n') : `No symbols match "${o.typed}".`];
+export function symbolsText(o: { headers: string[]; matches: string[]; total: number; max: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
+  const lines = [...o.headers, o.matches.length ? o.matches.join('\n') : `No symbols match "${o.typed}".`];
   if (o.total > o.max) lines.push(`(${o.total - o.max} more not listed; use a narrower filter)`);
   if (o.missing.length) lines.push(`Not built, so not listed (no .tmc): ${o.missing.join(', ')}`);
   if (o.unreadable.length) lines.push(`Build output unreadable, so not listed: ${o.unreadable.join('; ')}`);
