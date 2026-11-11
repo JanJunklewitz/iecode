@@ -35,7 +35,7 @@ export function hostStartFailure(helloSeen: boolean, exitCode: number | null, el
   return undefined;
 }
 
-import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES, changeEntries } from './scopeChanges';
+import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES, changeEntries, changesTable } from './scopeChanges';
 export { ChangeEntry, ChangeLog, MAX_CHANGE_ENTRIES, MAX_CHANGE_TEXT, CUT_MARK, changeEntries } from './scopeChanges';
 
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
@@ -350,7 +350,11 @@ function summaryLine(buf: ScopeBuffer, s: string, seconds: number, now: number, 
   return `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`;
 }
 
-export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number }
+/** The cell of a symbol whose start value the entry cap removed. */
+export const UNKNOWN_START = 'unknown (history dropped)';
+
+/** `maxChars` is the budget of the whole text (see assemble); unset means no limit. */
+export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number; changesOnly?: boolean; maxChars?: number }
 
 /** Integers unchanged; other numbers rounded with toFixed(decimals); decimals undefined = String(n). */
 export function formatNumber(n: number, decimals?: number): string {
@@ -365,39 +369,80 @@ export function formatValueText(text: string | null, decimals?: number): string 
   return formatNumber(Number(text), decimals);
 }
 
+/** The pieces of a scope answer; `assemble` joins them and keeps the whole text inside a character budget. */
+interface ScopeParts { summaries: string[]; notes: string[]; header?: string; rows: string[]; footer: string[] }
+
+/** Most summaries kept when the budget forces them to be cut (the footer and the newest rows are cut last or never). */
+const MAX_BUDGET_SUMMARIES = 50;
+
+function joinParts(p: ScopeParts, summaries: string[], notes: string[], rows: string[]): string {
+  const lines = [...summaries];
+  if (p.header !== undefined) lines.push('', ...notes, p.header, ...rows, ...p.footer);
+  return lines.join('\n');
+}
+
+/**
+ * Joins the parts. Over the budget, the oldest table rows go first (with a note), then summaries beyond the first
+ * MAX_BUDGET_SUMMARIES (with a count); the header, the notes and the footer stay.
+ */
+function assemble(p: ScopeParts, maxChars: number): string {
+  const whole = joinParts(p, p.summaries, p.notes, p.rows);
+  if (whole.length <= maxChars || p.header === undefined) return whole;
+  let summaries = p.summaries;
+  const fit = (): { text: string; kept: number } => {
+    const note = (n: number) => `${n} earlier rows not shown (output size limit), narrow seconds or symbols`;
+    const base = joinParts(p, summaries, [...p.notes, note(p.rows.length)], []).length;
+    let room = maxChars - base, kept = 0;
+    for (let i = p.rows.length - 1; i >= 0 && room >= p.rows[i].length + 1; i--) { room -= p.rows[i].length + 1; kept++; }
+    const rows = p.rows.slice(p.rows.length - kept);
+    return { kept, text: joinParts(p, summaries, kept < p.rows.length ? [...p.notes, note(p.rows.length - kept)] : p.notes, rows) };
+  };
+  let r = fit();
+  if (r.text.length > maxChars && summaries.length > MAX_BUDGET_SUMMARIES) {
+    summaries = [...summaries.slice(0, MAX_BUDGET_SUMMARIES), `(${summaries.length - MAX_BUDGET_SUMMARIES} more summaries not shown: output size limit)`];
+    r = fit();
+  }
+  return r.text;
+}
+
 // Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
 export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
   const maxRows = opts.maxRows ?? 200;
   const maxColumns = opts.maxColumns ?? MAX_SCOPE_COLUMNS;
   const d = opts.decimals;
-  const lines: string[] = [];
-  const maps = symbols.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
-  for (const s of symbols) lines.push(summaryLine(buf, s, seconds, now, d));
+  const budget = opts.maxChars ?? Infinity;
+  const parts: ScopeParts = { summaries: symbols.map(s => summaryLine(buf, s, seconds, now, d)), notes: [], rows: [], footer: [] };
   const shown = symbols.slice(0, maxColumns);
-  const shownMaps = maps.slice(0, maxColumns);
-  const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
-  if (times.length > 0) {
-    // A column that changes in more than a quarter of maxRows places is a continuous signal: its changes are not
-    // events, so it is thinned evenly; the other columns keep every change.
-    const changeCount = (m: Map<number, number>) => times.reduce((n, t, i) => n + (i > 0 && m.get(t) !== m.get(times[i - 1]) ? 1 : 0), 0);
-    const fast = shownMaps.map(m => changeCount(m) > maxRows / 4);
-    const slowMaps = shownMaps.filter((_, i) => !fast[i]);
-    const thin = thinKeepingChanges(times, maxRows, (a, b) => slowMaps.some(m => m.get(a) !== m.get(b)));
-    const rowsShown = thin.droppedChanges === 0 && fast.some(Boolean) ? fillEvenly(times, thin.rows, maxRows) : thin.rows;
-    lines.push('');
-    if (rowsShown.length < times.length) {
-      const lost = thin.droppedChanges > 0 ? `; ${thin.droppedChanges} earlier changes not shown, narrow seconds or symbols` : ' kept';
-      const events = slowMaps.length > 0 ? `, ${thin.changes} value changes${lost}` : '';
-      const thinned = fast.some(Boolean) ? `; evenly thinned (fast-changing): ${shown.filter((_, i) => fast[i]).join(', ')}` : '';
-      lines.push(`${rowsShown.length} of ${times.length} samples shown${events}${thinned}`);
-    }
-    lines.push(['t[s]', ...shown].join('\t'));
-    for (const t of rowsShown) {
-      lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => { const y = m.get(t); return y === undefined ? '' : formatNumber(y, d); })].join('\t'));
-    }
-    if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);
+  const columnsNote = symbols.length > shown.length ? [`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`] : [];
+  if (opts.changesOnly) {
+    const from = now - seconds * 1000;
+    const table = changesTable(shown, shown.map(s => buf.changes(s, from)), {
+      now, requestedStart: from, maxRows, unknownText: UNKNOWN_START,
+      cell: (i, text) => (buf.isText(shown[i]) ? shownText(text, true) : formatValueText(text, d) ?? ''),
+    });
+    if (table.rows.length === 0 && table.notes.length === 0) return assemble(parts, budget);
+    return assemble({ ...parts, notes: table.notes, header: table.header, rows: table.rows, footer: columnsNote }, budget);
   }
-  return lines.join('\n');
+  const shownMaps = shown.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
+  const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
+  if (times.length === 0) return assemble(parts, budget);
+  // A column that changes in more than a quarter of maxRows places is a continuous signal: its changes are not
+  // events, so it is thinned evenly; the other columns keep every change.
+  const changeCount = (m: Map<number, number>) => times.reduce((n, t, i) => n + (i > 0 && m.get(t) !== m.get(times[i - 1]) ? 1 : 0), 0);
+  const fast = shownMaps.map(m => changeCount(m) > maxRows / 4);
+  const slowMaps = shownMaps.filter((_, i) => !fast[i]);
+  const thin = thinKeepingChanges(times, maxRows, (a, b) => slowMaps.some(m => m.get(a) !== m.get(b)));
+  const rowsShown = thin.droppedChanges === 0 && fast.some(Boolean) ? fillEvenly(times, thin.rows, maxRows) : thin.rows;
+  if (rowsShown.length < times.length) {
+    const lost = thin.droppedChanges > 0 ? `; ${thin.droppedChanges} earlier changes not shown, narrow seconds or symbols` : ' kept';
+    const events = slowMaps.length > 0 ? `, ${thin.changes} value changes${lost}` : '';
+    const thinned = fast.some(Boolean) ? `; evenly thinned (fast-changing): ${shown.filter((_, i) => fast[i]).join(', ')}` : '';
+    parts.notes.push(`${rowsShown.length} of ${times.length} samples shown${events}${thinned}`);
+  }
+  parts.header = ['t[s]', ...shown].join('\t');
+  parts.rows = rowsShown.map(t => [((t - now) / 1000).toFixed(3), ...shownMaps.map(m => { const y = m.get(t); return y === undefined ? '' : formatNumber(y, d); })].join('\t'));
+  parts.footer = columnsNote;
+  return assemble(parts, budget);
 }
 
 const NETID = /^\d{1,3}(\.\d{1,3}){5}$/;

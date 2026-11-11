@@ -121,7 +121,42 @@ export class ChangeLogStore {
     const startUnknown = start === undefined && l.droppedT !== undefined;
     const olderDropped = l.droppedT !== undefined && l.droppedT >= windowStart;
     let covered = Math.max(l.firstT ?? -Infinity, l.floorT);
-    if (startUnknown) covered = Math.max(covered, entries[0]?.t ?? covered);
     return { start, entries, olderDropped, startUnknown, lastValidT: l.lastValidT, failedSince: l.failedSince, coveredFromMs: Math.max(windowStart, covered === -Infinity ? windowStart : covered) };
   }
+}
+
+export interface ChangesTable { notes: string[]; header: string; rows: string[] }
+
+/**
+ * The `changesOnly` table: one row per time at which a symbol has an entry in the window, unchanged cells empty,
+ * plus a start row with the values in force at the window start. The start row counts against `maxRows` and is
+ * left out when rows are left out; the newest rows always stay.
+ */
+export function changesTable(names: string[], logs: ChangeLog[], o: {
+  now: number; requestedStart: number; maxRows: number; unknownText: string; cell: (index: number, text: string) => string;
+}): ChangesTable {
+  const notes: string[] = [];
+  const known = logs.filter(l => l.entries.length > 0 || l.start !== undefined || l.startUnknown);
+  const covered = known.length > 0 ? Math.min(...known.map(l => l.coveredFromMs)) : o.requestedStart;
+  if (o.requestedStart < covered) notes.push(`history covers only the last ${Math.round((o.now - covered) / 1000)} s`);
+  const dropped = names.filter((_, i) => logs[i].olderDropped);
+  if (dropped.length > 0) notes.push(`older changes dropped: ${dropped.join(', ')}`);
+
+  const rows = new Map<number, string[]>();
+  const row = (t: number): string[] => { let r = rows.get(t); if (!r) rows.set(t, r = names.map(() => '')); return r; };
+  const t0 = Math.max(o.requestedStart, covered);
+  const startCells = logs.map((l, i) => (l.start ? o.cell(i, l.start.text) : l.startUnknown ? o.unknownText : ''));
+  logs.forEach((l, i) => { for (const e of l.entries) row(e.t)[i] = o.cell(i, e.text); });
+  const events = [...rows.keys()].sort((a, b) => a - b);
+  const startRow = startCells.some(c => c !== '') && !rows.has(t0);
+  if (startRow) startCells.forEach((c, i) => { row(t0)[i] = c; });
+  else if (rows.has(t0)) startCells.forEach((c, i) => { const r = rows.get(t0)!; if (r[i] === '' && c !== '') r[i] = c; });
+
+  let times = [...rows.keys()].sort((a, b) => a - b);
+  if (times.length > o.maxRows) {
+    times = events.slice(Math.max(0, events.length - o.maxRows));
+    const hidden = events.length - times.length;
+    if (hidden > 0) notes.push(`${hidden} earlier rows not shown, narrow seconds or symbols`);
+  }
+  return { notes, header: ['t[s]', ...names].join('\t'), rows: times.map(t => [((t - o.now) / 1000).toFixed(3), ...rows.get(t)!].join('\t')) };
 }

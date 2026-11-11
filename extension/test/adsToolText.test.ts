@@ -130,3 +130,19 @@ test('scope summary passes maxRows to the table', () => {
   assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { maxRows: 2 } }),
     'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\n2 of 3 samples shown; evenly thinned (fast-changing): a\nt[s]\ta\n-2.000\t0\n0.000\t2');
 });
+
+test('scope summary in changesOnly mode names the view in its head line', () => {
+  const out = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { changesOnly: true } });
+  assert.ok(out.startsWith('ADS value changes of the last 60 s up to the newest sample (target local):\n'), out);
+  assert.ok(out.endsWith('t[s]\ta\n-2.000\t0\n-1.000\t1\n0.000\t2'), out);
+});
+
+test('scope summary keeps the whole answer inside the tool text limit', () => {
+  const symbols = Array.from({ length: 200 }, (_, i) => `GVL.aVeryLongSymbolNameForTheBudgetTest${String(i).padStart(3, '0')}`);
+  const b = filled(symbols, 300);
+  for (const options of [{}, { changesOnly: true }]) {
+    const out = scopeSummaryText({ buffer: b, symbols, seconds: 3600, target: 'local', intervalMs: 100, now: 400_000, clock, options });
+    assert.ok(out.length <= MAX_TOOL_TEXT - 1000, `length ${out.length}`);
+    assert.ok(out.includes('first 20 of 200 symbols'));
+  }
+});

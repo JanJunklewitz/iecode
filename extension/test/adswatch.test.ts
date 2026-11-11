@@ -541,7 +541,7 @@ test('the entry cap drops the oldest entries and says so', () => {
   assert.equal(log.entries.at(-1)!.text, '49');
   assert.equal(log.olderDropped, true);
   assert.equal(log.startUnknown, true);
-  assert.equal(log.coveredFromMs, 40000);
+  assert.equal(log.coveredFromMs, 0);
   assert.equal(changeEntries(log).length, 10);
 });
 

@@ -73,3 +73,10 @@ test('toolInput scope maxRows and decimals are clamped, never thrown', () => {
   assert.equal(v({ decimals: NaN }), 'decimals must be a finite number');
   assert.deepEqual(v({ symbols: ['a'], seconds: 30 }), { symbols: ['a'], seconds: 30 });   // unchanged: absent fields stay absent
 });
+
+test('toolInput scope changesOnly', () => {
+  assert.deepEqual(parseScopeInput({ changesOnly: true }), { ok: true, value: { symbols: [], changesOnly: true } });
+  assert.deepEqual(parseScopeInput({ changesOnly: false }), { ok: true, value: { symbols: [], changesOnly: false } });
+  assert.deepEqual(parseScopeInput({ changesOnly: null }), { ok: true, value: { symbols: [] } });
+  assert.deepEqual(parseScopeInput({ changesOnly: 'yes' }), { ok: false, error: 'changesOnly must be true or false' });
+});

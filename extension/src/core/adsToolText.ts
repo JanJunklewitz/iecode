@@ -15,6 +15,8 @@ export interface ToolText { text: string; isError?: boolean }
 
 /** Longest result a tool returns, in characters (the marker included). */
 export const MAX_TOOL_TEXT = 50_000;
+/** What the scope text may use; the rest of MAX_TOOL_TEXT is left for the head line, the gap note and the unwatched list. */
+export const SCOPE_TEXT_BUDGET = MAX_TOOL_TEXT - 2000;
 export const TRUNCATED = '(output truncated: ask for fewer symbols or a shorter time span)';
 
 export function capText(text: string, limit = MAX_TOOL_TEXT): string {
@@ -80,8 +82,8 @@ export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; se
   const end = newestSample(o.buffer, o.symbols);
   if (end === undefined) return `No samples yet for ${o.symbols.join(', ')}. The values are sampled every ${o.intervalMs} ms while the ADS host runs.`;
   const gap = gapNote(end, o.now, o.clock);
-  const head = `ADS values of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
-  return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, o.options)}`;
+  const head = `ADS ${o.options?.changesOnly ? 'value changes' : 'values'} of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
+  return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, { maxChars: SCOPE_TEXT_BUDGET, ...o.options })}`;
 }
 
 export function scopeToolText(summary: string | undefined, unwatched: string[], names: ToolNames): string {

@@ -131,7 +131,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const found = asked.map(s => watchedName(host, s));
       const watched = found.filter((n): n is string => !!n);
       const unwatched = asked.filter((_, i) => !found[i]);
-      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals }) : undefined, unwatched, names));
+      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly }) : undefined, unwatched, names));
     },
 
     async wait(input: WaitInput, signal: AbortSignal): Promise<ToolText> {

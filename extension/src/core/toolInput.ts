@@ -65,7 +65,7 @@ export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {
 
 export const SCOPE_MAX_ROWS = 200;
 
-export interface ScopeArgs { symbols: string[]; seconds?: number; maxRows?: number; decimals?: number }
+export interface ScopeArgs { symbols: string[]; seconds?: number; maxRows?: number; decimals?: number; changesOnly?: boolean }
 
 /** An optional finite number, rounded and clamped; null or undefined counts as missing. */
 function clampedNumber(o: Record<string, unknown>, field: string, min: number, max: number): number | undefined | { error: string } {
@@ -92,6 +92,11 @@ export function parseScopeInput(raw: unknown): Parsed<ScopeArgs> {
   const decimals = clampedNumber(o, 'decimals', 0, 9);
   if (isErr(decimals)) return fail(decimals.error);
   if (decimals !== undefined) value.decimals = decimals;
+  const only = o.changesOnly;
+  if (only !== undefined && only !== null) {
+    if (typeof only !== 'boolean') return fail('changesOnly must be true or false');
+    value.changesOnly = only;
+  }
   return { ok: true, value };
 }
 

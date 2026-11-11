@@ -1538,6 +1538,10 @@
             "decimals": {
               "type": "number",
               "description": "Round fractional numbers to this many decimals, 0-9 (integers stay as they are)."
+            },
+            "changesOnly": {
+              "type": "boolean",
+              "description": "One row per value change instead of one per sample; also lists STRING values. Never thinned."
             }
           }
         }
