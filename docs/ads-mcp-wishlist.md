@@ -24,17 +24,17 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 |---|---|---|
 | `ads_scope` never drops a value change when it thins a long window | Done (Plan A1) | Every transition survives thinning (first and last row of each run kept); a column that changes constantly is thinned evenly. Tests in `adswatch.test.ts`: `thinKeepingChanges keeps both sides of every transition`, `scopeText never drops a value change of a step counter and says it thinned`, `scopeText thins a fast-changing column evenly and still keeps every step`. |
 | Say it when rows are dropped | Done (Plan A1) | Header line such as `200 of 1990 samples shown, 14 value changes kept`, with a note when transitions are not shown. Tests: `scopeText never drops a value change of a step counter and says it thinned`, `scopeText has no thinning header when every row is shown`. |
-| Change-only mode (`changesOnly`): one row per value change with its time | Planned (Phase 2) | Also the cheap default for step counters, enums and BOOLs. Never thinned, newest 200 rows plus a note. |
-| STRING and WSTRING history in the scope | Planned (Phase 2) | Today `ads_scope` answers "no numeric samples". Needed for step descriptions and error texts, which are empty again once the machine has handled the error. The change log keeps text, with its own entry cap. |
-| `maxRows` and `decimals` options | New | Lets the caller ask for 20 rows. |
-| Per symbol in the summary: min, max, last, time of the first and last change | New | Durations ("request high for 12.3 s") then need no table. Fits next to Phase 2. |
+| Change-only mode (`changesOnly`): one row per value change with its time | Done (Plan A5; live check open) | One row per change time with the value at the window start, never thinned, newest 200 rows plus a note; the whole answer keeps a character budget. Tests in `scopeChanges.test.ts`: `changesOnly lists one row per change time with empty cells for unchanged symbols`, `changesOnly shows the value at the window start and quotes text`, `changesOnly shows the newest rows and says how many it left out`, `the whole answer stays inside the budget: oldest rows go first, the columns footer stays`. |
+| STRING and WSTRING history in the scope | Done (Plan A3-A5; live check open) | The change log keeps text with its own entry cap; the summary quotes the last text and `changesOnly` lists every text. Tests: `change log keeps the first sample and every change, nothing else`, `long texts are stored cut but compared in full`, `scopeText summarises a STRING symbol by its changes`, `changesOnly distinguishes an empty string from an unchanged cell`. |
+| `maxRows` and `decimals` options | Done (Plan A2) | Lets the caller ask for 20 rows and rounded numbers. Tests: `toolInput scope maxRows and decimals are clamped, never thrown`, `scopeText honours maxRows and says it thinned`, `scopeText rounds numbers to decimals but never pads integers`. |
+| Per symbol in the summary: min, max, last, time of the first and last change | Done (Plan A4; live check open) | `changes=K (first at -7.0 s, last at -1.0 s)` after the usual fields; constant numeric symbols print as before; read errors show `reading failed since ...`. Tests: `scopeText summary names the number of changes and when they happened`, `the summary shows the last valid value and since when reading fails`, `a capped change log says the count is a lower bound`. |
 
 ## 2. Edge and event search
 
 | Item | Status | Notes |
 |---|---|---|
 | `ads_wait(symbol, condition, timeoutSeconds)` | Done (see above) | Replaces the sleep plus `ads_read` polling loop. |
-| `edges: true` on `ads_scope`: rising and falling edges of BOOLs with timestamps | New | Partly covered by `changesOnly` once Phase 2 exists; a dedicated edge list is shorter. |
+| `edges: true` on `ads_scope`: rising and falling edges of BOOLs with timestamps | Done (Plan A7; live check open) | Only the exact type BOOL; an alias is named, not guessed. An edge across a read error is dated as unknown between two times. Tests: `edgesText lists rising and falling edges of a BOOL`, `edgesText cannot date an edge across a read error`, `toolInput scope edges`. |
 | Trigger and capture: arm a condition, return the scope window around it (pre and post seconds) | New | Needed for pulses and for reading a text at the moment a sequencer errors. Builds on the Phase 2 change log. |
 | Resume watch sampling after a PLC download or restart and show a one-line notice | New | Sampling was stale for 974 s once. `ads_wait` already reports the end reason; the watch view and scope do not. |
 | PLC-cycle timestamps via ADS notifications | Planned (Phase 8, spike first) | Task-cycle resolution, not the order inside one cycle. |
@@ -43,7 +43,7 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| Show the sample age in watch and scope summaries; warn when sampling of the whole list stopped | New | `ads_read` shows it for a stale entry; the summaries do not. |
+| Show the sample age in watch and scope summaries; warn when sampling of the whole list stopped | Done (scope: Plan A6; watch list: `ads_read`) | `ads_read` shows the age of a stale entry; the scope result starts with `No samples since ...` and names the last host message and why the host last ended. Tests: `hostNote names the last host message, the last end and a missing connection`, `scope with a stale newest sample names the host state`, `scope without any sample names the host message`. |
 | Read structs and arrays as a whole (members as JSON or a list, optional `depth`) | Planned (Phase 5b) | Today: "not a single value". |
 | Read hidden members behind an opt-in flag, or list them as hidden in `ads_symbols` | New | The hint (PR #27) says why a hidden member is missing; reading it needs a decision about a flag. |
 | Read a property with monitoring `call` by its `P_` name; say clearly when no symbol exists | Planned (Phase 7) | |

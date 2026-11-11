@@ -1508,7 +1508,7 @@
         "toolReferenceName": "adsScope",
         "displayName": "ADS Scope",
         "userDescription": "Summarize how watched PLC variables changed over the last seconds.",
-        "modelDescription": "Returns min, max, last value and sample count per watched ADS symbol over the last seconds (default 60), plus a tab-separated table of at most 200 rows (time in seconds relative to the newest sample). Only watched symbols have a history: add them with the watch tool first and wait for samples.",
+        "modelDescription": "Returns per watched ADS symbol over the last seconds (default 60): min, max, last value and sample count, how often it changed and when, plus a tab-separated table (time in seconds relative to the newest sample). Prefer changesOnly: true for step counters, enums, BOOLs and STRING values (one row per value change with the start value, never thinned; the plain table lists STRING values only in the summary). Use edges: true for BOOL pulses (rising and falling edges with times). maxRows limits the rows, decimals rounds fractions. A plain table over a long window is thinned and says how many samples it shows; it keeps every value change except in fast-changing columns, which are thinned evenly. Only watched symbols have a history: add them with the watch tool first and wait for samples.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
