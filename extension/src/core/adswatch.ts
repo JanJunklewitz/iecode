@@ -1,7 +1,7 @@
 // Pure logic for live ADS values: messages of the `iecode ads serve` host, a bounded sample buffer
 // and the text form handed to LM tools. No vscode imports; the host process and views live elsewhere.
 
-export const PROTOCOL = 1;
+export { PROTOCOL } from './hostProtocol';
 
 export interface WatchItem { symbol: string; type: string; numeric: boolean; error: string | null }
 export interface Row { t: number; v: (string | null)[]; e?: (number | null)[] }
