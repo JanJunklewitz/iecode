@@ -7,9 +7,10 @@ import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
-import type { AiEditResult } from '../core/watchList';
+import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
+import { output } from '../cli/iecode';
 import { WaitDeps, runWait } from '../core/waitRun';
 import { AdsHost, StartError, WriteNotSent } from './host';
 
@@ -46,6 +47,26 @@ function watchedName(host: AdsHost, symbol: string): string | undefined {
   const s = symbol.trim().toLowerCase();
   return host.watched().find(w => w.toLowerCase() === s);
 }
+
+const CONFIRM_REMOVE_MS = 120_000;
+
+/** The dialog is raced against the call's signal and a timer: VS Code cannot close a modal, so a late answer is ignored. */
+const confirmRemove: ConfirmUserRemoval = (symbols, signal) => new Promise<boolean>(resolve => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+  const done = (answer: boolean) => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+    resolve(answer);
+  };
+  const onAbort = () => done(false);
+  if (signal.aborted) return done(false);
+  signal.addEventListener('abort', onAbort);
+  timer = setTimeout(() => done(false), CONFIRM_REMOVE_MS);
+  vscode.window.showWarningMessage(confirmRemoveText(symbols), { modal: true }, 'Remove').then(a => done(a === 'Remove'), () => done(false));
+});
 
 const list = (host: AdsHost) => watchListText(host.items(), host.entries());
 
@@ -86,15 +107,17 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       return ok(symbolsText({ matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
     },
 
-    async watch(input: WatchInput, _signal?: AbortSignal): Promise<ToolText> {
-      const { add, remove } = input;
-      let result: AiEditResult;
+    async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {
+      let result: WatchRunResult;
+      const owned = new Set(input.force ? host.list.userOwned(input.remove).map(x => x.toLowerCase()) : []);
       try {
-        result = await leased(host, () => host.list.aiEdit(add, remove));
+        result = await leased(host, () => runWatchRequest(host.list, input, confirmRemove, signal));
       } catch (e) {
         const f = watchFailureText(errorText(e), list(host));
         return { ...f, text: capText(f.text) };
       }
+      const taken = result.removed.filter(r => owned.has(r.toLowerCase())).length;
+      if (taken) output.info(`AI removed ${taken} variable${taken === 1 ? '' : 's'} the user added (confirmed)`);
       return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 

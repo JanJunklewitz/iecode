@@ -1445,7 +1445,7 @@
         "toolReferenceName": "adsWatch",
         "displayName": "ADS Watch",
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
-        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can only remove those, not the ones the user added. Watch a variable before asking for its history.",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Watch a variable before asking for its history.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1476,6 +1476,14 @@
             "list": {
               "type": "boolean",
               "description": "Return the full list with types and errors. Default: only what this call changed, plus the count."
+            },
+            "clearAi": {
+              "type": "boolean",
+              "description": "Remove every entry you added (the user's entries stay; entries a running wait uses stay until it ends). Cannot be combined with add or remove."
+            },
+            "force": {
+              "type": "boolean",
+              "description": "With remove: also remove entries the user added, after the user confirmed in a dialog. Without it only your own entries can be removed."
             }
           }
         }

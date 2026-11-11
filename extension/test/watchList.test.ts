@@ -167,3 +167,35 @@ test('aiEdit says a removal was postponed by a running wait', async () => {
   await h.release();
   assert.equal(f.list().length, 0);
 });
+
+test("clearAi removes every AI entry that no wait holds and keeps the user's", async () => {
+  const f = fake([{ symbol: 'U', ai: false }, { symbol: 'A', ai: true }, { symbol: 'B', ai: true }]);
+  const h = await f.w.hold('B');
+  const r = await f.w.aiEdit([], [], { clearAi: true });
+  assert.deepEqual(r.removed, ['A']);
+  assert.deepEqual(r.held, ['B']);
+  assert.deepEqual(f.list().map(e => e.symbol), ['U', 'B']);
+  await h.release();
+  assert.deepEqual(f.list().map(e => e.symbol), ['U']);
+});
+
+test('removeUser removes exactly the confirmed user entries', async () => {
+  const f = fake([{ symbol: 'U1', ai: false }, { symbol: 'U2', ai: false }]);
+  const r = await f.w.aiEdit([], ['u1', 'U2'], { removeUser: ['u1'] });
+  assert.deepEqual(r, { added: [], already: [], removed: ['u1'], kept: ['U2'], held: [], missing: [] });
+  assert.deepEqual(f.list(), [{ symbol: 'U2', ai: false }]);
+});
+
+test('a user entry that a wait holds is not removed even when confirmed', async () => {
+  const f = fake([{ symbol: 'U', ai: false }]);
+  const h = await f.w.hold('U');
+  const r = await f.w.aiEdit([], ['U'], { removeUser: ['U'] });
+  assert.deepEqual(r.held, ['U']);
+  await h.release();
+  assert.deepEqual(f.list(), [{ symbol: 'U', ai: false }]);
+});
+
+test('userOwned names the requested entries the user added', () => {
+  const f = fake([{ symbol: 'U', ai: false }, { symbol: 'A', ai: true }]);
+  assert.deepEqual(f.w.userOwned(['u', 'a', 'zz']), ['u']);
+});

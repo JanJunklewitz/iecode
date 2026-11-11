@@ -103,3 +103,13 @@ test('wantsFullList is true for an empty call and for list: true', () => {
   assert.equal(wantsFullList({ add: [], remove: ['b'] }), false);
   assert.equal(wantsFullList({ add: ['a'], remove: [], list: true }), true);
 });
+
+test('parseWatchInput reads force and clearAi with their rules', () => {
+  assert.deepEqual(parseWatchInput({ remove: ['a'], force: true }), { ok: true, value: { add: [], remove: ['a'], force: true } });
+  assert.deepEqual(parseWatchInput({ force: true }), { ok: false, error: 'force needs remove' });
+  assert.deepEqual(parseWatchInput({ force: 'yes', remove: ['a'] }), { ok: false, error: 'force must be a boolean' });
+  assert.deepEqual(parseWatchInput({ clearAi: true }), { ok: true, value: { add: [], remove: [], clearAi: true } });
+  assert.deepEqual(parseWatchInput({ clearAi: 1 }), { ok: false, error: 'clearAi must be a boolean' });
+  assert.deepEqual(parseWatchInput({ clearAi: true, add: ['a'] }), { ok: false, error: 'clearAi cannot be combined with add or remove' });
+  assert.equal(wantsFullList({ add: [], remove: [], clearAi: true }), false);
+});

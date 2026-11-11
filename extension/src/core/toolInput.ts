@@ -52,10 +52,10 @@ function bool(o: Record<string, unknown>, field: string): boolean | undefined | 
   return typeof v === 'boolean' ? v : { error: `${field} must be a boolean` };
 }
 
-export interface WatchRequest { add: string[]; remove: string[]; list?: boolean }
+export interface WatchRequest { add: string[]; remove: string[]; list?: boolean; clearAi?: boolean; force?: boolean }
 
 /** The full list is returned for an empty call and for `list: true`. */
-export const wantsFullList = (r: WatchRequest): boolean => r.list === true || (!r.add.length && !r.remove.length);
+export const wantsFullList = (r: WatchRequest): boolean => r.list === true || (!r.add.length && !r.remove.length && !r.clearAi);
 
 export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
   const o = asObject(raw);
@@ -64,9 +64,15 @@ export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
   if (typeof add === 'string') return fail(add);
   const remove = stringArray(o, 'remove');
   if (typeof remove === 'string') return fail(remove);
-  const list = bool(o, 'list');
-  if (isErr(list)) return fail(list.error);
-  return { ok: true, value: list === undefined ? { add, remove } : { add, remove, list } };
+  const flags: Partial<WatchRequest> = {};
+  for (const field of ['list', 'force', 'clearAi'] as const) {
+    const v = bool(o, field);
+    if (isErr(v)) return fail(v.error);
+    if (v !== undefined) flags[field] = v;
+  }
+  if (flags.force && !remove.length) return fail('force needs remove');
+  if (flags.clearAi && (add.length || remove.length)) return fail('clearAi cannot be combined with add or remove');
+  return { ok: true, value: { add, remove, ...flags } };
 }
 
 export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {

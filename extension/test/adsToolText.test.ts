@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -19,7 +19,7 @@ test('watch list text marks who added the entries', () => {
     'MAIN.a : INT [added by the user]\nMAIN.b : ? (error: Symbol not found) [added by AI]');
 });
 
-const none = { added: [], already: [], removed: [], kept: [], held: [], missing: [] };
+const none = { added: [], already: [], removed: [], kept: [], held: [], missing: [], declined: [] };
 const wbase = { full: false, list: 'L', count: 3, intervalMs: 100, names: MCP_NAMES, addErrors: [] as string[], result: none, target: 'local' };
 
 test('watch result: a diff names only what changed, plus the count', () => {
@@ -32,7 +32,7 @@ test('watch result: a diff names only what changed, plus the count', () => {
 
 test('watch result: every refusal and error has its own line, in a fixed order', () => {
   assert.equal(watchResultText({ ...wbase, addErrors: ['MAIN.x : Symbol not found'],
-    result: { added: ['MAIN.x'], already: ['a'], removed: [], kept: ['U'], held: ['h'], missing: ['m'] } }),
+    result: { added: ['MAIN.x'], already: ['a'], removed: [], kept: ['U'], held: ['h'], missing: ['m'], declined: [] } }),
     'Added: MAIN.x\nAlready in the list: a\nNot in the list: m\nNot removed (added by the user, only the user can remove them): U\nKept until a running wait ends: h\nError: MAIN.x : Symbol not found\nWatch list: 3 symbols\nNew values arrive every 100 ms; use ads_scope for the history.\nADS target: local');
 });
 
@@ -46,6 +46,18 @@ test('target line and the default port', () => {
   assert.equal(targetLine('local'), 'ADS target: local');
   assert.equal(targetOfKey('local:851'), 'local');
   assert.equal(targetOfKey('172.20.30.60.1.1:852'), '172.20.30.60.1.1:852');
+});
+
+test('confirmRemoveText lists the entries and cuts a long list', () => {
+  assert.equal(confirmRemoveText(['MAIN.a']), 'An AI tool asks to remove 1 variable you added from the ADS Watch list:\nMAIN.a');
+  assert.equal(confirmRemoveText(['a', 'b']), 'An AI tool asks to remove 2 variables you added from the ADS Watch list:\na\nb');
+  const many = Array.from({ length: 13 }, (_, i) => `S${i}`);
+  assert.equal(confirmRemoveText(many).split('\n').slice(-2).join('|'), 'S9|(and 3 more)');
+});
+
+test('watch result: a declined removal has its own line', () => {
+  assert.equal(watchResultText({ ...wbase, result: { ...none, declined: ['U'], removed: ['A'] } }),
+    'Removed: A\nNot removed (the user did not confirm): U\nWatch list: 3 symbols\nADS target: local');
 });
 
 test('addErrorLines names the stored spelling of added symbols with an error', () => {

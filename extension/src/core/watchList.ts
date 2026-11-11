@@ -22,6 +22,13 @@ export interface AiEditResult {
   missing: string[];
 }
 
+export interface AiEditOptions {
+  /** Symbols the user confirmed to remove although they added them. Only these user entries may go. */
+  removeUser?: string[];
+  /** Remove every AI entry that no wait holds. */
+  clearAi?: boolean;
+}
+
 function uniqueNames(names: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -39,29 +46,35 @@ export class WatchList {
   constructor(private readonly deps: WatchListDeps) {}
 
   /** AI add/remove (ads_watch). Says what was added, already there, removed, refused (user's entry), postponed (wait) or unknown. */
-  aiEdit(add: string[], remove: string[]): Promise<AiEditResult> {
+  aiEdit(add: string[], remove: string[], opts: AiEditOptions = {}): Promise<AiEditResult> {
     return this.step(async () => {
       const current = this.deps.entries();
+      const confirmed = new Set((opts.removeUser ?? []).map(key));
       const result: AiEditResult = { added: [], already: [], removed: [], kept: [], held: [], missing: [] };
       for (const a of uniqueNames(add)) (current.some(e => key(e.symbol) === key(a)) ? result.already : result.added).push(a);
-      for (const r of uniqueNames(remove)) {
+      const asked = opts.clearAi ? current.filter(e => e.ai).map(e => e.symbol) : uniqueNames(remove);
+      const drop = new Set<string>();
+      const postponed: string[] = [];
+      for (const r of asked) {
         const entry = current.find(e => key(e.symbol) === key(r));
         if (!entry) result.missing.push(r);
-        else if (!entry.ai) result.kept.push(r);
-        else if (this.held(key(r))) result.held.push(r);
-        else result.removed.push(r);
+        else if (!entry.ai && !confirmed.has(key(r))) result.kept.push(r);
+        else if (this.held(key(r))) { result.held.push(r); if (entry.ai) postponed.push(r); }
+        else { result.removed.push(r); drop.add(key(r)); }
       }
       // a held entry stays until its last hold releases; only the removal of what a hold needs is postponed
-      const postponed = remove.filter(r => this.held(key(r)));
-      const next = watchEdit(watchEdit(current, add, [], true), [], remove.filter(r => !this.held(key(r))), true);
+      const next = watchEdit(current, add, [], true).filter(e => !drop.has(key(e.symbol)));
       await this.deps.set(next);
       for (const a of add) { const rec = this.holds.get(key(a)); if (rec) rec.added = false; }
-      for (const r of postponed) {
-        const rec = this.holds.get(key(r));
-        if (rec && current.some(e => e.ai && e.symbol.toLowerCase() === key(r))) rec.added = true;
-      }
+      for (const r of postponed) { const rec = this.holds.get(key(r)); if (rec) rec.added = true; }
       return result;
     });
+  }
+
+  /** The requested symbols (requested spelling) that are entries the user added; reads the list now, outside the step chain. */
+  userOwned(symbols: string[]): string[] {
+    const current = this.deps.entries();
+    return uniqueNames(symbols).filter(n => current.some(e => !e.ai && key(e.symbol) === key(n)));
   }
 
   /** Any user edit: `edit` maps the current entries to the next ones (watchEdit, watchRename, filter, []). */

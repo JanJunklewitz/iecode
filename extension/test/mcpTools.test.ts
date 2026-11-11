@@ -233,6 +233,9 @@ test('the manifest declares the six tools in client-neutral words', () => {
   assert.deepEqual(wait.inputSchema.required, ['symbol', 'condition']);
   const watch = found.find(d => d.name === 'ads_watch') as { inputSchema: { properties: { list: { type: string } } } };
   assert.equal(watch.inputSchema.properties.list.type, 'boolean');
+  const props = watch.inputSchema.properties as unknown as Record<string, { type: string }>;
+  assert.equal(props.clearAi.type, 'boolean');
+  assert.equal(props.force.type, 'boolean');
   for (const d of found) {
     assert.ok(d.description.length > 20);
     assert.doesNotMatch(d.description, /#?ads(Watch|Scope|Read|Write|Symbols|Wait)\b/, `${d.name} names a Copilot tool`);
