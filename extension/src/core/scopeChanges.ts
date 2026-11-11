@@ -19,6 +19,10 @@ export interface ChangeLog {
   startUnknown: boolean;
   /** The oldest time the log can speak for: the window start is clamped to it (buffer length, first sample, cap). */
   coveredFromMs: number;
+  /** Time of the newest valid sample. */
+  lastValidT?: number;
+  /** Time of the first failed (null) sample after the newest valid one; undefined while reading works. */
+  failedSince?: number;
 }
 
 /** The entries that are real changes: all but a first observation. */
@@ -52,6 +56,8 @@ interface SymbolLog {
   head: number;
   lastKey?: string;
   firstT?: number;
+  lastValidT?: number;
+  failedSince?: number;
   /** Time of the newest entry the cap removed. */
   droppedT?: number;
   /** Everything before this time was trimmed by age; the predecessor entry still gives the value at that time. */
@@ -65,9 +71,14 @@ export class ChangeLogStore {
 
   /** Records the text of one sample; a null text (read error) is no change and keeps the comparison base. */
   add(symbol: string, t: number, text: string | null): void {
-    if (text === null) return;
     let l = this.logs.get(symbol);
+    if (text === null) {
+      if (l && l.failedSince === undefined) l.failedSince = t;
+      return;
+    }
     if (!l) this.logs.set(symbol, l = { entries: [], head: 0, floorT: -Infinity });
+    l.lastValidT = t;
+    l.failedSince = undefined;
     const { cut, key } = cutAndKey(text);
     if (key === l.lastKey) return;
     const first = l.lastKey === undefined;
@@ -111,6 +122,6 @@ export class ChangeLogStore {
     const olderDropped = l.droppedT !== undefined && l.droppedT >= windowStart;
     let covered = Math.max(l.firstT ?? -Infinity, l.floorT);
     if (startUnknown) covered = Math.max(covered, entries[0]?.t ?? covered);
-    return { start, entries, olderDropped, startUnknown, coveredFromMs: Math.max(windowStart, covered === -Infinity ? windowStart : covered) };
+    return { start, entries, olderDropped, startUnknown, lastValidT: l.lastValidT, failedSince: l.failedSince, coveredFromMs: Math.max(windowStart, covered === -Infinity ? windowStart : covered) };
   }
 }

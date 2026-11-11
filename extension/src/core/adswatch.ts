@@ -35,7 +35,7 @@ export function hostStartFailure(helloSeen: boolean, exitCode: number | null, el
   return undefined;
 }
 
-import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES } from './scopeChanges';
+import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES, changeEntries } from './scopeChanges';
 export { ChangeEntry, ChangeLog, MAX_CHANGE_ENTRIES, MAX_CHANGE_TEXT, CUT_MARK, changeEntries } from './scopeChanges';
 
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
@@ -318,6 +318,38 @@ export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms:
 /** Most symbols that get a column in the scope table (the summaries cover all of them). */
 export const MAX_SCOPE_COLUMNS = 20;
 
+/** "-9.4" (one decimal, never "-0.0"); seconds relative to `now`. */
+function relSeconds(t: number, now: number): string {
+  const r = ((t - now) / 1000).toFixed(1);
+  return r === '-0.0' ? '0.0' : r;
+}
+
+/** One-line text for a summary: cut at 80 characters with "...", backslash, quote, CR, LF and TAB escaped, quoted when `quote`. */
+const ESCAPES: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\r": "\\r", "\n": "\\n", "\t": "\\t" };
+function shownText(text: string, quote: boolean): string {
+  const cut = text.length > 80 ? `${text.slice(0, 80)}...` : text;
+  const e = cut.replace(/[\\"\r\n\t]/g, c => (c === '"' && !quote ? c : ESCAPES[c]));
+  return quote ? `"${e}"` : e;
+}
+
+function summaryLine(buf: ScopeBuffer, s: string, seconds: number, now: number, d: number | undefined): string {
+  const sum = buf.summary(s, seconds, now);
+  const log = buf.changes(s, now - seconds * 1000);
+  const ch = changeEntries(log);
+  const newest = log.entries.at(-1) ?? log.start;
+  const times = ch.length === 0 ? '' : log.olderDropped
+    ? ` (older changes dropped; first retained at ${relSeconds(ch[0].t, now)} s, last at ${relSeconds(ch[ch.length - 1].t, now)} s)`
+    : ` (first at ${relSeconds(ch[0].t, now)} s, last at ${relSeconds(ch[ch.length - 1].t, now)} s)`;
+  const count = `changes${log.olderDropped ? '>=' : '='}${ch.length}`;
+  const failed = log.failedSince === undefined ? '' : ` reading failed since ${relSeconds(log.failedSince, now)} s (last valid at ${relSeconds(log.lastValidT ?? log.failedSince, now)} s)`;
+  if (sum) {
+    const last = log.failedSince !== undefined && newest ? newest.text : sum.last;
+    return `${s}: min=${formatNumber(sum.min, d)} max=${formatNumber(sum.max, d)} last=${formatValueText(last, d)} count=${sum.count}${ch.length > 0 ? ` ${count}${times}` : ''}${failed}`;
+  }
+  if (newest) return `${s}: ${count} last=${shownText(newest.text, buf.isText(s))}${times}${failed}`;
+  return `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`;
+}
+
 export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number }
 
 /** Integers unchanged; other numbers rounded with toFixed(decimals); decimals undefined = String(n). */
@@ -340,12 +372,7 @@ export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, 
   const d = opts.decimals;
   const lines: string[] = [];
   const maps = symbols.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
-  for (const s of symbols) {
-    const sum = buf.summary(s, seconds, now);
-    lines.push(sum
-      ? `${s}: min=${formatNumber(sum.min, d)} max=${formatNumber(sum.max, d)} last=${formatValueText(sum.last, d)} count=${sum.count}`
-      : `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`);
-  }
+  for (const s of symbols) lines.push(summaryLine(buf, s, seconds, now, d));
   const shown = symbols.slice(0, maxColumns);
   const shownMaps = maps.slice(0, maxColumns);
   const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);

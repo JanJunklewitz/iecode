@@ -57,7 +57,7 @@ test('read appends the sample age', () => {
 
 test('scope summary of fresh samples has no gap note', () => {
   assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock }),
-    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3\n\nt[s]\ta\n-2.000\t0\n-1.000\t1\n0.000\t2');
+    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\nt[s]\ta\n-2.000\t0\n-1.000\t1\n0.000\t2');
 });
 
 test('scope uses the gap note', () => {
@@ -128,5 +128,5 @@ test('waitResultText words every outcome', () => {
 
 test('scope summary passes maxRows to the table', () => {
   assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { maxRows: 2 } }),
-    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3\n\n2 of 3 samples shown; evenly thinned (fast-changing): a\nt[s]\ta\n-2.000\t0\n0.000\t2');
+    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\n2 of 3 samples shown; evenly thinned (fast-changing): a\nt[s]\ta\n-2.000\t0\n0.000\t2');
 });

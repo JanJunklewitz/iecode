@@ -476,7 +476,7 @@ test('scopeText rounds numbers to decimals but never pads integers', () => {
   b.setItems(1, [real('MAIN.f')]);
   b.push(1, [{ t: 0, v: ['1.23456'] }, { t: 1000, v: ['2.5'] }, { t: 2000, v: ['3'] }]);
   const text = scopeText(b, ['MAIN.f'], 100000, 2000, { decimals: 2 });
-  assert.match(text, /^MAIN\.f: min=1\.23 max=3 last=3 count=3$/m);
+  assert.match(text, /^MAIN\.f: min=1\.23 max=3 last=3 count=3 changes=2 \(first at -1\.0 s, last at 0\.0 s\)$/m);
   assert.deepEqual(text.split('\n').filter(l => /^-?\d/.test(l)), ['-2.000\t1.23', '-1.000\t2.50', '0.000\t3']);
   assert.equal(formatValueText('2.56789', 1), '2.6');
   assert.equal(formatValueText('Running', 1), 'Running');
@@ -608,4 +608,75 @@ test('isText follows numeric, not the type name; typeOf follows the item', () =>
   assert.equal(b.isText('nope'), false);
   assert.equal(b.typeOf('N'), 'INT');
   assert.equal(b.typeOf('nope'), undefined);
+});
+
+test('scopeText summary names the number of changes and when they happened', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.nStep'), item('GVL.nConst')]);
+  b.push(1, Array.from({ length: 11 }, (_, i) => ({ t: i * 1000, v: [i < 3 ? '0' : i < 9 ? '5' : '6', '5'] })));
+  const out = scopeText(b, ['MAIN.nStep', 'GVL.nConst'], 100000, 10000);
+  assert.match(out, /^MAIN\.nStep: min=0 max=6 last=6 count=11 changes=2 \(first at -7\.0 s, last at -1\.0 s\)$/m);
+  assert.match(out, /^GVL\.nConst: min=5 max=5 last=5 count=11$/m);
+});
+
+test('scopeText summarises a STRING symbol by its changes', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [textItem('MAIN.sMsg')]);
+  b.push(1, at(['', 'Run', 'Run', 'Error 5']));
+  assert.match(scopeText(b, ['MAIN.sMsg'], 100000, 3000), /^MAIN\.sMsg: changes=2 last="Error 5" \(first at -2\.0 s, last at 0\.0 s\)$/m);
+  const quiet = new ScopeBuffer(100000);
+  quiet.setItems(1, [textItem('MAIN.sMsg')]);
+  quiet.push(1, at(['Run', 'Run']));
+  assert.match(scopeText(quiet, ['MAIN.sMsg'], 100000, 1000), /^MAIN\.sMsg: changes=0 last="Run"$/m);
+});
+
+test('scopeText escapes and cuts a long or multi-line text in the summary', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [textItem('MAIN.sMsg')]);
+  b.push(1, at(['a\nb\tc', 'y'.repeat(100)]));
+  assert.equal(scopeText(b, ['MAIN.sMsg'], 100000, 1000).split('\n')[0], `MAIN.sMsg: changes=1 last="${'y'.repeat(80)}..." (first at 0.0 s, last at 0.0 s)`);
+  const e = new ScopeBuffer(100000);
+  e.setItems(1, [textItem('MAIN.sMsg')]);
+  e.push(1, at(['x', 'a\\b"c\nd\te']));
+  assert.ok(scopeText(e, ['MAIN.sMsg'], 100000, 1000).includes('last="a\\\\b\\"c\\nd\\te" '));
+});
+
+test('an alias text symbol is quoted and never rounded, whatever it holds', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [{ symbol: 'A', type: 'T_Alias', numeric: false, error: null }]);
+  b.push(1, at(['', 'TRUE', '1.234']));
+  assert.match(scopeText(b, ['A'], 100000, 2000, { decimals: 1 }), /^A: changes=2 last="1\.234" /m);
+  const c = new ScopeBuffer(100000);
+  c.setItems(1, [{ symbol: 'A', type: 'T_Alias', numeric: false, error: null }]);
+  c.push(1, at(['']));
+  assert.match(scopeText(c, ['A'], 100000, 0), /^A: changes=0 last=""$/m);
+});
+
+test('a symbol with only read errors keeps the old no-samples line', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at([null, null]));
+  assert.match(scopeText(b, ['S'], 100000, 1000), /^S: no numeric samples in the last 100000 s, last=n\/a$/m);
+});
+
+test('the summary shows the last valid value and since when reading fails', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['1', '2', null, null]));
+  assert.match(scopeText(b, ['S'], 100000, 3000), /^S: min=1 max=2 last=2 count=2 changes=1 \(first at -2\.0 s, last at -2\.0 s\) reading failed since -1\.0 s \(last valid at -2\.0 s\)$/m);
+  const t = new ScopeBuffer(100000);
+  t.setItems(1, [textItem('M')]);
+  t.push(1, at(['a', null]));
+  assert.match(scopeText(t, ['M'], 100000, 1000), /^M: changes=0 last="a" reading failed since 0\.0 s \(last valid at -1\.0 s\)$/m);
+  const r = new ScopeBuffer(100000);      // an error between two equal values is no change
+  r.setItems(1, [item('S')]);
+  r.push(1, at(['1', null, '1']));
+  assert.match(scopeText(r, ['S'], 100000, 2000), /^S: min=1 max=1 last=1 count=2$/m);
+});
+
+test('a capped change log says the count is a lower bound', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 10);
+  b.setItems(1, [real('MAIN.f')]);
+  b.push(1, at(Array.from({ length: 50 }, (_, i) => String(i + 0.5))));
+  assert.match(scopeText(b, ['MAIN.f'], 1000, 49000), /^MAIN\.f: min=.* count=50 changes>=10 \(older changes dropped; first retained at -9\.0 s, last at 0\.0 s\)$/m);
 });
