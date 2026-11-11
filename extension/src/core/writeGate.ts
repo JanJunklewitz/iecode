@@ -3,7 +3,7 @@
 // the clock through Clock, so the rules are unit-tested without VS Code.
 
 import { WriteDecision, writeStillApproved } from './adswatch';
-import { readBackChanged, sentence } from './writeText';
+import { WriteItem, WriteItemResult, readBackChanged, sentence } from './writeText';
 import { COPILOT_NAMES, MCP_NAMES, ToolNames, targetLine, targetOfKey } from './adsToolText';
 
 /** The write was not sent: refused before the request left, or the host proved it did not send it. `alreadyShown`: a failed host start. */
@@ -22,7 +22,14 @@ export interface WriteOp {
   via: 'MCP' | 'Copilot';
   /** Copilot: the decision its confirmation was shown with; the gate opens no dialog for it (R5). */
   prepared?: { decision: WriteDecision };
+  /** A batch: all items in order; `symbol` and `value` mirror items[0]. */
+  items?: WriteItem[];
 }
+
+export const itemsOf = (op: WriteOp): WriteItem[] => op.items ?? [{ symbol: op.symbol, value: op.value }];
+
+/** The protocol feature an op needs beyond the scalar write: more than one item needs "writeMany". */
+export const featureOf = (op: WriteOp): string | undefined => (itemsOf(op).length > 1 ? 'writeMany' : undefined);
 
 export type WriteResult =
   /** Not sent. */
@@ -30,7 +37,9 @@ export type WriteResult =
   /** Sent and taken; `readBack` is null with a `readBackError` when only the read-back failed. */
   | { kind: 'written'; readBack: string | null; readBackError?: string }
   /** Sent, but no reply or no proof either way. */
-  | { kind: 'unknown'; reason: string };
+  | { kind: 'unknown'; reason: string }
+  /** A batch that reached the host: one result per item, in order. */
+  | { kind: 'done'; items: WriteItemResult[] };
 
 export interface GateDeps {
   decision(): WriteDecision;
@@ -96,11 +105,15 @@ function writeVerdict(r: WriteResult, op: WriteOp): string {
       return `Not written: ${sentence(r.reason)}.`;
     case 'unknown':
       return `Outcome unknown: ${sentence(r.reason)}. Do not write again on your own; read ${op.symbol} and ask the user.`;
+    case 'done':
+      // placeholder: C3b pins the batch texts
+      return r.items.map(i => `${i.symbol}: ${i.status}`).join('\n');
   }
 }
 
 /** Refused and unknown are errors for the client; a written value is not, also when only its read-back failed. */
-export const writeResultIsError = (r: WriteResult): boolean => r.kind !== 'written';
+export const writeResultIsError = (r: WriteResult): boolean =>
+  r.kind === 'done' ? r.items.some(i => i.status !== 'written') : r.kind !== 'written';
 
 interface OpState {
   op: WriteOp;

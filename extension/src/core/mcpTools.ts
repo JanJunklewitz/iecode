@@ -50,6 +50,8 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
       async call(args, signal) {
         const p = parseWriteInput(args);
         if (!p.ok) return invalid(p.error);
+        // the schema does not offer `writes` yet; C3c wires the batch
+        if ('writes' in p.value) return invalid('writes is not supported yet');
         const op: WriteOp = { symbol: p.value.symbol, value: p.value.value, targetKey: d.targetKey(), via: 'MCP' };
         const result = await d.gate.run(op, signal);
         return { text: writeResultText(result, op), isError: writeResultIsError(result) };

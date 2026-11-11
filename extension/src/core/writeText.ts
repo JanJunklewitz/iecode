@@ -1,5 +1,11 @@
 // Texts of the AI write results that more than one module needs. Pure: no imports.
 
+export interface WriteItem { symbol: string; value: string }
+export type WriteItemResult =
+  | { symbol: string; status: 'written'; readBack: string | null; readBackError?: string }
+  | { symbol: string; status: 'notWritten'; reason: string }
+  | { symbol: string; status: 'unknown'; reason: string };
+
 /** Strips one trailing dot, so a reason reads inside a sentence of ours. */
 export const sentence = (s: string): string => s.replace(/\.$/, '');
 

@@ -2,6 +2,7 @@
 
 import { MAX_WATCHED } from './adswatch';
 import { groupNameError } from './watchGroups';
+import { WriteItem } from './writeText';
 import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -143,9 +144,44 @@ export function parseScopeInput(raw: unknown): Parsed<ScopeArgs> {
   return { ok: true, value };
 }
 
-export function parseWriteInput(raw: unknown): Parsed<{ symbol: string; value: string }> {
+export const MAX_WRITES = 20;
+export type WriteInput = { symbol: string; value: string } | { writes: WriteItem[] };
+
+/** One { symbol, value } pair; `where` prefixes the error ("" for the single form, "writes[1]." in a batch). */
+function parseWriteItem(raw: unknown, where: string, shape: string): Parsed<WriteItem> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return fail(shape);
+  const o = raw as Record<string, unknown>;
+  const symbol = str(o, 'symbol', MAX_SYMBOL_LENGTH, true);
+  if (isErr(symbol)) return fail(where + symbol.error);
+  if (!symbol || !symbol.trim()) return fail(where + 'symbol must not be blank');
+  const value = str(o, 'value', MAX_VALUE_LENGTH, true);
+  if (isErr(value)) return fail(where + value.error);
+  return { ok: true, value: { symbol, value: value ?? '' } };
+}
+
+export function parseWriteInput(raw: unknown): Parsed<WriteInput> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
+  if (o.writes !== undefined && o.writes !== null) {
+    if (o.symbol !== undefined || o.value !== undefined) return fail('use either symbol and value or writes, not both');
+    const list = o.writes;
+    const shape = 'writes must be an array of { symbol, value } objects';
+    if (!Array.isArray(list)) return fail(shape);
+    if (!list.length) return fail('writes must not be empty');
+    if (list.length > MAX_WRITES) return fail(`writes has more than ${MAX_WRITES} entries`);
+    const writes: WriteItem[] = [];
+    const seen = new Map<string, number>();
+    for (let i = 0; i < list.length; i++) {
+      const p = parseWriteItem(list[i], `writes[${i}].`, shape);
+      if (!p.ok) return p;
+      const key = p.value.symbol.trim().toLowerCase();
+      const first = seen.get(key);
+      if (first !== undefined) return fail(`writes[${i}] repeats writes[${first}]: ${writes[first].symbol.trim()}`);
+      seen.set(key, i);
+      writes.push(p.value);
+    }
+    return { ok: true, value: { writes } };
+  }
   const symbol = str(o, 'symbol', MAX_SYMBOL_LENGTH, true);
   if (isErr(symbol)) return fail(symbol.error);
   if (!symbol || !symbol.trim()) return fail('symbol must not be blank');

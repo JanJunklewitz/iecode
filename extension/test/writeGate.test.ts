@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WriteGate, GateDeps, GatePolicy, WriteOp, WriteResult, PreparedWrites, WriteNotSent, WriteOutcomeUnknown, sendOutcome, writeResultText, writeResultIsError } from '../src/core/writeGate';
+import { WriteGate, GateDeps, GatePolicy, WriteOp, WriteResult, PreparedWrites, WriteNotSent, WriteOutcomeUnknown, sendOutcome, writeResultText, writeResultIsError, itemsOf, featureOf } from '../src/core/writeGate';
 import { WriteDecision } from '../src/core/adswatch';
 
 // ---- helpers ----
@@ -503,4 +503,30 @@ test('prepared writes survive a declined confirmation and a retry', () => {
   // one record is left over from the declined call; it must not poison the next retry either
   p.prepare('k', { decision: 'confirm', targetKey: 'A:851' });
   assert.deepEqual(p.take('k'), { decision: 'confirm', targetKey: 'A:851' });
+});
+
+test('itemsOf and featureOf', () => {
+  assert.deepEqual(itemsOf(op('MAIN.x')), [{ symbol: 'MAIN.x', value: '1' }]);
+  assert.equal(featureOf(op('MAIN.x')), undefined);
+  const b = op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] });
+  assert.equal(itemsOf(b).length, 2);
+  assert.equal(featureOf(b), 'writeMany');
+  assert.equal(featureOf(op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }] })), undefined);
+});
+
+test('a batch op goes through the gate like a single write: one dialog, one send', async () => {
+  const r = rig();
+  const b = op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] });
+  const p = r.gate.run(b, ac().signal);
+  await tick();
+  r.confirms[0].answer.resolve(true);
+  await p;
+  assert.equal(r.confirms.length, 1);
+  assert.equal(r.sent.length, 1);
+});
+
+test('writeResultIsError: a done batch is an error when any item was not written', () => {
+  const w = { symbol: 'a', status: 'written' as const, readBack: '1' };
+  assert.equal(writeResultIsError({ kind: 'done', items: [w, w] }), false);
+  assert.equal(writeResultIsError({ kind: 'done', items: [w, { symbol: 'b', status: 'notWritten', reason: 'x' }] }), true);
 });

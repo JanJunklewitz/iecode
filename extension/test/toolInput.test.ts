@@ -136,3 +136,24 @@ test('wantsFullList is false for a group operation', () => {
 test('a group cannot be combined with list', () => {
   assert.deepEqual(parseWatchInput({ group: 'T1', add: ['a'], list: true }), { ok: false, error: 'list cannot be combined with group' });
 });
+
+test('parseWriteInput keeps the single form exactly and accepts a batch', () => {
+  assert.deepEqual(parseWriteInput({ symbol: 'MAIN.x', value: '1' }), { ok: true, value: { symbol: 'MAIN.x', value: '1' } });
+  assert.deepEqual(parseWriteInput({ writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '' }] }),
+    { ok: true, value: { writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '' }] } });
+});
+
+test('parseWriteInput refuses a bad batch before any dialog, with the item named', () => {
+  const err = (raw: unknown) => { const p = parseWriteInput(raw); assert.equal(p.ok, false); return p.ok ? '' : p.error; };
+  assert.equal(err({ symbol: 'a', value: '1', writes: [{ symbol: 'b', value: '2' }] }), 'use either symbol and value or writes, not both');
+  assert.equal(err({ writes: 'x' }), 'writes must be an array of { symbol, value } objects');
+  assert.equal(err({ writes: ['x'] }), 'writes must be an array of { symbol, value } objects');
+  assert.equal(err({ writes: [] }), 'writes must not be empty');
+  assert.equal(err({ writes: Array.from({ length: 21 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }), 'writes has more than 20 entries');
+  assert.equal(err({ writes: [{ symbol: 'a', value: '1' }, { symbol: 'b' }] }), 'writes[1].value must be a string');
+  assert.equal(err({ writes: [{ value: '1' }] }), 'writes[0].symbol must be a string');
+  assert.equal(err({ writes: [{ symbol: ' ', value: '1' }] }), 'writes[0].symbol must not be blank');
+  assert.equal(err({ writes: [{ symbol: 'a', value: 'v'.repeat(4097) }] }), 'writes[0].value is longer than 4096 characters');
+  assert.equal(err({ writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'B', value: '1' }, { symbol: ' main.A ', value: '2' }] }), 'writes[2] repeats writes[0]: MAIN.a');
+  assert.equal(parseWriteInput({ writes: Array.from({ length: 20 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }).ok, true);
+});
