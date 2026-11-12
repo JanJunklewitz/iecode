@@ -61,3 +61,31 @@ test('toolInput wait input', () => {
   assert.equal(secs(t('10')), 'timeoutSeconds must be a finite number');
   assert.deepEqual(parseWaitInput({ symbol: 'a', condition: 'changes' }), { ok: true, value: { symbol: 'a', condition: { op: 'changes' }, timeoutSeconds: 30 } });
 });
+
+test('toolInput scope maxRows and decimals are clamped, never thrown', () => {
+  const v = (o: unknown) => { const p = parseScopeInput(o); return p.ok ? p.value : p.error; };
+  assert.deepEqual(v({ maxRows: 20.6, decimals: 2 }), { symbols: [], maxRows: 21, decimals: 2 });
+  assert.equal((v({ maxRows: 0 }) as { maxRows: number }).maxRows, 1);
+  assert.equal((v({ maxRows: 5000 }) as { maxRows: number }).maxRows, 200);
+  assert.equal((v({ decimals: -3 }) as { decimals: number }).decimals, 0);
+  assert.equal((v({ decimals: 12 }) as { decimals: number }).decimals, 9);
+  assert.equal(v({ maxRows: 'x' }), 'maxRows must be a finite number');
+  assert.equal(v({ decimals: NaN }), 'decimals must be a finite number');
+  assert.deepEqual(v({ symbols: ['a'], seconds: 30 }), { symbols: ['a'], seconds: 30 });   // unchanged: absent fields stay absent
+});
+
+test('toolInput scope changesOnly', () => {
+  assert.deepEqual(parseScopeInput({ changesOnly: true }), { ok: true, value: { symbols: [], changesOnly: true } });
+  assert.deepEqual(parseScopeInput({ changesOnly: false }), { ok: true, value: { symbols: [], changesOnly: false } });
+  assert.deepEqual(parseScopeInput({ changesOnly: null }), { ok: true, value: { symbols: [] } });
+  assert.deepEqual(parseScopeInput({ changesOnly: 'yes' }), { ok: false, error: 'changesOnly must be true or false' });
+});
+
+test('toolInput scope edges', () => {
+  assert.deepEqual(parseScopeInput({ edges: true }), { ok: true, value: { symbols: [], edges: true } });
+  assert.deepEqual(parseScopeInput({ edges: 1 }), { ok: false, error: 'edges must be true or false' });
+  const both = parseScopeInput({ edges: true, changesOnly: true });
+  assert.equal(both.ok, false);
+  if (!both.ok) assert.match(both.error, /edges and changesOnly cannot be combined/);
+  assert.equal(parseScopeInput({ edges: false, changesOnly: true }).ok, true);
+});

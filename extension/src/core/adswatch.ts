@@ -35,6 +35,9 @@ export function hostStartFailure(helloSeen: boolean, exitCode: number | null, el
   return undefined;
 }
 
+import { ChangeLog, ChangeLogStore, MAX_CHANGE_ENTRIES, changeEntries, changesTable, edgesTable, relSeconds } from './scopeChanges';
+export { ChangeEntry, ChangeLog, MAX_CHANGE_ENTRIES, MAX_CHANGE_TEXT, CUT_MARK, changeEntries } from './scopeChanges';
+
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 const TIMESPAN = /^(-)?(?:(\d+)\.)?(\d+):(\d{2}):(\d{2})(?:\.(\d+))?$/;
 
@@ -69,9 +72,11 @@ export class ScopeBuffer {
   private series_ = new Map<string, Point[]>();
   private latest_ = new Map<string, { t: number; value: string | null }>();
   private newest = -Infinity;
+  private readonly log: ChangeLogStore;
 
-  constructor(seconds: number, private readonly maxValues = 2_000_000) {
+  constructor(seconds: number, private readonly maxValues = 2_000_000, maxChanges = MAX_CHANGE_ENTRIES) {
     this.ms = seconds * 1000;
+    this.log = new ChangeLogStore(maxChanges);
   }
 
   setSeconds(seconds: number): void {
@@ -91,6 +96,7 @@ export class ScopeBuffer {
     const keep = new Set(items.map(i => i.symbol));
     for (const k of [...this.series_.keys()]) if (!keep.has(k)) this.series_.delete(k);
     for (const k of [...this.latest_.keys()]) if (!keep.has(k)) this.latest_.delete(k);
+    this.log.keepOnly(keep);
     this.trim();
   }
 
@@ -101,6 +107,7 @@ export class ScopeBuffer {
       this.items.forEach((it, i) => {
         const text = r.v[i] ?? null;
         this.latest_.set(it.symbol, { t: r.t, value: text });
+        this.log.add(it.symbol, r.t, text);
         const e = r.e?.[i];
         const y = it.numeric || (e !== undefined && e !== null) ? numericValue(text, e) : undefined;
         if (y === undefined) return;
@@ -116,11 +123,28 @@ export class ScopeBuffer {
   clear(): void {
     this.series_.clear();
     this.latest_.clear();
+    this.log.clear();
     this.newest = -Infinity;
   }
 
   latest(symbol: string): { t: number; value: string | null } | undefined {
     return this.latest_.get(symbol);
+  }
+
+  /** The type name of the current item. */
+  typeOf(symbol: string): string | undefined {
+    return this.items.find(i => i.symbol === symbol)?.type;
+  }
+
+  /** An item the host does not report as numeric is shown as text, whatever its type name (aliases included). */
+  isText(symbol: string): boolean {
+    const it = this.items.find(i => i.symbol === symbol);
+    return it !== undefined && !it.numeric;
+  }
+
+  /** Changes of the symbol since fromMs; a window longer than the buffer is clamped to the buffer, like the numeric series. */
+  changes(symbol: string, fromMs: number): ChangeLog {
+    return this.log.changes(symbol, fromMs, this.newest, this.ms);
   }
 
   series(symbol: string, fromMs: number): Point[] {
@@ -144,6 +168,7 @@ export class ScopeBuffer {
       n = Math.max(n, s.length - cap);
       if (n > 0) s.splice(0, n);
     }
+    this.log.trim(this.newest, this.ms, this.items.length);
   }
 }
 
@@ -173,6 +198,30 @@ export function downsample<T>(rows: T[], max: number): T[] {
   const out: T[] = [];
   for (let i = 0; i < max; i++) out.push(rows[Math.round(i * (rows.length - 1) / (max - 1))]);
   return out;
+}
+
+/**
+ * Thins rows to at most `max` without losing a value change: both rows around every transition stay (the last of a
+ * run and the first of the next). Only when the transitions alone exceed `max` are the newest `max` rows returned;
+ * `droppedChanges` counts the transitions that are then missing, so the caller can say so.
+ */
+export function thinKeepingChanges<T>(rows: T[], max: number, differs: (a: T, b: T) => boolean): { rows: T[]; changes: number; droppedChanges: number } {
+  const edge = rows.map((r, i) => i > 0 && differs(rows[i - 1], r));
+  const changes = edge.filter(Boolean).length;
+  if (rows.length <= max) return { rows, changes, droppedChanges: 0 };
+  const keep = rows.filter((_, i) => i === 0 || i === rows.length - 1 || edge[i] || edge[i + 1]);
+  if (keep.length <= max) return { rows: keep, changes, droppedChanges: 0 };
+  const from = rows.length - Math.max(0, max);
+  return { rows: rows.slice(from), changes, droppedChanges: edge.slice(0, from + 1).filter(Boolean).length };
+}
+
+/** Adds evenly spaced rows of `all` to `kept` until `max` rows are shown; the result keeps the order of `all`. */
+export function fillEvenly<T>(all: T[], kept: T[], max: number): T[] {
+  const have = new Set(kept);
+  const rest = all.filter(r => !have.has(r));
+  const room = Math.min(rest.length, Math.max(0, max - kept.length));
+  for (let i = 0; i < room; i++) have.add(rest[room === 1 ? 0 : Math.round(i * (rest.length - 1) / (room - 1))]);
+  return all.filter(r => have.has(r));
 }
 
 /** No reply within the time limit; for a write that was sent, the outcome is unknown. */
@@ -260,36 +309,163 @@ export function sampleAge(newestMs: number | undefined, nowMs: number): string |
 }
 
 /** Tells why values may be missing: samples only arrive while the watch view or the scope keeps the host alive. */
-export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms: number) => string): string | undefined {
+export function gapNote(newestMs: number | undefined, nowMs: number, clock: (ms: number) => string, extra?: string): string | undefined {
   const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
   if (newestMs === undefined) return `No samples yet: ${tail}`;
-  return nowMs - newestMs < STALE_MS ? undefined : `No samples since ${clock(newestMs)}: ${tail}`;
+  return nowMs - newestMs < STALE_MS ? undefined : `No samples since ${clock(newestMs)}: ${tail}${extra ? ` ${extra}` : ''}`;
+}
+
+/** Why the host process last ended and when; kept across a reconnect (the state only holds the current error). */
+export interface HostEnd { reason: string; at: number }
+
+/**
+ * What the host says about a stall: its last message, why it last ended (only when that end is not older than the
+ * newest sample, so it can explain the gap), or that it is not connected. Undefined when there is nothing to add.
+ */
+export function hostNote(state: { connected: boolean; error?: string } | undefined, ended: HostEnd | undefined, clock: (ms: number) => string, newestMs?: number): string | undefined {
+  const parts: string[] = [];
+  if (state?.error) parts.push(`Last host message: ${oneLine(state.error)}`);
+  if (ended && (newestMs === undefined || ended.at >= newestMs)) parts.push(`The ADS host ended at ${clock(ended.at)}: ${oneLine(ended.reason)}`);
+  if (parts.length === 0 && state && !state.connected) parts.push('The ADS host is not connected.');
+  return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
 /** Most symbols that get a column in the scope table (the summaries cover all of them). */
 export const MAX_SCOPE_COLUMNS = 20;
 
-// Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
-export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, maxRows = 200, maxColumns = MAX_SCOPE_COLUMNS): string {
-  const lines: string[] = [];
-  const maps = symbols.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
-  for (const s of symbols) {
-    const sum = buf.summary(s, seconds, now);
-    lines.push(sum
-      ? `${s}: min=${sum.min} max=${sum.max} last=${sum.last} count=${sum.count}`
-      : `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`);
+/** One-line text for a summary: cut at 80 characters with "...", backslash, quote, CR, LF and TAB escaped, quoted when `quote`. */
+const ESCAPES: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\r": "\\r", "\n": "\\n", "\t": "\\t" };
+function shownText(text: string, quote: boolean): string {
+  const cut = text.length > 80 ? `${text.slice(0, 80)}...` : text;
+  const e = cut.replace(/[\\"\r\n\t]/g, c => (c === '"' && !quote ? c : ESCAPES[c]));
+  return quote ? `"${e}"` : e;
+}
+
+function summaryLine(buf: ScopeBuffer, s: string, seconds: number, now: number, d: number | undefined): string {
+  const sum = buf.summary(s, seconds, now);
+  const log = buf.changes(s, now - seconds * 1000);
+  const ch = changeEntries(log);
+  const newest = log.entries.at(-1) ?? log.start;
+  const when = (e: { t: number; after?: number }) => (e.after === undefined ? `${relSeconds(e.t, now)} s` : `unknown (between ${relSeconds(e.after, now)} and ${relSeconds(e.t, now)} s)`);
+  const times = ch.length === 0 ? '' : log.olderDropped
+    ? ` (older changes dropped; first retained at ${when(ch[0])}, last at ${when(ch[ch.length - 1])})`
+    : ` (first at ${when(ch[0])}, last at ${when(ch[ch.length - 1])})`;
+  const count = `changes${log.olderDropped ? '>=' : '='}${ch.length}`;
+  const failed = log.failedSince === undefined ? '' : ` reading failed since ${relSeconds(log.failedSince, now)} s (last valid at ${relSeconds(log.lastValidT ?? log.failedSince, now)} s)`;
+  if (sum) {
+    const last = log.failedSince !== undefined && newest ? newest.text : sum.last;
+    return `${s}: min=${formatNumber(sum.min, d)} max=${formatNumber(sum.max, d)} last=${formatValueText(last, d)} count=${sum.count}${ch.length > 0 ? ` ${count}${times}` : ''}${failed}`;
   }
-  const shown = symbols.slice(0, maxColumns);
-  const shownMaps = maps.slice(0, maxColumns);
-  const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
-  if (times.length > 0) {
-    lines.push('', ['t[s]', ...shown].join('\t'));
-    for (const t of downsample(times, maxRows)) {
-      lines.push([((t - now) / 1000).toFixed(3), ...shownMaps.map(m => m.get(t) ?? '')].join('\t'));
-    }
-    if (symbols.length > shown.length) lines.push(`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`);
-  }
+  if (newest) return `${s}: ${count} last=${shownText(newest.text, buf.isText(s))}${times}${failed}`;
+  return `${s}: no numeric samples in the last ${seconds} s, last=${buf.latest(s)?.value ?? 'n/a'}`;
+}
+
+/** The cell of a symbol whose start value the entry cap removed. */
+export const UNKNOWN_START = 'unknown (history dropped)';
+
+/** `maxChars` is the budget of the whole text (see assemble); unset means no limit. */
+export interface ScopeOptions { maxRows?: number; maxColumns?: number; decimals?: number; changesOnly?: boolean; edges?: boolean; maxChars?: number }
+
+/** Integers unchanged; other numbers rounded with toFixed(decimals); decimals undefined = String(n). */
+export function formatNumber(n: number, decimals?: number): string {
+  if (decimals === undefined || Number.isInteger(n)) return String(n);
+  const r = n.toFixed(decimals);
+  return /^-0(.0*)?$/.test(r) ? r.slice(1) : r;
+}
+
+/** A numeric text with a fraction or exponent is rounded to `decimals`; everything else (also null) is returned as is. */
+export function formatValueText(text: string | null, decimals?: number): string | null {
+  if (text === null || decimals === undefined || !NUMBER.test(text) || /^[+-]?\d+$/.test(text)) return text;
+  return formatNumber(Number(text), decimals);
+}
+
+/** The pieces of a scope answer; `assemble` joins them and keeps the whole text inside a character budget. */
+interface ScopeParts { summaries: string[]; notes: string[]; header?: string; rows: string[]; footer: string[] }
+
+/** Most summaries kept when the budget forces them to be cut (the footer and the newest rows are cut last or never). */
+const MAX_BUDGET_SUMMARIES = 50;
+
+function joinParts(p: ScopeParts, summaries: string[], notes: string[], rows: string[]): string {
+  const lines = [...summaries];
+  if (p.header !== undefined) lines.push('', ...notes, p.header, ...rows, ...p.footer);
   return lines.join('\n');
+}
+
+/**
+ * Joins the parts. Over the budget, the oldest table rows go first (with a note), then summaries beyond the first
+ * MAX_BUDGET_SUMMARIES (with a count); the header, the notes and the footer stay.
+ */
+function assemble(p: ScopeParts, maxChars: number): string {
+  const whole = joinParts(p, p.summaries, p.notes, p.rows);
+  if (whole.length <= maxChars) return whole;
+  let summaries = p.summaries;
+  const cutSummaries = () => [...summaries.slice(0, MAX_BUDGET_SUMMARIES), `(${summaries.length - MAX_BUDGET_SUMMARIES} more summaries not shown: output size limit)`];
+  if (p.header === undefined) {
+    if (summaries.length > MAX_BUDGET_SUMMARIES) summaries = cutSummaries();
+    return summaries.join('\n');
+  }
+  const fit = (): { text: string; kept: number } => {
+    const note = (n: number) => `${n} earlier rows not shown (output size limit), narrow seconds or symbols`;
+    const base = joinParts(p, summaries, [...p.notes, note(p.rows.length)], []).length;
+    let room = maxChars - base, kept = 0;
+    for (let i = p.rows.length - 1; i >= 0 && room >= p.rows[i].length + 1; i--) { room -= p.rows[i].length + 1; kept++; }
+    const rows = p.rows.slice(p.rows.length - kept);
+    return { kept, text: joinParts(p, summaries, kept < p.rows.length ? [...p.notes, note(p.rows.length - kept)] : p.notes, rows) };
+  };
+  let r = fit();
+  if (r.text.length > maxChars && summaries.length > MAX_BUDGET_SUMMARIES) {
+    summaries = cutSummaries();
+    r = fit();
+  }
+  return r.text;
+}
+
+/** Rising and falling edges of BOOL symbols with their times; other symbols are named as ignored. */
+export function edgesText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
+  const from = now - seconds * 1000;
+  const t = edgesTable(symbols.map(name => ({ name, type: buf.typeOf(name), log: buf.changes(name, from) })), { now, seconds, requestedStart: from, maxRows: opts.maxRows ?? 200 });
+  return assemble({ summaries: t.summaries, notes: t.notes, header: t.header, rows: t.rows, footer: [] }, opts.maxChars ?? Infinity);
+}
+
+// Summary per symbol plus a tab-separated table (seconds relative to now) of at most maxRows rows and maxColumns symbols.
+export function scopeText(buf: ScopeBuffer, symbols: string[], seconds: number, now: number, opts: ScopeOptions = {}): string {
+  if (opts.edges) return edgesText(buf, symbols, seconds, now, opts);
+  const maxRows = opts.maxRows ?? 200;
+  const maxColumns = opts.maxColumns ?? MAX_SCOPE_COLUMNS;
+  const d = opts.decimals;
+  const budget = opts.maxChars ?? Infinity;
+  const parts: ScopeParts = { summaries: symbols.map(s => summaryLine(buf, s, seconds, now, d)), notes: [], rows: [], footer: [] };
+  const shown = symbols.slice(0, maxColumns);
+  const columnsNote = symbols.length > shown.length ? [`(table columns: first ${shown.length} of ${symbols.length} symbols; the summaries above cover all of them)`] : [];
+  if (opts.changesOnly) {
+    const from = now - seconds * 1000;
+    const table = changesTable(shown, shown.map(s => buf.changes(s, from)), {
+      now, requestedStart: from, maxRows, unknownText: UNKNOWN_START,
+      cell: (i, text) => (buf.isText(shown[i]) ? shownText(text, true) : formatValueText(text, d) ?? ''),
+    });
+    if (table.rows.length === 0 && table.notes.length === 0) return assemble(parts, budget);
+    return assemble({ ...parts, notes: table.notes, header: table.header, rows: table.rows, footer: columnsNote }, budget);
+  }
+  const shownMaps = shown.map(s => new Map(buf.series(s, now - seconds * 1000).map(p => [p.t, p.y] as const)));
+  const times = [...new Set(shownMaps.flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
+  if (times.length === 0) return assemble(parts, budget);
+  // A column that changes in more than a quarter of maxRows places is a continuous signal: its changes are not
+  // events, so it is thinned evenly; the other columns keep every change.
+  const changeCount = (m: Map<number, number>) => times.reduce((n, t, i) => n + (i > 0 && m.get(t) !== m.get(times[i - 1]) ? 1 : 0), 0);
+  const fast = shownMaps.map(m => changeCount(m) > Math.max(maxRows / 4, 10));
+  const slowMaps = shownMaps.filter((_, i) => !fast[i]);
+  const thin = thinKeepingChanges(times, maxRows, (a, b) => slowMaps.some(m => m.get(a) !== m.get(b)));
+  const rowsShown = thin.droppedChanges === 0 && fast.some(Boolean) ? fillEvenly(times, thin.rows, maxRows) : thin.rows;
+  if (rowsShown.length < times.length) {
+    const lost = thin.droppedChanges > 0 ? `; ${thin.droppedChanges} earlier changes not shown, narrow seconds or symbols` : ' kept';
+    const events = slowMaps.length > 0 ? `, ${thin.changes} value changes${lost}` : '';
+    const thinned = fast.some(Boolean) ? `; evenly thinned (fast-changing): ${shown.filter((_, i) => fast[i]).join(', ')}` : '';
+    parts.notes.push(`${rowsShown.length} of ${times.length} samples shown${events}${thinned}`);
+  }
+  parts.header = ['t[s]', ...shown].join('\t');
+  parts.rows = rowsShown.map(t => [((t - now) / 1000).toFixed(3), ...shownMaps.map(m => { const y = m.get(t); return y === undefined ? '' : formatNumber(y, d); })].join('\t'));
+  parts.footer = columnsNote;
+  return assemble(parts, budget);
 }
 
 const NETID = /^\d{1,3}(\.\d{1,3}){5}$/;

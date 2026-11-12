@@ -63,15 +63,47 @@ export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {
   return { ok: true, value: { symbols } };
 }
 
-export function parseScopeInput(raw: unknown): Parsed<{ symbols: string[]; seconds?: number }> {
+export const SCOPE_MAX_ROWS = 200;
+
+export interface ScopeArgs { symbols: string[]; seconds?: number; maxRows?: number; decimals?: number; changesOnly?: boolean; edges?: boolean }
+
+/** An optional finite number, rounded and clamped; null or undefined counts as missing. */
+function clampedNumber(o: Record<string, unknown>, field: string, min: number, max: number): number | undefined | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${field} must be a finite number` };
+  return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+export function parseScopeInput(raw: unknown): Parsed<ScopeArgs> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const symbols = stringArray(o, 'symbols');
   if (typeof symbols === 'string') return fail(symbols);
+  const value: ScopeArgs = { symbols };
   const s = o.seconds;
-  if (s === undefined || s === null) return { ok: true, value: { symbols } };
-  if (typeof s !== 'number' || !Number.isFinite(s)) return fail('seconds must be a finite number');
-  return { ok: true, value: { symbols, seconds: s } };
+  if (s !== undefined && s !== null) {
+    if (typeof s !== 'number' || !Number.isFinite(s)) return fail('seconds must be a finite number');
+    value.seconds = s;
+  }
+  const maxRows = clampedNumber(o, 'maxRows', 1, SCOPE_MAX_ROWS);
+  if (isErr(maxRows)) return fail(maxRows.error);
+  if (maxRows !== undefined) value.maxRows = maxRows;
+  const decimals = clampedNumber(o, 'decimals', 0, 9);
+  if (isErr(decimals)) return fail(decimals.error);
+  if (decimals !== undefined) value.decimals = decimals;
+  const only = o.changesOnly;
+  if (only !== undefined && only !== null) {
+    if (typeof only !== 'boolean') return fail('changesOnly must be true or false');
+    value.changesOnly = only;
+  }
+  const edges = o.edges;
+  if (edges !== undefined && edges !== null) {
+    if (typeof edges !== 'boolean') return fail('edges must be true or false');
+    value.edges = edges;
+  }
+  if (value.edges && value.changesOnly) return fail('edges and changesOnly cannot be combined: edges lists BOOL edges, changesOnly lists every change');
+  return { ok: true, value };
 }
 
 export function parseWriteInput(raw: unknown): Parsed<{ symbol: string; value: string }> {

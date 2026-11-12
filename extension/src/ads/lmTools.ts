@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
-import { parseWaitInput } from '../core/toolInput';
+import { parseScopeInput, parseWaitInput } from '../core/toolInput';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
 import { sendToAiChat } from '../commands/aiChat';
 import { aiWritesSetting, workspaceTarget } from './aiSettings';
@@ -46,7 +46,10 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
   };
 
   const scopeTool: vscode.LanguageModelTool<ScopeInput> = {
-    invoke(opts) { return text(tools.scope(opts.input).text); },
+    invoke(opts) {
+      const p = parseScopeInput(opts.input);
+      return text(p.ok ? tools.scope(p.value).text : `Invalid arguments: ${p.error}`);
+    },
   };
 
   const waitTool: vscode.LanguageModelTool<WaitToolInput> = {

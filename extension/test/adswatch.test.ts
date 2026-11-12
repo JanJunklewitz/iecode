@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, hostNote, changeEntries, CUT_MARK, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -156,6 +156,79 @@ test('scopeText summarises and limits rows', () => {
   assert.match(text, /GVL\.nCount.*min=5.*max=5/);
   const dataRows = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l));
   assert.ok(dataRows.length <= 200 && dataRows.length > 100);
+});
+
+test('thinKeepingChanges keeps both sides of every transition', () => {
+  const r = Array.from({ length: 1000 }, (_, i) => (i < 300 ? 0 : i < 301 ? 1 : i < 900 ? 2 : 3));
+  const out = thinKeepingChanges(r, 200, (a, b) => a !== b);
+  assert.equal(out.changes, 3);
+  assert.equal(out.droppedChanges, 0);
+  assert.deepEqual([...new Set(out.rows)], [0, 1, 2, 3]);
+  assert.equal(out.rows.length, 7);
+  assert.deepEqual(thinKeepingChanges([1, 2, 3], 200, (a, b) => a !== b).rows, [1, 2, 3]);
+});
+
+test('thinKeepingChanges shows the newest rows when changes exceed the limit', () => {
+  const r = Array.from({ length: 1000 }, (_, i) => i);
+  const out = thinKeepingChanges(r, 200, (a, b) => a !== b);
+  assert.equal(out.rows.length, 200);
+  assert.equal(out.rows.at(-1), 999);
+  assert.equal(out.changes, 999);
+  assert.ok(out.droppedChanges > 700);
+});
+
+test('scopeText never drops a value change of a step counter and says it thinned', () => {
+  const steps = [0, 7, 109, 150, 210, 300, 410, 500];
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.nStep')]);
+  b.push(1, Array.from({ length: 1990 }, (_, i) => ({ t: i * 10, v: [String(steps[Math.min(steps.length - 1, Math.floor(i / 240))])] })));
+  const text = scopeText(b, ['MAIN.nStep'], 100000, 19890);
+  const values = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t')[1]);
+  assert.deepEqual([...new Set(values)], steps.map(String));
+  assert.match(text, /\d+ of 1990 samples shown, 7 value changes kept/);
+});
+
+test('fillEvenly tops a kept set up to the limit with evenly spaced rows', () => {
+  const all = Array.from({ length: 1000 }, (_, i) => i);
+  const out = fillEvenly(all, [0, 500, 999], 100);
+  assert.equal(out.length, 100);
+  assert.deepEqual(out.slice(), out.slice().sort((a, b) => a - b));
+  assert.ok(out.includes(500));
+  assert.deepEqual(fillEvenly(all, [0, 999], 2), [0, 999]);
+});
+
+test('scopeText thins a fast-changing column evenly and still keeps every step', () => {
+  const steps = [0, 7, 109, 150];
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.fTemp'), item('MAIN.nStep')]);
+  b.push(1, Array.from({ length: 2000 }, (_, i) => ({ t: i * 10, v: [String(i), String(steps[Math.floor(i / 500)])] })));
+  const text = scopeText(b, ['MAIN.fTemp', 'MAIN.nStep'], 100000, 19990);
+  const data = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t'));
+  assert.equal(data.length, 200);
+  assert.deepEqual([...new Set(data.map(d => d[2]))], steps.map(String));
+  assert.equal(data[0][1], '0');
+  assert.equal(data.at(-1)![1], '1999');
+  assert.ok(data.filter(d => Number(d[1]) > 500 && Number(d[1]) < 1500).length > 50);
+  assert.match(text, /200 of 2000 samples shown, 3 value changes kept; evenly thinned \(fast-changing\): MAIN\.fTemp/);
+});
+
+test('scopeText with only fast-changing columns spans the whole window', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.fTemp')]);
+  b.push(1, Array.from({ length: 10000 }, (_, i) => ({ t: i * 10, v: [String(i)] })));
+  const text = scopeText(b, ['MAIN.fTemp'], 100000, 99990);
+  const data = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l)).map(l => l.split('\t'));
+  assert.equal(data.length, 200);
+  assert.equal(data[0][1], '0');
+  assert.equal(data.at(-1)![1], '9999');
+  assert.match(text, /200 of 10000 samples shown; evenly thinned \(fast-changing\): MAIN\.fTemp/);
+});
+
+test('scopeText has no thinning header when every row is shown', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('A')]);
+  b.push(1, rows(11));
+  assert.doesNotMatch(scopeText(b, ['A'], 100000, 10000), /samples shown/);
 });
 
 test('PendingRequests', async () => {
@@ -384,4 +457,250 @@ test('write outcome not sent only with proof', () => {
   assert.equal(writeStage({ error: new HostGone('g') }).kind, 'unknown');
   assert.equal(writeStage({ error: new Error('plain') }).kind, 'unknown');
   assert.equal(writeStage({ error: 'not an error' }).kind, 'unknown');
+});
+
+const real = (symbol: string): WatchItem => ({ symbol, type: 'REAL', numeric: true, error: null });
+
+test('scopeText honours maxRows and says it thinned', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.fTemp')]);
+  b.push(1, Array.from({ length: 1000 }, (_, i) => ({ t: i * 10, v: [String(i)] })));
+  const text = scopeText(b, ['MAIN.fTemp'], 100000, 9990, { maxRows: 20 });
+  const data = text.split('\n').filter(l => /^-?\d+(\.\d+)?\t/.test(l));
+  assert.equal(data.length, 20);
+  assert.match(text, /20 of 1000 samples shown; evenly thinned \(fast-changing\): MAIN\.fTemp/);
+});
+
+test('scopeText rounds numbers to decimals but never pads integers', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [real('MAIN.f')]);
+  b.push(1, [{ t: 0, v: ['1.23456'] }, { t: 1000, v: ['2.5'] }, { t: 2000, v: ['3'] }]);
+  const text = scopeText(b, ['MAIN.f'], 100000, 2000, { decimals: 2 });
+  assert.match(text, /^MAIN\.f: min=1\.23 max=3 last=3 count=3 changes=2 \(first at -1\.0 s, last at 0\.0 s\)$/m);
+  assert.deepEqual(text.split('\n').filter(l => /^-?\d/.test(l)), ['-2.000\t1.23', '-1.000\t2.50', '0.000\t3']);
+  assert.equal(formatValueText('2.56789', 1), '2.6');
+  assert.equal(formatValueText('Running', 1), 'Running');
+  assert.equal(formatValueText(null, 1), null);
+  assert.equal(formatNumber(2.5), '2.5');
+});
+
+test('scopeText decimals handles tiny and negative-zero values', () => {
+  assert.equal(formatNumber(1e-7, 3), '0.000');
+  assert.equal(formatNumber(-0.001, 2), '0.00');
+  assert.equal(formatValueText('1e-7', 2), '0.00');
+});
+
+const textItem = (symbol: string): WatchItem => ({ symbol, type: 'STRING(80)', numeric: false, error: null });
+const at = (values: (string | null)[], step = 1000) => values.map((v, i) => ({ t: i * step, v: [v] }));
+
+test('change log keeps the first sample and every change, nothing else', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['0', '0', '1', '1', '2']));
+  const log = b.changes('S', 0);
+  assert.deepEqual(log.entries, [{ t: 0, text: '0', first: true }, { t: 2000, text: '1' }, { t: 4000, text: '2' }]);
+  assert.equal(log.start, undefined);
+  assert.equal(log.startUnknown, false);
+  assert.equal(log.olderDropped, false);
+  assert.equal(changeEntries(log).length, 2);
+});
+
+test('a null sample is no change and does not reset the comparison', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['1', null, '1', '2']));
+  assert.deepEqual(b.changes('S', 0).entries, [{ t: 0, text: '1', first: true }, { t: 3000, text: '2' }]);
+});
+
+test('the log keeps one predecessor so the window start value is known', () => {
+  const b = new ScopeBuffer(10);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 31 }, (_, i) => (i < 5 ? '0' : i < 25 ? '7' : '1'))));
+  const log = b.changes('S', 20000);
+  assert.deepEqual(log.start, { t: 5000, text: '7' });
+  assert.deepEqual(log.entries, [{ t: 25000, text: '1' }]);
+  assert.equal(log.startUnknown, false);
+  assert.equal(log.coveredFromMs, 20000);
+});
+
+test('a change exactly at the window start is an entry, its predecessor the start', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['0', '0', '1', '1']));
+  const log = b.changes('S', 2000);
+  assert.deepEqual(log.start, { t: 0, text: '0', first: true });
+  assert.deepEqual(log.entries, [{ t: 2000, text: '1' }]);
+});
+
+test('the entry cap drops the oldest entries and says so', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 10);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 50 }, (_, i) => String(i))));
+  const log = b.changes('S', 0);
+  assert.equal(log.entries.length, 10);
+  assert.equal(log.entries.at(-1)!.text, '49');
+  assert.equal(log.olderDropped, true);
+  assert.equal(log.startUnknown, true);
+  assert.equal(log.coveredFromMs, 0);
+  assert.equal(changeEntries(log).length, 10);
+});
+
+test('the entry cap is split over the watched symbols', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 20);
+  b.setItems(1, [item('A'), item('B')]);
+  b.push(1, Array.from({ length: 50 }, (_, i) => ({ t: i * 1000, v: [String(i), 'x'] })));
+  assert.equal(b.changes('A', 0).entries.length, 10);
+  assert.equal(b.changes('B', 0).entries.length, 1);
+});
+
+test('long texts are stored cut but compared in full', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [textItem('S')]);
+  const a = 'x'.repeat(256);
+  b.push(1, at([a + 'a', a + 'a', a + 'b', 'short']));
+  const e = b.changes('S', 0).entries;
+  assert.equal(e.length, 3);
+  assert.equal(e[0].text, a + CUT_MARK);
+  assert.equal(e[1].text, a + CUT_MARK);
+  assert.equal(e[2].text, 'short');
+});
+
+test('setItems drops the log of a removed symbol and clear drops all logs', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('A'), item('B')]);
+  b.push(1, [{ t: 0, v: ['1', '2'] }, { t: 1000, v: ['3', '4'] }]);
+  b.setItems(2, [item('A')]);
+  assert.equal(b.changes('B', 0).entries.length, 0);
+  assert.equal(b.changes('A', 0).entries.length, 2);
+  b.clear();
+  assert.equal(b.changes('A', 0).entries.length, 0);
+  b.push(2, [{ t: 5000, v: ['3'] }]);
+  assert.deepEqual(b.changes('A', 0).entries, [{ t: 5000, text: '3', first: true }]);
+});
+
+test('a request longer than the buffer is clamped and says what the log covers', () => {
+  const b = new ScopeBuffer(10);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 31 }, (_, i) => String(i % 2))));
+  const log = b.changes('S', -1_000_000);
+  assert.equal(log.coveredFromMs, 20000);
+  assert.deepEqual(log.start, { t: 19000, text: '1' });
+});
+
+test('shrinking the window trims the log and growing it again does not bring history back', () => {
+  const b = new ScopeBuffer(100);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(Array.from({ length: 31 }, (_, i) => String(i))));
+  b.setSeconds(10);
+  assert.equal(b.changes('S', 0).entries.length, 11);
+  b.setSeconds(100);
+  const log = b.changes('S', 0);
+  assert.equal(log.entries.length, 12);   // the 11 in the window plus the kept predecessor
+  assert.equal(log.coveredFromMs, 20000);
+});
+
+test('isText follows numeric, not the type name; typeOf follows the item', () => {
+  const b = new ScopeBuffer(100);
+  b.setItems(1, [textItem('S'), item('N'), { symbol: 'A', type: 'T_Alias', numeric: false, error: null }]);
+  assert.equal(b.isText('S'), true);
+  assert.equal(b.isText('A'), true);
+  assert.equal(b.isText('N'), false);
+  assert.equal(b.isText('nope'), false);
+  assert.equal(b.typeOf('N'), 'INT');
+  assert.equal(b.typeOf('nope'), undefined);
+});
+
+test('scopeText summary names the number of changes and when they happened', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('MAIN.nStep'), item('GVL.nConst')]);
+  b.push(1, Array.from({ length: 11 }, (_, i) => ({ t: i * 1000, v: [i < 3 ? '0' : i < 9 ? '5' : '6', '5'] })));
+  const out = scopeText(b, ['MAIN.nStep', 'GVL.nConst'], 100000, 10000);
+  assert.match(out, /^MAIN\.nStep: min=0 max=6 last=6 count=11 changes=2 \(first at -7\.0 s, last at -1\.0 s\)$/m);
+  assert.match(out, /^GVL\.nConst: min=5 max=5 last=5 count=11$/m);
+});
+
+test('scopeText summarises a STRING symbol by its changes', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [textItem('MAIN.sMsg')]);
+  b.push(1, at(['', 'Run', 'Run', 'Error 5']));
+  assert.match(scopeText(b, ['MAIN.sMsg'], 100000, 3000), /^MAIN\.sMsg: changes=2 last="Error 5" \(first at -2\.0 s, last at 0\.0 s\)$/m);
+  const quiet = new ScopeBuffer(100000);
+  quiet.setItems(1, [textItem('MAIN.sMsg')]);
+  quiet.push(1, at(['Run', 'Run']));
+  assert.match(scopeText(quiet, ['MAIN.sMsg'], 100000, 1000), /^MAIN\.sMsg: changes=0 last="Run"$/m);
+});
+
+test('scopeText escapes and cuts a long or multi-line text in the summary', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [textItem('MAIN.sMsg')]);
+  b.push(1, at(['a\nb\tc', 'y'.repeat(100)]));
+  assert.equal(scopeText(b, ['MAIN.sMsg'], 100000, 1000).split('\n')[0], `MAIN.sMsg: changes=1 last="${'y'.repeat(80)}..." (first at 0.0 s, last at 0.0 s)`);
+  const e = new ScopeBuffer(100000);
+  e.setItems(1, [textItem('MAIN.sMsg')]);
+  e.push(1, at(['x', 'a\\b"c\nd\te']));
+  assert.ok(scopeText(e, ['MAIN.sMsg'], 100000, 1000).includes('last="a\\\\b\\"c\\nd\\te" '));
+});
+
+test('an alias text symbol is quoted and never rounded, whatever it holds', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [{ symbol: 'A', type: 'T_Alias', numeric: false, error: null }]);
+  b.push(1, at(['', 'TRUE', '1.234']));
+  assert.match(scopeText(b, ['A'], 100000, 2000, { decimals: 1 }), /^A: changes=2 last="1\.234" /m);
+  const c = new ScopeBuffer(100000);
+  c.setItems(1, [{ symbol: 'A', type: 'T_Alias', numeric: false, error: null }]);
+  c.push(1, at(['']));
+  assert.match(scopeText(c, ['A'], 100000, 0), /^A: changes=0 last=""$/m);
+});
+
+test('a symbol with only read errors keeps the old no-samples line', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at([null, null]));
+  assert.match(scopeText(b, ['S'], 100000, 1000), /^S: no numeric samples in the last 100000 s, last=n\/a$/m);
+});
+
+test('the summary shows the last valid value and since when reading fails', () => {
+  const b = new ScopeBuffer(100000);
+  b.setItems(1, [item('S')]);
+  b.push(1, at(['1', '2', null, null]));
+  assert.match(scopeText(b, ['S'], 100000, 3000), /^S: min=1 max=2 last=2 count=2 changes=1 \(first at -2\.0 s, last at -2\.0 s\) reading failed since -1\.0 s \(last valid at -2\.0 s\)$/m);
+  const t = new ScopeBuffer(100000);
+  t.setItems(1, [textItem('M')]);
+  t.push(1, at(['a', null]));
+  assert.match(scopeText(t, ['M'], 100000, 1000), /^M: changes=0 last="a" reading failed since 0\.0 s \(last valid at -1\.0 s\)$/m);
+  const r = new ScopeBuffer(100000);      // an error between two equal values is no change
+  r.setItems(1, [item('S')]);
+  r.push(1, at(['1', null, '1']));
+  assert.match(scopeText(r, ['S'], 100000, 2000), /^S: min=1 max=1 last=1 count=2$/m);
+});
+
+test('a capped change log says the count is a lower bound', () => {
+  const b = new ScopeBuffer(1000, 2_000_000, 10);
+  b.setItems(1, [real('MAIN.f')]);
+  b.push(1, at(Array.from({ length: 50 }, (_, i) => String(i + 0.5))));
+  assert.match(scopeText(b, ['MAIN.f'], 1000, 49000), /^MAIN\.f: min=.* count=50 changes>=10 \(older changes dropped; first retained at -9\.0 s, last at 0\.0 s\)$/m);
+});
+
+test('gap note adds the host message when sampling is stale', () => {
+  const tail = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+  assert.equal(gapNote(0, 61_000, () => '10:00:00', 'Last host message: x.'), `No samples since 10:00:00: ${tail} Last host message: x.`);
+  assert.equal(gapNote(60_000, 61_000, () => '10:00:00', 'Last host message: x.'), undefined);
+  assert.equal(gapNote(undefined, 1, () => '10:00:00', 'Last host message: x.'), `No samples yet: ${tail}`);
+});
+
+test('hostNote names the last host message, the last end and a missing connection', () => {
+  const clock = (ms: number) => `T${ms}`;
+  const bs = String.fromCharCode(92);
+  assert.equal(hostNote({ connected: false, error: 'Port 851 not found.' }, undefined, clock), 'Last host message: Port 851 not found.');
+  assert.equal(hostNote({ connected: false }, undefined, clock), 'The ADS host is not connected.');
+  assert.equal(hostNote({ connected: true }, undefined, clock), undefined);
+  assert.equal(hostNote(undefined, undefined, clock), undefined);
+  assert.equal(hostNote({ connected: false, error: 'a\nb' }, undefined, clock), `Last host message: a${bs}nb`);
+  // idle stop and settings restart leave no state error, the end carries the reason
+  assert.equal(hostNote({ connected: false }, { reason: 'The ADS host stopped (idle).', at: 5000 }, clock), 'The ADS host ended at T5000: The ADS host stopped (idle).');
+  // error, then reconnect: the end explains a gap that began with it, not one that began later
+  assert.equal(hostNote({ connected: true }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock, 4000), 'The ADS host ended at T5000: The ADS host exited (code 1).');
+  assert.equal(hostNote({ connected: true }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock, 6000), undefined);
+  assert.equal(hostNote({ connected: false, error: 'boom' }, { reason: 'The ADS host exited (code 1).', at: 5000 }, clock),
+    'Last host message: boom The ADS host ended at T5000: The ADS host exited (code 1).');
 });

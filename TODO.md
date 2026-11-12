@@ -27,6 +27,8 @@
     - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
     - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
     - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
+- [ ] **ADS MCP: batch write in the same PLC cycle**: Plan C sends several values as one ADS request, which does not guarantee that the PLC sees them in the same cycle. A same-cycle write needs a PLC-side handshake (e.g. a library block that takes the values and applies them in one cycle). Deferred by user decision 2026-11-09; see [docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md](docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
+- [ ] **ADS MCP: event order across several PLC tasks**: the PLC-cycle timestamp work (Plan E7) only promises an order for symbols of one task. Comparing task timestamps across tasks is deferred by user decision 2026-11-09.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.

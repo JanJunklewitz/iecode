@@ -1,7 +1,7 @@
 // Result texts of the ADS tools, shared by the Copilot tools and the MCP server. Pure: plain data in, text out, so the
 // wording is pinned by tests and does not drift between the two clients.
 
-import { ScopeBuffer, WatchEntry, WatchItem, gapNote, scopeText } from './adswatch';
+import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
 
@@ -15,6 +15,8 @@ export interface ToolText { text: string; isError?: boolean }
 
 /** Longest result a tool returns, in characters (the marker included). */
 export const MAX_TOOL_TEXT = 50_000;
+/** What the scope text may use; the rest of MAX_TOOL_TEXT is left for the head line, the gap note and the unwatched list. */
+export const SCOPE_TEXT_BUDGET = MAX_TOOL_TEXT - 2000;
 export const TRUNCATED = '(output truncated: ask for fewer symbols or a shorter time span)';
 
 export function capText(text: string, limit = MAX_TOOL_TEXT): string {
@@ -76,12 +78,15 @@ export function newestSample(buffer: ScopeBuffer, symbols: string[]): number | u
   return t === -Infinity ? undefined : t;
 }
 
-export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; seconds: number; target: string; intervalMs: number; now: number; clock: (ms: number) => string }): string {
+export function scopeSummaryText(o: { buffer: ScopeBuffer; symbols: string[]; seconds: number; target: string; intervalMs: number; now: number; clock: (ms: number) => string; options?: ScopeOptions; state?: { connected: boolean; error?: string }; ended?: HostEnd }): string {
   const end = newestSample(o.buffer, o.symbols);
-  if (end === undefined) return `No samples yet for ${o.symbols.join(', ')}. The values are sampled every ${o.intervalMs} ms while the ADS host runs.`;
-  const gap = gapNote(end, o.now, o.clock);
-  const head = `ADS values of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
-  return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end)}`;
+  const note = hostNote(o.state, o.ended, o.clock, end);
+  if (end === undefined) return `No samples yet for ${o.symbols.join(', ')}. The values are sampled every ${o.intervalMs} ms while the ADS host runs.${note ? ` ${note}` : ''}`;
+  const gap = gapNote(end, o.now, o.clock, note);
+  const view = o.options?.edges ? 'edges' : o.options?.changesOnly ? 'value changes' : 'values';
+  const closing = o.options?.edges ? `\nSampled every ${o.intervalMs} ms; edges shorter than one sample are not seen.` : '';
+  const head = `ADS ${view} of the last ${o.seconds} s up to the newest sample (target ${o.target}):`;
+  return `${gap ? `${gap}\n` : ''}${head}\n${scopeText(o.buffer, o.symbols, o.seconds, end, { maxChars: SCOPE_TEXT_BUDGET, ...o.options })}${closing}`;
 }
 
 export function scopeToolText(summary: string | undefined, unwatched: string[], names: ToolNames): string {

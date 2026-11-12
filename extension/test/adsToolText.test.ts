@@ -57,7 +57,7 @@ test('read appends the sample age', () => {
 
 test('scope summary of fresh samples has no gap note', () => {
   assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock }),
-    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3\n\nt[s]\ta\n-2.000\t0\n-1.000\t1\n0.000\t2');
+    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\nt[s]\ta\n-2.000\t0\n-1.000\t1\n0.000\t2');
 });
 
 test('scope uses the gap note', () => {
@@ -124,4 +124,60 @@ test('waitResultText words every outcome', () => {
   assert.deepEqual(waitResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Wait cancelled.' });
   assert.equal(COPILOT_NAMES.wait, 'adsWait');
   assert.equal(MCP_NAMES.wait, 'ads_wait');
+});
+
+test('scope summary passes maxRows to the table', () => {
+  assert.equal(scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { maxRows: 2 } }),
+    'ADS values of the last 60 s up to the newest sample (target local):\na: min=0 max=2 last=2 count=3 changes=2 (first at -1.0 s, last at 0.0 s)\n\n2 of 3 samples shown, 2 value changes; 1 earlier changes not shown, narrow seconds or symbols\nt[s]\ta\n-1.000\t1\n0.000\t2');
+});
+
+test('scope summary in changesOnly mode names the view in its head line', () => {
+  const out = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, options: { changesOnly: true } });
+  assert.ok(out.startsWith('ADS value changes of the last 60 s up to the newest sample (target local):\n'), out);
+  assert.ok(out.endsWith('t[s]\ta\n-2.000\t0\n-1.000\t1\n0.000\t2'), out);
+});
+
+test('scope summary keeps the whole answer inside the tool text limit', () => {
+  const symbols = Array.from({ length: 200 }, (_, i) => `GVL.aVeryLongSymbolNameForTheBudgetTest${String(i).padStart(3, '0')}`);
+  const b = filled(symbols, 300);
+  for (const options of [{}, { changesOnly: true }]) {
+    const out = scopeSummaryText({ buffer: b, symbols, seconds: 3600, target: 'local', intervalMs: 100, now: 400_000, clock, options });
+    assert.ok(out.length <= MAX_TOOL_TEXT - 1000, `length ${out.length}`);
+    assert.ok(out.includes('first 20 of 200 symbols'));
+  }
+});
+
+const STALE_TAIL = 'sampling only runs while the ADS Watch view or the ADS Scope is open.';
+
+test('scope with a stale newest sample names the host state', () => {
+  const out = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 70_000, clock, state: { connected: false, error: 'Port 851 not found.' } });
+  assert.ok(out.startsWith(`No samples since 10:00:00: ${STALE_TAIL} Last host message: Port 851 not found.\nADS values of the last 60 s`), out);
+});
+
+test('scope with a stale newest sample names why the host ended', () => {
+  const out = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 70_000, clock, state: { connected: false }, ended: { reason: 'The ADS host stopped (idle).', at: 3000 } });
+  assert.ok(out.startsWith(`No samples since 10:00:00: ${STALE_TAIL} The ADS host ended at 10:00:00: The ADS host stopped (idle).\n`), out);
+});
+
+test('scope with fresh samples ignores the host state', () => {
+  const fresh = scopeSummaryText({ buffer: filled(['a']), symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 2500, clock, state: { connected: false, error: 'x' } });
+  assert.ok(fresh.startsWith('ADS values of the last 60 s'), fresh);
+});
+
+test('scope without any sample names the host message', () => {
+  const b = new ScopeBuffer(300);
+  b.setItems(1, [item('a')]);
+  assert.equal(scopeSummaryText({ buffer: b, symbols: ['a'], seconds: 60, target: 'local', intervalMs: 100, now: 1000, clock, state: { connected: false, error: 'boom' } }),
+    'No samples yet for a. The values are sampled every 100 ms while the ADS host runs. Last host message: boom');
+});
+
+test('scope summary in edges mode has its own head and closing line', () => {
+  const b = new ScopeBuffer(300);
+  b.setItems(1, [{ symbol: 'GVL.bBusy', type: 'BOOL', numeric: true, error: null }]);
+  b.push(1, [{ t: 0, v: ['FALSE'] }, { t: 1000, v: ['TRUE'] }]);
+  assert.equal(scopeSummaryText({ buffer: b, symbols: ['GVL.bBusy'], seconds: 1, target: 'local', intervalMs: 100, now: 1500, clock, options: { edges: true } }), [
+    'ADS edges of the last 1 s up to the newest sample (target local):',
+    'GVL.bBusy: edges=1 (1 rising, 0 falling), now TRUE', '',
+    't[s]\tsymbol\tedge', '0.000\tGVL.bBusy\trising',
+    'Sampled every 100 ms; edges shorter than one sample are not seen.'].join('\n'));
 });
