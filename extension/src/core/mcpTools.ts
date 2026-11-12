@@ -4,7 +4,7 @@
 import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import type { WaitCondition } from './waitCondition';
-import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs } from './toolInput';
+import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs, WatchRequest } from './toolInput';
 import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
@@ -13,7 +13,7 @@ export interface ToolDescriptor { name: string; description: string; inputSchema
 /** The read-side tool logic of `adsTools()`; write goes through the gate. */
 export interface AdsToolFns {
   symbols(input: { filter: string }): Promise<ToolText>;
-  watch(input: { add?: string[]; remove?: string[] }): Promise<ToolText>;
+  watch(input: WatchRequest, signal: AbortSignal): Promise<ToolText>;
   read(input: { symbols?: string[] }): Promise<ToolText>;
   scope(input: Partial<ScopeArgs>): ToolText | Promise<ToolText>;
   wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
@@ -41,7 +41,7 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
   const write = descriptor('ads_write');
   return [
     read('ads_symbols', parseSymbolsInput, v => d.tools.symbols(v)),
-    read('ads_watch', parseWatchInput, v => d.tools.watch(v)),
+    read('ads_watch', parseWatchInput, (v, signal) => d.tools.watch(v, signal)),
     read('ads_read', parseReadInput, v => d.tools.read(v)),
     read('ads_scope', parseScopeInput, v => d.tools.scope(v)),
     read('ads_wait', parseWaitInput, (v, signal) => d.tools.wait(v, signal)),

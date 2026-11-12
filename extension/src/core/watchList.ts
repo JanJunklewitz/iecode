@@ -2,8 +2,18 @@
 // reads the list when the step runs, so concurrent callers never overwrite each other's entries. No vscode imports.
 
 import { WatchEntry, watchEdit, watchLimitError } from './adswatch';
+import { MAX_GROUPS_PER_ENTRY, MAX_GROUPS_TOTAL, activeSymbols, addToGroup, dropGroup, groupKey, groupSummaries, isActive } from './watchGroups';
 
-export interface WatchListDeps { entries(): WatchEntry[]; set(entries: WatchEntry[]): Promise<unknown> }
+/** The saved list (parked entries included) holds at most this many entries; only the sampled ones are limited to 200. */
+export const MAX_STORED = 1000;
+
+export interface WatchListDeps {
+  entries(): WatchEntry[];
+  /** Saves the list and the keys of the switched-off groups in one state; `active` are the symbols to sample (the list minus switched-off groups, plus held symbols). */
+  set(entries: WatchEntry[], active: string[], off: string[]): Promise<unknown>;
+  /** Keys (`groupKey`) of the switched-off groups. */
+  groupsOff(): string[];
+}
 
 export interface WaitHold { readonly symbol: string; release(): Promise<void> }
 
@@ -12,6 +22,45 @@ interface HoldRecord { symbol: string; tokens: Set<object>; added: boolean }
 
 const key = (s: string): string => s.trim().toLowerCase();
 
+/** What one AI edit did, per requested name (trimmed, de-duplicated case-insensitively). The group fields are set only for an edit with a group. */
+export interface AiEditResult {
+  added: string[];
+  already: string[];
+  removed: string[];
+  kept: string[];
+  held: string[];
+  missing: string[];
+  grouped?: string[];
+  ungrouped?: string[];
+  switchedOn?: boolean;
+  /** Entries in the group after an add with a group. */
+  groupMembers?: number;
+}
+
+export interface AiEditOptions {
+  /** Symbols the user confirmed to remove although they added them. Only these user entries may go. */
+  removeUser?: string[];
+  /** Remove every AI entry that no wait holds. */
+  clearAi?: boolean;
+  /** Label the added (and already present AI) symbols with this group; a switched-off group is switched on. */
+  group?: string;
+  /** With group: the final state of the group in the same step (false parks the added entries without ever sampling them). */
+  enable?: boolean;
+  /** Checked inside the list step, right before the change: an aborted call changes nothing. */
+  signal?: AbortSignal;
+}
+
+function uniqueNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names.map(x => x.trim())) {
+    if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n); }
+  }
+  return out;
+}
+
+const hasGroup = (e: WatchEntry, k: string): boolean => !!e.groups?.some(g => groupKey(g) === k);
+
 export class WatchList {
   private chain: Promise<unknown> = Promise.resolve();
   private readonly holds = new Map<string, HoldRecord>();
@@ -19,23 +68,110 @@ export class WatchList {
 
   constructor(private readonly deps: WatchListDeps) {}
 
-  /** AI add/remove (ads_watch). Returns the removals refused because the user owns them. */
-  aiEdit(add: string[], remove: string[]): Promise<{ kept: string[] }> {
+  /** AI add/remove (ads_watch). Says what was added, already there, removed, refused (user's entry), postponed (wait) or unknown. */
+  aiEdit(add: string[], remove: string[], opts: AiEditOptions = {}): Promise<AiEditResult> {
     return this.step(async () => {
       const current = this.deps.entries();
-      const edited = watchEdit(current, add, remove, true);
-      const kept = remove.filter(r => edited.some(e => e.symbol.toLowerCase() === key(r)));
-      // a held entry stays until its last hold releases; only the removal of what a hold needs is postponed
-      const postponed = remove.filter(r => this.held(key(r)));
-      const next = watchEdit(watchEdit(current, add, [], true), [], remove.filter(r => !this.held(key(r))), true);
-      await this.deps.set(next);
-      for (const a of add) { const rec = this.holds.get(key(a)); if (rec) rec.added = false; }
-      for (const r of postponed) {
-        const rec = this.holds.get(key(r));
-        if (rec && current.some(e => e.ai && e.symbol.toLowerCase() === key(r))) rec.added = true;
+      const confirmed = new Set((opts.removeUser ?? []).map(key));
+      const result: AiEditResult = { added: [], already: [], removed: [], kept: [], held: [], missing: [] };
+      for (const a of uniqueNames(add)) (current.some(e => key(e.symbol) === key(a)) ? result.already : result.added).push(a);
+      const asked = opts.clearAi ? current.filter(e => e.ai).map(e => e.symbol) : uniqueNames(remove);
+      const drop = new Set<string>();
+      const postponed: string[] = [];
+      for (const r of asked) {
+        const entry = current.find(e => key(e.symbol) === key(r));
+        if (!entry) result.missing.push(r);
+        else if (!entry.ai && !confirmed.has(key(r))) result.kept.push(r);
+        else if (this.held(key(r))) { result.held.push(r); if (entry.ai) postponed.push(r); }
+        else { result.removed.push(r); drop.add(key(r)); }
       }
-      return { kept };
+      // a held entry stays until its last hold releases; only the removal of what a hold needs is postponed
+      let next = watchEdit(current, add, [], true).filter(e => !drop.has(key(e.symbol)));
+      let off = this.deps.groupsOff();
+      if (opts.group !== undefined) {
+        const k = groupKey(opts.group);
+        const existed = current.some(e => hasGroup(e, k));
+        const g = addToGroup(next, uniqueNames(add), opts.group);
+        if (g.entries.some(e => (e.groups?.length ?? 0) > MAX_GROUPS_PER_ENTRY)) throw new Error(`A variable can be in at most ${MAX_GROUPS_PER_ENTRY} groups.`);
+        if (groupSummaries(g.entries, []).length > MAX_GROUPS_TOTAL) throw new Error(`The watch list can hold at most ${MAX_GROUPS_TOTAL} groups.`);
+        next = g.entries;
+        result.grouped = g.grouped;
+        result.ungrouped = g.refused;
+        result.groupMembers = next.filter(e => hasGroup(e, k)).length;
+        const wasOff = existed && off.includes(k);
+        // one transition: the final state of the group is decided here and validated once by save()
+        if (opts.enable === false) {
+          result.switchedOn = false;
+          if (!off.includes(k) && result.groupMembers > 0) off = [...off, k];
+        } else if (g.grouped.length > 0 || opts.enable === true) {
+          result.switchedOn = wasOff && opts.enable !== true;
+          off = off.filter(x => x !== k);
+        } else {
+          result.switchedOn = false;
+        }
+      }
+      if (opts.signal?.aborted) throw new Error('The request was cancelled.');
+      await this.save(next, off);
+      for (const a of add) { const rec = this.holds.get(key(a)); if (rec) rec.added = false; }
+      for (const r of postponed) { const rec = this.holds.get(key(r)); if (rec) rec.added = true; }
+      return result;
     });
+  }
+
+  /** The requested symbols (requested spelling) that are entries the user added; reads the list now, outside the step chain. */
+  userOwned(symbols: string[]): string[] {
+    const current = this.deps.entries();
+    return uniqueNames(symbols).filter(n => current.some(e => !e.ai && key(e.symbol) === key(n)));
+  }
+
+  /** Switches a group on or off. Off: its entries stay in the list but are not sampled (unless a wait holds them or another group is on). */
+  setGroup(name: string, enabled: boolean): Promise<{ found: boolean; members: number }> {
+    return this.step(async () => {
+      const current = this.deps.entries();
+      const k = groupKey(name);
+      if (!current.some(e => hasGroup(e, k))) return { found: false, members: 0 };
+      const before = this.deps.groupsOff();
+      const off = before.filter(x => x !== k);
+      if (!enabled) off.push(k);
+      const held = this.heldSymbols();
+      const was = new Set(activeSymbols(current, before, held).map(x => x.toLowerCase()));
+      const will = new Set(activeSymbols(current, off, held).map(x => x.toLowerCase()));
+      // only the symbols that really start or stop being sampled count (another group or a hold may keep one)
+      const members = enabled ? [...will].filter(x => !was.has(x)).length : [...was].filter(x => !will.has(x)).length;
+      await this.save(current, off);
+      return { found: true, members };
+    });
+  }
+
+  /** Removes the group: entries no other group needs go, except the ones a wait holds (they lose the label and are reported in `held`). */
+  removeGroup(name: string): Promise<{ found: boolean; removed: string[]; held: string[] }> {
+    return this.step(async () => {
+      const current = this.deps.entries();
+      const k = groupKey(name);
+      if (!current.some(e => hasGroup(e, k))) return { found: false, removed: [], held: [] };
+      const dropped = dropGroup(current, name);
+      const held = dropped.removed.filter(s => this.held(key(s)));
+      const removed = dropped.removed.filter(s => !this.held(key(s)));
+      const next: WatchEntry[] = [];
+      for (const e of current) {
+        if (!hasGroup(e, k)) next.push(e);
+        else if (held.includes(e.symbol)) {
+          next.push({ symbol: e.symbol, ai: e.ai });
+          const rec = this.holds.get(key(e.symbol));
+          if (rec && e.ai) rec.added = true;
+        }
+        else { const kept = dropped.entries.find(x => x.symbol === e.symbol); if (kept) next.push(kept); }
+      }
+      await this.save(next, this.deps.groupsOff().filter(x => x !== k));
+      return { found: true, removed, held };
+    });
+  }
+
+  /** 'none' when no entry has the group. */
+  groupState(name: string): 'on' | 'off' | 'none' {
+    const k = groupKey(name);
+    if (!this.deps.entries().some(e => hasGroup(e, k))) return 'none';
+    return this.deps.groupsOff().includes(k) ? 'off' : 'on';
   }
 
   /** Any user edit: `edit` maps the current entries to the next ones (watchEdit, watchRename, filter, []). */
@@ -43,7 +179,7 @@ export class WatchList {
     return this.step(async () => {
       const next = edit(this.deps.entries());
       // `set` may throw after the list was saved (host start), so the holds follow `next` either way
-      const failed = await this.deps.set(next).then(() => undefined, (e: unknown) => ({ e }));
+      const failed = await this.save(next).then(() => undefined, (e: unknown) => ({ e }));
       const left = new Set(next.map(e => key(e.symbol)));
       const removed: string[] = [];
       for (const [k, rec] of this.holds) if (!left.has(k)) { removed.push(rec.symbol); this.holds.delete(k); }
@@ -56,35 +192,37 @@ export class WatchList {
     });
   }
 
-  /** Keeps the symbol watched for a wait; adds it as an AI entry when missing. */
+  /** Keeps the symbol watched for a wait; adds it as an AI entry when missing, and samples it while its groups are off. */
   hold(symbol: string): Promise<WaitHold> {
     return this.step(async () => {
       const name = symbol.trim();
       const k = key(name);
       const current = this.deps.entries();
-      const present = current.some(e => e.symbol.toLowerCase() === k);
-      if (!present) {
-        const next = [...current, { symbol: name, ai: true }];
-        const tooMany = watchLimitError(next.length);
-        if (tooMany) throw new Error(tooMany);
-        try {
-          await this.deps.set(next);
-        } catch (e) {
-          // the refused wait never releases: take back the entry it may have saved, unless another hold needs it
-          if (!this.held(k)) {
-            const after = this.deps.entries();
-            if (after.some(x => x.ai && x.symbol.toLowerCase() === k)) {
-              await this.deps.set(after.filter(x => x.symbol.toLowerCase() !== k)).catch(() => undefined);
-            }
-          }
-          throw e;
-        }
-      }
+      const entry = current.find(e => key(e.symbol) === k);
       let rec = this.holds.get(k);
       if (!rec) this.holds.set(k, rec = { symbol: name, tokens: new Set(), added: false });
-      if (!present) rec.added = true;
       const token = {};
       rec.tokens.add(token);
+      const record = rec;
+      try {
+        if (!entry) {
+          await this.save([...current, { symbol: name, ai: true }]);
+          record.added = true;
+        } else if (!isActive(entry, this.deps.groupsOff())) {
+          await this.save(current);
+        }
+      } catch (e) {
+        // the refused wait never releases: drop its token and take back the entry it may have saved, unless another hold needs it
+        record.tokens.delete(token);
+        if (!record.tokens.size) this.holds.delete(k);
+        if (!entry && !this.held(k)) {
+          const after = this.deps.entries();
+          if (after.some(x => x.ai && key(x.symbol) === k)) {
+            await this.save(after.filter(x => key(x.symbol) !== k)).catch(() => undefined);
+          }
+        }
+        throw e;
+      }
       return { symbol: name, release: () => this.release(k, token) };
     });
   }
@@ -100,24 +238,44 @@ export class WatchList {
     return this.step(async () => {
       const rec = this.holds.get(k);
       if (!rec?.tokens.has(token)) return;
-      // the token goes even when `set` throws (it may have saved): the list keeps whatever was saved, no retry
-      try {
-        if (rec.tokens.size === 1 && rec.added) {
-          const current = this.deps.entries();
-          // the user taking the entry over (ai = false) keeps it
-          if (current.some(e => e.ai && e.symbol.toLowerCase() === k)) {
-            await this.deps.set(current.filter(e => e.symbol.toLowerCase() !== k));
-          }
-        }
-      } finally {
-        rec.tokens.delete(token);
-        if (!rec.tokens.size) this.holds.delete(k);
+      // the token goes even when `save` throws (it may have saved): the list keeps whatever was saved, no retry
+      const last = rec.tokens.size === 1;
+      const added = rec.added;
+      rec.tokens.delete(token);
+      if (!rec.tokens.size) this.holds.delete(k);
+      if (!last) return;
+      const current = this.deps.entries();
+      const entry = current.find(e => key(e.symbol) === k);
+      if (added) {
+        // the user taking the entry over (ai = false) keeps it
+        if (entry?.ai) await this.save(current.filter(e => key(e.symbol) !== k));
+      } else if (entry && !isActive(entry, this.deps.groupsOff())) {
+        // its groups are off again: stop sampling it
+        await this.save(current);
       }
     });
   }
 
   private held(k: string): boolean {
     return (this.holds.get(k)?.tokens.size ?? 0) > 0;
+  }
+
+  private heldSymbols(): string[] {
+    return [...this.holds.values()].filter(r => r.tokens.size > 0).map(r => r.symbol);
+  }
+
+  /**
+   * Every write of the list: computes the sampled list from the next entries and the next switched-off groups, drops
+   * switched-off keys without a member, refuses an over-limit state before anything is written, then saves entries and
+   * keys in one state.
+   */
+  private async save(next: WatchEntry[], off: string[] = this.deps.groupsOff()): Promise<void> {
+    const pruned = off.filter(k => next.some(e => hasGroup(e, k)));
+    const active = activeSymbols(next, pruned, this.heldSymbols());
+    if (next.length > MAX_STORED) throw new Error(`At most ${MAX_STORED} variables can be kept in the watch list.`);
+    const tooMany = watchLimitError(active.length);
+    if (tooMany) throw new Error(tooMany);
+    await this.deps.set(next, active, pruned);
   }
 
   // A failed step rejects only its own call; the chain goes on with the next one.

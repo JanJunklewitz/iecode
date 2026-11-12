@@ -1445,7 +1445,7 @@
         "toolReferenceName": "adsWatch",
         "displayName": "ADS Watch",
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
-        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns the resulting list with types and per-symbol errors. Entries you add are marked as added by AI; you can only remove those, not the ones the user added. Watch a variable before asking for its history.",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1472,6 +1472,31 @@
               },
               "maxItems": 200,
               "description": "ADS names to stop watching (only entries added by AI)."
+            },
+            "list": {
+              "type": "boolean",
+              "description": "Return the full list with types and errors. Default: only what this call changed, plus the count."
+            },
+            "clearAi": {
+              "type": "boolean",
+              "description": "Remove every entry you added (the user's entries stay; entries a running wait uses stay until it ends). Cannot be combined with add or remove."
+            },
+            "force": {
+              "type": "boolean",
+              "description": "With remove: also remove entries the user added, after the user confirmed in a dialog. Without it only your own entries can be removed."
+            },
+            "group": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Name of a group. With add: the added symbols join the group (and a switched-off group is switched on). With enable or removeGroup: the group to switch or remove. Only entries you added can be in a group."
+            },
+            "enable": {
+              "type": "boolean",
+              "description": "With group: true samples the group again, false stops sampling its symbols without removing them."
+            },
+            "removeGroup": {
+              "type": "boolean",
+              "description": "With group: remove the group and the entries that belong to no other group."
             }
           }
         }

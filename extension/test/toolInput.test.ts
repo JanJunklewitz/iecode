@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -88,4 +88,51 @@ test('toolInput scope edges', () => {
   assert.equal(both.ok, false);
   if (!both.ok) assert.match(both.error, /edges and changesOnly cannot be combined/);
   assert.equal(parseScopeInput({ edges: false, changesOnly: true }).ok, true);
+});
+
+test('parseWatchInput reads list and leaves it out when absent', () => {
+  assert.deepEqual(parseWatchInput({ list: true }), { ok: true, value: { add: [], remove: [], list: true } });
+  assert.deepEqual(parseWatchInput({ add: ['a'] }), { ok: true, value: { add: ['a'], remove: [] } });
+  assert.deepEqual(parseWatchInput({ list: null }), { ok: true, value: { add: [], remove: [] } });
+  assert.deepEqual(parseWatchInput({ list: 'yes' }), { ok: false, error: 'list must be a boolean' });
+});
+
+test('wantsFullList is true for an empty call and for list: true', () => {
+  assert.equal(wantsFullList({ add: [], remove: [] }), true);
+  assert.equal(wantsFullList({ add: ['a'], remove: [] }), false);
+  assert.equal(wantsFullList({ add: [], remove: ['b'] }), false);
+  assert.equal(wantsFullList({ add: ['a'], remove: [], list: true }), true);
+});
+
+test('parseWatchInput reads force and clearAi with their rules', () => {
+  assert.deepEqual(parseWatchInput({ remove: ['a'], force: true }), { ok: true, value: { add: [], remove: ['a'], force: true } });
+  assert.deepEqual(parseWatchInput({ force: true }), { ok: false, error: 'force needs remove' });
+  assert.deepEqual(parseWatchInput({ force: 'yes', remove: ['a'] }), { ok: false, error: 'force must be a boolean' });
+  assert.deepEqual(parseWatchInput({ clearAi: true }), { ok: true, value: { add: [], remove: [], clearAi: true } });
+  assert.deepEqual(parseWatchInput({ clearAi: 1 }), { ok: false, error: 'clearAi must be a boolean' });
+  assert.deepEqual(parseWatchInput({ clearAi: true, add: ['a'] }), { ok: false, error: 'clearAi cannot be combined with add or remove' });
+  assert.equal(wantsFullList({ add: [], remove: [], clearAi: true }), false);
+});
+
+test('parseWatchInput reads the group fields and rejects contradictory ones', () => {
+  assert.deepEqual(parseWatchInput({ add: ['a'], group: ' T1 ' }), { ok: true, value: { add: ['a'], remove: [], group: 'T1' } });
+  assert.deepEqual(parseWatchInput({ group: 'T1', enable: false }), { ok: true, value: { add: [], remove: [], group: 'T1', enable: false } });
+  assert.deepEqual(parseWatchInput({ group: 'T1', removeGroup: true }), { ok: true, value: { add: [], remove: [], group: 'T1', removeGroup: true } });
+  const bad = (raw: unknown, error: string) => assert.deepEqual(parseWatchInput(raw), { ok: false, error });
+  bad({ enable: true }, 'enable needs group');
+  bad({ removeGroup: true }, 'removeGroup needs group');
+  bad({ group: 'T1', enable: true, removeGroup: true }, 'enable and removeGroup cannot be combined');
+  bad({ group: 'T1', removeGroup: true, add: ['a'] }, 'removeGroup cannot be combined with add or remove');
+  bad({ group: 'T1', remove: ['a'] }, 'group cannot be combined with remove; use removeGroup to remove a whole group');
+  bad({ group: 'T1' }, 'group needs add, enable or removeGroup');
+  bad({ group: ' ', add: ['a'] }, 'group must not be blank');
+  bad({ group: 'T1', add: ['a'], clearAi: true }, 'clearAi cannot be combined with add, remove or group');
+});
+
+test('wantsFullList is false for a group operation', () => {
+  assert.equal(wantsFullList({ add: [], remove: [], group: 'T1', enable: false }), false);
+});
+
+test('a group cannot be combined with list', () => {
+  assert.deepEqual(parseWatchInput({ group: 'T1', add: ['a'], list: true }), { ok: false, error: 'list cannot be combined with group' });
 });

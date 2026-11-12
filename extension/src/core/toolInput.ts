@@ -1,6 +1,7 @@
 // Validation of ADS tool arguments that come from outside VS Code (MCP clients send untrusted JSON).
 
 import { MAX_WATCHED } from './adswatch';
+import { groupNameError } from './watchGroups';
 import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -45,14 +46,50 @@ export function parseSymbolsInput(raw: unknown): Parsed<{ filter: string }> {
   return { ok: true, value: { filter: filter ?? '' } };
 }
 
-export function parseWatchInput(raw: unknown): Parsed<{ add: string[]; remove: string[] }> {
+/** An optional boolean; null or undefined counts as missing. */
+function bool(o: Record<string, unknown>, field: string): boolean | undefined | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return undefined;
+  return typeof v === 'boolean' ? v : { error: `${field} must be a boolean` };
+}
+
+export interface WatchRequest { add: string[]; remove: string[]; list?: boolean; clearAi?: boolean; force?: boolean; group?: string; enable?: boolean; removeGroup?: boolean }
+
+/** The full list is returned for an empty call and for `list: true`. */
+export const wantsFullList = (r: WatchRequest): boolean => r.list === true || (!r.add.length && !r.remove.length && !r.clearAi && r.group === undefined);
+
+export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const add = stringArray(o, 'add');
   if (typeof add === 'string') return fail(add);
   const remove = stringArray(o, 'remove');
   if (typeof remove === 'string') return fail(remove);
-  return { ok: true, value: { add, remove } };
+  const flags: Partial<WatchRequest> = {};
+  const group = str(o, 'group', MAX_SYMBOL_LENGTH, false);
+  if (isErr(group)) return fail(group.error);
+  if (group !== undefined) {
+    const bad = groupNameError(group);
+    if (bad) return fail(bad);
+    flags.group = group.trim();
+  }
+  for (const field of ['list', 'force', 'clearAi', 'enable', 'removeGroup'] as const) {
+    const v = bool(o, field);
+    if (isErr(v)) return fail(v.error);
+    if (v !== undefined) flags[field] = v;
+  }
+  if (flags.force && !remove.length) return fail('force needs remove');
+  if (flags.group !== undefined && flags.list) return fail('list cannot be combined with group');
+  if (flags.enable !== undefined && flags.group === undefined) return fail('enable needs group');
+  if (flags.removeGroup !== undefined && flags.group === undefined) return fail('removeGroup needs group');
+  if (flags.enable !== undefined && flags.removeGroup) return fail('enable and removeGroup cannot be combined');
+  if (flags.removeGroup && (add.length || remove.length)) return fail('removeGroup cannot be combined with add or remove');
+  if (flags.group !== undefined && remove.length) return fail('group cannot be combined with remove; use removeGroup to remove a whole group');
+  if (flags.clearAi && (add.length || remove.length || flags.group !== undefined)) {
+    return fail(flags.group !== undefined ? 'clearAi cannot be combined with add, remove or group' : 'clearAi cannot be combined with add or remove');
+  }
+  if (flags.group !== undefined && !add.length && flags.enable === undefined && !flags.removeGroup) return fail('group needs add, enable or removeGroup');
+  return { ok: true, value: { add, remove, ...flags } };
 }
 
 export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {

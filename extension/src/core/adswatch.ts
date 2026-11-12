@@ -484,7 +484,8 @@ export function watchLimitError(count: number): string | undefined {
 }
 
 /** A saved watch entry; `ai` marks entries the AI added, the only ones it may remove (O10). */
-export interface WatchEntry { symbol: string; ai: boolean }
+/** `groups` only ever on AI entries (see watchGroups.ts); the key is absent when there is none. */
+export interface WatchEntry { symbol: string; ai: boolean; groups?: string[] }
 
 /** The saved list (workspaceState): entries, or a plain string array saved before the `ai` flag existed. */
 export function parseWatchList(raw: unknown): WatchEntry[] {
@@ -492,7 +493,11 @@ export function parseWatchList(raw: unknown): WatchEntry[] {
   const out: WatchEntry[] = [];
   for (const x of raw) {
     if (typeof x === 'string') out.push({ symbol: x, ai: false });
-    else if (x && typeof x === 'object' && typeof x.symbol === 'string') out.push({ symbol: x.symbol, ai: x.ai === true });
+    else if (x && typeof x === 'object' && typeof x.symbol === 'string') {
+      const ai = x.ai === true;
+      const groups = ai && Array.isArray(x.groups) ? x.groups.filter((g: unknown): g is string => typeof g === 'string' && g.trim() !== '').map((g: string) => g.trim()) : [];
+      out.push(groups.length ? { symbol: x.symbol, ai, groups } : { symbol: x.symbol, ai });
+    }
   }
   return out;
 }
@@ -508,7 +513,7 @@ export function watchEdit(current: WatchEntry[], add: string[] = [], remove: str
   for (const s of add.map(x => x.trim())) {
     if (!s) continue;
     if (seen.has(s.toLowerCase())) {
-      if (!byAi) out.forEach((e, i) => { if (e.ai && e.symbol.toLowerCase() === s.toLowerCase()) out[i] = { ...e, ai: false }; });
+      if (!byAi) out.forEach((e, i) => { if (e.ai && e.symbol.toLowerCase() === s.toLowerCase()) out[i] = { symbol: e.symbol, ai: false }; });
       continue;
     }
     seen.add(s.toLowerCase());

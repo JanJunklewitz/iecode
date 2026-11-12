@@ -8,9 +8,13 @@ import { HostEnd, HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeB
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { WatchList } from '../core/watchList';
 import type { SampleBatch } from '../core/waitRun';
+import { activeSymbols } from '../core/watchGroups';
+import { UnresolvedNotes } from '../core/unresolved';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
+/** Keys of the switched-off watch groups. */
+const KEY_OFF = 'iecode.adsWatchOff';
 const REQUEST_MS = 10_000;
 const HELLO_MS = 10_000;
 const IDLE_MS = 30_000;
@@ -74,6 +78,10 @@ export class AdsHost implements vscode.Disposable {
   private nextId = 1;
   private gen = -1;
   private items_: WatchItem[] = [];
+  /** Saved entries that stopped resolving, reported once per symbol by ads_watch. */
+  readonly unresolved = new UnresolvedNotes();
+  // the symbols the host samples (set by setEntries); undefined until the list was saved in this session
+  private active: string[] | undefined;
   // the columns of the rows of `gen`; items_ may already show a list whose watch reply is still out
   private genItems: WatchItem[] = [];
   private state_: AdsState = { connected: false };
@@ -95,13 +103,14 @@ export class AdsHost implements vscode.Disposable {
     this.buffer = new ScopeBuffer(clampBufferSeconds(s.bufferSeconds));
     this.intervalMs = s.intervalMs;
     this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
-    this.list = new WatchList({ entries: () => this.entries(), set: e => this.setEntries(e) });
+    this.list = new WatchList({ entries: () => this.entries(), set: (e, a, o) => this.setEntries(e, a, o), groupsOff: () => this.groupsOff() });
     this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, this.ended, vscode.workspace.onDidChangeConfiguration(e => {
       const targetChanged = e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port');
       if (targetChanged) {
         // samples and read-back values of the old target must not be shown under the new one, also while no host runs
         this.buffer.clear();
         this.written.clear();
+        this.unresolved.reset();
         this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
         this.itemsChanged.fire();
         // before the restart below, so a wait reports the target change rather than the restart
@@ -155,25 +164,24 @@ export class AdsHost implements vscode.Disposable {
     return l ? { value: l.value, t: l.t } : undefined;
   }
 
+  /** The sampled symbols: the saved list minus switched-off groups, plus the ones a running wait holds. */
   watched(): string[] {
-    return this.entries().map(e => e.symbol);
+    return this.active ?? activeSymbols(this.entries(), this.groupsOff(), []);
   }
+
+  /** Keys (lower case) of the switched-off watch groups. */
+  groupsOff(): string[] {
+    const raw = this.ctx.workspaceState.get<unknown>(KEY_OFF, []);
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+  }
+
 
   /** The saved list with the AI flag per entry. */
   entries(): WatchEntry[] {
     return parseWatchList(this.ctx.workspaceState.get<unknown>(KEY, []));
   }
 
-  /** Sets the list by name; symbols already watched keep their AI flag, new ones count as the user's. */
-  async setWatched(symbols: string[]): Promise<WatchItem[]> {
-    await this.list.userEdit(current => {
-      const flags = new Map(current.map(e => [e.symbol.toLowerCase(), e.ai]));
-      return symbols.map(symbol => ({ symbol, ai: flags.get(symbol.trim().toLowerCase()) ?? false }));
-    });
-    return this.items_;
-  }
-
-  async setEntries(entries: WatchEntry[]): Promise<WatchItem[]> {
+  async setEntries(entries: WatchEntry[], active?: string[], off?: string[]): Promise<WatchItem[]> {
     // ADS names are case-insensitive
     const seen = new Set<string>();
     const kept: WatchEntry[] = [];
@@ -181,13 +189,17 @@ export class AdsHost implements vscode.Disposable {
       const symbol = e.symbol.trim();
       if (!symbol || seen.has(symbol.toLowerCase())) continue;
       seen.add(symbol.toLowerCase());
-      kept.push({ symbol, ai: e.ai });
+      kept.push(e.groups?.length ? { symbol, ai: e.ai, groups: e.groups } : { symbol, ai: e.ai });
     }
-    const list = kept.map(e => e.symbol);
+    // what is sampled: the caller's active list, else the saved list minus switched-off groups
+    const sampled = new Set((active ?? activeSymbols(kept, this.groupsOff(), [])).map(x => x.trim().toLowerCase()));
+    const list = kept.map(e => e.symbol).filter(x => sampled.has(x.toLowerCase()));
     // a list the host rejects must not be saved: it would be re-sent and fail on every start
     const tooMany = watchLimitError(list.length);
     if (tooMany) throw new Error(tooMany);
-    await this.ctx.workspaceState.update(KEY, kept);
+    // entries and switched-off groups are one state: both are stored before the host is contacted
+    await Promise.all([this.ctx.workspaceState.update(KEY, kept), ...(off ? [this.ctx.workspaceState.update(KEY_OFF, off)] : [])]);
+    this.active = list;
     const known = new Map(this.items_.map(i => [i.symbol, i]));
     this.items_ = list.map(symbol => known.get(symbol) ?? { symbol, type: '', numeric: false, error: null });
     this.itemsChanged.fire();

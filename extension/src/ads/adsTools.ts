@@ -6,16 +6,18 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
-import { ScopeArgs } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
+import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
+import { output } from '../cli/iecode';
 import { WaitDeps, runWait } from '../core/waitRun';
 import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
 export interface SymbolsInput { filter: string }
-export interface WatchInput { add?: string[]; remove?: string[] }
+export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
 export interface WaitInput { symbol: string; condition: WaitCondition; timeoutSeconds: number }
@@ -46,7 +48,35 @@ function watchedName(host: AdsHost, symbol: string): string | undefined {
   return host.watched().find(w => w.toLowerCase() === s);
 }
 
-const list = (host: AdsHost) => watchListText(host.items(), host.entries());
+const CONFIRM_REMOVE_MS = 120_000;
+
+/** The dialog is raced against the call's signal and a timer: VS Code cannot close a modal, so a late answer is ignored. */
+const askRemoval: ConfirmUserRemoval = (symbols, signal) => new Promise<boolean>(resolve => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+  const done = (answer: boolean) => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+    resolve(answer);
+  };
+  const onAbort = () => done(false);
+  if (signal.aborted) return done(false);
+  signal.addEventListener('abort', onAbort);
+  timer = setTimeout(() => done(false), CONFIRM_REMOVE_MS);
+  vscode.window.showWarningMessage(confirmRemoveText(symbols), { modal: true }, 'Remove').then(a => done(a === 'Remove'), () => done(false));
+});
+
+/** One dialog at a time for MCP and Copilot calls alike; a call that waits its turn with an aborted signal answers "no" without a dialog. */
+let dialogs: Promise<unknown> = Promise.resolve();
+const confirmRemove: ConfirmUserRemoval = (symbols, signal) => {
+  const answer = dialogs.then(() => askRemoval(symbols, signal));
+  dialogs = answer.catch(() => undefined);
+  return answer;
+};
+
+const list = (host: AdsHost) => watchListText(host.items(), host.entries(), host.groupsOff());
 
 /** Summary and table of the symbols over the last seconds, up to their newest sample. */
 export function scopeSummary(host: AdsHost, symbols: string[], seconds: number, options: ScopeOptions = {}): string {
@@ -85,16 +115,18 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       return ok(symbolsText({ matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
     },
 
-    async watch(input: WatchInput): Promise<ToolText> {
-      const { add = [], remove = [] } = input;
-      let kept: string[];
+    async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {
+      let result: WatchRunResult;
+      const owned = new Set(input.force ? host.list.userOwned(input.remove).map(x => x.toLowerCase()) : []);
       try {
-        ({ kept } = await leased(host, () => host.list.aiEdit(add, remove)));
+        result = await leased(host, () => runWatchRequest(host.list, input, confirmRemove, signal));
       } catch (e) {
         const f = watchFailureText(errorText(e), list(host));
         return { ...f, text: capText(f.text) };
       }
-      return ok(watchResultText({ list: list(host), kept, added: add.length > 0, intervalMs: host.sampling().intervalMs, names }));
+      const taken = result.removed.filter(r => owned.has(r.toLowerCase())).length;
+      if (taken) output.info(`AI removed ${taken} variable${taken === 1 ? '' : 's'} the user added (confirmed)`);
+      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {
@@ -131,7 +163,10 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const found = asked.map(s => watchedName(host, s));
       const watched = found.filter((n): n is string => !!n);
       const unwatched = asked.filter((_, i) => !found[i]);
-      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly, edges: input.edges }) : undefined, unwatched, names));
+      const parkedEntries = host.entries().filter(e => e.groups?.length && unwatched.some(u => u.trim().toLowerCase() === e.symbol.toLowerCase()));
+      const parkedNames = new Set(parkedEntries.map(e => e.symbol.toLowerCase()));
+      const parked = parkedEntries.map(e => `${e.symbol} [group ${e.groups?.join(', ')}]`);
+      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly, edges: input.edges }) : undefined, unwatched.filter(u => !parkedNames.has(u.trim().toLowerCase())), names, parked));
     },
 
     async wait(input: WaitInput, signal: AbortSignal): Promise<ToolText> {
@@ -145,9 +180,11 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
         wallMs: () => Date.now(),
         setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
       };
+      // the target the wait started on: a settings change during the wait must not be named as its target
+      const target = host.target();
       // the host keeps running for the whole wait, whatever way it ends
       const outcome = await leased(host, () => runWait(deps, input, signal));
-      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock });
+      const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target });
       return { ...r, text: capText(r.text) };
     },
   };

@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
-import { parseScopeInput, parseWaitInput } from '../core/toolInput';
+import { parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
 import { sendToAiChat } from '../commands/aiChat';
 import { aiWritesSetting, workspaceTarget } from './aiSettings';
@@ -37,7 +37,18 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
 
   const watchTool: vscode.LanguageModelTool<WatchInput> = {
     prepareInvocation: () => ({ invocationMessage: 'Updating the ADS watch list' }),
-    async invoke(opts) { return text((await tools.watch(opts.input)).text); },
+    async invoke(opts, token) {
+      const parsed = parseWatchInput(opts.input);
+      if (!parsed.ok) return text(`Invalid arguments: ${parsed.error}`);
+      const abort = new AbortController();
+      const cancelled = token.onCancellationRequested(() => abort.abort());
+      if (token.isCancellationRequested) abort.abort();
+      try {
+        return text((await tools.watch(parsed.value, abort.signal)).text);
+      } finally {
+        cancelled.dispose();
+      }
+    },
   };
 
   const readTool: vscode.LanguageModelTool<ReadInput> = {
