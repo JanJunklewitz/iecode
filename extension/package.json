@@ -1672,6 +1672,32 @@
             "value"
           ]
         }
+      },
+      {
+        "name": "iecode_ads_config",
+        "toolReferenceName": "adsConfig",
+        "displayName": "ADS Config",
+        "userDescription": "Show or change the ADS poll interval and buffer length for this session.",
+        "modelDescription": "Shows or sets how often watched ADS values are read (pollMs, 10-5000) and how many seconds of values are kept (bufferSeconds, 10-3600). Without arguments it returns the current values and the memory the buffer needs. A change lasts until the user edits the setting or the window reloads. The buffer stores at most 2 million values in total, so many symbols at a fast poll keep fewer seconds than asked; the result says so. A change that makes the buffer much larger asks the user to confirm.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "pollMs": {
+              "type": "number",
+              "description": "Poll interval in ms, 10-5000."
+            },
+            "bufferSeconds": {
+              "type": "number",
+              "description": "Seconds of values kept, 10-3600."
+            }
+          }
+        }
       }
     ],
     "submenus": [

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, configText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -293,4 +293,21 @@ test('watch result: a property hint is its own line after the error', () => {
     result: { ...none, added: ['MAIN.x.bBusy'] }, addErrors: ['MAIN.x.bBusy : not found'], hints: [hint],
   });
   assert.match(text, /\nError: MAIN\.x\.bBusy : not found\nHint for MAIN\.x\.bBusy: Matching property in the source code: MAIN\.x\.Busy \(monitoring call\); try that name\.\n/);
+});
+
+test('configText: shown, applied, unchanged, declined and cancelled', () => {
+  const e = (symbols: number, values: number, effectiveSeconds: number, capped: boolean) => ({ symbols, values, bytes: values * 72, effectiveSeconds, capped });
+  assert.equal(configText({ target: 'local', outcome: { kind: 'shown', sampling: { intervalMs: 100, bufferSeconds: 300 }, estimate: e(20, 60000, 300, false) } }).text,
+    'ADS sampling on local: poll every 100 ms, buffer 300 s.\nBuffer: 20 watched symbols, up to 60000 values (about 4.1 MB), holds the full 300 s.\nChange it with pollMs (10-5000) and bufferSeconds (10-3600); the change lasts until the user edits the setting or the window reloads.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'shown', sampling: { intervalMs: 10, bufferSeconds: 600 }, estimate: e(200, 2_000_000, 100, true) } }).text.split('\n')[1],
+    'Buffer: 200 watched symbols, up to 2000000 values (about 137.3 MB), holds only 100 s of the 600 s: the buffer stores at most 2000000 values in total.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'applied', before: { intervalMs: 100, bufferSeconds: 300 }, after: { intervalMs: 20, bufferSeconds: 600 }, estimate: e(20, 600000, 600, false), notes: ['n1'] } }).text,
+    'Poll interval 100 -> 20 ms, buffer 300 -> 600 s (this session only; the settings are unchanged).\nBuffer: 20 watched symbols, up to 600000 values (about 41.2 MB), holds the full 600 s.\nn1');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'applied', before: { intervalMs: 100, bufferSeconds: 300 }, after: { intervalMs: 100, bufferSeconds: 600 }, estimate: e(20, 120000, 600, false), notes: [] } }).text.split('\n')[0],
+    'Buffer 300 -> 600 s (this session only; the settings are unchanged).');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'unchanged', sampling: { intervalMs: 100, bufferSeconds: 300 } } }).text, 'Nothing to change: poll every 100 ms, buffer 300 s already.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'declined', wanted: { intervalMs: 10, bufferSeconds: 600 }, estimate: e(200, 2_000_000, 100, true) } }).text,
+    'Not changed: the change was not confirmed (it would hold up to 2000000 values, about 137.3 MB).');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'cancelled' } }).text, 'Config change cancelled.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'cancelled' } }).isError, undefined);
 });

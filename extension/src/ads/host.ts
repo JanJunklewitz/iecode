@@ -4,6 +4,7 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import { Sampling, overridesAfterSettingChange } from '../core/adsConfig';
 import { HostEnd, HostMessage, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { WatchList } from '../core/watchList';
@@ -124,15 +125,30 @@ export class AdsHost implements vscode.Disposable {
         if (this.proc) this.restart();
         else if (this.leases > 0) void this.ensure().catch(() => undefined);
       }
+      this.override = overridesAfterSettingChange(this.override, { sampleIntervalMs: e.affectsConfiguration('iecode.ads.sampleIntervalMs'), bufferSeconds: e.affectsConfiguration('iecode.ads.bufferSeconds') });
       if (e.affectsConfiguration('iecode.ads.bufferSeconds')) this.buffer.setSeconds(clampBufferSeconds(settings().bufferSeconds));
       if (e.affectsConfiguration('iecode.ads.sampleIntervalMs')) void this.setInterval(settings().intervalMs).catch(() => undefined);
     }));
   }
 
-  /** Sample interval (ms) and buffer length (s) as configured, within the allowed bounds. */
-  sampling(): { intervalMs: number; bufferSeconds: number } {
+  // set by ads_config for this session; the setting of the same key wins again when the user edits it
+  private override: Partial<Sampling> = {};
+
+  /** Sample interval (ms) and buffer length (s) in effect: the session override of ads_config, else the setting, within the allowed bounds. */
+  sampling(): Sampling {
     const s = settings();
-    return { intervalMs: clampInterval(s.intervalMs), bufferSeconds: clampBufferSeconds(s.bufferSeconds) };
+    return { intervalMs: this.override.intervalMs ?? clampInterval(s.intervalMs), bufferSeconds: this.override.bufferSeconds ?? clampBufferSeconds(s.bufferSeconds) };
+  }
+
+  /**
+   * Session override of poll interval and buffer length. The host operation comes first: when it fails nothing has
+   * changed. The buffer is trimmed only after it succeeded, so sampling(), the buffer and the host agree afterwards.
+   */
+  async applySampling(next: Sampling): Promise<void> {
+    const before = this.sampling();
+    if (next.intervalMs !== before.intervalMs) await this.setInterval(next.intervalMs);
+    this.override = { ...this.override, intervalMs: next.intervalMs, bufferSeconds: next.bufferSeconds };
+    if (next.bufferSeconds !== before.bufferSeconds) this.buffer.setSeconds(next.bufferSeconds);
   }
 
   /** "<target>:<port>" of the current settings; an approved write is bound to it. */

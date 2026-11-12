@@ -208,6 +208,27 @@ export function parseWriteInput(raw: unknown): Parsed<WriteInput> {
   return { ok: true, value: { symbol, value: value ?? '' } };
 }
 
+/** A finite number rounded to a whole number; clamping and its note belong to planConfig. */
+function wholeNumber(o: Record<string, unknown>, field: string): number | undefined | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${field} must be a finite number` };
+  return Math.round(v);
+}
+
+export function parseConfigInput(raw: unknown): Parsed<{ pollMs?: number; bufferSeconds?: number }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const pollMs = wholeNumber(o, 'pollMs');
+  if (isErr(pollMs)) return fail(pollMs.error);
+  const bufferSeconds = wholeNumber(o, 'bufferSeconds');
+  if (isErr(bufferSeconds)) return fail(bufferSeconds.error);
+  const value: { pollMs?: number; bufferSeconds?: number } = {};
+  if (pollMs !== undefined) value.pollMs = pollMs;
+  if (bufferSeconds !== undefined) value.bufferSeconds = bufferSeconds;
+  return { ok: true, value };
+}
+
 export const WAIT_DEFAULT_SECONDS = 30;
 export const WAIT_MAX_SECONDS = 120;
 

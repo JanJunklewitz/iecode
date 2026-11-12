@@ -6,12 +6,13 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, matchingPropertiesAt, sourceObjects } from '../core/adsinterface';
 import { pickEnum } from '../core/enumLookup';
+import { ConfigRunner } from '../core/adsConfig';
 import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
@@ -133,6 +134,13 @@ async function hiddenAnswer(units: readonly Unit[], filter: string): Promise<str
 
 export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, names: ToolNames) {
   const host = AdsHost.get(ctx);
+  const configRunner = new ConfigRunner({
+    current: () => host.sampling(),
+    symbols: () => host.watched().length,
+    confirm: async text => (await vscode.window.showWarningMessage(text, { modal: true }, 'Apply')) === 'Apply',
+    apply: next => host.applySampling(next),
+    setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
+  });
 
   return {
     host,
@@ -167,6 +175,14 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const matches = all.slice(query.offset, query.offset + PAGE_SIZE);
       const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
+    },
+
+    async config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText> {
+      try {
+        return ok(configText({ outcome: await configRunner.run(input, signal), target: host.target() }).text);
+      } catch (e) {
+        return failure(e);
+      }
     },
 
     async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {

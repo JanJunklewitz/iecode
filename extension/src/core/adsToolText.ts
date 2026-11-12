@@ -2,6 +2,7 @@
 // wording is pinned by tests and does not drift between the two clients.
 
 import { EnumInfo, sharedValues } from './tmc';
+import { BufferEstimate, ConfigOutcome, Sampling } from './adsConfig';
 import { pageNote } from './symbolQuery';
 import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
@@ -163,6 +164,40 @@ export function hiddenText(rows: string[], total: number): string {
   const lines = ["Hidden (marked {attribute 'hide'}, so no ADS symbol and not readable; a property with {attribute 'monitoring' := 'call'} may expose the value):", ...rows];
   if (total > rows.length) lines.push(`(${total - rows.length} more hidden variables not listed)`);
   return lines.join('\n');
+}
+
+const mbText = (bytes: number): string => `${(bytes / 1048576).toFixed(1)} MB`;
+
+function bufferLine(e: BufferEstimate, bufferSeconds: number): string {
+  const holds = e.capped
+    ? `holds only ${Math.floor(e.effectiveSeconds)} s of the ${bufferSeconds} s: the buffer stores at most 2000000 values in total.`
+    : `holds the full ${bufferSeconds} s.`;
+  return `Buffer: ${e.symbols} watched symbols, up to ${e.values} values (about ${mbText(e.bytes)}), ${holds}`;
+}
+
+/** The result of ads_config. None of the outcomes is an error. */
+export function configText(o: { outcome: ConfigOutcome; target: string }): ToolText {
+  const out = o.outcome;
+  const now = (s: Sampling) => `poll every ${s.intervalMs} ms, buffer ${s.bufferSeconds} s`;
+  switch (out.kind) {
+    case 'shown':
+      return { text: [`ADS sampling on ${o.target}: ${now(out.sampling)}.`, bufferLine(out.estimate, out.sampling.bufferSeconds),
+        'Change it with pollMs (10-5000) and bufferSeconds (10-3600); the change lasts until the user edits the setting or the window reloads.'].join('\n') };
+    case 'unchanged':
+      return { text: `Nothing to change: ${now(out.sampling)} already.` };
+    case 'applied': {
+      const parts: string[] = [];
+      if (out.before.intervalMs !== out.after.intervalMs) parts.push(`Poll interval ${out.before.intervalMs} -> ${out.after.intervalMs} ms`);
+      if (out.before.bufferSeconds !== out.after.bufferSeconds) parts.push(`buffer ${out.before.bufferSeconds} -> ${out.after.bufferSeconds} s`);
+      return { text: [`${parts.join(', ')} (this session only; the settings are unchanged).`.replace(/^buffer/, 'Buffer'), bufferLine(out.estimate, out.after.bufferSeconds), ...out.notes].join('\n') };
+    }
+    case 'declined':
+      return { text: `Not changed: the change was not confirmed (it would hold up to ${out.estimate.values} values, about ${mbText(out.estimate.bytes)}).` };
+    case 'changed':
+      return { text: 'Not changed: the sampling or the watch list changed while the confirmation was open. Call the tool again.' };
+    case 'cancelled':
+      return { text: 'Config change cancelled.' };
+  }
 }
 
 export interface ReadRow { symbol: string; type: string; value: string | null; error: string | null; age?: string; hint?: string }

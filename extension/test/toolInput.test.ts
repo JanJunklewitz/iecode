@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -171,4 +171,12 @@ test('parseSymbolsInput takes enumType and hidden and leaves absent keys out', (
   assert.deepEqual(parseSymbolsInput({ enumType: '' }), { ok: true, value: { filter: '' } });
   assert.deepEqual(parseSymbolsInput({ hidden: 'yes' }), { ok: false, error: 'hidden must be true or false' });
   assert.deepEqual(parseSymbolsInput({ enumType: 5 }), { ok: false, error: 'enumType must be a string' });
+});
+
+test('parseConfigInput rounds but does not clamp, and rejects non-numbers', () => {
+  assert.deepEqual(parseConfigInput({}), { ok: true, value: {} });
+  assert.deepEqual(parseConfigInput({ pollMs: 20 }), { ok: true, value: { pollMs: 20 } });
+  assert.deepEqual(parseConfigInput({ pollMs: 20.6, bufferSeconds: 5000 }), { ok: true, value: { pollMs: 21, bufferSeconds: 5000 } });
+  assert.deepEqual(parseConfigInput({ pollMs: '20' }), { ok: false, error: 'pollMs must be a finite number' });
+  assert.deepEqual(parseConfigInput({ bufferSeconds: NaN }), { ok: false, error: 'bufferSeconds must be a finite number' });
 });

@@ -8,6 +8,7 @@ export const LM_TOOL_NAMES = [
   'iecode_ads_scope',
   'iecode_ads_write',
   'iecode_ads_wait',
+  'iecode_ads_config',
 ] as const;
 
 export type LmToolName = (typeof LM_TOOL_NAMES)[number];

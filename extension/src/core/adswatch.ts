@@ -65,6 +65,9 @@ interface Point { t: number; y: number }
 
 // Per item a series of numbers plus the last raw text; the text stays exact (ULINT, TIME) while the
 // series is only for plotting. Rows x items is capped so a long window cannot exhaust memory.
+/** The most values the scope buffer stores in total, whatever the window and the number of symbols. */
+export const SCOPE_MAX_VALUES = 2_000_000;
+
 export class ScopeBuffer {
   private ms: number;
   private gen = -1;
@@ -74,7 +77,7 @@ export class ScopeBuffer {
   private newest = -Infinity;
   private readonly log: ChangeLogStore;
 
-  constructor(seconds: number, private readonly maxValues = 2_000_000, maxChanges = MAX_CHANGE_ENTRIES) {
+  constructor(seconds: number, private readonly maxValues = SCOPE_MAX_VALUES, maxChanges = MAX_CHANGE_ENTRIES) {
     this.ms = seconds * 1000;
     this.log = new ChangeLogStore(maxChanges);
   }

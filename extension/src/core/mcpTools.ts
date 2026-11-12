@@ -4,7 +4,7 @@
 import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import type { WaitCondition } from './waitCondition';
-import { parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs, WatchRequest } from './toolInput';
+import { parseConfigInput, parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs, WatchRequest } from './toolInput';
 import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
@@ -17,6 +17,7 @@ export interface AdsToolFns {
   read(input: { symbols?: string[] }): Promise<ToolText>;
   scope(input: Partial<ScopeArgs>): ToolText | Promise<ToolText>;
   wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
+  config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText>;
 }
 
 const invalid = (error: string): { text: string; isError: true } => ({ text: `Invalid arguments: ${error}`, isError: true });
@@ -57,6 +58,7 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
         return { text: writeResultText(result, op), isError: writeResultIsError(result) };
       },
     },
+    read('ads_config', parseConfigInput, (v, signal) => d.tools.config(v, signal)),
   ];
 }
 
