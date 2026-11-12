@@ -3,6 +3,7 @@
 // the clock through Clock, so the rules are unit-tested without VS Code.
 
 import { WriteDecision, writeStillApproved } from './adswatch';
+import { WriteItem, WriteItemResult, doneIsError, doneText, readBackChanged, sentence } from './writeText';
 import { COPILOT_NAMES, MCP_NAMES, ToolNames, targetLine, targetOfKey } from './adsToolText';
 
 /** The write was not sent: refused before the request left, or the host proved it did not send it. `alreadyShown`: a failed host start. */
@@ -21,7 +22,14 @@ export interface WriteOp {
   via: 'MCP' | 'Copilot';
   /** Copilot: the decision its confirmation was shown with; the gate opens no dialog for it (R5). */
   prepared?: { decision: WriteDecision };
+  /** A batch: all items in order; `symbol` and `value` mirror items[0]. */
+  items?: WriteItem[];
 }
+
+export const itemsOf = (op: WriteOp): WriteItem[] => op.items ?? [{ symbol: op.symbol, value: op.value }];
+
+/** The protocol feature an op needs beyond the scalar write: more than one item needs "writeMany". */
+export const featureOf = (op: WriteOp): string | undefined => (itemsOf(op).length > 1 ? 'writeMany' : undefined);
 
 export type WriteResult =
   /** Not sent. */
@@ -29,7 +37,9 @@ export type WriteResult =
   /** Sent and taken; `readBack` is null with a `readBackError` when only the read-back failed. */
   | { kind: 'written'; readBack: string | null; readBackError?: string }
   /** Sent, but no reply or no proof either way. */
-  | { kind: 'unknown'; reason: string };
+  | { kind: 'unknown'; reason: string }
+  /** A batch that reached the host: one result per item, in order. */
+  | { kind: 'done'; items: WriteItemResult[] };
 
 export interface GateDeps {
   decision(): WriteDecision;
@@ -40,6 +50,8 @@ export interface GateDeps {
   send(op: WriteOp, beforeSend: () => string | undefined): Promise<WriteResult>;
   /** The user approved after the request ended (cancelled, timed out, shut down): nothing was written. */
   lateApproval(op: WriteOp, reason: string): void;
+  /** The user's path allow-list: a returned text refuses the op (asked before any dialog and again right before sending). */
+  policy?(op: WriteOp): string | undefined;
 }
 
 export interface GatePolicy {
@@ -78,15 +90,21 @@ export function sendOutcome(e: unknown): WriteResult {
   return e instanceof WriteNotSent ? refusal(reason) : { kind: 'unknown', reason };
 }
 
-const sentence = (s: string) => s.replace(/\.$/, '');
-
 export function writeResultText(r: WriteResult, op: WriteOp): string {
   return `${writeVerdict(r, op)}\n${targetLine(targetOfKey(op.targetKey))}`;
 }
 
 function writeVerdict(r: WriteResult, op: WriteOp): string {
+  const items = itemsOf(op);
+  if (items.length > 1 && r.kind === 'refused') return `Not written: ${sentence(r.reason)}. None of the ${items.length} writes was sent.`;
+  if (items.length > 1 && r.kind === 'unknown') {
+    return `Outcome unknown for all ${items.length} writes: ${sentence(r.reason)}. Do not write again on your own; read ${items.map(i => i.symbol).join(', ')} and ask the user.`;
+  }
   switch (r.kind) {
     case 'written':
+      if (r.readBack !== null && readBackChanged(op.value, r.readBack)) {
+        return `Written (accepted by ADS), but ${op.symbol} then reads back as ${r.readBack}, not ${op.value}: it changed after the write (the PLC may have changed it). Read it again before acting on it.`;
+      }
       return r.readBack === null
         ? `Written, but ${op.symbol} could not be read back: ${sentence(r.readBackError ?? 'unknown error')}. Read it before acting on the value.`
         : `Written. ${op.symbol} reads back as ${r.readBack} (the PLC may change it again).`;
@@ -94,11 +112,14 @@ function writeVerdict(r: WriteResult, op: WriteOp): string {
       return `Not written: ${sentence(r.reason)}.`;
     case 'unknown':
       return `Outcome unknown: ${sentence(r.reason)}. Do not write again on your own; read ${op.symbol} and ask the user.`;
+    case 'done':
+      return doneText(itemsOf(op), r.items);
   }
 }
 
 /** Refused and unknown are errors for the client; a written value is not, also when only its read-back failed. */
-export const writeResultIsError = (r: WriteResult): boolean => r.kind !== 'written';
+export const writeResultIsError = (r: WriteResult): boolean =>
+  r.kind === 'done' ? doneIsError(r.items) : r.kind !== 'written';
 
 interface OpState {
   op: WriteOp;
@@ -188,6 +209,8 @@ export class WriteGate {
   private async process(s: OpState): Promise<void> {
     const { op } = s;
     const names = namesOf(op);
+    const outside = this.deps.policy?.(op);
+    if (outside !== undefined) return this.flip(s, outside);
     const now = this.deps.decision();
     if (op.via === 'Copilot') {
       if (!op.prepared) return this.flip(s, `it needs the user's confirmation now; call ${names.write} again`);
@@ -243,6 +266,8 @@ export class WriteGate {
     if (this.disposed) return SHUTDOWN;
     if (s.signal.aborted) return CANCELLED;
     if (this.clock.now() >= s.deadlineAt) return TOO_LONG;
+    const outside = this.deps.policy?.(s.op);
+    if (outside !== undefined) return outside;
     const now = this.deps.decision();
     if (now === 'refuse') return OFF;
     if (!writeStillApproved(s.approved, now)) return `it needs the user's confirmation now; call ${namesOf(s.op).write} again`;

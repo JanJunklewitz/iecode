@@ -2,6 +2,8 @@
 
 import { MAX_WATCHED } from './adswatch';
 import { groupNameError } from './watchGroups';
+import { WriteItem } from './writeText';
+import { CAPTURE_DEFAULT_POST, CAPTURE_DEFAULT_PRE, CAPTURE_MAX_POST, CAPTURE_MAX_PRE, CaptureRequest } from './captureRun';
 import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -38,12 +40,30 @@ function str(o: Record<string, unknown>, field: string, max: number, required: b
 
 const isErr = (x: unknown): x is { error: string } => typeof x === 'object' && x !== null;
 
-export function parseSymbolsInput(raw: unknown): Parsed<{ filter: string }> {
+export interface SymbolsRequest { filter: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number }
+
+export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const filter = str(o, 'filter', MAX_SYMBOL_LENGTH, false);
   if (isErr(filter)) return fail(filter.error);
-  return { ok: true, value: { filter: filter ?? '' } };
+  const enumType = str(o, 'enumType', MAX_SYMBOL_LENGTH, false);
+  if (isErr(enumType)) return fail(enumType.error);
+  const hidden = o.hidden;
+  if (hidden !== undefined && hidden !== null && typeof hidden !== 'boolean') return fail('hidden must be true or false');
+  const prefix = str(o, 'prefix', MAX_SYMBOL_LENGTH, false);
+  if (isErr(prefix)) return fail(prefix.error);
+  const type = str(o, 'type', MAX_SYMBOL_LENGTH, false);
+  if (isErr(type)) return fail(type.error);
+  const offset = o.offset;
+  if (offset !== undefined && offset !== null && (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)) return fail('offset must be a whole number of 0 or more');
+  const value: SymbolsRequest = { filter: filter ?? '' };
+  if (prefix?.trim()) value.prefix = prefix.trim();
+  if (type?.trim()) value.type = type.trim();
+  if (typeof offset === 'number') value.offset = offset;
+  if (enumType?.trim()) value.enumType = enumType.trim();
+  if (typeof hidden === 'boolean') value.hidden = hidden;
+  return { ok: true, value };
 }
 
 /** An optional boolean; null or undefined counts as missing. */
@@ -143,15 +163,114 @@ export function parseScopeInput(raw: unknown): Parsed<ScopeArgs> {
   return { ok: true, value };
 }
 
-export function parseWriteInput(raw: unknown): Parsed<{ symbol: string; value: string }> {
+export const MAX_WRITES = 20;
+/** The key a prepared Copilot confirmation is stored under: the single write as before, a batch as a whole. */
+export function writeKey(input: WriteInput): string {
+  return 'writes' in input ? JSON.stringify(['batch', input.writes.map(w => [w.symbol, w.value])]) : JSON.stringify([input.symbol, input.value]);
+}
+
+export type WriteInput = { symbol: string; value: string } | { writes: WriteItem[] };
+
+/** One { symbol, value } pair; `where` prefixes the error ("" for the single form, "writes[1]." in a batch). */
+function parseWriteItem(raw: unknown, where: string, shape: string): Parsed<WriteItem> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return fail(shape);
+  const o = raw as Record<string, unknown>;
+  const symbol = str(o, 'symbol', MAX_SYMBOL_LENGTH, true);
+  if (isErr(symbol)) return fail(where + symbol.error);
+  if (!symbol || !symbol.trim()) return fail(where + 'symbol must not be blank');
+  const value = str(o, 'value', MAX_VALUE_LENGTH, true);
+  if (isErr(value)) return fail(where + value.error);
+  return { ok: true, value: { symbol, value: value ?? '' } };
+}
+
+export function parseWriteInput(raw: unknown): Parsed<WriteInput> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
+  if (o.writes !== undefined && o.writes !== null) {
+    if (o.symbol !== undefined || o.value !== undefined) return fail('use either symbol and value or writes, not both');
+    const list = o.writes;
+    const shape = 'writes must be an array of { symbol, value } objects';
+    if (!Array.isArray(list)) return fail(shape);
+    if (!list.length) return fail('writes must not be empty');
+    if (list.length > MAX_WRITES) return fail(`writes has more than ${MAX_WRITES} entries`);
+    const writes: WriteItem[] = [];
+    const seen = new Map<string, number>();
+    for (let i = 0; i < list.length; i++) {
+      const p = parseWriteItem(list[i], `writes[${i}].`, shape);
+      if (!p.ok) return p;
+      const key = p.value.symbol.trim().toLowerCase();
+      const first = seen.get(key);
+      if (first !== undefined) return fail(`writes[${i}] repeats writes[${first}]: ${writes[first].symbol.trim()}`);
+      seen.set(key, i);
+      writes.push(p.value);
+    }
+    return { ok: true, value: { writes } };
+  }
   const symbol = str(o, 'symbol', MAX_SYMBOL_LENGTH, true);
   if (isErr(symbol)) return fail(symbol.error);
   if (!symbol || !symbol.trim()) return fail('symbol must not be blank');
   const value = str(o, 'value', MAX_VALUE_LENGTH, true);
   if (isErr(value)) return fail(value.error);
   return { ok: true, value: { symbol, value: value ?? '' } };
+}
+
+/** A finite number rounded to a whole number; clamping and its note belong to planConfig. */
+function wholeNumber(o: Record<string, unknown>, field: string): number | undefined | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${field} must be a finite number` };
+  return Math.round(v);
+}
+
+export function parseConfigInput(raw: unknown): Parsed<{ pollMs?: number; bufferSeconds?: number }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const pollMs = wholeNumber(o, 'pollMs');
+  if (isErr(pollMs)) return fail(pollMs.error);
+  const bufferSeconds = wholeNumber(o, 'bufferSeconds');
+  if (isErr(bufferSeconds)) return fail(bufferSeconds.error);
+  const value: { pollMs?: number; bufferSeconds?: number } = {};
+  if (pollMs !== undefined) value.pollMs = pollMs;
+  if (bufferSeconds !== undefined) value.bufferSeconds = bufferSeconds;
+  return { ok: true, value };
+}
+
+export function parsePresetInput(raw: unknown): Parsed<{ path?: string; preset?: string }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const path = str(o, 'path', MAX_SYMBOL_LENGTH, false);
+  if (isErr(path)) return fail(path.error);
+  const preset = str(o, 'preset', MAX_SYMBOL_LENGTH, false);
+  if (isErr(preset)) return fail(preset.error);
+  if (path !== undefined && !path.trim()) return fail('path must not be blank');
+  if (preset !== undefined && !preset.trim()) return fail('preset must not be blank');
+  if (preset !== undefined && path === undefined) return fail('path is required with preset');
+  const value: { path?: string; preset?: string } = {};
+  if (path !== undefined) value.path = path.trim();
+  if (preset !== undefined) value.preset = preset.trim();
+  return { ok: true, value };
+}
+
+/** A whole number of seconds within [min, max]; a missing value gives the default. */
+function boundedSeconds(o: Record<string, unknown>, field: string, min: number, max: number, dflt: number): number | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return dflt;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${field} must be a finite number` };
+  return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+export function parseCaptureInput(raw: unknown): Parsed<CaptureRequest & { symbols: string[] }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const wait = parseWaitInput({ symbol: o.symbol, condition: o.condition, timeoutSeconds: o.timeoutSeconds });
+  if (!wait.ok) return wait;
+  const pre = boundedSeconds(o, 'preSeconds', 0, CAPTURE_MAX_PRE, CAPTURE_DEFAULT_PRE);
+  if (typeof pre !== 'number') return fail(pre.error);
+  const post = boundedSeconds(o, 'postSeconds', 0, CAPTURE_MAX_POST, CAPTURE_DEFAULT_POST);
+  if (typeof post !== 'number') return fail(post.error);
+  const symbols = stringArray(o, 'symbols');
+  if (typeof symbols === 'string') return fail(symbols);
+  return { ok: true, value: { ...wait.value, preSeconds: pre, postSeconds: post, symbols } };
 }
 
 export const WAIT_DEFAULT_SECONDS = 30;

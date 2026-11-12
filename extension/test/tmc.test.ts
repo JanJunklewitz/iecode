@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { decodeTmc, NotTmcError, parseTmc } from '../src/core/tmc';
+import { decodeTmc, findEnum, NotTmcError, parseTmc, sharedValues } from '../src/core/tmc';
 import { fromTmc } from '../src/core/adsinterface';
 
 const fixture = readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', 'tmc', 'Machine.tmc'), 'utf8');
@@ -70,4 +70,19 @@ test('BOMs and UTF-16', () => {
   const xml = '<TcModuleClass><Vendor><Name>Müller</Name></Vendor></TcModuleClass>';
   assert.equal(parseTmc(decodeTmc(new Uint8Array([0xef, 0xbb, 0xbf, ...Buffer.from(xml)]))).vendor, 'Müller');
   assert.equal(parseTmc(decodeTmc(new Uint8Array([0xff, 0xfe, ...Buffer.from(xml, 'utf16le')]))).vendor, 'Müller');
+});
+
+test('findEnum lists members by name or qualified name', () => {
+  const e = findEnum(tmc, 'E_Mode')!;
+  assert.deepEqual(e.members.map(m => `${m.name}=${m.value}`), ['Off=0', 'Run=1']);
+  assert.equal(e.members[1].comment, 'Normal operation');
+  assert.equal(e.base, 'INT');
+  assert.equal(findEnum(tmc, 'e_mode')?.name, 'E_Mode');
+  assert.equal(findEnum(tmc, 'FB_Motor'), undefined);
+  assert.equal(findEnum(tmc, 'T_Missing'), undefined);
+});
+
+test('sharedValues finds aliases and ignores unknown values', () => {
+  assert.deepEqual(sharedValues({ name: 'E', members: [{ name: 'Off', value: '0' }, { name: 'Run', value: '1' }, { name: 'Start', value: '1' }] }), [{ value: '1', names: ['Run', 'Start'] }]);
+  assert.deepEqual(sharedValues({ name: 'E', members: [{ name: 'A' }, { name: 'B' }] }), []);
 });

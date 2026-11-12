@@ -121,6 +121,14 @@ read-back failed; `ok:false` with `"written":"no"` was not sent (unknown symbol,
 `ok:false` without a `written` field failed in the ADS call itself, so the value may or may not have reached the PLC (a client
 must treat a missing `written` as "outcome unknown", also when talking to an older CLI).
 
+Protocol versions (the `hello` event carries the number):
+
+| Protocol | Ops | Since |
+|---|---|---|
+| 1 | `watch`, `read`, `write`, `interval` | first release |
+
+A client accepts every protocol from 1 up to its own and switches off only the features an older host lacks; a host newer than the client is refused.
+
 Good to know: the value a `write` replies with is read right after the write, not proof that it stays; a PLC program
 may overwrite or reset it within ~200 ms. The first failing call to a target that stopped answering
 blocks for the 5 s ADS client timeout, so a request on stdin can wait up to 5 s. Reading by name sends every name in

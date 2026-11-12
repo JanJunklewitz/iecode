@@ -19,11 +19,15 @@ import { SymbolIndex, IndexedObject } from '../lang/index';
 import { PlcSymbol } from '../lang/parser';
 import { isEncrypted, PlcProject } from './projects';
 import { filesAt, repoRoot, show } from './git';
+import { newerSources } from './symbolOrigin';
+import { EnumInfo, EnumMember } from './tmc';
 
 export interface AdsSymbol {
   /** Full ADS name, e.g. MAIN.fbMotor.bEnable or GVL_IO.aValues. */
   name: string;
   type: string;
+  /** Source only, listed on request: declared with {attribute 'hide'}, so there is no ADS symbol. */
+  hidden?: boolean;
   /** Size in bits (build output only). */
   bitSize?: number;
   comment?: string;
@@ -36,8 +40,11 @@ export interface AdsInterface {
   symbols: AdsSymbol[];
   /** The .tmc the symbols were read from (build output). */
   file?: string;
-  /** Build output older than the source files. */
+  /** Build output older than the source files (by more than the clock-skew tolerance). */
   stale?: boolean;
+  /** Build output: when it was written, and the source files newer than it (newest first), set by fromBuild. */
+  builtAt?: Date;
+  newerSources?: string[];
   /** Source: names of the GVLs and programs (the first part of every symbol name). */
   roots?: string[];
 }
@@ -235,20 +242,25 @@ const HIDDEN = new Set(['VAR_TEMP', 'VAR_STAT', 'VAR_INST', 'VAR_EXTERNAL', 'VAR
  * constants only in GVLs (instances of function blocks don't hold them); properties only with {attribute 'monitoring'}.
  */
 function visible(v: PlcSymbol, obj: IndexedObject): boolean {
+  return declaration(v, obj) === 'visible';
+}
+
+/** 'hidden' only for a declaration that would be a symbol if it did not carry {attribute 'hide'}; 'skip' for everything else that is no symbol. */
+function declaration(v: PlcSymbol, obj: IndexedObject): 'visible' | 'hidden' | 'skip' {
   if (v.kind === 'PROPERTY')
-    return !!v.type && linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'/i.test(l));
-  if (v.kind !== 'VARIABLE' && v.kind !== 'FIELD') return false;
-  if (v.scope && HIDDEN.has(v.scope)) return false;
-  if (v.modifiers?.includes('CONSTANT') && obj.root?.kind !== 'GVL') return false;
+    return !!v.type && linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'/i.test(l)) ? 'visible' : 'skip';
+  if (v.kind !== 'VARIABLE' && v.kind !== 'FIELD') return 'skip';
+  if (v.scope && HIDDEN.has(v.scope)) return 'skip';
+  if (v.modifiers?.includes('CONSTANT') && obj.root?.kind !== 'GVL') return 'skip';
   const lines = linesOf(obj);
   const hide = /\{\s*attribute\s+'hide'\s*\}/i;
-  if (hide.test(lines[v.range.line]?.slice(0, v.range.col) ?? '')) return false;
+  if (hide.test(lines[v.range.line]?.slice(0, v.range.col) ?? '')) return 'hidden';
   for (let l = v.range.line - 1; l >= 0; l--) {
     const t = lines[l].trim();
     if (!t.startsWith('{')) break;
-    if (hide.test(t)) return false;
+    if (hide.test(t)) return 'hidden';
   }
-  return true;
+  return 'visible';
 }
 
 /** Comment of a declaration: after it on the same line, or // lines directly above. */
@@ -269,7 +281,7 @@ function areaOf(v: PlcSymbol): string | undefined {
 const plainType = (t?: string) => !!t && !/^(POINTER|REFERENCE)\s+TO\b|^ARRAY\b/i.test(t.trim());
 
 /** Symbols of a PLC project from its object views (decoded .TcPOU / .TcGVL / .TcDUT). */
-export function fromSource(objects: { file: string; view: string }[], members = false): AdsInterface {
+export function fromSource(objects: { file: string; view: string }[], members = false, hidden = false): AdsInterface {
   const index = new SymbolIndex();
   for (const o of objects) index.update(o.file, o.view);
   const constants = constantsOf(index);
@@ -278,7 +290,9 @@ export function fromSource(objects: { file: string; view: string }[], members = 
   const expand = (parent: string, type: string | undefined, path: Set<string>, depth: number) => {
     if (depth > MAX_DEPTH || !plainType(type) || path.has(U(type!))) return;
     for (const { sym, obj } of index.membersOf(type)) {
-      if (!visible(sym, obj)) continue;
+      const d = declaration(sym, obj);
+      if (d === 'hidden' && hidden) out.push({ name: `${parent}.${sym.name}`, type: adsType(sym, constants), comment: commentOf(sym, obj), area: areaOf(sym), hidden: true });
+      if (d !== 'visible') continue;
       const name = `${parent}.${sym.name}`, t = adsType(sym, constants);
       out.push({ name, type: t, comment: commentOf(sym, obj), area: areaOf(sym) });
       expand(name, t, new Set([...path, U(type!)]), depth + 1);
@@ -289,7 +303,9 @@ export function fromSource(objects: { file: string; view: string }[], members = 
     if (!root || (root.kind !== 'GVL' && root.kind !== 'PROGRAM')) continue;
     roots.push(root.name);
     for (const v of root.children) {
-      if (!visible(v, obj)) continue;
+      const d = declaration(v, obj);
+      if (d === 'hidden' && hidden) out.push({ name: `${root.name}.${v.name}`, type: adsType(v, constants), comment: commentOf(v, obj), area: areaOf(v), hidden: true });
+      if (d !== 'visible') continue;
       const name = `${root.name}.${v.name}`, t = adsType(v, constants);
       out.push({ name, type: t, comment: commentOf(v, obj), area: areaOf(v) });
       if (members) expand(name, t, new Set(), 1);
@@ -319,12 +335,19 @@ export async function fromBuild(plc: PlcProject, members = false): Promise<AdsIn
   const file = await findTmc(plc.file);
   if (!file) throw new NoBuildOutputError(`No build output for ${plc.name}: TwinCAT writes ${plc.name}.tmc next to the .plcproj when it builds the PLC project. Build it first, or show the interface from the source code.`);
   const built = (await fs.stat(file)).mtimeMs;
-  const times = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(f => fs.stat(f).then(s => s.mtimeMs, () => 0)));
-  return { origin: 'build', file, stale: times.some(t => t > built), symbols: fromTmc(await fs.readFile(file, 'utf8'), members) };
+  // a file that cannot be read is skipped, as before
+  const times = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(f => fs.stat(f).then(s => ({ file: f, mtimeMs: s.mtimeMs }), () => ({ file: f, mtimeMs: 0 }))));
+  const newer = newerSources(built, times);
+  return { origin: 'build', file, stale: newer.length > 0, builtAt: new Date(built), newerSources: newer, symbols: fromTmc(await fs.readFile(file, 'utf8'), members) };
 }
 
 /** Interface from the source code in the working copy, or at a git commit when `ref` is set. */
-export async function fromSourceAt(plc: PlcProject, ref: string | undefined, members = false): Promise<AdsInterface> {
+export async function fromSourceAt(plc: PlcProject, ref: string | undefined, members = false, hidden = false): Promise<AdsInterface> {
+  return fromSource(await sourceObjects(plc, ref), members, hidden);
+}
+
+/** The decoded object views of a PLC project (working copy, or a git commit with `ref`). */
+export async function sourceObjects(plc: PlcProject, ref?: string): Promise<{ file: string; view: string }[]> {
   const objects: { file: string; view: string }[] = [];
   const add = (file: string, xml: string | undefined) => {
     if (!xml || isEncrypted(xml)) return;
@@ -337,7 +360,7 @@ export async function fromSourceAt(plc: PlcProject, ref: string | undefined, mem
     if (!root) throw new Error(`${plc.file} is not in a git repository`);
     for (const f of await filesAt(root, ref, plc.dir, ['.tcpou', '.tcgvl', '.tcdut'])) add(f, await show(root, ref, f));
   }
-  return fromSource(objects, members);
+  return objects;
 }
 
 /** Only the symbols that aren't a member of another symbol in the list. */
@@ -427,4 +450,116 @@ export function adsChangesToCsv(changes: AdsChange[]): string {
 /** JSON snapshot in the CLI's format, for `iecode ads diff --against <file>`. */
 export function toSnapshot(project: string, symbols: AdsSymbol[], members: boolean): string {
   return JSON.stringify({ format: SNAPSHOT_FORMAT, project, members, symbols }, null, 2) + '\n';
+}
+
+// ---- enum types from the source ----
+
+/** A plain integer literal as a decimal string: 12, -3, 16#FF_FF, 2#101, 8#17; anything else (expression, INT#5) is unknown. */
+function literalValue(expr: string): string | undefined {
+  const t = expr.trim();
+  const based = /^(2|8|16)#([0-9A-Fa-f_]+)$/.exec(t);
+  try {
+    if (based) {
+      const digits = based[2].replace(/_/g, '');
+      const prefix = { '2': '0b', '8': '0o', '16': '0x' }[based[1] as '2' | '8' | '16'];
+      return digits ? BigInt(prefix + digits).toString() : undefined;
+    }
+    if (/^-?\d[\d_]*$/.test(t)) return BigInt(t.replace(/_/g, '')).toString();
+  } catch { /* not a number */ }
+  return undefined;
+}
+
+/**
+ * Members of an enum declaration. Values: an initial literal, else the previous value + 1 (the first is 0); an
+ * unknown value (an expression) makes the following implicit members unknown until the next literal. Several
+ * members may stand on one line, so the body is split at the commas of the top level, not by line.
+ */
+export function enumFromSource(objects: { file: string; view: string }[], typeName: string): EnumInfo | undefined {
+  const index = new SymbolIndex();
+  for (const o of objects) index.update(o.file, o.view);
+  const obj = index.find(typeName);
+  const root = obj?.root;
+  if (!obj || !root || root.kind !== 'ENUM') return undefined;
+  const lines = linesOf(obj).slice(root.full.line, root.full.endLine + 1);
+  // per member: its text and the `//` comment that ends its line
+  const items: { text: string; comment?: string }[] = [];
+  let depth = 0, cur = '', base: string | undefined, seenOpen = false, closed = false, pending: string | undefined;
+  const flush = () => { if (cur.trim()) items.push({ text: cur.trim(), comment: pending }); cur = ''; pending = undefined; };
+  for (const raw of lines) {
+    if (closed) break;
+    const c = /\/\/(.*)$/.exec(raw);
+    const code = (c ? raw.slice(0, c.index) : raw).replace(/\(\*[\s\S]*?\*\)/g, '');
+    for (const ch of code) {
+      if (closed) { base = (base ?? '') + ch; continue; }
+      if (ch === '(') { depth++; if (depth === 1 && !seenOpen) { seenOpen = true; continue; } }
+      if (ch === ')') { depth--; if (depth === 0) { flush(); closed = true; continue; } }
+      if (!seenOpen) continue;
+      if (ch === ',' && depth === 1) flush(); else cur += ch;
+    }
+    const text = c?.[1].trim() || undefined;
+    if (text && seenOpen) { if (cur.trim()) pending = text; else if (items.length) items[items.length - 1].comment ??= text; }
+  }
+  const baseType = /^\s*([A-Za-z_][\w.]*)/.exec(base ?? '')?.[1];
+  const members: EnumMember[] = [];
+  let next: bigint | undefined = 0n;
+  for (const it of items) {
+    const m = /^([A-Za-z_]\w*)\s*(?::=\s*([\s\S]*))?$/.exec(it.text);
+    if (!m) continue;
+    let value: string | undefined;
+    if (m[2] !== undefined) {
+      value = literalValue(m[2]);
+      next = value === undefined ? undefined : BigInt(value) + 1n;
+    } else {
+      value = next?.toString();
+      next = next === undefined ? undefined : next + 1n;
+    }
+    members.push({ name: m[1], value, ...(it.comment ? { comment: it.comment } : {}) });
+  }
+  return { name: root.name, base: baseType, members };
+}
+
+// ---- property hints ----
+
+/**
+ * A property is hinted only when it carries {attribute 'monitoring' := 'call'}: that is the form the build output
+ * lists as a symbol (a plain `'monitoring'` attribute decides visibility in `declaration`, not suitability here).
+ */
+function monitoringCall(v: PlcSymbol, obj: IndexedObject): boolean {
+  return linesOf(obj).slice(v.full.line, v.range.line + 1).some(l => /\{\s*attribute\s+'monitoring'\s*:=\s*'call'/i.test(l));
+}
+
+/** `bBusy`, `P_Busy` and `Busy` all give `busy`: no leading P_, no 1-3 lower-case letters of a Hungarian prefix. */
+function coreName(n: string): string {
+  return n.replace(/^[Pp]_/, '').replace(/^[a-z]{1,3}(?=[A-Z])/, '').toLowerCase();
+}
+
+/**
+ * Full names (at most 3) of properties with {attribute 'monitoring' := 'call'} that match the last segment of a symbol
+ * that was not found, e.g. the hidden MAIN.fbDrive.bBusy and its property MAIN.fbDrive.Busy. Anything unresolvable gives [].
+ */
+export function matchingProperties(objects: { file: string; view: string }[], symbol: string): string[] {
+  const segments = symbol.trim().split('.');
+  if (segments.length < 2 || segments.some(s => !s.trim())) return [];
+  const index = new SymbolIndex();
+  for (const o of objects) index.update(o.file, o.view);
+  const bare = (s: string) => s.replace(/\[[^\]]*\]/g, '').trim();
+  let type: string | undefined = bare(segments[0]);
+  const root = type ? index.find(type)?.root : undefined;
+  if (!root || (root.kind !== 'GVL' && root.kind !== 'PROGRAM')) return [];
+  for (const seg of segments.slice(1, -1)) {
+    const name = bare(seg).toLowerCase();
+    const members: { sym: PlcSymbol }[] = index.membersOf(type);
+    type = members.find(m => (m.sym.kind === 'VARIABLE' || m.sym.kind === 'FIELD') && m.sym.name.toLowerCase() === name)?.sym.type;
+    if (!type) return [];
+  }
+  const wanted = coreName(bare(segments[segments.length - 1]));
+  const parent = segments.slice(0, -1).join('.');
+  return index.membersOf(type)
+    .filter(m => m.sym.kind === 'PROPERTY' && coreName(m.sym.name) === wanted && monitoringCall(m.sym, m.obj))
+    .map(m => `${parent}.${m.sym.name}`)
+    .slice(0, 3);
+}
+
+export async function matchingPropertiesAt(plc: PlcProject, symbol: string): Promise<string[]> {
+  return matchingProperties(await sourceObjects(plc), symbol);
 }

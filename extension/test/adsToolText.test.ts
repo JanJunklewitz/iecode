@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { parseCondition } from '../src/core/waitCondition';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, configText, captureResultText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -96,12 +97,14 @@ test('a watch call that partly fails keeps the partial state and is an error', (
 });
 
 test('symbols listing', () => {
-  const base = { matches: ['MAIN.a : INT'], total: 1, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
+  const base = { headers: [] as string[], offset: 0, matches: ['MAIN.a : INT'], total: 1, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
   assert.equal(symbolsText(base), 'MAIN.a : INT');
   assert.equal(symbolsText({ ...base, matches: [], total: 0, typed: 'zz' }), 'No symbols match "zz".');
-  assert.equal(symbolsText({ ...base, total: 103 }), 'MAIN.a : INT\n(3 more not listed; use a narrower filter)');
+  assert.equal(symbolsText({ ...base, total: 103 }), 'MAIN.a : INT\n(3 more not listed; narrow the filter or continue with offset 100)');
   assert.equal(symbolsText({ ...base, missing: ['P1', 'P2'], unreadable: ['P3 (bad)'] }),
     'MAIN.a : INT\nNot built, so not listed (no .tmc): P1, P2\nBuild output unreadable, so not listed: P3 (bad)');
+  assert.equal(symbolsText({ ...base, headers: ['H1', 'H2'] }), 'H1\nH2\nMAIN.a : INT');
+  assert.equal(symbolsText({ ...base, headers: ['H1'], matches: [], total: 0, typed: 'zz' }), 'H1\nNo symbols match "zz".');
   assert.equal(symbolsText({ ...base, matches: [], total: 0, units: 0 }), 'No symbols match "a".\nNo PLC projects in this workspace.');
 });
 
@@ -247,4 +250,86 @@ test('scope summary in edges mode has its own head and closing line', () => {
     'GVL.bBusy: edges=1 (1 rising, 0 falling), now TRUE', '',
     't[s]\tsymbol\tedge', '0.000\tGVL.bBusy\trising',
     'Sampled every 100 ms; edges shorter than one sample are not seen.'].join('\n'));
+});
+
+test('enumText lists members, notes shared values and unknown values', () => {
+  const info = { name: 'E_Mode', base: 'INT', members: [{ name: 'Off', value: '0' }, { name: 'Run', value: '1', comment: 'Normal operation' }, { name: 'Start', value: '1' }] };
+  assert.equal(enumText({ info, from: 'the build output of PLC1' }),
+    'Enum E_Mode (INT), from the build output of PLC1:\n  Off = 0\n  Run = 1  // Normal operation\n  Start = 1\nNote: Run and Start share the value 1; a read shows Run, so compare by number.');
+  // an alias write is not known to work: the note says so unless the CLI is known to support it
+  assert.match(enumText({ info, from: 'x', aliasWrite: 'unknown' }), /compare by number\. Writing a later name by its name may need a newer iecode CLI: write the number\.$/);
+  assert.doesNotMatch(enumText({ info, from: 'x', aliasWrite: 'supported' }), /newer iecode CLI/);
+  const three = { name: 'E', members: [{ name: 'A', value: '1' }, { name: 'B', value: '1' }, { name: 'C', value: '1' }] };
+  assert.match(enumText({ info: three, from: 'x' }), /\nNote: A, B and C share the value 1; a read shows A, so compare by number\.$/);
+  assert.match(enumText({ info: { name: 'E', members: [{ name: 'A' }] }, from: 'x' }), /^Enum E, from x:\n {2}A = \(unknown value\)\nNote: a value marked unknown/);
+  assert.equal(noEnumText('E_X'), 'No enum type "E_X" found in the build output or the source code of the workspace PLC projects.');
+});
+
+test('hiddenText lists hidden variables and counts the rest', () => {
+  const head = "Hidden (marked {attribute 'hide'}, so no ADS symbol and not readable; a property with {attribute 'monitoring' := 'call'} may expose the value):";
+  assert.equal(hiddenText(['MAIN.fbDrive.bBusy : BOOL'], 1), `${head}\nMAIN.fbDrive.bBusy : BOOL`);
+  assert.equal(hiddenText(['MAIN.fbDrive.bBusy : BOOL'], 3), `${head}\nMAIN.fbDrive.bBusy : BOOL\n(2 more hidden variables not listed)`);
+});
+
+test('symbols listing: a page past the end says so instead of "no symbols match"', () => {
+  const base = { headers: [] as string[], matches: [] as string[], total: 357, max: 100, offset: 400, typed: 'a', missing: [], unreadable: [], units: 1 };
+  assert.equal(symbolsText(base), 'No rows at offset 400: 357 symbols match.');
+  assert.equal(symbolsText({ ...base, matches: ['MAIN.a : INT'], offset: 100 }), 'MAIN.a : INT\n(rows 101-200 of 357; 157 more, continue with offset 200)');
+});
+
+test('propertyHintText and its place in a read row and a watch result', () => {
+  assert.equal(propertyHintText(['MAIN.fbDrive.Busy']), 'Matching property in the source code: MAIN.fbDrive.Busy (monitoring call); try that name.');
+  assert.equal(propertyHintText(['A', 'B']), 'Matching properties in the source code: A, B (monitoring call); try one of those names.');
+  const row = { symbol: 'MAIN.fbDrive.bBusy', type: '', value: null, error: "Symbol 'MAIN.fbDrive.bBusy' not found on local." };
+  assert.equal(readOnceRow({ ...row, hint: propertyHintText(['MAIN.fbDrive.Busy']) }),
+    "MAIN.fbDrive.bBusy : error Symbol 'MAIN.fbDrive.bBusy' not found on local. Matching property in the source code: MAIN.fbDrive.Busy (monitoring call); try that name.");
+  assert.equal(readOnceRow(row), "MAIN.fbDrive.bBusy : error Symbol 'MAIN.fbDrive.bBusy' not found on local.");
+});
+
+test('watch result: a property hint is its own line after the error', () => {
+  const none = { added: [], already: [], removed: [], missing: [], kept: [], declined: [], held: [] };
+  const hint = 'Hint for MAIN.x.bBusy: Matching property in the source code: MAIN.x.Busy (monitoring call); try that name.';
+  const text = watchResultText({
+    target: 'local', parked: 0, unresolved: [], full: false, list: '', count: 1, intervalMs: 100, names: MCP_NAMES,
+    result: { ...none, added: ['MAIN.x.bBusy'] }, addErrors: ['MAIN.x.bBusy : not found'], hints: [hint],
+  });
+  assert.match(text, /\nError: MAIN\.x\.bBusy : not found\nHint for MAIN\.x\.bBusy: Matching property in the source code: MAIN\.x\.Busy \(monitoring call\); try that name\.\n/);
+});
+
+test('configText: shown, applied, unchanged, declined and cancelled', () => {
+  const e = (symbols: number, values: number, effectiveSeconds: number, capped: boolean) => ({ symbols, values, bytes: values * 72, effectiveSeconds, capped });
+  assert.equal(configText({ target: 'local', outcome: { kind: 'shown', sampling: { intervalMs: 100, bufferSeconds: 300 }, estimate: e(20, 60000, 300, false) } }).text,
+    'ADS sampling on local: poll every 100 ms, buffer 300 s.\nBuffer: 20 watched symbols, up to 60000 values (about 4.1 MB), holds the full 300 s.\nChange it with pollMs (10-5000) and bufferSeconds (10-3600); the change lasts until the user edits the setting or the window reloads.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'shown', sampling: { intervalMs: 10, bufferSeconds: 600 }, estimate: e(200, 2_000_000, 100, true) } }).text.split('\n')[1],
+    'Buffer: 200 watched symbols, up to 2000000 values (about 137.3 MB), holds only 100 s of the 600 s: the buffer stores at most 2000000 values in total.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'applied', before: { intervalMs: 100, bufferSeconds: 300 }, after: { intervalMs: 20, bufferSeconds: 600 }, estimate: e(20, 600000, 600, false), notes: ['n1'] } }).text,
+    'Poll interval 100 -> 20 ms, buffer 300 -> 600 s (this session only; the settings are unchanged).\nBuffer: 20 watched symbols, up to 600000 values (about 41.2 MB), holds the full 600 s.\nn1');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'applied', before: { intervalMs: 100, bufferSeconds: 300 }, after: { intervalMs: 100, bufferSeconds: 600 }, estimate: e(20, 120000, 600, false), notes: [] } }).text.split('\n')[0],
+    'Buffer 300 -> 600 s (this session only; the settings are unchanged).');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'unchanged', sampling: { intervalMs: 100, bufferSeconds: 300 } } }).text, 'Nothing to change: poll every 100 ms, buffer 300 s already.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'declined', wanted: { intervalMs: 10, bufferSeconds: 600 }, estimate: e(200, 2_000_000, 100, true) } }).text,
+    'Not changed: the change was not confirmed (it would hold up to 2000000 values, about 137.3 MB).');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'cancelled' } }).text, 'Config change cancelled.');
+  assert.equal(configText({ target: 'local', outcome: { kind: 'cancelled' } }).isError, undefined);
+});
+
+test('captureResultText: captured, partial, history short, timeout, ended, refused, cancelled', () => {
+  const clock = (ms: number) => `T${ms}`;
+  const base = { symbol: 'MAIN.nStep', condition: (() => { const p = parseCondition('= 40'); if (!p.ok) throw new Error(p.error); return p.value; })(), target: 'local', intervalMs: 100, clock, names: COPILOT_NAMES };
+  const met = { kind: 'met' as const, t: 3000, value: '40', firstObservation: false, elapsedMs: 3420 };
+  const window = { fromMs: 1000, toMs: 4000, originMs: 3000, table: 'TABLE' };
+  assert.equal(captureResultText({ ...base, outcome: { kind: 'captured', met, window } }).text,
+    'Captured at T3000 (after 3.42 s): MAIN.nStep = 40\nWindow -2 s .. +1 s around the trigger on local; the table shows value changes only, time 0 = the trigger.\nTABLE\nSampled every 100 ms; changes between samples are not seen.\nADS target: local');
+  const partial = captureResultText({ ...base, outcome: { kind: 'captured', met: { ...met, firstObservation: true }, window: { ...window, toMs: 3300, historyFromMs: 2500 }, partial: 'The ADS host stopped.' } }).text.split('\n');
+  assert.equal(partial[0], 'Captured at T3000 (after 3.42 s): MAIN.nStep = 40 (true at the first observation)');
+  assert.equal(partial[2], 'Capture ended early: The ADS host stopped.; the table covers -2 s .. +0.3 s.');
+  assert.equal(partial[3], 'History starts at T2500, later than the requested -2 s; the symbols were watched for a shorter time.');
+  assert.equal(captureResultText({ ...base, outcome: { kind: 'timeout', last: '3', seconds: 30, window: { ...window, fromMs: -2000, toMs: 3000 } } }).text.split('\n')[0],
+    'Not met within 30 s: MAIN.nStep = 40; last value 3. Showing the last 5 s (changes only, time 0 = now):');
+  assert.equal(captureResultText({ ...base, outcome: { kind: 'ended', reason: 'The ADS target changed', window: { ...window, fromMs: -2000, toMs: 3000 } } }).text.split('\n')[0],
+    'Wait ended: The ADS target changed. Showing the last 5 s that were sampled:');
+  const refused = captureResultText({ ...base, outcome: { kind: 'refused', reason: 'raise it with {config} { bufferSeconds: 3 }' } });
+  assert.equal(refused.text, 'Error: raise it with adsConfig { bufferSeconds: 3 }');
+  assert.equal(refused.isError, true);
+  assert.deepEqual(captureResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Capture cancelled.' });
 });

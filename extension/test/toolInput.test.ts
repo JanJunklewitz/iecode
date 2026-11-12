@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, writeKey } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -135,4 +135,79 @@ test('wantsFullList is false for a group operation', () => {
 
 test('a group cannot be combined with list', () => {
   assert.deepEqual(parseWatchInput({ group: 'T1', add: ['a'], list: true }), { ok: false, error: 'list cannot be combined with group' });
+});
+
+test('parseWriteInput keeps the single form exactly and accepts a batch', () => {
+  assert.deepEqual(parseWriteInput({ symbol: 'MAIN.x', value: '1' }), { ok: true, value: { symbol: 'MAIN.x', value: '1' } });
+  assert.deepEqual(parseWriteInput({ writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '' }] }),
+    { ok: true, value: { writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '' }] } });
+});
+
+test('parseWriteInput refuses a bad batch before any dialog, with the item named', () => {
+  const err = (raw: unknown) => { const p = parseWriteInput(raw); assert.equal(p.ok, false); return p.ok ? '' : p.error; };
+  assert.equal(err({ symbol: 'a', value: '1', writes: [{ symbol: 'b', value: '2' }] }), 'use either symbol and value or writes, not both');
+  assert.equal(err({ writes: 'x' }), 'writes must be an array of { symbol, value } objects');
+  assert.equal(err({ writes: ['x'] }), 'writes must be an array of { symbol, value } objects');
+  assert.equal(err({ writes: [] }), 'writes must not be empty');
+  assert.equal(err({ writes: Array.from({ length: 21 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }), 'writes has more than 20 entries');
+  assert.equal(err({ writes: [{ symbol: 'a', value: '1' }, { symbol: 'b' }] }), 'writes[1].value must be a string');
+  assert.equal(err({ writes: [{ value: '1' }] }), 'writes[0].symbol must be a string');
+  assert.equal(err({ writes: [{ symbol: ' ', value: '1' }] }), 'writes[0].symbol must not be blank');
+  assert.equal(err({ writes: [{ symbol: 'a', value: 'v'.repeat(4097) }] }), 'writes[0].value is longer than 4096 characters');
+  assert.equal(err({ writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'B', value: '1' }, { symbol: ' main.A ', value: '2' }] }), 'writes[2] repeats writes[0]: MAIN.a');
+  assert.equal(parseWriteInput({ writes: Array.from({ length: 20 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }).ok, true);
+});
+
+test('parseSymbolsInput takes prefix, type and offset', () => {
+  assert.deepEqual(parseSymbolsInput({ prefix: 'MAIN.', type: 'BOOL', offset: 100 }), { ok: true, value: { filter: '', prefix: 'MAIN.', type: 'BOOL', offset: 100 } });
+  assert.deepEqual(parseSymbolsInput({ offset: -1 }), { ok: false, error: 'offset must be a whole number of 0 or more' });
+  assert.deepEqual(parseSymbolsInput({ offset: 1.5 }), { ok: false, error: 'offset must be a whole number of 0 or more' });
+  assert.deepEqual(parseSymbolsInput({ prefix: 5 }), { ok: false, error: 'prefix must be a string' });
+});
+
+test('parseSymbolsInput takes enumType and hidden and leaves absent keys out', () => {
+  assert.deepEqual(parseSymbolsInput({ filter: 'x', enumType: 'E_Mode', hidden: true }), { ok: true, value: { filter: 'x', enumType: 'E_Mode', hidden: true } });
+  assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
+  assert.deepEqual(parseSymbolsInput({ enumType: '' }), { ok: true, value: { filter: '' } });
+  assert.deepEqual(parseSymbolsInput({ hidden: 'yes' }), { ok: false, error: 'hidden must be true or false' });
+  assert.deepEqual(parseSymbolsInput({ enumType: 5 }), { ok: false, error: 'enumType must be a string' });
+});
+
+test('parseConfigInput rounds but does not clamp, and rejects non-numbers', () => {
+  assert.deepEqual(parseConfigInput({}), { ok: true, value: {} });
+  assert.deepEqual(parseConfigInput({ pollMs: 20 }), { ok: true, value: { pollMs: 20 } });
+  assert.deepEqual(parseConfigInput({ pollMs: 20.6, bufferSeconds: 5000 }), { ok: true, value: { pollMs: 21, bufferSeconds: 5000 } });
+  assert.deepEqual(parseConfigInput({ pollMs: '20' }), { ok: false, error: 'pollMs must be a finite number' });
+  assert.deepEqual(parseConfigInput({ bufferSeconds: NaN }), { ok: false, error: 'bufferSeconds must be a finite number' });
+});
+
+test('parsePresetInput lists without arguments and needs a path with a preset', () => {
+  assert.deepEqual(parsePresetInput({}), { ok: true, value: {} });
+  assert.deepEqual(parsePresetInput({ path: ' MAIN.fbSeq ', preset: 'seq' }), { ok: true, value: { path: 'MAIN.fbSeq', preset: 'seq' } });
+  assert.deepEqual(parsePresetInput({ preset: 'seq' }), { ok: false, error: 'path is required with preset' });
+  assert.deepEqual(parsePresetInput({ path: ' ', preset: 'seq' }), { ok: false, error: 'path must not be blank' });
+  assert.deepEqual(parsePresetInput({ path: 'x'.repeat(513) }), { ok: false, error: 'path is longer than 512 characters' });
+});
+
+test('parseCaptureInput applies the defaults and clamps the windows', () => {
+  const base = { symbol: 'MAIN.nStep', condition: '= 40' };
+  const p = parseCaptureInput(base);
+  assert.ok(p.ok);
+  if (p.ok) {
+    assert.deepEqual({ ...p.value, condition: undefined }, { symbol: 'MAIN.nStep', condition: undefined, preSeconds: 5, postSeconds: 5, timeoutSeconds: 30, symbols: [] });
+  }
+  const q = parseCaptureInput({ ...base, preSeconds: 700, postSeconds: 90 });
+  assert.ok(q.ok && q.value.preSeconds === 600 && q.value.postSeconds === 60);
+  const n = parseCaptureInput({ ...base, preSeconds: -1 });
+  assert.ok(n.ok && n.value.preSeconds === 0);
+  assert.deepEqual(parseCaptureInput({ ...base, postSeconds: '5' }), { ok: false, error: 'postSeconds must be a finite number' });
+  assert.equal(parseCaptureInput({ symbol: 'x', condition: 'bogus' }).ok, false);
+  const s = parseCaptureInput({ ...base, symbols: ['A', 'B'] });
+  assert.ok(s.ok && s.value.symbols.join() === 'A,B');
+});
+
+test('writeKey keys the whole batch and keeps the single key', () => {
+  assert.equal(writeKey({ symbol: 'MAIN.x', value: '1' }), JSON.stringify(['MAIN.x', '1']));
+  assert.notEqual(writeKey({ writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '2' }] }), writeKey({ writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '3' }] }));
+  assert.notEqual(writeKey({ writes: [{ symbol: 'A', value: '1' }] }), writeKey({ symbol: 'A', value: '1' }));
 });

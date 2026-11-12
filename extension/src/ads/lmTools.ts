@@ -6,10 +6,14 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
-import { parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
+import { writeKey } from '../core/toolInput';
+import { confirmMessage } from '../core/writeText';
+import { parseCaptureInput, parseConfigInput, parsePresetInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
+import { lmToolEntries } from '../core/lmToolTable';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
+import { writePolicyReason } from '../core/writePolicy';
 import { sendToAiChat } from '../commands/aiChat';
-import { aiWritesSetting, workspaceTarget } from './aiSettings';
+import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
 import { SCOPE_SECONDS, adsTools, newest, scopeSummary } from './adsTools';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -63,6 +67,46 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     },
   };
 
+  const captureTool: vscode.LanguageModelTool<{ symbol: string; condition: string; preSeconds?: number; postSeconds?: number; timeoutSeconds?: number; symbols?: string[] }> = {
+    prepareInvocation: () => ({ invocationMessage: 'Capturing the ADS values around a condition' }),
+    async invoke(opts, token) {
+      const parsed = parseCaptureInput(opts.input);
+      if (!parsed.ok) return text(`Invalid arguments: ${parsed.error}`);
+      const abort = new AbortController();
+      const cancelled = token.onCancellationRequested(() => abort.abort());
+      if (token.isCancellationRequested) abort.abort();
+      try {
+        return text((await tools.capture(parsed.value, abort.signal)).text);
+      } finally {
+        cancelled.dispose();
+      }
+    },
+  };
+
+  const presetTool: vscode.LanguageModelTool<{ path?: string; preset?: string }> = {
+    prepareInvocation: () => ({ invocationMessage: 'Reading an ADS preset' }),
+    async invoke(opts) {
+      const parsed = parsePresetInput(opts.input);
+      return text(parsed.ok ? (await tools.preset(parsed.value)).text : `Invalid arguments: ${parsed.error}`);
+    },
+  };
+
+  const configTool: vscode.LanguageModelTool<{ pollMs?: number; bufferSeconds?: number }> = {
+    prepareInvocation: () => ({ invocationMessage: 'Reading or changing the ADS sampling' }),
+    async invoke(opts, token) {
+      const parsed = parseConfigInput(opts.input);
+      if (!parsed.ok) return text(`Invalid arguments: ${parsed.error}`);
+      const abort = new AbortController();
+      const cancelled = token.onCancellationRequested(() => abort.abort());
+      if (token.isCancellationRequested) abort.abort();
+      try {
+        return text((await tools.config(parsed.value, abort.signal)).text);
+      } finally {
+        cancelled.dispose();
+      }
+    },
+  };
+
   const waitTool: vscode.LanguageModelTool<WaitToolInput> = {
     prepareInvocation: () => ({ invocationMessage: 'Waiting for an ADS condition' }),
     async invoke(opts, token) {
@@ -81,11 +125,14 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
 
   // The decision and target each prepared write was shown with; the gate checks them against the settings at send time.
   const prepared = new PreparedWrites(WRITE_PREPARE_MAX_AGE_MS);
-  const writeKey = (input: WriteInput) => JSON.stringify([input.symbol, input.value]);
 
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
     prepareInvocation(opts) {
       const symbol = show(opts.input.symbol), value = show(opts.input.value);
+      // outside the allowed paths the gate refuses without a dialog; asking the user first would be pointless
+      if (writePolicyReason([opts.input.symbol], { allowedPaths: aiWritePathsSetting() }) !== undefined) {
+        return { invocationMessage: 'Not writing: outside the allowed paths' };
+      }
       const setting = aiWritesSetting();
       const redirected = workspaceTarget();
       const decision = aiWriteDecision(setting, redirected);
@@ -94,7 +141,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
       return {
         invocationMessage: `Writing ${symbol} := ${value}`,
-        confirmationMessages: { title: 'Write PLC variable', message: `Write ${symbol} := ${value} on ${host.target()}?${note}` },
+        confirmationMessages: { title: 'Write PLC variable', message: confirmMessage([{ symbol: opts.input.symbol, value: opts.input.value }], host.target(), note) },
       };
     },
     async invoke(opts, token) {
@@ -114,12 +161,11 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
   };
 
   ctx.subscriptions.push(
-    vscode.lm.registerTool('iecode_ads_symbols', symbolsTool),
-    vscode.lm.registerTool('iecode_ads_watch', watchTool),
-    vscode.lm.registerTool('iecode_ads_read', readTool),
-    vscode.lm.registerTool('iecode_ads_scope', scopeTool),
-    vscode.lm.registerTool('iecode_ads_write', writeTool),
-    vscode.lm.registerTool('iecode_ads_wait', waitTool),
+    // one handler per tool the manifest declares (the table type and a test keep both lists in step)
+    ...lmToolEntries<vscode.LanguageModelTool<any>>({
+      iecode_ads_symbols: symbolsTool, iecode_ads_watch: watchTool, iecode_ads_read: readTool,
+      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool, iecode_ads_preset: presetTool, iecode_ads_capture: captureTool,
+    }).map(([name, tool]) => vscode.lm.registerTool(name, tool)),
     vscode.commands.registerCommand('iecode.adsWatchAiChat', async () => {
       const symbols = host.watched();
       if (!symbols.length) return vscode.window.showInformationMessage('IECode: the ADS watch list is empty, nothing to send.');

@@ -1,7 +1,7 @@
 // Pure logic for live ADS values: messages of the `iecode ads serve` host, a bounded sample buffer
 // and the text form handed to LM tools. No vscode imports; the host process and views live elsewhere.
 
-export const PROTOCOL = 1;
+export { PROTOCOL } from './hostProtocol';
 
 export interface WatchItem { symbol: string; type: string; numeric: boolean; error: string | null }
 export interface Row { t: number; v: (string | null)[]; e?: (number | null)[] }
@@ -65,6 +65,9 @@ interface Point { t: number; y: number }
 
 // Per item a series of numbers plus the last raw text; the text stays exact (ULINT, TIME) while the
 // series is only for plotting. Rows x items is capped so a long window cannot exhaust memory.
+/** The most values the scope buffer stores in total, whatever the window and the number of symbols. */
+export const SCOPE_MAX_VALUES = 2_000_000;
+
 export class ScopeBuffer {
   private ms: number;
   private gen = -1;
@@ -74,7 +77,7 @@ export class ScopeBuffer {
   private newest = -Infinity;
   private readonly log: ChangeLogStore;
 
-  constructor(seconds: number, private readonly maxValues = 2_000_000, maxChanges = MAX_CHANGE_ENTRIES) {
+  constructor(seconds: number, private readonly maxValues = SCOPE_MAX_VALUES, maxChanges = MAX_CHANGE_ENTRIES) {
     this.ms = seconds * 1000;
     this.log = new ChangeLogStore(maxChanges);
   }
@@ -335,7 +338,7 @@ export const MAX_SCOPE_COLUMNS = 20;
 
 /** One-line text for a summary: cut at 80 characters with "...", backslash, quote, CR, LF and TAB escaped, quoted when `quote`. */
 const ESCAPES: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\r": "\\r", "\n": "\\n", "\t": "\\t" };
-function shownText(text: string, quote: boolean): string {
+export function shownText(text: string, quote: boolean): string {
   const cut = text.length > 80 ? `${text.slice(0, 80)}...` : text;
   const e = cut.replace(/[\\"\r\n\t]/g, c => (c === '"' && !quote ? c : ESCAPES[c]));
   return quote ? `"${e}"` : e;

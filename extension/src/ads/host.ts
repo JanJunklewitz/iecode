@@ -4,10 +4,12 @@
 
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import { HostEnd, HostMessage, PROTOCOL, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
+import { Sampling, overridesAfterSettingChange } from '../core/adsConfig';
+import { HostEnd, HostMessage, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import { WatchList } from '../core/watchList';
 import type { SampleBatch } from '../core/waitRun';
+import { HostCaps, negotiate } from '../core/hostProtocol';
 import { activeSymbols } from '../core/watchGroups';
 import { UnresolvedNotes } from '../core/unresolved';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
@@ -71,6 +73,8 @@ export class AdsHost implements vscode.Disposable {
   readonly list: WatchList;
 
   private proc: ChildProcessWithoutNullStreams | undefined;
+  // what the running host offers (from its hello); cleared with the process so a restarted host never inherits it
+  private caps: HostCaps | undefined;
   /** "<target>:<port>" the running child was started with; a write must go to a child started for the confirmed target. */
   private procKey: string | undefined;
   private ready_: Promise<void> | undefined;
@@ -121,15 +125,30 @@ export class AdsHost implements vscode.Disposable {
         if (this.proc) this.restart();
         else if (this.leases > 0) void this.ensure().catch(() => undefined);
       }
+      this.override = overridesAfterSettingChange(this.override, { sampleIntervalMs: e.affectsConfiguration('iecode.ads.sampleIntervalMs'), bufferSeconds: e.affectsConfiguration('iecode.ads.bufferSeconds') });
       if (e.affectsConfiguration('iecode.ads.bufferSeconds')) this.buffer.setSeconds(clampBufferSeconds(settings().bufferSeconds));
       if (e.affectsConfiguration('iecode.ads.sampleIntervalMs')) void this.setInterval(settings().intervalMs).catch(() => undefined);
     }));
   }
 
-  /** Sample interval (ms) and buffer length (s) as configured, within the allowed bounds. */
-  sampling(): { intervalMs: number; bufferSeconds: number } {
+  // set by ads_config for this session; the setting of the same key wins again when the user edits it
+  private override: Partial<Sampling> = {};
+
+  /** Sample interval (ms) and buffer length (s) in effect: the session override of ads_config, else the setting, within the allowed bounds. */
+  sampling(): Sampling {
     const s = settings();
-    return { intervalMs: clampInterval(s.intervalMs), bufferSeconds: clampBufferSeconds(s.bufferSeconds) };
+    return { intervalMs: this.override.intervalMs ?? clampInterval(s.intervalMs), bufferSeconds: this.override.bufferSeconds ?? clampBufferSeconds(s.bufferSeconds) };
+  }
+
+  /**
+   * Session override of poll interval and buffer length. The host operation comes first: when it fails nothing has
+   * changed. The buffer is trimmed only after it succeeded, so sampling(), the buffer and the host agree afterwards.
+   */
+  async applySampling(next: Sampling): Promise<void> {
+    const before = this.sampling();
+    if (next.intervalMs !== before.intervalMs) await this.setInterval(next.intervalMs);
+    this.override = { ...this.override, intervalMs: next.intervalMs, bufferSeconds: next.bufferSeconds };
+    if (next.bufferSeconds !== before.bufferSeconds) this.buffer.setSeconds(next.bufferSeconds);
   }
 
   /** "<target>:<port>" of the current settings; an approved write is bound to it. */
@@ -359,6 +378,7 @@ export class AdsHost implements vscode.Disposable {
     this.proc = child;
     this.procKey = `${s.target}:${s.port}`;
     this.gen = -1;
+    this.caps = undefined;
     this.genItems = [];
     // writing to a host that just died must not throw in the extension host
     child.stdin.on('error', () => undefined);
@@ -378,11 +398,13 @@ export class AdsHost implements vscode.Disposable {
         if (!msg) { if (line.trim()) output.info(line); return; }
         if ('event' in msg && msg.event === 'hello') {
           clearTimeout(helloTimer);
-          if (msg.protocol !== PROTOCOL) {
-            fail(new StartError(`The iecode CLI speaks ADS host protocol ${msg.protocol}, this extension ${PROTOCOL}. Update both to the same release.`, 'install'));
+          const n = negotiate(msg.protocol);
+          if (!n.ok) {
+            fail(new StartError(n.error, n.action));
             child.kill();
             return;
           }
+          if (this.proc === child) this.caps = n.caps;
           hello = true;
           resolve();
           void this.afterHello(child);
@@ -416,6 +438,26 @@ export class AdsHost implements vscode.Disposable {
     });
   }
 
+  /** Capabilities of the running host; undefined while no host runs. */
+  hostCaps(): HostCaps | undefined {
+    return this.caps;
+  }
+
+  /** Starts the host if needed; the "needs a newer iecode CLI" text when the feature is missing, the start failure's text when it cannot start, else undefined. */
+  async requires(feature: string): Promise<string | undefined> {
+    try {
+      await this.ensure(true);
+    } catch (e) {
+      return (e as Error).message;
+    }
+    return this.caps?.missing(feature);
+  }
+
+  /** Synchronous: the missing-feature text if the running host is known to lack the feature (Copilot's prepare step cannot await). */
+  knownMissing(feature: string): string | undefined {
+    return this.caps?.missing(feature);
+  }
+
   private tooOld(): StartError {
     return new StartError('The iecode CLI is too old for live ADS values (no "ads serve"). Update it with Install CLI.', 'install');
   }
@@ -434,6 +476,7 @@ export class AdsHost implements vscode.Disposable {
   private exited(child: ChildProcessWithoutNullStreams, reason: string) {
     if (this.proc !== child) return;
     this.proc = undefined;
+    this.caps = undefined;
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.lastEnded_ = { reason, at: Date.now() };
@@ -446,6 +489,7 @@ export class AdsHost implements vscode.Disposable {
     if (!child) return;
     this.stopped.add(child);
     this.proc = undefined;
+    this.caps = undefined;
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.lastEnded_ = { reason, at: Date.now() };

@@ -4,10 +4,18 @@
 
 import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
-import { NoBuildOutputError, fromBuild } from '../core/adsinterface';
-import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
+import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, matchingPropertiesAt, sourceObjects } from '../core/adsinterface';
+import { pickEnum } from '../core/enumLookup';
+import { ConfigRunner, bufferEstimate } from '../core/adsConfig';
+import { CaptureDeps, runCapture } from '../core/captureRun';
+import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
+import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
+import { promises as fsp } from 'fs';
+import { buildHeader } from '../core/symbolOrigin';
+import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
+import type { CaptureInput } from '../core/mcpTools';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
@@ -16,7 +24,7 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter: string }
+export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number }
 export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
@@ -86,33 +94,140 @@ export function scopeSummary(host: AdsHost, symbols: string[], seconds: number, 
 /** Time of the newest sample of the symbols, or undefined while there is none. */
 export const newest = (host: AdsHost, symbols: string[]) => newestSample(host.buffer, symbols);
 
+
+type Unit = WorkspaceState['current']['units'][number];
+
+/** The members of an enum type, from the build output of the first project that has it, else from the source. */
+async function enumAnswer(units: readonly Unit[], name: string): Promise<string> {
+  for (const u of units) {
+    const tmcFile = await findTmc(u.plc.file);
+    const tmc = tmcFile ? await fsp.readFile(tmcFile, 'utf8').catch(() => undefined) : undefined;
+    const hit = pickEnum(tmc, await sourceObjects(u.plc), name);
+    if (hit) {
+      // alias writes by name need the CLI part of the enum alias work, which no released CLI has yet
+      return enumText({ info: hit.info, from: `${hit.origin === 'build' ? 'the build output' : 'the source code'} of ${u.plc.name}`, aliasWrite: 'unknown' });
+    }
+  }
+  return noEnumText(name);
+}
+
+/** A courtesy: names a matching property of the source for a symbol that was not found; a failing source read just gives none. */
+async function propertyHint(units: readonly Unit[], symbol: string): Promise<string | undefined> {
+  for (const u of units) {
+    try {
+      const props = await matchingPropertiesAt(u.plc, symbol);
+      if (props.length) return propertyHintText(props);
+    } catch { /* the original error stays */ }
+  }
+  return undefined;
+}
+
+/** Variables marked {attribute 'hide'}: from the source only (the build output does not list them). */
+async function hiddenAnswer(units: readonly Unit[], filter: string): Promise<string> {
+  const rows: string[] = [];
+  let total = 0;
+  for (const u of units) {
+    for (const s of (await fromSourceAt(u.plc, undefined, true, true).catch(() => undefined))?.symbols ?? []) {
+      if (!s.hidden || (filter && !s.name.toLowerCase().includes(filter))) continue;
+      if (++total <= MAX_SYMBOLS) rows.push(`${s.name} : ${s.type}`);
+    }
+  }
+  return total ? hiddenText(rows, total) : 'No hidden variables match.';
+}
+
 export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, names: ToolNames) {
   const host = AdsHost.get(ctx);
+  const configRunner = new ConfigRunner({
+    current: () => host.sampling(),
+    symbols: () => host.watched().length,
+    confirm: async text => (await vscode.window.showWarningMessage(text, { modal: true }, 'Apply')) === 'Apply',
+    apply: next => host.applySampling(next),
+    setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
+  });
 
   return {
     host,
 
     async symbols(input: SymbolsInput): Promise<ToolText> {
-      const typed = (input.filter ?? '').trim();
-      const filter = typed.toLowerCase();
-      const matches: string[] = [];
+      // Copilot hands the input over unparsed
+      const enumName = typeof input.enumType === 'string' ? input.enumType.trim() : '';
+      if (enumName) return ok(await enumAnswer(state.current.units, enumName));
+      const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+      const query: SymbolQuery = {
+        filter: str(input.filter), prefix: str(input.prefix), type: str(input.type),
+        offset: typeof input.offset === 'number' && Number.isInteger(input.offset) && input.offset > 0 ? input.offset : 0,
+      };
+      const typed = queryText(query);
+      const filter = query.filter.toLowerCase();
+      const all: string[] = [];
       const missing: string[] = [];
       const unreadable: string[] = [];
-      let total = 0;
+      const headers: string[] = [];
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
       for (const u of units) {
         try {
-          for (const s of (await fromBuild(u.plc, true)).symbols) {
-            if (filter && !s.name.toLowerCase().includes(filter)) continue;
-            if (++total <= MAX_SYMBOLS) matches.push(`${s.name} : ${s.type}`);
-          }
+          const built = await fromBuild(u.plc, true);
+          headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
+          for (const s of built.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
         } catch (e) {
           if (e instanceof NoBuildOutputError) { if (!u.plc.isLibrary) missing.push(u.plc.name); }
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      return ok(symbolsText({ matches, total, max: MAX_SYMBOLS, typed, missing, unreadable, units: units.length }));
+      const matches = all.slice(query.offset, query.offset + PAGE_SIZE);
+      const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length });
+      return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
+    },
+
+    async config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText> {
+      try {
+        return ok(configText({ outcome: await configRunner.run(input, signal), target: host.target() }).text);
+      } catch (e) {
+        return failure(e);
+      }
+    },
+
+    /** The members of a user-defined preset below a path, read once in one request. */
+    async preset(input: { path?: string; preset?: string }): Promise<ToolText> {
+      const parsed = parsePresets(vscode.workspace.getConfiguration('iecode.ads').get('presets'));
+      if (input.preset === undefined) return ok(presetListText(parsed));
+      const members = parsed.presets[input.preset];
+      if (!members) return { text: unknownPresetText(input.preset, parsed.presets), isError: true };
+      if (!members.length) return ok(`Preset "${input.preset}" has no members.`);
+      const path = input.path ?? '';
+      try {
+        return await leased(host, async () => {
+          const results = await host.read(presetSymbols(path, members));
+          return ok(presetText({ path, preset: input.preset!, target: host.target(), results }));
+        });
+      } catch (e) {
+        return failure(e);
+      }
+    },
+
+    /** Waits like ads_wait, then returns the value changes around the trigger; the call keeps its own change log. */
+    async capture(input: CaptureInput, signal: AbortSignal): Promise<ToolText> {
+      const captured = input.symbols.length ? input.symbols.map(s => watchedName(host, s) ?? s.trim()) : host.watched();
+      const notWatched = input.symbols.filter(s => !watchedName(host, s));
+      const deps: CaptureDeps = {
+        hold: s => host.list.hold(s),
+        ready: () => host.ready(),
+        onSamples: l => host.onSamples(l),
+        onEnded: l => host.onEnded(l),
+        onUserRemoved: l => host.list.onUserRemoved(l),
+        monotonicMs: () => performance.now(),
+        wallMs: () => Date.now(),
+        setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
+        history: (symbol, fromMs) => host.buffer.changes(symbol, fromMs),
+        capacitySeconds: () => bufferEstimate(host.sampling(), Math.max(host.watched().length, captured.length + 1)).effectiveSeconds,
+        format: (symbol, text) => (host.buffer.isText(symbol) ? shownText(text, true) : formatValueText(text) ?? text),
+      };
+      const target = host.target();
+      const outcome = await leased(host, () => runCapture(deps, captured, input, signal));
+      const r = captureResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target, names });
+      const head = notWatched.length ? `Not watched, so no history before the capture (add them with ${names.watch}): ${notWatched.join(', ')}\n` : '';
+      return { ...r, text: capText(head + r.text) };
     },
 
     async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {
@@ -126,7 +241,13 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       }
       const taken = result.removed.filter(r => owned.has(r.toLowerCase())).length;
       if (taken) output.info(`AI removed ${taken} variable${taken === 1 ? '' : 's'} the user added (confirmed)`);
-      return ok(watchResultText({ full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
+      const hints: string[] = [];
+      for (const i of host.items()) {
+        if (!i.error || !/not found/i.test(i.error) || !result.added.some(a => a.toLowerCase() === i.symbol.toLowerCase())) continue;
+        const h = await propertyHint(state.current.units, i.symbol);
+        if (h) hints.push(`Hint for ${i.symbol}: ${h}`);
+      }
+      return ok(watchResultText({ hints, full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
     },
 
     async read(input: ReadInput): Promise<ToolText> {
@@ -147,7 +268,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
             }
           }
           if (others.length) {
-            for (const r of await host.read(others)) rows.push(readOnceRow(r));
+            for (const r of await host.read(others)) rows.push(readOnceRow(/not found/i.test(r.error ?? '') ? { ...r, hint: await propertyHint(state.current.units, r.symbol) } : r));
           }
           return ok(readText(host.target(), rows));
         });

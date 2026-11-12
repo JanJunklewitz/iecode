@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WriteGate, GateDeps, GatePolicy, WriteOp, WriteResult, PreparedWrites, WriteNotSent, WriteOutcomeUnknown, sendOutcome, writeResultText, writeResultIsError } from '../src/core/writeGate';
+import { WriteGate, GateDeps, GatePolicy, WriteOp, WriteResult, PreparedWrites, WriteNotSent, WriteOutcomeUnknown, sendOutcome, writeResultText, writeResultIsError, itemsOf, featureOf } from '../src/core/writeGate';
 import { WriteDecision } from '../src/core/adswatch';
 
 // ---- helpers ----
@@ -431,6 +431,16 @@ test('writeResultText for all kinds', () => {
     'Outcome unknown: no reply. Do not write again on your own; read MAIN.x and ask the user.\nADS target: A');
 });
 
+test('writeResultText tells a bit that differs after an accepted write from a plain read-back', () => {
+  const o = op('MAIN.bStart', { value: 'TRUE' });
+  assert.equal(writeResultText({ kind: 'written', readBack: 'FALSE' }, o),
+    'Written (accepted by ADS), but MAIN.bStart then reads back as FALSE, not TRUE: it changed after the write (the PLC may have changed it). Read it again before acting on it.\nADS target: A');
+  assert.equal(writeResultText({ kind: 'written', readBack: 'TRUE' }, o), 'Written. MAIN.bStart reads back as TRUE (the PLC may change it again).\nADS target: A');
+  // INT and STRING keep the old wording
+  assert.equal(writeResultText({ kind: 'written', readBack: '0' }, op('MAIN.n', { value: '1' })), 'Written. MAIN.n reads back as 0 (the PLC may change it again).\nADS target: A');
+  assert.equal(writeResultText({ kind: 'written', readBack: 'abd' }, op('MAIN.s', { value: 'abc' })), 'Written. MAIN.s reads back as abd (the PLC may change it again).\nADS target: A');
+});
+
 test('writeResultIsError marks refused and unknown, not a written value', () => {
   assert.equal(writeResultIsError({ kind: 'written', readBack: '1' }), false);
   assert.equal(writeResultIsError({ kind: 'written', readBack: null, readBackError: 'x' }), false);
@@ -493,4 +503,73 @@ test('prepared writes survive a declined confirmation and a retry', () => {
   // one record is left over from the declined call; it must not poison the next retry either
   p.prepare('k', { decision: 'confirm', targetKey: 'A:851' });
   assert.deepEqual(p.take('k'), { decision: 'confirm', targetKey: 'A:851' });
+});
+
+test('itemsOf and featureOf', () => {
+  assert.deepEqual(itemsOf(op('MAIN.x')), [{ symbol: 'MAIN.x', value: '1' }]);
+  assert.equal(featureOf(op('MAIN.x')), undefined);
+  const b = op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] });
+  assert.equal(itemsOf(b).length, 2);
+  assert.equal(featureOf(b), 'writeMany');
+  assert.equal(featureOf(op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }] })), undefined);
+});
+
+test('a batch op goes through the gate like a single write: one dialog, one send', async () => {
+  const r = rig();
+  const b = op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] });
+  const p = r.gate.run(b, ac().signal);
+  await tick();
+  r.confirms[0].answer.resolve(true);
+  await p;
+  assert.equal(r.confirms.length, 1);
+  assert.equal(r.sent.length, 1);
+});
+
+test('writeResultIsError: a done batch is an error when any item was not written', () => {
+  const w = { symbol: 'a', status: 'written' as const, readBack: '1' };
+  assert.equal(writeResultIsError({ kind: 'done', items: [w, w] }), false);
+  assert.equal(writeResultIsError({ kind: 'done', items: [w, { symbol: 'b', status: 'notWritten', reason: 'x' }] }), true);
+});
+
+test('gate refuses a write outside the allowed paths without a dialog, also inside a batch', async () => {
+  const r = rig();
+  const text = 'MAIN.b is outside the paths the user allows for AI writes (iecode.ads.aiWritePaths: MAIN.Sim)';
+  (r.gate as unknown as { deps: GateDeps }).deps.policy = () => text;
+  const res = await r.gate.run(op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] }), ac().signal);
+  assert.deepEqual(res, { kind: 'refused', reason: text });
+  assert.equal(r.confirms.length, 0);
+  assert.equal(r.sent.length, 0);
+});
+
+test('gate asks the policy again right before sending', async () => {
+  const r = rig();
+  let outside = false;
+  (r.gate as unknown as { deps: GateDeps }).deps.policy = () => (outside ? 'the setting changed' : undefined);
+  const p = r.gate.run(op(), ac().signal);
+  await tick();
+  outside = true;
+  r.confirms[0].answer.resolve(true);
+  const res = await p;
+  assert.equal(refused(res), 'the setting changed');
+  assert.equal(r.sent.length, 0);
+});
+
+test('writeResultText for a batch: refused, unknown and done', () => {
+  const o = op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }, { symbol: 'MAIN.c', value: '3' }] });
+  assert.equal(writeResultText({ kind: 'refused', reason: "writes[1] MAIN.b: 'zz' is not a valid INT" }, o),
+    "Not written: writes[1] MAIN.b: 'zz' is not a valid INT. None of the 3 writes was sent.\nADS target: A");
+  assert.equal(writeResultText({ kind: 'unknown', reason: 'no reply' }, o),
+    'Outcome unknown for all 3 writes: no reply. Do not write again on your own; read MAIN.a, MAIN.b, MAIN.c and ask the user.\nADS target: A');
+  const done = writeResultText({ kind: 'done', items: [
+    { symbol: 'MAIN.a', status: 'written', readBack: '1' },
+    { symbol: 'MAIN.b', status: 'notWritten', reason: 'ADS error 0x6 (symbol not found)' },
+    { symbol: 'MAIN.c', status: 'unknown', reason: 'ADS error 0x7' }] }, o);
+  assert.equal(done.split('\n')[0], 'Sent in one ADS request (3 writes): 1 written, 1 not written, 1 outcome unknown.');
+  assert.match(done, /\nMAIN\.b: not written: ADS error 0x6 \(symbol not found\)\n/);
+  assert.match(done, /\nADS target: A$/);
+});
+
+test('writeResultText of a single op keeps the single-write texts', () => {
+  assert.match(writeResultText({ kind: 'refused', reason: 'nope' }, op('MAIN.a')), /^Not written: nope\.\n/);
+  assert.match(writeResultText({ kind: 'unknown', reason: 'no reply' }, op('MAIN.a')), /^Outcome unknown: no reply\. Do not write again on your own; read MAIN\.a and ask the user\./);
 });

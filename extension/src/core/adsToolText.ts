@@ -1,18 +1,22 @@
 // Result texts of the ADS tools, shared by the Copilot tools and the MCP server. Pure: plain data in, text out, so the
 // wording is pinned by tests and does not drift between the two clients.
 
+import { EnumInfo, sharedValues } from './tmc';
+import { BufferEstimate, ConfigOutcome, Sampling } from './adsConfig';
+import { pageNote } from './symbolQuery';
 import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
+import { CONFIG_TOKEN, CaptureOutcome } from './captureRun';
 import type { WatchRunResult } from './watchRequest';
 import type { UnresolvedEntry } from './unresolved';
 import { groupSummaries, isActive } from './watchGroups';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
-export interface ToolNames { watch: string; scope: string; write: string; wait: string }
+export interface ToolNames { watch: string; scope: string; write: string; wait: string; config: string }
 
-export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait' };
-export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait' };
+export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait', config: 'adsConfig' };
+export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait', config: 'ads_config' };
 
 export interface ToolText { text: string; isError?: boolean }
 
@@ -63,6 +67,8 @@ export interface WatchResultInput {
   list: string;
   result: WatchRunResult;
   addErrors: string[];
+  /** One line per added symbol that was not found but has a matching property. */
+  hints?: string[];
   count: number;
   intervalMs: number;
   names: ToolNames;
@@ -111,6 +117,7 @@ export function watchResultText(o: WatchResultInput): string {
     else lines.push(`No group named ${op.name}`);
   }
   for (const e of o.addErrors) lines.push(`Error: ${e}`);
+  for (const h of o.hints ?? []) lines.push(h);
   const unresolved = unresolvedText(o.unresolved);
   if (unresolved) lines.push(unresolved);
   lines.push(o.full ? o.list : `Watch list: ${symbols(o.count)}${o.parked > 0 ? `, ${o.parked} switched off` : ''}`);
@@ -124,16 +131,111 @@ export function watchFailureText(error: string, list: string): ToolText {
   return { text: `${error}\nWatch list now:\n${list}`, isError: true };
 }
 
-export function symbolsText(o: { matches: string[]; total: number; max: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
-  const lines = [o.matches.length ? o.matches.join('\n') : `No symbols match "${o.typed}".`];
-  if (o.total > o.max) lines.push(`(${o.total - o.max} more not listed; use a narrower filter)`);
+export function symbolsText(o: { headers: string[]; matches: string[]; total: number; max: number; offset: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
+  const none = o.total > 0 ? pageNote({ total: o.total, offset: o.offset, pageSize: o.max })! : `No symbols match "${o.typed}".`;
+  const lines = [...o.headers, o.matches.length ? o.matches.join('\n') : none];
+  const note = o.matches.length ? pageNote({ total: o.total, offset: o.offset, pageSize: o.max }) : undefined;
+  if (note) lines.push(note);
   if (o.missing.length) lines.push(`Not built, so not listed (no .tmc): ${o.missing.join(', ')}`);
   if (o.unreadable.length) lines.push(`Build output unreadable, so not listed: ${o.unreadable.join('; ')}`);
   if (!o.units) lines.push('No PLC projects in this workspace.');
   return lines.join('\n');
 }
 
-export interface ReadRow { symbol: string; type: string; value: string | null; error: string | null; age?: string }
+/** Whether the iecode CLI of the running host can write an enum member by its alias name (needs a newer CLI before it ships). */
+export type AliasWrite = 'supported' | 'unsupported' | 'unknown';
+
+/** Members of an enum type with values; names that share a value are noted, because a read shows only the first. */
+export function enumText(o: { info: EnumInfo; from: string; aliasWrite?: AliasWrite }): string {
+  const { info } = o;
+  const lines = [`Enum ${info.name}${info.base ? ` (${info.base})` : ''}, from ${o.from}:`];
+  for (const m of info.members) lines.push(`  ${m.name} = ${m.value ?? '(unknown value)'}${m.comment ? `  // ${m.comment}` : ''}`);
+  for (const g of sharedValues(info)) {
+    const names = g.names.length > 2 ? `${g.names.slice(0, -1).join(', ')} and ${g.names[g.names.length - 1]}` : g.names.join(' and ');
+    lines.push(`Note: ${names} share the value ${g.value}; a read shows ${g.names[0]}, so compare by number.${o.aliasWrite && o.aliasWrite !== 'supported' ? ' Writing a later name by its name may need a newer iecode CLI: write the number.' : ''}`);
+  }
+  if (info.members.some(m => m.value === undefined)) lines.push('Note: a value marked unknown comes from an expression the extension cannot evaluate; read the variable or build the project to get it.');
+  return lines.join('\n');
+}
+
+export const noEnumText = (name: string): string => `No enum type "${name}" found in the build output or the source code of the workspace PLC projects.`;
+
+/** Variables marked {attribute 'hide'}: listed for the source only, they have no ADS symbol. */
+export function hiddenText(rows: string[], total: number): string {
+  const lines = ["Hidden (marked {attribute 'hide'}, so no ADS symbol and not readable; a property with {attribute 'monitoring' := 'call'} may expose the value):", ...rows];
+  if (total > rows.length) lines.push(`(${total - rows.length} more hidden variables not listed)`);
+  return lines.join('\n');
+}
+
+const mbText = (bytes: number): string => `${(bytes / 1048576).toFixed(1)} MB`;
+
+function bufferLine(e: BufferEstimate, bufferSeconds: number): string {
+  const holds = e.capped
+    ? `holds only ${Math.floor(e.effectiveSeconds)} s of the ${bufferSeconds} s: the buffer stores at most 2000000 values in total.`
+    : `holds the full ${bufferSeconds} s.`;
+  return `Buffer: ${e.symbols} watched symbols, up to ${e.values} values (about ${mbText(e.bytes)}), ${holds}`;
+}
+
+/** The result of ads_config. None of the outcomes is an error. */
+export function configText(o: { outcome: ConfigOutcome; target: string }): ToolText {
+  const out = o.outcome;
+  const now = (s: Sampling) => `poll every ${s.intervalMs} ms, buffer ${s.bufferSeconds} s`;
+  switch (out.kind) {
+    case 'shown':
+      return { text: [`ADS sampling on ${o.target}: ${now(out.sampling)}.`, bufferLine(out.estimate, out.sampling.bufferSeconds),
+        'Change it with pollMs (10-5000) and bufferSeconds (10-3600); the change lasts until the user edits the setting or the window reloads.'].join('\n') };
+    case 'unchanged':
+      return { text: `Nothing to change: ${now(out.sampling)} already.` };
+    case 'applied': {
+      const parts: string[] = [];
+      if (out.before.intervalMs !== out.after.intervalMs) parts.push(`Poll interval ${out.before.intervalMs} -> ${out.after.intervalMs} ms`);
+      if (out.before.bufferSeconds !== out.after.bufferSeconds) parts.push(`buffer ${out.before.bufferSeconds} -> ${out.after.bufferSeconds} s`);
+      return { text: [`${parts.join(', ')} (this session only; the settings are unchanged).`.replace(/^buffer/, 'Buffer'), bufferLine(out.estimate, out.after.bufferSeconds), ...out.notes].join('\n') };
+    }
+    case 'declined':
+      return { text: `Not changed: the change was not confirmed (it would hold up to ${out.estimate.values} values, about ${mbText(out.estimate.bytes)}).` };
+    case 'changed':
+      return { text: 'Not changed: the sampling or the watch list changed while the confirmation was open. Call the tool again.' };
+    case 'cancelled':
+      return { text: 'Config change cancelled.' };
+  }
+}
+
+const signedSeconds = (s: number): string => `${s >= 0 ? '+' : ''}${Number.isInteger(s) ? s : s.toFixed(1)}`;
+
+/** The result of ads_capture; only a refusal is an error. */
+export function captureResultText(o: { symbol: string; condition: WaitCondition; outcome: CaptureOutcome; target: string; intervalMs: number; clock: (ms: number) => string; names: ToolNames }): ToolText {
+  const out = o.outcome;
+  const tl = `\n${targetLine(o.target)}`;
+  const sampled = `Sampled every ${o.intervalMs} ms; changes between samples are not seen.`;
+  switch (out.kind) {
+    case 'captured': {
+      const w = out.window;
+      const first = out.met.firstObservation ? ' (true at the first observation)' : '';
+      const lines = [
+        `Captured at ${o.clock(out.met.t)} (after ${(out.met.elapsedMs / 1000).toFixed(2)} s): ${o.symbol} = ${out.met.value}${first}`,
+        `Window ${signedSeconds((w.fromMs - w.originMs) / 1000)} s .. ${signedSeconds((w.toMs - w.originMs) / 1000)} s around the trigger on ${o.target}; the table shows value changes only, time 0 = the trigger.`,
+      ];
+      if (out.partial !== undefined) lines.push(`Capture ended early: ${out.partial}; the table covers ${signedSeconds((w.fromMs - w.originMs) / 1000)} s .. ${signedSeconds((w.toMs - w.originMs) / 1000)} s.`);
+      if (w.historyFromMs !== undefined) lines.push(`History starts at ${o.clock(w.historyFromMs)}, later than the requested ${signedSeconds((w.fromMs - w.originMs) / 1000)} s; the symbols were watched for a shorter time.`);
+      lines.push(w.table, sampled);
+      return { text: lines.join('\n') + tl };
+    }
+    case 'timeout': {
+      const last = out.last === undefined ? 'no valid value observed' : `last value ${out.last}`;
+      const pre = Math.round((out.window.originMs - out.window.fromMs) / 1000);
+      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}. Showing the last ${pre} s (changes only, time 0 = now):\n${out.window.table}\n${sampled}${tl}` };
+    }
+    case 'ended': {
+      const pre = Math.round((out.window.originMs - out.window.fromMs) / 1000);
+      return { text: `Wait ended: ${out.reason}. Showing the last ${pre} s that were sampled:\n${out.window.table}${tl}` };
+    }
+    case 'refused': return { text: `Error: ${out.reason.split(CONFIG_TOKEN).join(o.names.config)}`, isError: true };
+    case 'cancelled': return { text: 'Capture cancelled.' };
+  }
+}
+
+export interface ReadRow { symbol: string; type: string; value: string | null; error: string | null; age?: string; hint?: string }
 
 /** A watched symbol; `age` only for a value from the sample buffer (a value read back by a write has no time). */
 export function readRow(r: ReadRow): string {
@@ -143,7 +245,14 @@ export function readRow(r: ReadRow): string {
 
 /** A symbol that was read once, not watched. */
 export function readOnceRow(r: ReadRow): string {
-  return r.error ? `${r.symbol} : error ${r.error}` : `${r.symbol} : ${r.type || '?'} = ${r.value}`;
+  return r.error ? `${r.symbol} : error ${r.error}${r.hint ? ` ${r.hint}` : ''}` : `${r.symbol} : ${r.type || '?'} = ${r.value}`;
+}
+
+/** The hint for a symbol that was not found but has a matching property in the source. */
+export function propertyHintText(props: string[]): string {
+  return props.length === 1
+    ? `Matching property in the source code: ${props[0]} (monitoring call); try that name.`
+    : `Matching properties in the source code: ${props.join(', ')} (monitoring call); try one of those names.`;
 }
 
 export const readText = (target: string, rows: string[]): string => `Values on ${target}:\n${rows.join('\n')}`;
