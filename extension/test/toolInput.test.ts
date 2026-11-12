@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -179,4 +179,12 @@ test('parseConfigInput rounds but does not clamp, and rejects non-numbers', () =
   assert.deepEqual(parseConfigInput({ pollMs: 20.6, bufferSeconds: 5000 }), { ok: true, value: { pollMs: 21, bufferSeconds: 5000 } });
   assert.deepEqual(parseConfigInput({ pollMs: '20' }), { ok: false, error: 'pollMs must be a finite number' });
   assert.deepEqual(parseConfigInput({ bufferSeconds: NaN }), { ok: false, error: 'bufferSeconds must be a finite number' });
+});
+
+test('parsePresetInput lists without arguments and needs a path with a preset', () => {
+  assert.deepEqual(parsePresetInput({}), { ok: true, value: {} });
+  assert.deepEqual(parsePresetInput({ path: ' MAIN.fbSeq ', preset: 'seq' }), { ok: true, value: { path: 'MAIN.fbSeq', preset: 'seq' } });
+  assert.deepEqual(parsePresetInput({ preset: 'seq' }), { ok: false, error: 'path is required with preset' });
+  assert.deepEqual(parsePresetInput({ path: ' ', preset: 'seq' }), { ok: false, error: 'path must not be blank' });
+  assert.deepEqual(parsePresetInput({ path: 'x'.repeat(513) }), { ok: false, error: 'path is longer than 512 characters' });
 });

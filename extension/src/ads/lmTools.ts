@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
-import { parseConfigInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
+import { parseConfigInput, parsePresetInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
 import { lmToolEntries } from '../core/lmToolTable';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
 import { writePolicyReason } from '../core/writePolicy';
@@ -62,6 +62,14 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     invoke(opts) {
       const p = parseScopeInput(opts.input);
       return text(p.ok ? tools.scope(p.value).text : `Invalid arguments: ${p.error}`);
+    },
+  };
+
+  const presetTool: vscode.LanguageModelTool<{ path?: string; preset?: string }> = {
+    prepareInvocation: () => ({ invocationMessage: 'Reading an ADS preset' }),
+    async invoke(opts) {
+      const parsed = parsePresetInput(opts.input);
+      return text(parsed.ok ? (await tools.preset(parsed.value)).text : `Invalid arguments: ${parsed.error}`);
     },
   };
 
@@ -139,7 +147,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     // one handler per tool the manifest declares (the table type and a test keep both lists in step)
     ...lmToolEntries<vscode.LanguageModelTool<any>>({
       iecode_ads_symbols: symbolsTool, iecode_ads_watch: watchTool, iecode_ads_read: readTool,
-      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool,
+      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool, iecode_ads_preset: presetTool,
     }).map(([name, tool]) => vscode.lm.registerTool(name, tool)),
     vscode.commands.registerCommand('iecode.adsWatchAiChat', async () => {
       const symbols = host.watched();

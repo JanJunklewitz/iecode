@@ -229,6 +229,22 @@ export function parseConfigInput(raw: unknown): Parsed<{ pollMs?: number; buffer
   return { ok: true, value };
 }
 
+export function parsePresetInput(raw: unknown): Parsed<{ path?: string; preset?: string }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const path = str(o, 'path', MAX_SYMBOL_LENGTH, false);
+  if (isErr(path)) return fail(path.error);
+  const preset = str(o, 'preset', MAX_SYMBOL_LENGTH, false);
+  if (isErr(preset)) return fail(preset.error);
+  if (path !== undefined && !path.trim()) return fail('path must not be blank');
+  if (preset !== undefined && !preset.trim()) return fail('preset must not be blank');
+  if (preset !== undefined && path === undefined) return fail('path is required with preset');
+  const value: { path?: string; preset?: string } = {};
+  if (path !== undefined) value.path = path.trim();
+  if (preset !== undefined) value.preset = preset.trim();
+  return { ok: true, value };
+}
+
 export const WAIT_DEFAULT_SECONDS = 30;
 export const WAIT_MAX_SECONDS = 120;
 

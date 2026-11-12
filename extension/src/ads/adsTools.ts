@@ -7,6 +7,7 @@ import { WorkspaceState } from '../state';
 import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, matchingPropertiesAt, sourceObjects } from '../core/adsinterface';
 import { pickEnum } from '../core/enumLookup';
 import { ConfigRunner } from '../core/adsConfig';
+import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
 import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
@@ -180,6 +181,24 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
     async config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText> {
       try {
         return ok(configText({ outcome: await configRunner.run(input, signal), target: host.target() }).text);
+      } catch (e) {
+        return failure(e);
+      }
+    },
+
+    /** The members of a user-defined preset below a path, read once in one request. */
+    async preset(input: { path?: string; preset?: string }): Promise<ToolText> {
+      const parsed = parsePresets(vscode.workspace.getConfiguration('iecode.ads').get('presets'));
+      if (input.preset === undefined) return ok(presetListText(parsed));
+      const members = parsed.presets[input.preset];
+      if (!members) return { text: unknownPresetText(input.preset, parsed.presets), isError: true };
+      if (!members.length) return ok(`Preset "${input.preset}" has no members.`);
+      const path = input.path ?? '';
+      try {
+        return await leased(host, async () => {
+          const results = await host.read(presetSymbols(path, members));
+          return ok(presetText({ path, preset: input.preset!, target: host.target(), results }));
+        });
       } catch (e) {
         return failure(e);
       }

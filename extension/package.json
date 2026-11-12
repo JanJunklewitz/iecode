@@ -1367,6 +1367,17 @@
           "scope": "application",
           "markdownDescription": "Whether AI tools (GitHub Copilot Chat in agent mode, Claude Code) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
         },
+        "iecode.ads.presets": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markdownDescription": "Named member lists for the AI tool **ADS Preset**: name -> member names read below a path in one call, e.g. {\"sequencer\": [\"nStep\", \"sStepText\", \"sError\", \"bBusy\"]}. Nothing is built in; the members follow your own naming."
+        },
         "iecode.ads.aiWritePaths": {
           "type": "array",
           "items": {
@@ -1695,6 +1706,34 @@
             "bufferSeconds": {
               "type": "number",
               "description": "Seconds of values kept, 10-3600."
+            }
+          }
+        }
+      },
+      {
+        "name": "iecode_ads_preset",
+        "toolReferenceName": "adsPreset",
+        "displayName": "ADS Preset",
+        "userDescription": "Read a named group of members of a function block in one call.",
+        "modelDescription": "Reads the members listed in a user-defined preset (setting iecode.ads.presets) below a path in one call and prints one block, e.g. the step, step text, error text and busy flag of a state machine. Without arguments it lists the defined presets. Members that do not exist are named, the others are still read. Values are read once, not watched.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "ADS path of the instance, e.g. MAIN.fbSeq."
+            },
+            "preset": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "Preset name."
             }
           }
         }
