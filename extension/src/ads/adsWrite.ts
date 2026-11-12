@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { GatePolicy, WriteGate, WriteOp, WriteResult, itemsOf, sendOutcome } from '../core/writeGate';
 import { writePolicyReason } from '../core/writePolicy';
+import { confirmMessage } from '../core/writeText';
 import { output } from '../cli/iecode';
 import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
 import { AdsHost } from './host';
@@ -25,7 +26,7 @@ export function adsWriteGate(host: AdsHost, workspaceName: () => string, policy:
       const note = aiWritesSetting() === 'auto' && workspaceTarget()
         ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
       const pick = await vscode.window.showWarningMessage(
-        `Write ${show(op.symbol)} := ${show(op.value)} on ${op.targetKey} (${workspaceName()})?${note}`, { modal: true }, 'Write');
+        confirmMessage(itemsOf(op), `${op.targetKey} (${workspaceName()})`, note), { modal: true }, 'Write');
       return pick === 'Write';
     },
 

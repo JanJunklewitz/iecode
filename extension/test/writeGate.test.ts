@@ -553,3 +553,23 @@ test('gate asks the policy again right before sending', async () => {
   assert.equal(refused(res), 'the setting changed');
   assert.equal(r.sent.length, 0);
 });
+
+test('writeResultText for a batch: refused, unknown and done', () => {
+  const o = op('MAIN.a', { items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }, { symbol: 'MAIN.c', value: '3' }] });
+  assert.equal(writeResultText({ kind: 'refused', reason: "writes[1] MAIN.b: 'zz' is not a valid INT" }, o),
+    "Not written: writes[1] MAIN.b: 'zz' is not a valid INT. None of the 3 writes was sent.\nADS target: A");
+  assert.equal(writeResultText({ kind: 'unknown', reason: 'no reply' }, o),
+    'Outcome unknown for all 3 writes: no reply. Do not write again on your own; read MAIN.a, MAIN.b, MAIN.c and ask the user.\nADS target: A');
+  const done = writeResultText({ kind: 'done', items: [
+    { symbol: 'MAIN.a', status: 'written', readBack: '1' },
+    { symbol: 'MAIN.b', status: 'notWritten', reason: 'ADS error 0x6 (symbol not found)' },
+    { symbol: 'MAIN.c', status: 'unknown', reason: 'ADS error 0x7' }] }, o);
+  assert.equal(done.split('\n')[0], 'Sent in one ADS request (3 writes): 1 written, 1 not written, 1 outcome unknown.');
+  assert.match(done, /\nMAIN\.b: not written: ADS error 0x6 \(symbol not found\)\n/);
+  assert.match(done, /\nADS target: A$/);
+});
+
+test('writeResultText of a single op keeps the single-write texts', () => {
+  assert.match(writeResultText({ kind: 'refused', reason: 'nope' }, op('MAIN.a')), /^Not written: nope\.\n/);
+  assert.match(writeResultText({ kind: 'unknown', reason: 'no reply' }, op('MAIN.a')), /^Outcome unknown: no reply\. Do not write again on your own; read MAIN\.a and ask the user\./);
+});

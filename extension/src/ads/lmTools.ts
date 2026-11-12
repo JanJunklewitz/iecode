@@ -6,6 +6,8 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
+import { writeKey } from '../core/toolInput';
+import { confirmMessage } from '../core/writeText';
 import { parseCaptureInput, parseConfigInput, parsePresetInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
 import { lmToolEntries } from '../core/lmToolTable';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
@@ -123,7 +125,6 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
 
   // The decision and target each prepared write was shown with; the gate checks them against the settings at send time.
   const prepared = new PreparedWrites(WRITE_PREPARE_MAX_AGE_MS);
-  const writeKey = (input: WriteInput) => JSON.stringify([input.symbol, input.value]);
 
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
     prepareInvocation(opts) {
@@ -140,7 +141,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
       return {
         invocationMessage: `Writing ${symbol} := ${value}`,
-        confirmationMessages: { title: 'Write PLC variable', message: `Write ${symbol} := ${value} on ${host.target()}?${note}` },
+        confirmationMessages: { title: 'Write PLC variable', message: confirmMessage([{ symbol: opts.input.symbol, value: opts.input.value }], host.target(), note) },
       };
     },
     async invoke(opts, token) {

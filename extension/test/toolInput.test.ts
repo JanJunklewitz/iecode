@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, writeKey } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -204,4 +204,10 @@ test('parseCaptureInput applies the defaults and clamps the windows', () => {
   assert.equal(parseCaptureInput({ symbol: 'x', condition: 'bogus' }).ok, false);
   const s = parseCaptureInput({ ...base, symbols: ['A', 'B'] });
   assert.ok(s.ok && s.value.symbols.join() === 'A,B');
+});
+
+test('writeKey keys the whole batch and keeps the single key', () => {
+  assert.equal(writeKey({ symbol: 'MAIN.x', value: '1' }), JSON.stringify(['MAIN.x', '1']));
+  assert.notEqual(writeKey({ writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '2' }] }), writeKey({ writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '3' }] }));
+  assert.notEqual(writeKey({ writes: [{ symbol: 'A', value: '1' }] }), writeKey({ symbol: 'A', value: '1' }));
 });

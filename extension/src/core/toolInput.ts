@@ -164,6 +164,11 @@ export function parseScopeInput(raw: unknown): Parsed<ScopeArgs> {
 }
 
 export const MAX_WRITES = 20;
+/** The key a prepared Copilot confirmation is stored under: the single write as before, a batch as a whole. */
+export function writeKey(input: WriteInput): string {
+  return 'writes' in input ? JSON.stringify(['batch', input.writes.map(w => [w.symbol, w.value])]) : JSON.stringify([input.symbol, input.value]);
+}
+
 export type WriteInput = { symbol: string; value: string } | { writes: WriteItem[] };
 
 /** One { symbol, value } pair; `where` prefixes the error ("" for the single form, "writes[1]." in a batch). */

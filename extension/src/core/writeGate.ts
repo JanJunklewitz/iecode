@@ -3,7 +3,7 @@
 // the clock through Clock, so the rules are unit-tested without VS Code.
 
 import { WriteDecision, writeStillApproved } from './adswatch';
-import { WriteItem, WriteItemResult, readBackChanged, sentence } from './writeText';
+import { WriteItem, WriteItemResult, doneIsError, doneText, readBackChanged, sentence } from './writeText';
 import { COPILOT_NAMES, MCP_NAMES, ToolNames, targetLine, targetOfKey } from './adsToolText';
 
 /** The write was not sent: refused before the request left, or the host proved it did not send it. `alreadyShown`: a failed host start. */
@@ -95,6 +95,11 @@ export function writeResultText(r: WriteResult, op: WriteOp): string {
 }
 
 function writeVerdict(r: WriteResult, op: WriteOp): string {
+  const items = itemsOf(op);
+  if (items.length > 1 && r.kind === 'refused') return `Not written: ${sentence(r.reason)}. None of the ${items.length} writes was sent.`;
+  if (items.length > 1 && r.kind === 'unknown') {
+    return `Outcome unknown for all ${items.length} writes: ${sentence(r.reason)}. Do not write again on your own; read ${items.map(i => i.symbol).join(', ')} and ask the user.`;
+  }
   switch (r.kind) {
     case 'written':
       if (r.readBack !== null && readBackChanged(op.value, r.readBack)) {
@@ -108,14 +113,13 @@ function writeVerdict(r: WriteResult, op: WriteOp): string {
     case 'unknown':
       return `Outcome unknown: ${sentence(r.reason)}. Do not write again on your own; read ${op.symbol} and ask the user.`;
     case 'done':
-      // placeholder: C3b pins the batch texts
-      return r.items.map(i => `${i.symbol}: ${i.status}`).join('\n');
+      return doneText(itemsOf(op), r.items);
   }
 }
 
 /** Refused and unknown are errors for the client; a written value is not, also when only its read-back failed. */
 export const writeResultIsError = (r: WriteResult): boolean =>
-  r.kind === 'done' ? r.items.some(i => i.status !== 'written') : r.kind !== 'written';
+  r.kind === 'done' ? doneIsError(r.items) : r.kind !== 'written';
 
 interface OpState {
   op: WriteOp;
