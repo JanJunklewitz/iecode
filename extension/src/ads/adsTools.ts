@@ -6,14 +6,16 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { NoBuildOutputError, findTmc, fromBuild, fromSourceAt, matchingPropertiesAt, sourceObjects } from '../core/adsinterface';
 import { pickEnum } from '../core/enumLookup';
-import { ConfigRunner } from '../core/adsConfig';
+import { ConfigRunner, bufferEstimate } from '../core/adsConfig';
+import { CaptureDeps, runCapture } from '../core/captureRun';
 import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
 import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
-import { ScopeOptions, oneLine, sampleAge } from '../core/adswatch';
+import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
+import type { CaptureInput } from '../core/mcpTools';
 import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
@@ -202,6 +204,30 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       } catch (e) {
         return failure(e);
       }
+    },
+
+    /** Waits like ads_wait, then returns the value changes around the trigger; the call keeps its own change log. */
+    async capture(input: CaptureInput, signal: AbortSignal): Promise<ToolText> {
+      const captured = input.symbols.length ? input.symbols.map(s => watchedName(host, s) ?? s.trim()) : host.watched();
+      const notWatched = input.symbols.filter(s => !watchedName(host, s));
+      const deps: CaptureDeps = {
+        hold: s => host.list.hold(s),
+        ready: () => host.ready(),
+        onSamples: l => host.onSamples(l),
+        onEnded: l => host.onEnded(l),
+        onUserRemoved: l => host.list.onUserRemoved(l),
+        monotonicMs: () => performance.now(),
+        wallMs: () => Date.now(),
+        setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
+        history: (symbol, fromMs) => host.buffer.changes(symbol, fromMs),
+        capacitySeconds: () => bufferEstimate(host.sampling(), Math.max(host.watched().length, captured.length + 1)).effectiveSeconds,
+        format: (symbol, text) => (host.buffer.isText(symbol) ? shownText(text, true) : formatValueText(text) ?? text),
+      };
+      const target = host.target();
+      const outcome = await leased(host, () => runCapture(deps, captured, input, signal));
+      const r = captureResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target, names });
+      const head = notWatched.length ? `Not watched, so no history before the capture (add them with ${names.watch}): ${notWatched.join(', ')}\n` : '';
+      return { ...r, text: capText(head + r.text) };
     },
 
     async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {

@@ -3,6 +3,7 @@
 import { MAX_WATCHED } from './adswatch';
 import { groupNameError } from './watchGroups';
 import { WriteItem } from './writeText';
+import { CAPTURE_DEFAULT_POST, CAPTURE_DEFAULT_PRE, CAPTURE_MAX_POST, CAPTURE_MAX_PRE, CaptureRequest } from './captureRun';
 import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -243,6 +244,28 @@ export function parsePresetInput(raw: unknown): Parsed<{ path?: string; preset?:
   if (path !== undefined) value.path = path.trim();
   if (preset !== undefined) value.preset = preset.trim();
   return { ok: true, value };
+}
+
+/** A whole number of seconds within [min, max]; a missing value gives the default. */
+function boundedSeconds(o: Record<string, unknown>, field: string, min: number, max: number, dflt: number): number | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return dflt;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${field} must be a finite number` };
+  return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+export function parseCaptureInput(raw: unknown): Parsed<CaptureRequest & { symbols: string[] }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  const wait = parseWaitInput({ symbol: o.symbol, condition: o.condition, timeoutSeconds: o.timeoutSeconds });
+  if (!wait.ok) return wait;
+  const pre = boundedSeconds(o, 'preSeconds', 0, CAPTURE_MAX_PRE, CAPTURE_DEFAULT_PRE);
+  if (typeof pre !== 'number') return fail(pre.error);
+  const post = boundedSeconds(o, 'postSeconds', 0, CAPTURE_MAX_POST, CAPTURE_DEFAULT_POST);
+  if (typeof post !== 'number') return fail(post.error);
+  const symbols = stringArray(o, 'symbols');
+  if (typeof symbols === 'string') return fail(symbols);
+  return { ok: true, value: { ...wait.value, preSeconds: pre, postSeconds: post, symbols } };
 }
 
 export const WAIT_DEFAULT_SECONDS = 30;

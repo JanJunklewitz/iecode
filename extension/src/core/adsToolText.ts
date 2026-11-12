@@ -7,15 +7,16 @@ import { pageNote } from './symbolQuery';
 import { HostEnd, ScopeBuffer, ScopeOptions, WatchEntry, WatchItem, gapNote, hostNote, scopeText } from './adswatch';
 import { WaitCondition, conditionText } from './waitCondition';
 import type { WaitOutcome } from './waitRun';
+import { CONFIG_TOKEN, CaptureOutcome } from './captureRun';
 import type { WatchRunResult } from './watchRequest';
 import type { UnresolvedEntry } from './unresolved';
 import { groupSummaries, isActive } from './watchGroups';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
-export interface ToolNames { watch: string; scope: string; write: string; wait: string }
+export interface ToolNames { watch: string; scope: string; write: string; wait: string; config: string }
 
-export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait' };
-export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait' };
+export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait', config: 'adsConfig' };
+export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait', config: 'ads_config' };
 
 export interface ToolText { text: string; isError?: boolean }
 
@@ -197,6 +198,40 @@ export function configText(o: { outcome: ConfigOutcome; target: string }): ToolT
       return { text: 'Not changed: the sampling or the watch list changed while the confirmation was open. Call the tool again.' };
     case 'cancelled':
       return { text: 'Config change cancelled.' };
+  }
+}
+
+const signedSeconds = (s: number): string => `${s >= 0 ? '+' : ''}${Number.isInteger(s) ? s : s.toFixed(1)}`;
+
+/** The result of ads_capture; only a refusal is an error. */
+export function captureResultText(o: { symbol: string; condition: WaitCondition; outcome: CaptureOutcome; target: string; intervalMs: number; clock: (ms: number) => string; names: ToolNames }): ToolText {
+  const out = o.outcome;
+  const tl = `\n${targetLine(o.target)}`;
+  const sampled = `Sampled every ${o.intervalMs} ms; changes between samples are not seen.`;
+  switch (out.kind) {
+    case 'captured': {
+      const w = out.window;
+      const first = out.met.firstObservation ? ' (true at the first observation)' : '';
+      const lines = [
+        `Captured at ${o.clock(out.met.t)} (after ${(out.met.elapsedMs / 1000).toFixed(2)} s): ${o.symbol} = ${out.met.value}${first}`,
+        `Window ${signedSeconds((w.fromMs - w.originMs) / 1000)} s .. ${signedSeconds((w.toMs - w.originMs) / 1000)} s around the trigger on ${o.target}; the table shows value changes only, time 0 = the trigger.`,
+      ];
+      if (out.partial !== undefined) lines.push(`Capture ended early: ${out.partial}; the table covers ${signedSeconds((w.fromMs - w.originMs) / 1000)} s .. ${signedSeconds((w.toMs - w.originMs) / 1000)} s.`);
+      if (w.historyFromMs !== undefined) lines.push(`History starts at ${o.clock(w.historyFromMs)}, later than the requested ${signedSeconds((w.fromMs - w.originMs) / 1000)} s; the symbols were watched for a shorter time.`);
+      lines.push(w.table, sampled);
+      return { text: lines.join('\n') + tl };
+    }
+    case 'timeout': {
+      const last = out.last === undefined ? 'no valid value observed' : `last value ${out.last}`;
+      const pre = Math.round((out.window.originMs - out.window.fromMs) / 1000);
+      return { text: `Not met within ${out.seconds} s: ${o.symbol} ${conditionText(o.condition)}; ${last}. Showing the last ${pre} s (changes only, time 0 = now):\n${out.window.table}\n${sampled}${tl}` };
+    }
+    case 'ended': {
+      const pre = Math.round((out.window.originMs - out.window.fromMs) / 1000);
+      return { text: `Wait ended: ${out.reason}. Showing the last ${pre} s that were sampled:\n${out.window.table}${tl}` };
+    }
+    case 'refused': return { text: `Error: ${out.reason.split(CONFIG_TOKEN).join(o.names.config)}`, isError: true };
+    case 'cancelled': return { text: 'Capture cancelled.' };
   }
 }
 

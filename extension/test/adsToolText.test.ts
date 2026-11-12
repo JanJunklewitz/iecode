@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, configText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { parseCondition } from '../src/core/waitCondition';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, configText, captureResultText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -310,4 +311,25 @@ test('configText: shown, applied, unchanged, declined and cancelled', () => {
     'Not changed: the change was not confirmed (it would hold up to 2000000 values, about 137.3 MB).');
   assert.equal(configText({ target: 'local', outcome: { kind: 'cancelled' } }).text, 'Config change cancelled.');
   assert.equal(configText({ target: 'local', outcome: { kind: 'cancelled' } }).isError, undefined);
+});
+
+test('captureResultText: captured, partial, history short, timeout, ended, refused, cancelled', () => {
+  const clock = (ms: number) => `T${ms}`;
+  const base = { symbol: 'MAIN.nStep', condition: (() => { const p = parseCondition('= 40'); if (!p.ok) throw new Error(p.error); return p.value; })(), target: 'local', intervalMs: 100, clock, names: COPILOT_NAMES };
+  const met = { kind: 'met' as const, t: 3000, value: '40', firstObservation: false, elapsedMs: 3420 };
+  const window = { fromMs: 1000, toMs: 4000, originMs: 3000, table: 'TABLE' };
+  assert.equal(captureResultText({ ...base, outcome: { kind: 'captured', met, window } }).text,
+    'Captured at T3000 (after 3.42 s): MAIN.nStep = 40\nWindow -2 s .. +1 s around the trigger on local; the table shows value changes only, time 0 = the trigger.\nTABLE\nSampled every 100 ms; changes between samples are not seen.\nADS target: local');
+  const partial = captureResultText({ ...base, outcome: { kind: 'captured', met: { ...met, firstObservation: true }, window: { ...window, toMs: 3300, historyFromMs: 2500 }, partial: 'The ADS host stopped.' } }).text.split('\n');
+  assert.equal(partial[0], 'Captured at T3000 (after 3.42 s): MAIN.nStep = 40 (true at the first observation)');
+  assert.equal(partial[2], 'Capture ended early: The ADS host stopped.; the table covers -2 s .. +0.3 s.');
+  assert.equal(partial[3], 'History starts at T2500, later than the requested -2 s; the symbols were watched for a shorter time.');
+  assert.equal(captureResultText({ ...base, outcome: { kind: 'timeout', last: '3', seconds: 30, window: { ...window, fromMs: -2000, toMs: 3000 } } }).text.split('\n')[0],
+    'Not met within 30 s: MAIN.nStep = 40; last value 3. Showing the last 5 s (changes only, time 0 = now):');
+  assert.equal(captureResultText({ ...base, outcome: { kind: 'ended', reason: 'The ADS target changed', window: { ...window, fromMs: -2000, toMs: 3000 } } }).text.split('\n')[0],
+    'Wait ended: The ADS target changed. Showing the last 5 s that were sampled:');
+  const refused = captureResultText({ ...base, outcome: { kind: 'refused', reason: 'raise it with {config} { bufferSeconds: 3 }' } });
+  assert.equal(refused.text, 'Error: raise it with adsConfig { bufferSeconds: 3 }');
+  assert.equal(refused.isError, true);
+  assert.deepEqual(captureResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Capture cancelled.' });
 });

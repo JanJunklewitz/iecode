@@ -338,7 +338,7 @@ export const MAX_SCOPE_COLUMNS = 20;
 
 /** One-line text for a summary: cut at 80 characters with "...", backslash, quote, CR, LF and TAB escaped, quoted when `quote`. */
 const ESCAPES: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\r": "\\r", "\n": "\\n", "\t": "\\t" };
-function shownText(text: string, quote: boolean): string {
+export function shownText(text: string, quote: boolean): string {
   const cut = text.length > 80 ? `${text.slice(0, 80)}...` : text;
   const e = cut.replace(/[\\"\r\n\t]/g, c => (c === '"' && !quote ? c : ESCAPES[c]));
   return quote ? `"${e}"` : e;

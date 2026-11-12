@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -187,4 +187,21 @@ test('parsePresetInput lists without arguments and needs a path with a preset', 
   assert.deepEqual(parsePresetInput({ preset: 'seq' }), { ok: false, error: 'path is required with preset' });
   assert.deepEqual(parsePresetInput({ path: ' ', preset: 'seq' }), { ok: false, error: 'path must not be blank' });
   assert.deepEqual(parsePresetInput({ path: 'x'.repeat(513) }), { ok: false, error: 'path is longer than 512 characters' });
+});
+
+test('parseCaptureInput applies the defaults and clamps the windows', () => {
+  const base = { symbol: 'MAIN.nStep', condition: '= 40' };
+  const p = parseCaptureInput(base);
+  assert.ok(p.ok);
+  if (p.ok) {
+    assert.deepEqual({ ...p.value, condition: undefined }, { symbol: 'MAIN.nStep', condition: undefined, preSeconds: 5, postSeconds: 5, timeoutSeconds: 30, symbols: [] });
+  }
+  const q = parseCaptureInput({ ...base, preSeconds: 700, postSeconds: 90 });
+  assert.ok(q.ok && q.value.preSeconds === 600 && q.value.postSeconds === 60);
+  const n = parseCaptureInput({ ...base, preSeconds: -1 });
+  assert.ok(n.ok && n.value.preSeconds === 0);
+  assert.deepEqual(parseCaptureInput({ ...base, postSeconds: '5' }), { ok: false, error: 'postSeconds must be a finite number' });
+  assert.equal(parseCaptureInput({ symbol: 'x', condition: 'bogus' }).ok, false);
+  const s = parseCaptureInput({ ...base, symbols: ['A', 'B'] });
+  assert.ok(s.ok && s.value.symbols.join() === 'A,B');
 });

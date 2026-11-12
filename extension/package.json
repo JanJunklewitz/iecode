@@ -1737,6 +1737,58 @@
             }
           }
         }
+      },
+      {
+        "name": "iecode_ads_capture",
+        "toolReferenceName": "adsCapture",
+        "displayName": "ADS Capture",
+        "userDescription": "Capture the values around a PLC condition.",
+        "modelDescription": "Waits like the wait tool until a condition is met, then returns the value changes of the watched symbols from preSeconds before to postSeconds after the trigger as one table (time 0 = the trigger). Use it for a pulse or for reading a text at the moment a sequence errors. The symbols must already be watched for the before-part to have content; the buffer must hold at least preSeconds + postSeconds (see the config tool). Not met within the timeout returns the last window and says so. Resolution is the sample interval.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "ADS name of the trigger symbol, e.g. MAIN.nStep."
+            },
+            "condition": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "The trigger condition, as for the wait tool, e.g. \"= 40\" or \"= TRUE\"."
+            },
+            "preSeconds": {
+              "type": "number",
+              "description": "Seconds before the trigger, 0-600, default 5."
+            },
+            "postSeconds": {
+              "type": "number",
+              "description": "Seconds after the trigger, 0-60, default 5."
+            },
+            "timeoutSeconds": {
+              "type": "number",
+              "description": "Seconds to wait for the trigger, 1-120, default 30."
+            },
+            "symbols": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "string"
+              },
+              "description": "Watched names to include; default all watched."
+            }
+          },
+          "required": [
+            "symbol",
+            "condition"
+          ]
+        }
       }
     ],
     "submenus": [

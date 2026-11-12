@@ -4,7 +4,8 @@
 import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import type { WaitCondition } from './waitCondition';
-import { parseConfigInput, parsePresetInput, parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs, WatchRequest } from './toolInput';
+import type { CaptureRequest } from './captureRun';
+import { parseCaptureInput, parseConfigInput, parsePresetInput, parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, Parsed, ScopeArgs, WatchRequest } from './toolInput';
 import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
@@ -19,7 +20,10 @@ export interface AdsToolFns {
   wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
   config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText>;
   preset(input: { path?: string; preset?: string }): Promise<ToolText>;
+  capture(input: CaptureInput, signal: AbortSignal): Promise<ToolText>;
 }
+
+export type CaptureInput = CaptureRequest & { symbols: string[] };
 
 const invalid = (error: string): { text: string; isError: true } => ({ text: `Invalid arguments: ${error}`, isError: true });
 
@@ -61,6 +65,7 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
     },
     read('ads_config', parseConfigInput, (v, signal) => d.tools.config(v, signal)),
     read('ads_preset', parsePresetInput, v => d.tools.preset(v)),
+    read('ads_capture', parseCaptureInput, (v, signal) => d.tools.capture(v, signal)),
   ];
 }
 
