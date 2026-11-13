@@ -162,6 +162,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const all: string[] = [];
       const missing: string[] = [];
       const unreadable: string[] = [];
+      const libraries: string[] = [];
       const headers: string[] = [];
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
@@ -171,12 +172,12 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
           for (const s of built.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
         } catch (e) {
-          if (e instanceof NoBuildOutputError) { if (!u.plc.isLibrary) missing.push(u.plc.name); }
+          if (e instanceof NoBuildOutputError) { (u.plc.isLibrary ? libraries : missing).push(u.plc.name); }
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
       const matches = all.slice(query.offset, query.offset + PAGE_SIZE);
-      const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length });
+      const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 
