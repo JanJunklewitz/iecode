@@ -4,6 +4,7 @@ import { MAX_WATCHED } from './adswatch';
 import { groupNameError } from './watchGroups';
 import { WriteItem } from './writeText';
 import { CAPTURE_DEFAULT_POST, CAPTURE_DEFAULT_PRE, CAPTURE_MAX_POST, CAPTURE_MAX_PRE, CaptureRequest } from './captureRun';
+import { DEFAULT_LOG_LINES, LogMarker, MAX_LOG_LINES, decodeMarker } from './logRead';
 import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -257,6 +258,50 @@ function boundedSeconds(o: Record<string, unknown>, field: string, min: number, 
   if (v === undefined || v === null) return dflt;
   if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${field} must be a finite number` };
   return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+export interface LogRequest { mark?: boolean; since?: LogMarker; filter: string[]; exclude: string[]; maxLines: number }
+export const MAX_LOG_TERMS = 10;
+export const MAX_LOG_TERM_LENGTH = 100;
+
+function logTerms(o: Record<string, unknown>, field: 'filter' | 'exclude'): string[] | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.some(x => typeof x !== 'string')) return { error: `${field} must be a list of strings` };
+  if (v.length > MAX_LOG_TERMS) return { error: `${field} may have at most ${MAX_LOG_TERMS} entries` };
+  const terms = (v as string[]).map(x => x.trim());
+  if (terms.some(x => x.length < 1 || x.length > MAX_LOG_TERM_LENGTH)) return { error: `${field} entries must be 1 to ${MAX_LOG_TERM_LENGTH} characters` };
+  return terms;
+}
+
+export function parseLogInput(raw: unknown): Parsed<LogRequest> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  if (o.mark !== undefined && o.mark !== null && typeof o.mark !== 'boolean') return fail('mark must be true or false');
+  if (o.since !== undefined && o.since !== null && typeof o.since !== 'string') return fail('since must be a string');
+  const filter = logTerms(o, 'filter');
+  if (!Array.isArray(filter)) return fail(filter.error);
+  const exclude = logTerms(o, 'exclude');
+  if (!Array.isArray(exclude)) return fail(exclude.error);
+  const given = (k: string): boolean => o[k] !== undefined && o[k] !== null;
+  if (o.mark === true) {
+    if (given('since') || given('filter') || given('exclude') || given('maxLines')) return fail('mark cannot be combined with since, filter, exclude or maxLines');
+    return { ok: true, value: { mark: true, filter: [], exclude: [], maxLines: DEFAULT_LOG_LINES } };
+  }
+  let since: LogMarker | undefined;
+  if (typeof o.since === 'string') {
+    since = decodeMarker(o.since);
+    if (!since) return fail('since is not a marker from ads_log');
+  }
+  let maxLines = DEFAULT_LOG_LINES;
+  if (given('maxLines')) {
+    const m = o.maxLines;
+    if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > MAX_LOG_LINES) return fail(`maxLines must be an integer from 1 to ${MAX_LOG_LINES}`);
+    maxLines = m;
+  }
+  const value: LogRequest = { filter, exclude, maxLines };
+  if (since) value.since = since;
+  return { ok: true, value };
 }
 
 export function parseCaptureInput(raw: unknown): Parsed<CaptureRequest & { symbols: string[] }> {

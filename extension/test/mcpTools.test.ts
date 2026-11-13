@@ -39,7 +39,7 @@ function deferred<T>(): Deferred<T> {
 const tick = () => new Promise<void>(r => setImmediate(r));
 
 const POLICY: GatePolicy = { dialogMs: 100_000, operationMs: 150_000, maxQueued: 10 };
-const descriptors: ToolDescriptor[] = ['symbols', 'watch', 'read', 'scope', 'wait', 'write', 'config', 'preset', 'capture'].map(x => ({
+const descriptors: ToolDescriptor[] = ['symbols', 'watch', 'read', 'scope', 'wait', 'write', 'config', 'preset', 'capture', 'log'].map(x => ({
   name: `ads_${x}`, description: `Description of ${x}.`, inputSchema: { type: 'object', properties: { x: { type: 'string' } } },
 }));
 const fns = (over: Partial<AdsToolFns> = {}): AdsToolFns => ({
@@ -51,6 +51,7 @@ const fns = (over: Partial<AdsToolFns> = {}): AdsToolFns => ({
   config: async i => ({ text: `config ${JSON.stringify(i)}` }),
   preset: async i => ({ text: `preset ${JSON.stringify(i)}` }),
   capture: async i => ({ text: `capture ${i.symbol}` }),
+  log: async i => ({ text: `log ${JSON.stringify(i)}` }),
   ...over,
 });
 
@@ -75,10 +76,10 @@ const result = async (p: Promise<string | undefined>) => JSON.parse((await p) ??
 
 // ---- tests ----
 
-test('tools/list names the nine ads_ tools with their schemas', async () => {
+test('tools/list names the ten ads_ tools with their schemas', async () => {
   const r = rig();
   const list = JSON.parse((await r.session.handle(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })))!).result.tools;
-  assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture']);
+  assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log']);
   assert.deepEqual(list[5].inputSchema, descriptors[5].inputSchema);
   assert.equal(list[0].description, 'Description of symbols.');
 });
@@ -227,11 +228,11 @@ test('policy is undefined when the timeout leaves no room for a dialog', () => {
   assert.deepEqual(gatePolicyFor(21_000), { dialogMs: 6_000, operationMs: 11_000, maxQueued: 10 });
 });
 
-test('the manifest declares the nine tools in client-neutral words', () => {
+test('the manifest declares the ten tools in client-neutral words', () => {
   // out/test/*.js -> the extension's package.json is two levels up
   const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
   const found = descriptorsFromManifest(manifest);
-  assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture']);
+  assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log']);
   const wait = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')).contributes.languageModelTools.find((t: { name: string }) => t.name === 'iecode_ads_wait');
   assert.deepEqual(wait.inputSchema.required, ['symbol', 'condition']);
   const watch = found.find(d => d.name === 'ads_watch') as { inputSchema: { properties: { list: { type: string } } } };
@@ -243,7 +244,7 @@ test('the manifest declares the nine tools in client-neutral words', () => {
   assert.equal((props.group as unknown as { maxLength: number }).maxLength, 64);
   for (const d of found) {
     assert.ok(d.description.length > 20);
-    assert.doesNotMatch(d.description, /#?ads(Watch|Scope|Read|Write|Symbols|Wait|Config|Preset|Capture)\b/, `${d.name} names a Copilot tool`);
+    assert.doesNotMatch(d.description, /#?ads(Watch|Scope|Read|Write|Symbols|Wait|Config|Preset|Capture|Log)\b/, `${d.name} names a Copilot tool`);
     assert.doesNotMatch(d.description, /Always Allow/, `${d.name} carries a per-client approval detail`);
   }
 });
@@ -292,4 +293,13 @@ test('ads_preset passes validated arguments and refuses a preset without a path'
   assert.equal(bad.isError, true);
   assert.match(bad.content[0].text, /^Invalid arguments: path is required with preset/);
   assert.equal(seen.length, 1);
+});
+
+test('ads_log passes validated arguments and refuses a marker that names a path', async () => {
+  const seen: unknown[] = [];
+  const r = rig({ log: async i => { seen.push(i); return { text: 'log ok' }; } });
+  assert.equal((await result(r.session.handle(call(50, 'ads_log', { since: 'Log_1.log@12', filter: ['err'] })))).content[0].text, 'log ok');
+  assert.deepEqual(seen, [{ since: { file: 'Log_1.log', offset: 12 }, filter: ['err'], exclude: [], maxLines: 100 }]);
+  const bad = await result(r.session.handle(call(51, 'ads_log', { since: '../x.log@1' })));
+  assert.match(bad.content[0].text, /^Invalid arguments: since is not a marker from ads_log/);
 });

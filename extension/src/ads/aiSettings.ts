@@ -1,6 +1,7 @@
 // Settings readers shared by the ADS watch view and the LM tools, so the view does not depend on the tools module.
 
 import * as vscode from 'vscode';
+import { checkLogDirectory } from '../core/logRead';
 import { workspaceOverrides } from '../core/adswatch';
 
 /**
@@ -27,4 +28,12 @@ export function workspaceTarget(): boolean {
     const c = vscode.workspace.getConfiguration('iecode.ads', uri);
     return workspaceOverrides(c.inspect<string>('target')) || workspaceOverrides(c.inspect<number>('port'));
   });
+}
+
+/**
+ * `iecode.ads.logDirectory` from the user settings only (a workspace value could point the log tool at any folder, and the
+ * tool returns file content to the AI). Unset, not a string or not a full path gives the reason as text.
+ */
+export function logDirectorySetting(): { dir: string } | { problem: string } {
+  return checkLogDirectory(vscode.workspace.getConfiguration('iecode.ads').inspect<unknown>('logDirectory')?.globalValue);
 }

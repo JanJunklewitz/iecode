@@ -22,6 +22,7 @@ import { isEncrypted } from './core/projects';
 import { registerVisuEditor } from './views/visuEditor';
 import { registerAiChat } from './commands/aiChat';
 import { showProjectSettings } from './views/projectSettings';
+import { showConfigPanel } from './views/configPanel';
 import { registerPlcArchiveEditor } from './views/plcArchiveEditor';
 import { registerTmcViewer } from './views/tmcViewer';
 import { registerAdsWatch } from './views/adsWatch';
@@ -151,6 +152,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     const tsproj = sln?.projects.find(p => !p.plcOnly && p.plcs.some(x => node && 'unit' in node && x.file === node.unit.plc.file))?.file;
     showIoLinks(ctx, state, tsproj);
   }));
+  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.openConfig', () => showConfigPanel(ctx)));
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.adsInterface', (n?: Node) =>
     showAdsInterface(ctx, state, n && 'unit' in n ? n.unit.plc.file : undefined)));
   // tree node, a .plcproj (explorer / editor) or a pick of the workspace's PLC projects
