@@ -512,6 +512,12 @@
         "icon": "$(shield)"
       },
       {
+        "command": "iecode.openConfig",
+        "title": "Settings…",
+        "category": "IECode",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "iecode.mcpConnect",
         "title": "Connect Claude Code",
         "category": "IECode"
@@ -763,6 +769,11 @@
           "command": "iecode.mcpDisconnect",
           "when": "view == iecode.adsWatch && isWindows && !remoteName",
           "group": "ai@4"
+        },
+        {
+          "command": "iecode.openConfig",
+          "when": "view == iecode.adsWatch",
+          "group": "settings@1"
         }
       ],
       "view/item/context": [
@@ -1386,6 +1397,12 @@
           "default": [],
           "scope": "application",
           "markdownDescription": "Path prefixes AI tools may write, e.g. `MAIN.Sim` or `GVL.Test`. A prefix matches the symbol itself and everything below it, not other names that merely start with the same letters. Empty (default): every symbol is allowed. User settings only, so a workspace cannot widen it. The list limits symbol names, not machines: it does not say which PLC a name is written on."
+        },
+        "iecode.ads.logDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Folder with the TwinCAT log files, read by the AI tool **ADS Log**. User settings only; a workspace value is ignored. The log of the machine this editor runs on, not necessarily of the ADS target. Must be a full path."
         }
       }
     },
@@ -1788,6 +1805,59 @@
             "symbol",
             "condition"
           ]
+        }
+      },
+      {
+        "name": "iecode_ads_log",
+        "toolReferenceName": "adsLog",
+        "displayName": "ADS Log",
+        "userDescription": "Read new lines of the TwinCAT log file since a marker.",
+        "modelDescription": "Reads lines of the TwinCAT log file written after a marker. Call with mark: true before a test step to get a marker, then call with since: <marker> to read only what was logged afterwards. filter keeps lines containing any of the given texts, exclude drops lines containing any of them (for example exclude: [\"DEBUG\"]); both are plain text, case-insensitive. Without since it returns the last lines of the newest file. Each result ends with the marker to continue from. A new log file (for example after a PLC restart) is followed automatically. A marker means the end of the last complete line, so a line that was still being written when the marker was taken is returned by a later call. Read-only.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "mark": {
+              "type": "boolean",
+              "description": "Return a marker for the current end of the log instead of lines. Cannot be combined with the other fields."
+            },
+            "since": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "A marker returned by an earlier ads_log call."
+            },
+            "filter": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              "description": "Keep lines containing any of these texts (case-insensitive)."
+            },
+            "exclude": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              "description": "Drop lines containing any of these texts (case-insensitive)."
+            },
+            "maxLines": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "description": "Most lines to return (default 100)."
+            }
+          }
         }
       }
     ],

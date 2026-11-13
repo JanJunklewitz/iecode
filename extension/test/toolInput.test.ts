@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, writeKey } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, parseLogInput, writeKey } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -210,4 +210,30 @@ test('writeKey keys the whole batch and keeps the single key', () => {
   assert.equal(writeKey({ symbol: 'MAIN.x', value: '1' }), JSON.stringify(['MAIN.x', '1']));
   assert.notEqual(writeKey({ writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '2' }] }), writeKey({ writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '3' }] }));
   assert.notEqual(writeKey({ writes: [{ symbol: 'A', value: '1' }] }), writeKey({ symbol: 'A', value: '1' }));
+});
+
+test('parseLogInput defaults', () => {
+  assert.deepEqual(parseLogInput({}), { ok: true, value: { filter: [], exclude: [], maxLines: 100 } });
+  assert.deepEqual(parseLogInput(undefined), { ok: true, value: { filter: [], exclude: [], maxLines: 100 } });
+});
+test('parseLogInput accepts mark alone and refuses mixing', () => {
+  assert.deepEqual(parseLogInput({ mark: true }), { ok: true, value: { mark: true, filter: [], exclude: [], maxLines: 100 } });
+  assert.deepEqual(parseLogInput({ mark: true, filter: ['a'] }), { ok: false, error: 'mark cannot be combined with since, filter, exclude or maxLines' });
+  assert.deepEqual(parseLogInput({ mark: true, maxLines: 5 }), { ok: false, error: 'mark cannot be combined with since, filter, exclude or maxLines' });
+});
+test('parseLogInput decodes since and refuses a marker that names a path', () => {
+  assert.deepEqual(parseLogInput({ since: 'Log_1.log@12' }), { ok: true, value: { since: { file: 'Log_1.log', offset: 12 }, filter: [], exclude: [], maxLines: 100 } });
+  assert.deepEqual(parseLogInput({ since: '..\\Log_1.log@12' }), { ok: false, error: 'since is not a marker from ads_log' });
+  assert.deepEqual(parseLogInput({ since: 5 }), { ok: false, error: 'since must be a string' });
+});
+test('parseLogInput trims and limits terms and maxLines', () => {
+  assert.deepEqual(parseLogInput({ filter: [' err '], exclude: ['DEBUG'], maxLines: 7 }), { ok: true, value: { filter: ['err'], exclude: ['DEBUG'], maxLines: 7 } });
+  assert.deepEqual(parseLogInput({ filter: ['x'.repeat(101)] }), { ok: false, error: 'filter entries must be 1 to 100 characters' });
+  assert.deepEqual(parseLogInput({ exclude: new Array(11).fill('a') }), { ok: false, error: 'exclude may have at most 10 entries' });
+  assert.deepEqual(parseLogInput({ filter: [' '] }), { ok: false, error: 'filter entries must be 1 to 100 characters' });
+  assert.deepEqual(parseLogInput({ maxLines: 501 }), { ok: false, error: 'maxLines must be an integer from 1 to 500' });
+  assert.deepEqual(parseLogInput({ maxLines: 0 }), { ok: false, error: 'maxLines must be an integer from 1 to 500' });
+  assert.deepEqual(parseLogInput({ maxLines: 1.5 }), { ok: false, error: 'maxLines must be an integer from 1 to 500' });
+  assert.deepEqual(parseLogInput({ filter: 'a' }), { ok: false, error: 'filter must be a list of strings' });
+  assert.deepEqual(parseLogInput([]), { ok: false, error: 'arguments must be an object' });
 });
