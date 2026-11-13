@@ -1477,6 +1477,12 @@
               "type": "integer",
               "minimum": 0,
               "description": "Skip this many matches; pages are 100 rows."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Rows per page, 1 to 100 (default 100). A small limit keeps a narrow look-up cheap; continue with offset."
             }
           }
         }

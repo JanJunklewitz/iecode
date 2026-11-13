@@ -24,7 +24,7 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number }
+export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
@@ -176,8 +176,10 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      const matches = all.slice(query.offset, query.offset + PAGE_SIZE);
-      const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
+      // a smaller page than the default keeps a narrow look-up cheap
+      const page = typeof input.limit === 'number' && Number.isInteger(input.limit) && input.limit >= 1 && input.limit <= PAGE_SIZE ? input.limit : PAGE_SIZE;
+      const matches = all.slice(query.offset, query.offset + page);
+      const listing = symbolsText({ headers, matches, total: all.length, max: page, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 
