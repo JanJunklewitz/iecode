@@ -110,8 +110,8 @@ test('symbols listing', () => {
 
 test('symbols listing: a library without a build says so instead of looking like an empty filter result', () => {
   const base = { headers: [] as string[], offset: 0, matches: [] as string[], total: 0, max: 100, typed: 'a', missing: [], unreadable: [], units: 1 };
-  assert.equal(symbolsText({ ...base, libraries: ['ScT_Lib'] }),
-    'No symbols match "a".\nNot built, so not listed (no .tmc): ScT_Lib. It is a library: it has symbols only when it has its own MAIN and was built. The PLC project may be in another workspace.');
+  assert.equal(symbolsText({ ...base, libraries: ['MyLib'] }),
+    'No symbols match "a".\nNot built, so not listed (no .tmc): MyLib. It is a library: it has symbols only when it has its own MAIN and was built. The PLC project may be in another workspace.');
   assert.equal(symbolsText({ ...base, missing: ['P1'], libraries: ['L1', 'L2'] }),
     'No symbols match "a".\nNot built, so not listed (no .tmc): P1\nNot built, so not listed (no .tmc): L1, L2. They are libraries: they have symbols only when they have their own MAIN and were built. The PLC project may be in another workspace.');
   assert.equal(symbolsText({ ...base, libraries: [] }), 'No symbols match "a".');

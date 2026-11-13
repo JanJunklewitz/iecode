@@ -29,6 +29,10 @@
     - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
 - [ ] **ADS MCP: batch write in the same PLC cycle**: Plan C sends several values as one ADS request, which does not guarantee that the PLC sees them in the same cycle. A same-cycle write needs a PLC-side handshake (e.g. a library block that takes the values and applies them in one cycle). Deferred by user decision 2026-11-09; see [docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md](docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
 - [ ] **ADS MCP: event order across several PLC tasks**: the PLC-cycle timestamp work (Plan E7) only promises an order for symbols of one task. Comparing task timestamps across tasks is deferred by user decision 2026-11-09.
+- [ ] **ADS MCP: manual checks of the `ads_symbols` changes**: three changes are covered by unit tests but were not tried in the installed extension against a built PLC project.
+  - [ ] Library workspace without build output: `ads_symbols` names the library as "not built" and says the PLC project may be in another workspace (instead of "No symbols match").
+  - [ ] Array of function blocks: a prefix such as `MAIN.afbX[2].` lists the members of that element, an index outside the bounds lists nothing, and the plain list does not repeat the members for every element. Also check the spelling of several indexes (`[1,2]`) against names that TwinCAT writes in a real `.tmc`.
+  - [ ] `limit`: a small page (for example `limit: 10`) returns that many rows and the page note continues with the right `offset`.
 - [ ] **Log file viewer**: a dedicated viewer for log files with filters and a cleaner, more readable presentation than the raw text.
   - Filters: severity (info / warning / error), time range, free text and regex, source / module, with the number of hidden lines per filter.
   - Presentation: parsed columns (time, severity, source, message), color per severity, collapsed multi-line entries (stack traces, long payloads), relative timestamps and gaps between entries.
