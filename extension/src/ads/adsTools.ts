@@ -9,7 +9,7 @@ import { pickEnum } from '../core/enumLookup';
 import { ConfigRunner, bufferEstimate } from '../core/adsConfig';
 import { CaptureDeps, runCapture } from '../core/captureRun';
 import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
-import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
+import { PAGE_SIZE, SymbolQuery, elementPrefixes, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
@@ -24,7 +24,7 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number }
+export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[] }
 export type ScopeInput = Partial<ScopeArgs>;
@@ -162,21 +162,24 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const all: string[] = [];
       const missing: string[] = [];
       const unreadable: string[] = [];
+      const libraries: string[] = [];
       const headers: string[] = [];
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
       for (const u of units) {
         try {
-          const built = await fromBuild(u.plc, true);
+          const built = await fromBuild(u.plc, true, elementPrefixes(query.prefix));
           headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
           for (const s of built.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
         } catch (e) {
-          if (e instanceof NoBuildOutputError) { if (!u.plc.isLibrary) missing.push(u.plc.name); }
+          if (e instanceof NoBuildOutputError) { (u.plc.isLibrary ? libraries : missing).push(u.plc.name); }
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
-      const matches = all.slice(query.offset, query.offset + PAGE_SIZE);
-      const listing = symbolsText({ headers, matches, total: all.length, max: PAGE_SIZE, offset: query.offset, typed, missing, unreadable, units: units.length });
+      // a smaller page than the default keeps a narrow look-up cheap
+      const page = typeof input.limit === 'number' && Number.isInteger(input.limit) && input.limit >= 1 && input.limit <= PAGE_SIZE ? input.limit : PAGE_SIZE;
+      const matches = all.slice(query.offset, query.offset + page);
+      const listing = symbolsText({ headers, matches, total: all.length, max: page, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 
