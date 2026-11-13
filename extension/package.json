@@ -1439,7 +1439,7 @@
         "toolReferenceName": "adsSymbols",
         "displayName": "ADS Symbols",
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
-        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1466,7 +1466,7 @@
             "prefix": {
               "type": "string",
               "maxLength": 512,
-              "description": "Start of the ADS name; a trailing dot, e.g. MAIN.fbMotor., lists only the direct members of that instance with their types."
+              "description": "Start of the ADS name; a trailing dot, e.g. MAIN.fbMotor., lists only the direct members of that instance with their types. The members of one array element are listed only when the prefix names it, e.g. MAIN.afbMotor[2]. (every element has the same members)."
             },
             "type": {
               "type": "string",

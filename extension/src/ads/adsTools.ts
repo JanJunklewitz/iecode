@@ -9,7 +9,7 @@ import { pickEnum } from '../core/enumLookup';
 import { ConfigRunner, bufferEstimate } from '../core/adsConfig';
 import { CaptureDeps, runCapture } from '../core/captureRun';
 import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
-import { PAGE_SIZE, SymbolQuery, matchesQuery, queryText } from '../core/symbolQuery';
+import { PAGE_SIZE, SymbolQuery, elementPrefixes, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
@@ -168,7 +168,7 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const units = state.current.units;
       for (const u of units) {
         try {
-          const built = await fromBuild(u.plc, true);
+          const built = await fromBuild(u.plc, true, elementPrefixes(query.prefix));
           headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
           for (const s of built.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
         } catch (e) {

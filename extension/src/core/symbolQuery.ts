@@ -15,10 +15,21 @@ function sameType(want: string, have: string): boolean {
   return !/[([]/.test(want) && have.replace(/[([][^)\]]*[)\]]$/, '') === want;
 }
 
+/** The array elements a prefix names (`A[1].B[2].` gives `A[1]` and `A[1].B[2]`): their members are not in the symbol list unless asked for. */
+export function elementPrefixes(prefix: string): string[] {
+  const out: string[] = [];
+  for (const m of prefix.matchAll(/\[[^\]]*\]/g)) {
+    const end = m.index! + m[0].length;
+    if (prefix[end] === '.') out.push(prefix.slice(0, end));
+  }
+  return out;
+}
+
 export function matchesQuery(s: { name: string; type: string }, q: SymbolQuery): boolean {
   const name = s.name.toLowerCase();
   if (q.filter && !name.includes(q.filter.toLowerCase())) return false;
-  const prefix = q.prefix.toLowerCase();
+  // symbol names write several indexes as [1,2]
+  const prefix = q.prefix.toLowerCase().replace(/\s*,\s*/g, ',');
   if (prefix) {
     if (!name.startsWith(prefix)) return false;
     // a trailing dot lists direct members only, so an instance does not flood the answer with its subtree
