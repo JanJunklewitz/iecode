@@ -14,7 +14,11 @@ import { promises as fsp } from 'fs';
 import { buildHeader } from '../core/symbolOrigin';
 import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
 import type { CaptureInput } from '../core/mcpTools';
-import { ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
+
+import { encodeMarker, logText, markNow, readLog } from '../core/logRead';
+import { logDirectorySetting } from './aiSettings';
+import { nodeLogFs } from './logFs';
+import { LogRequest, ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
 import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
@@ -201,6 +205,22 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           const results = await host.read(presetSymbols(path, members));
           return ok(presetText({ path, preset: input.preset!, target: host.target(), results }));
         });
+      } catch (e) {
+        return failure(e);
+      }
+    },
+
+    /** New lines of the TwinCAT log since a marker; reads files only, never touches the PLC. */
+    async log(input: LogRequest): Promise<ToolText> {
+      const setting = logDirectorySetting();
+      if ('problem' in setting) return { text: `Error: ${setting.problem}`, isError: true };
+      try {
+        const fs = nodeLogFs(setting.dir);
+        if (input.mark) {
+          const m = await markNow(fs);
+          return ok(m ? `Marker: "${encodeMarker(m)}" (end of ${m.file}). Pass it as since to read what is written afterwards.` : `No .log file in ${setting.dir}.`);
+        }
+        return ok(logText(await readLog(fs, input), input, setting.dir));
       } catch (e) {
         return failure(e);
       }

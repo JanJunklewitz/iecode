@@ -11,6 +11,7 @@ export const LM_TOOL_NAMES = [
   'iecode_ads_config',
   'iecode_ads_preset',
   'iecode_ads_capture',
+  'iecode_ads_log',
 ] as const;
 
 export type LmToolName = (typeof LM_TOOL_NAMES)[number];

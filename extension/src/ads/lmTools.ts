@@ -8,7 +8,7 @@ import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
 import { writeKey } from '../core/toolInput';
 import { confirmMessage } from '../core/writeText';
-import { parseCaptureInput, parseConfigInput, parsePresetInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
+import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
 import { lmToolEntries } from '../core/lmToolTable';
 import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
 import { writePolicyReason } from '../core/writePolicy';
@@ -91,6 +91,14 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     },
   };
 
+  const logTool: vscode.LanguageModelTool<{ mark?: boolean; since?: string; filter?: string[]; exclude?: string[]; maxLines?: number }> = {
+    prepareInvocation: () => ({ invocationMessage: 'Reading the TwinCAT log' }),
+    async invoke(opts) {
+      const parsed = parseLogInput(opts.input);
+      return text(parsed.ok ? (await tools.log(parsed.value)).text : `Invalid arguments: ${parsed.error}`);
+    },
+  };
+
   const configTool: vscode.LanguageModelTool<{ pollMs?: number; bufferSeconds?: number }> = {
     prepareInvocation: () => ({ invocationMessage: 'Reading or changing the ADS sampling' }),
     async invoke(opts, token) {
@@ -164,7 +172,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     // one handler per tool the manifest declares (the table type and a test keep both lists in step)
     ...lmToolEntries<vscode.LanguageModelTool<any>>({
       iecode_ads_symbols: symbolsTool, iecode_ads_watch: watchTool, iecode_ads_read: readTool,
-      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool, iecode_ads_preset: presetTool, iecode_ads_capture: captureTool,
+      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool, iecode_ads_preset: presetTool, iecode_ads_capture: captureTool, iecode_ads_log: logTool,
     }).map(([name, tool]) => vscode.lm.registerTool(name, tool)),
     vscode.commands.registerCommand('iecode.adsWatchAiChat', async () => {
       const symbols = host.watched();
