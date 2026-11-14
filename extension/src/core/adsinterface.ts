@@ -97,11 +97,25 @@ export function typeOf(n: XNode, typeElement: string, src: string): string {
 }
 
 /** `key`: data type to expand (namespace-qualified), undefined for arrays and pointers. */
-interface TmcMember { name: string; type: string; bitSize?: number; comment?: string; key?: string }
+interface TmcMember { name: string; type: string; bitSize?: number; comment?: string; key?: string; elementKey?: string }
 interface TmcType { name: string; members: TmcMember[]; extends?: string; alias?: string }
 
-/** Symbols of a .tmc file; `members` expands structs and function blocks (not arrays and pointers). */
-export function fromTmc(xml: string, members = false): AdsSymbol[] {
+/** An array whose elements are not pointers: the element type decides what members an element has. */
+const ARRAY_OF = /^ARRAY \[([^\]]*)\] OF (?!POINTER TO |REFERENCE TO )/;
+
+/** The index list of an element name like `a[2, 1]` checked against the bounds of `ARRAY [1..2, 0..1] OF T`, joined without blanks; undefined when it does not fit. */
+function elementIndex(arrayType: string, raw: string): string | undefined {
+  const bounds = [...(ARRAY_OF.exec(arrayType)?.[1] ?? '').matchAll(/(-?\d+)\.\.(-?\d+)/g)].map(m => [Number(m[1]), Number(m[2])]);
+  const idx = raw.split(',').map(i => i.trim());
+  if (!bounds.length || idx.length !== bounds.length || !idx.every((i, k) => /^-?\d{1,9}$/.test(i) && Number(i) >= bounds[k][0] && Number(i) <= bounds[k][1])) return undefined;
+  return idx.map(i => String(Number(i))).join(',');
+}
+
+/**
+ * Symbols of a .tmc file; `members` expands structs and function blocks (not arrays and pointers). The members of single array
+ * elements are listed only for the names in `elements` (like `MAIN.afbMotor[2]`): every element has the same members, so listing all of them would flood the answer.
+ */
+export function fromTmc(xml: string, members = false, elements: string[] = []): AdsSymbol[] {
   const src = xml.replace(/^﻿/, '');
   const root = parseXml(src);
   const types = new Map<string, TmcType>();
@@ -112,7 +126,8 @@ export function fromTmc(xml: string, members = false): AdsSymbol[] {
     const items = dt.children.filter(s => (s.name === 'SubItem' || s.name === 'PropertyItem') && textOf(kid(s, 'Name'), src)).map(s => {
       const type = typeOf(s, 'Type', src);
       return { name: textOf(kid(s, 'Name'), src)!, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src),
-        key: type === (textOf(kid(s, 'Type'), src) ?? '') ? keyOf(kid(s, 'Type'), src) : undefined };
+        key: type === (textOf(kid(s, 'Type'), src) ?? '') ? keyOf(kid(s, 'Type'), src) : undefined,
+        elementKey: ARRAY_OF.test(type) ? keyOf(kid(s, 'Type'), src) : undefined };
     });
     const alias = !kid(dt, 'ArrayInfo') && !items.length ? keyOf(kid(dt, 'BaseType'), src) || undefined : undefined;
     const type: TmcType = { name: textOf(name, src) ?? '', members: items, extends: keyOf(kid(dt, 'ExtendsType'), src) || undefined, alias };
@@ -131,12 +146,15 @@ export function fromTmc(xml: string, members = false): AdsSymbol[] {
 
   const out: AdsSymbol[] = [];
   const seen = new Set<string>();
+  const arrays = new Map<string, { name: string; type: string; key: string; area: string | undefined }>();
   const add = (s: AdsSymbol) => { if (seen.has(U(s.name))) return false; seen.add(U(s.name)); out.push(s); return true; };
   const expand = (parent: string, typeKey: string, area: string | undefined, depth: number) => {
     if (depth > MAX_DEPTH) return;
     for (const m of membersOf(typeKey, new Set())) {
       const name = `${parent}.${m.name}`;
-      if (add({ name, type: m.type, bitSize: m.bitSize, comment: m.comment, area }) && m.key && find(m.key)) expand(name, m.key, area, depth + 1);
+      const added = add({ name, type: m.type, bitSize: m.bitSize, comment: m.comment, area });
+      if (added && m.elementKey) arrays.set(U(name), { name, type: m.type, key: m.elementKey, area });
+      if (added && m.key && find(m.key)) expand(name, m.key, area, depth + 1);
     }
   };
 
@@ -147,7 +165,15 @@ export function fromTmc(xml: string, members = false): AdsSymbol[] {
     const area = textOf(kid(s.parent, 'Name'), src);
     const type = typeOf(s, 'BaseType', src);
     if (!add({ name, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src), area })) continue;
+    if (ARRAY_OF.test(type)) arrays.set(U(name), { name, type, key: keyOf(kid(s, 'BaseType'), src), area });
     if (members && type === (textOf(kid(s, 'BaseType'), src) ?? '')) expand(name, keyOf(kid(s, 'BaseType'), src), area, 1);
+  }
+  // in the order given, so that an array inside an element can be named after the element
+  if (members) for (const el of elements) {
+    const m = /^(.+)\[([^\]]+)\]$/.exec(el.trim());
+    const arr = m ? arrays.get(U(m[1])) : undefined;
+    const index = m && arr ? elementIndex(arr.type, m[2]) : undefined;
+    if (arr && index !== undefined && find(arr.key)) expand(`${arr.name}[${index}]`, arr.key, arr.area, 1);
   }
   return byName(out);
 }
@@ -331,14 +357,14 @@ const OBJECT_EXT = /\.(TcPOU|TcGVL|TcDUT)$/i;
 /** The PLC project has no build output (.tmc) yet; other errors of fromBuild mean the output is there but unreadable. */
 export class NoBuildOutputError extends Error {}
 
-export async function fromBuild(plc: PlcProject, members = false): Promise<AdsInterface> {
+export async function fromBuild(plc: PlcProject, members = false, elements: string[] = []): Promise<AdsInterface> {
   const file = await findTmc(plc.file);
   if (!file) throw new NoBuildOutputError(`No build output for ${plc.name}: TwinCAT writes ${plc.name}.tmc next to the .plcproj when it builds the PLC project. Build it first, or show the interface from the source code.`);
   const built = (await fs.stat(file)).mtimeMs;
   // a file that cannot be read is skipped, as before
   const times = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(f => fs.stat(f).then(s => ({ file: f, mtimeMs: s.mtimeMs }), () => ({ file: f, mtimeMs: 0 }))));
   const newer = newerSources(built, times);
-  return { origin: 'build', file, stale: newer.length > 0, builtAt: new Date(built), newerSources: newer, symbols: fromTmc(await fs.readFile(file, 'utf8'), members) };
+  return { origin: 'build', file, stale: newer.length > 0, builtAt: new Date(built), newerSources: newer, symbols: fromTmc(await fs.readFile(file, 'utf8'), members, elements) };
 }
 
 /** Interface from the source code in the working copy, or at a git commit when `ref` is set. */
