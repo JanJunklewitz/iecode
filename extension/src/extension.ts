@@ -7,6 +7,7 @@ import { showGraph } from './views/graph';
 import { showLibraryManager } from './views/libraryManager';
 import type { Node } from './views/tree';
 import * as objects from './commands/objects';
+import * as projectFiles from './commands/projectFiles';
 import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
 import * as commentColor from './lang/commentColor';
@@ -115,6 +116,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       showLibraryManager(ctx, state, n?.kind === 'reference' ? n.ref.effective.name : undefined)),
   );
   objects.register(ctx, state);
+  projectFiles.register(ctx, state);
   engineering.register(ctx, state);
   language.register(ctx, state, libraries);
   commentColor.register(ctx);
