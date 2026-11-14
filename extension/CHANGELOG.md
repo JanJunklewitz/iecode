@@ -11,6 +11,11 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 - The project tree shows the folders inside a function block, program or interface (TwinCAT `FolderPath`). **Add Folder…** on a POU or one of its folders and **Move to Folder…** on a member edit them; new members added from a folder go into it. Setting `iecode.memberGrouping` shows members grouped by kind (Methods, Properties …) or as one list instead.
 - **UML Class Diagram** (project tree title bar and context menu, editor context menu, command palette) draws the function blocks and interfaces of a project, folder or the whole workspace, or the hierarchy around one function block: inheritance, implemented interfaces and composed function blocks. Click a class to open it; export as Mermaid, PlantUML or SVG.
 
+### PLC projects
+- Files added in the VS Code Explorer now get an entry in the `.plcproj`. New, pasted and dragged object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders are added together with their parent folders. Renaming or moving one updates its entry, and deleting one removes it. Before, only objects added from the IECode view got an entry, and TwinCAT did not show files added any other way.
+- An empty new `.TcPOU`, `.TcDUT`, `.TcGVL` or `.TcIO` (Explorer › New File) gets a template named after the file. For a POU or DUT you pick the kind. A pasted copy gets the file's name and new GUIDs, so it no longer clashes with the original. Renaming such a file in the Explorer also renames the object inside it.
+- The new setting `iecode.syncProjectFiles` (on by default) turns this off. Changes made outside VS Code (git, TwinCAT) are never synced.
+
 ## 0.2.14
 
 ### Release
