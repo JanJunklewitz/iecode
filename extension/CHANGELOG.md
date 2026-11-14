@@ -2,6 +2,13 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### PLC projects
+- Files added in the VS Code Explorer now get an entry in the `.plcproj`. New, pasted and dragged object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders are added together with their parent folders. Renaming or moving one updates its entry, and deleting one removes it. Before, only objects added from the IECode view got an entry, and TwinCAT did not show files added any other way.
+- An empty new `.TcPOU`, `.TcDUT`, `.TcGVL` or `.TcIO` (Explorer › New File) gets a template named after the file. For a POU or DUT you pick the kind. A pasted copy gets the file's name and new GUIDs, so it no longer clashes with the original. Renaming such a file in the Explorer also renames the object inside it.
+- The new setting `iecode.syncProjectFiles` (on by default) turns this off. Changes made outside VS Code (git, TwinCAT) are never synced.
+
 ## 0.2.14
 
 ### Release

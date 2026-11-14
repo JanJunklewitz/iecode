@@ -48,6 +48,7 @@ FB_Motor.TcPOU (XML on disk)                 Editor (iecode:/…/FB_Motor.TcPOU)
 | **Plain-ST editor** for POUs, DUTs, GVLs, interfaces; outline, folding, highlighting, snippets | ✔ | ✔ |
 | **IECode view** in the activity bar: Libraries / Applications / Standalone PLC, references, folders, objects, members | ✔ | ✔ |
 | **Add** Function Block (EXTENDS, IMPLEMENTS with stubs), Program, Function, Interface, Struct, Enum, Union, Alias, GVL, folder; **add** Method, Property, Action, implement interface; **rename**, **delete** | ✔ | ✔ |
+| **Project file sync**: object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders created, pasted, dragged, renamed, moved or deleted in the VS Code Explorer are added to, moved in or removed from the `.plcproj`; an empty new `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` gets a template named after the file, a copy gets the file's name and new GUIDs (`iecode.syncProjectFiles`) | ✔ | ✔ |
 | **Language features**: go to definition, find references, rename symbol, hover, completion after `.`, workspace symbols (Ctrl+T), live checks (unclosed IF/FOR/…, END_VAR, duplicate variables, ARRAY initializers: element count against the bounds, missing / double / trailing commas; hover an element for its index) | ✔ | ✔ |
 | **Workspace**: several solutions and loose `.plcproj` files, library links (⇄ workspace / pinned), dependency graph and build order | ✔ | ✔ |
 | **Library manager** (Installed / Updates / Consolidate / Browse) on the `.plcproj` files; sources: workspace, TwinCAT library repository, folders | ✔ | ✔ |
@@ -145,6 +146,7 @@ Or open this folder in VS Code and press F5.
 ## Known limits
 
 - Section order in the text doesn't reorder XML elements. A renamed section header counts as delete + add, so the member gets a new GUID.
+- Project file sync only follows changes made in VS Code. Files that git, TwinCAT or a script create or delete are not added to or removed from the `.plcproj`. An empty new visualization, task, text list, image pool or visualization manager file is not added: create those in TwinCAT XAE, or copy an existing one.
 - Renaming an object in the tree renames the file, its declaration and the `.plcproj` entry, but not references to it in other objects (use **Rename Symbol** for variables and members).
 - Name resolution covers locals, members, EXTENDS, qualified names, arrays, pointers, GVLs and enums of the workspace and of referenced libraries with sources (`.library`). A `.compiled-library` (e.g. most Beckhoff libraries) has no sources: its symbols are not known. Of a library, the version TwinCAT would use is read (`*`: the newest available).
 - Compiler messages are mapped to the ST view by object name; for errors in declarations the line may be off.
