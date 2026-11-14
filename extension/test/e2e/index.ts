@@ -225,6 +225,34 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('iecode.libraries');
   await vscode.commands.executeCommand('iecode.showGraph');
   await new Promise(r => setTimeout(r, 1000));
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+  // a function block that misses an interface member is underlined; the quick fix adds the stub
+  const plcDir = join(ws, 'ws/apps/MachineX/MachineX/PLC1');
+  const itfPath = join(plcDir, 'Interfaces/I_Motor.TcIO');
+  const fbPath = join(plcDir, 'POUs/Motion/FB_Motor.TcPOU');
+  await fs.writeFile(itfPath, (await fs.readFile(itfPath, 'utf8')).replace(/( {4}<\/Method>)(\r?\n)/, (_m, close: string, eol: string) =>
+    [close, '    <Method Name="Stop" Id="{cccccccc-0000-0000-0000-000000000003}">', '      <Declaration><![CDATA[METHOD Stop : BOOL', ']]></Declaration>', '    </Method>', ''].join(eol)));
+  await fs.writeFile(fbPath, (await fs.readFile(fbPath, 'utf8')).replace('FUNCTION_BLOCK FB_Motor', 'FUNCTION_BLOCK FB_Motor IMPLEMENTS I_Motor'));
+  await vscode.commands.executeCommand('iecode.refresh');
+  await vscode.commands.executeCommand('iecode.openAsST', vscode.Uri.file(fbPath));
+  const fbDoc = (await until(() => vscode.window.activeTextEditor?.document.uri.fsPath === fbPath ? vscode.window.activeTextEditor : undefined))!.document;
+  const missing = await until(() => vscode.languages.getDiagnostics(fbDoc.uri).find(d => d.code === 'iecode.missingMembers'));
+  assert.ok(missing, 'missing interface member is reported');
+  assert.match(missing.message, /I_Motor\.Stop/);
+  const fixes = await vscode.commands.executeCommand<vscode.CodeAction[]>('vscode.executeCodeActionProvider', fbDoc.uri, missing.range, vscode.CodeActionKind.QuickFix.value);
+  const fix = fixes.find(a => a.title === 'Implement method Stop');
+  assert.ok(fix?.edit, 'quick fix offered');
+  await vscode.workspace.applyEdit(fix.edit);
+  assert.match(fbDoc.getText(), /\/\/==== METHOD Stop ====\nMETHOD PUBLIC Stop : BOOL\n\/\/---- IMPLEMENTATION ----\n$/);
+  await until(() => !vscode.languages.getDiagnostics(fbDoc.uri).some(d => d.code === 'iecode.missingMembers') || undefined);
+  await fbDoc.save();
+  assert.match(await fs.readFile(fbPath, 'utf8'), /<Method Name="Stop"/);
+
+  // UML class diagram of the function block opens
+  await vscode.commands.executeCommand('iecode.umlDiagram', vscode.Uri.file(fbPath));
+  const umlTab = await until(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === 'UML: FB_Motor' || undefined);
+  assert.ok(umlTab, 'UML panel open');
 
   console.log('E2E OK');
 }

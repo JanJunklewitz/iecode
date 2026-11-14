@@ -4,6 +4,7 @@ import { decode, encode, hasXmlConflict, outline, HEADER_RE, IMPL_RE, ViewError,
 import { WorkspaceState } from './state';
 import { ProjectTree } from './views/tree';
 import { showGraph } from './views/graph';
+import { registerUml } from './views/umlDiagram';
 import { showLibraryManager } from './views/libraryManager';
 import type { Node } from './views/tree';
 import * as objects from './commands/objects';
@@ -114,9 +115,10 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('iecode.libraries', (n?: Node) =>
       showLibraryManager(ctx, state, n?.kind === 'reference' ? n.ref.effective.name : undefined)),
   );
-  objects.register(ctx, state);
+  const lang = language.register(ctx, state, libraries);
+  objects.register(ctx, state, lang);
   engineering.register(ctx, state);
-  language.register(ctx, state, libraries);
+  registerUml(ctx, state, lang);
   commentColor.register(ctx);
   mergeConflicts.register(ctx);
   compare.register(ctx);

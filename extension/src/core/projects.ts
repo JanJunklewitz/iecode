@@ -3,7 +3,7 @@
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { parseXml, XNode, child, cdataText } from '../xml';
+import { parseXml, XNode, child, cdataText, escapeAttr } from '../xml';
 
 export type ObjectType =
   | 'FUNCTION_BLOCK' | 'PROGRAM' | 'FUNCTION' | 'INTERFACE'
@@ -195,7 +195,14 @@ export async function describeObject(abs: string, rel: string): Promise<PlcObjec
 }
 
 /** Members of a POU or interface file: methods, properties (with accessors), actions, transitions. */
-export interface Member { kind: 'METHOD' | 'PROPERTY' | 'ACTION' | 'TRANSITION'; name: string; signature: string; get?: boolean; set?: boolean }
+export interface Member {
+  kind: 'METHOD' | 'PROPERTY' | 'ACTION' | 'TRANSITION'; name: string; signature: string; get?: boolean; set?: boolean;
+  /** Folder inside the POU (TwinCAT FolderPath, '/'-separated), unset at the top level. */
+  folder?: string;
+}
+
+/** TwinCAT FolderPath ("Internal\Sub\") to a '/'-separated folder path. */
+const folderOf = (fp: string | undefined) => fp?.split('\\').filter(Boolean).join('/') || undefined;
 
 const MEMBER_KIND: Record<string, Member['kind'] | undefined> = { Method: 'METHOD', Property: 'PROPERTY', Action: 'ACTION', Transition: 'TRANSITION' };
 
@@ -214,10 +221,82 @@ export function listMembers(xml: string): Member[] {
     const kind = MEMBER_KIND[c.name];
     if (!kind || !c.attrs.Name) continue;
     const m: Member = { kind, name: c.attrs.Name, signature: firstLine(decl(c)) };
+    const folder = folderOf(c.attrs.FolderPath);
+    if (folder) m.folder = folder;
     if (kind === 'PROPERTY') { m.get = !!child(c, 'Get'); m.set = !!child(c, 'Set'); }
     out.push(m);
   }
   return out;
+}
+
+/** Folders inside a POU / interface (declared <Folder> elements and folders named by members' FolderPath), '/'-separated, sorted. */
+export function listMemberFolders(xml: string): string[] {
+  const root = parseXml(stripBom(xml));
+  const main = child(root, 'TcPlcObject')?.children.find(c => ['POU', 'Itf'].includes(c.name));
+  if (!main) return [];
+  const out = new Set<string>();
+  const addWithParents = (f: string | undefined) => { const parts = f?.split('/') ?? []; parts.forEach((_p, i) => out.add(parts.slice(0, i + 1).join('/'))); };
+  for (const c of main.children) {
+    if (c.name === 'Folder' && c.attrs.Name) addWithParents([folderOf(c.attrs.FolderPath), c.attrs.Name].filter(Boolean).join('/'));
+    else if (MEMBER_KIND[c.name]) addWithParents(folderOf(c.attrs.FolderPath));
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+/** How members are shown below a POU: in its TwinCAT folders, grouped by kind, or as one list. */
+export type MemberGrouping = 'folders' | 'kind' | 'none';
+const MEMBER_KINDS: Member['kind'][] = ['METHOD', 'PROPERTY', 'ACTION', 'TRANSITION'];
+
+/** Children of a POU (or of one of its folders, `rel`): sub folders first, then members, both by name. */
+export function memberLevel(members: Member[], folders: string[], rel: string, grouping: MemberGrouping): { folders: string[]; members: Member[] } {
+  const byName = (a: Member, b: Member) => a.name.localeCompare(b.name);
+  if (grouping === 'none') return { folders: [], members: rel ? [] : [...members] };
+  if (grouping === 'kind') {
+    if (!rel) return { folders: MEMBER_KINDS.filter(k => members.some(m => m.kind === k)).map(k => '#' + k), members: [] };
+    return { folders: [], members: members.filter(m => '#' + m.kind === rel).sort(byName) };
+  }
+  const prefix = rel ? rel + '/' : '';
+  const sub = new Set<string>();
+  for (const f of folders) if (f.startsWith(prefix) && f !== rel) sub.add(prefix + f.slice(prefix.length).split('/')[0]);
+  return { folders: [...sub].sort((a, b) => a.localeCompare(b)), members: members.filter(m => (m.folder ?? '') === rel).sort(byName) };
+}
+
+const toFolderPath = (folder: string) => folder.split('/').filter(Boolean).map(p => p + '\\').join('');
+
+/** Adds a <Folder> element to a POU / interface ('/'-separated path; a nested folder carries its parent as FolderPath). */
+export function addMemberFolder(xml: string, folder: string, id: string): string {
+  const bom = xml.charCodeAt(0) === 0xfeff ? '\ufeff' : '';
+  const src = stripBom(xml);
+  if (listMemberFolders(src).some(f => f.toLowerCase() === folder.toLowerCase())) throw new Error(`Folder ${folder} already exists`);
+  const main = child(parseXml(src), 'TcPlcObject')?.children.find(c => ['POU', 'Itf'].includes(c.name));
+  if (!main) throw new Error('Folders can only be added to POUs and interfaces');
+  const parts = folder.split('/');
+  const name = parts.pop()!;
+  const parent = parts.join('/');
+  const eol = src.includes('\r\n') ? '\r\n' : '\n';
+  // TwinCAT writes folders after the implementation, before the members
+  const anchor = main.children.find(c => c.name === 'Folder' || MEMBER_KIND[c.name] || c.name === 'LineIds');
+  const lineStart = (pos: number) => src.lastIndexOf('\n', pos - 1) + 1;
+  const at = anchor ? lineStart(anchor.start) : lineStart(main.innerEnd);
+  const indent = anchor ? src.slice(lineStart(anchor.start), anchor.start) : src.slice(lineStart(main.start), main.start) + '  ';
+  const el = `${indent}<Folder Name="${escapeAttr(name)}" Id="${id}"${parent ? ` FolderPath="${escapeAttr(toFolderPath(parent))}"` : ''} />${eol}`;
+  return bom + src.slice(0, at) + el + src.slice(at);
+}
+
+/** Moves a member (method / property / action / transition) into a folder of its POU, or to the top level ('' folder). */
+export function moveMemberToFolder(xml: string, kind: Member['kind'], name: string, folder: string): string {
+  const bom = xml.charCodeAt(0) === 0xfeff ? '\ufeff' : '';
+  const src = stripBom(xml);
+  const main = child(parseXml(src), 'TcPlcObject')?.children.find(c => ['POU', 'Itf'].includes(c.name));
+  const node = main?.children.find(c => MEMBER_KIND[c.name] === kind && c.attrs.Name === name);
+  if (!node) throw new Error(`${kind.toLowerCase()} ${name} not found`);
+  const tagEnd = node.innerStart - 1;   // the start tag's '>'
+  let tag = src.slice(node.start, tagEnd);
+  const closing = tag.endsWith('/') ? '/' : '';
+  if (closing) tag = tag.slice(0, -1).trimEnd();
+  tag = tag.replace(/\s+FolderPath="[^"]*"/, '');
+  if (folder) tag += ` FolderPath="${escapeAttr(toFolderPath(folder))}"`;
+  return bom + src.slice(0, node.start) + tag + (closing ? ' /' : '') + src.slice(tagEnd);
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'bin', 'obj', 'out', '.vs']);

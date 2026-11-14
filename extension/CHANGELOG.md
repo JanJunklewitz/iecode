@@ -2,6 +2,15 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Function blocks
+- A function block that does not implement every abstract method / property of its base classes, or every member of the interfaces it (or a base class) implements, is underlined at its name with the list of what is missing. Interfaces extended by other interfaces and base classes from referenced libraries count too; abstract function blocks are not checked.
+- Quick fix **Implement missing members** (also in the editor context menu and on function blocks in the project tree) adds stubs for them: declarations copied from the interface or base class, `ABSTRACT` removed, `PUBLIC` added where an interface member has no access, properties with their GET / SET.
+- **Extend Function Block…** on a function block (workspace or library) creates a function block that `EXTENDS` it, with stubs for its abstract members and interfaces. The Add Object wizard does the same for the base class and interfaces picked there, and now offers base classes and interfaces from referenced libraries and other projects.
+- The project tree shows the folders inside a function block, program or interface (TwinCAT `FolderPath`). **Add Folder…** on a POU or one of its folders and **Move to Folder…** on a member edit them; new members added from a folder go into it. Setting `iecode.memberGrouping` shows members grouped by kind (Methods, Properties …) or as one list instead.
+- **UML Class Diagram** (project tree title bar and context menu, editor context menu, command palette) draws the function blocks and interfaces of a project, folder or the whole workspace, or the hierarchy around one function block: inheritance, implemented interfaces and composed function blocks. Click a class to open it; export as Mermaid, PlantUML or SVG.
+
 ## 0.2.14
 
 ### Release
