@@ -158,6 +158,11 @@ test('parseWriteInput refuses a bad batch before any dialog, with the item named
   assert.equal(parseWriteInput({ writes: Array.from({ length: 20 }, (_, i) => ({ symbol: `S${i}`, value: '1' })) }).ok, true);
 });
 
+test('parseSymbolsInput takes a page size from 1 to 100', () => {
+  assert.deepEqual(parseSymbolsInput({ filter: 'a', limit: 10 }), { ok: true, value: { filter: 'a', limit: 10 } });
+  for (const bad of [0, 101, 1.5, '10']) assert.deepEqual(parseSymbolsInput({ limit: bad }), { ok: false, error: 'limit must be a whole number from 1 to 100' });
+});
+
 test('parseSymbolsInput takes prefix, type and offset', () => {
   assert.deepEqual(parseSymbolsInput({ prefix: 'MAIN.', type: 'BOOL', offset: 100 }), { ok: true, value: { filter: '', prefix: 'MAIN.', type: 'BOOL', offset: 100 } });
   assert.deepEqual(parseSymbolsInput({ offset: -1 }), { ok: false, error: 'offset must be a whole number of 0 or more' });

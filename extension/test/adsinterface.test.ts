@@ -65,6 +65,23 @@ test('ADS interface: members expanded with EXTENDS and library types, not pointe
   assert.equal(s.find(x => x.name === 'MAIN.fbMotor.bEnable')!.comment, 'Enable the drive');
 });
 
+test('ADS interface: elements of an array of function blocks are expanded only when asked for', () => {
+  const tmc = TMC('<Symbol><Name>MAIN.afbMotor</Name><BitSize>576</BitSize><BaseType>FB_Motor</BaseType><ArrayInfo><LBound>0</LBound><Elements>3</Elements></ArrayInfo></Symbol>'
+    + '<Symbol><Name>MAIN.aGrid</Name><BitSize>576</BitSize><BaseType>FB_Base</BaseType><ArrayInfo><LBound>1</LBound><Elements>2</Elements></ArrayInfo><ArrayInfo><LBound>0</LBound><Elements>2</Elements></ArrayInfo></Symbol>',
+  '<SubItem><Name>aChild</Name><Type>FB_Base</Type><BitSize>128</BitSize><ArrayInfo><LBound>1</LBound><Elements>2</Elements></ArrayInfo></SubItem>');
+  const names = (s: { name: string }[], p: string) => s.map(x => x.name).filter(n => n.startsWith(p));
+  assert.deepEqual(names(fromTmc(tmc, true), 'MAIN.afbMotor['), []);
+  assert.deepEqual(names(fromTmc(tmc, true, ['MAIN.afbMotor[2]']), 'MAIN.afbMotor['), [
+    'MAIN.afbMotor[2].aChild', 'MAIN.afbMotor[2].bEnable', 'MAIN.afbMotor[2].fActualSpeed', 'MAIN.afbMotor[2].nState', 'MAIN.afbMotor[2].pNext',
+    'MAIN.afbMotor[2].stStatus', 'MAIN.afbMotor[2].stStatus.fSpeed']);
+  assert.deepEqual(names(fromTmc(tmc, true, ['main.AFBMOTOR[1]']), 'MAIN.afbMotor['), ['MAIN.afbMotor[1].aChild', 'MAIN.afbMotor[1].bEnable', 'MAIN.afbMotor[1].fActualSpeed', 'MAIN.afbMotor[1].nState', 'MAIN.afbMotor[1].pNext', 'MAIN.afbMotor[1].stStatus', 'MAIN.afbMotor[1].stStatus.fSpeed']);
+  // out of bounds, wrong number of indexes and a name that is no array give nothing
+  for (const bad of ['MAIN.afbMotor[3]', 'MAIN.afbMotor[-1]', 'MAIN.afbMotor[1,1]', 'MAIN.aGrid[1]', 'MAIN.fbMotor[0]', 'MAIN.afbMotor[x]']) assert.deepEqual(names(fromTmc(tmc, true, [bad]), `${bad.split('[')[0]}[`), [], bad);
+  // two indexes, and an array inside an element
+  assert.deepEqual(names(fromTmc(tmc, true, ['MAIN.aGrid[2, 1]']), 'MAIN.aGrid['), ['MAIN.aGrid[2,1].nState']);
+  assert.deepEqual(names(fromTmc(tmc, true, ['MAIN.afbMotor[0]', 'MAIN.afbMotor[0].aChild[2]']), 'MAIN.afbMotor[0].aChild['), ['MAIN.afbMotor[0].aChild[2].nState']);
+});
+
 test('ADS interface: diff of two builds, case-insensitive names', () => {
   const before = fromTmc(TMC('<Symbol><Name>MAIN.nCount</Name><BitSize>16</BitSize><BaseType>INT</BaseType></Symbol><Symbol><Name>MAIN.bOld</Name><BitSize>8</BitSize><BaseType>BOOL</BaseType></Symbol>'), true);
   const after = fromTmc(TMC('<Symbol><Name>main.nCount</Name><BitSize>32</BitSize><BaseType>DINT</BaseType></Symbol>', '<SubItem><Name>bReset</Name><Type>BOOL</Type><BitSize>8</BitSize></SubItem>'), true);

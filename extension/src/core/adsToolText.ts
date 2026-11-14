@@ -131,12 +131,15 @@ export function watchFailureText(error: string, list: string): ToolText {
   return { text: `${error}\nWatch list now:\n${list}`, isError: true };
 }
 
-export function symbolsText(o: { headers: string[]; matches: string[]; total: number; max: number; offset: number; typed: string; missing: string[]; unreadable: string[]; units: number }): string {
+export function symbolsText(o: { headers: string[]; matches: string[]; total: number; max: number; offset: number; typed: string; missing: string[]; unreadable: string[]; units: number; libraries?: string[] }): string {
   const none = o.total > 0 ? pageNote({ total: o.total, offset: o.offset, pageSize: o.max })! : `No symbols match "${o.typed}".`;
   const lines = [...o.headers, o.matches.length ? o.matches.join('\n') : none];
   const note = o.matches.length ? pageNote({ total: o.total, offset: o.offset, pageSize: o.max }) : undefined;
   if (note) lines.push(note);
   if (o.missing.length) lines.push(`Not built, so not listed (no .tmc): ${o.missing.join(', ')}`);
+  // a library is only a candidate when it has its own MAIN, so it was not an error that it is missing: say why the list is empty
+  const libs = o.libraries ?? [];
+  if (libs.length) lines.push(`Not built, so not listed (no .tmc): ${libs.join(', ')}. ${libs.length > 1 ? 'They are libraries: they have symbols only when they have their own MAIN and were built' : 'It is a library: it has symbols only when it has its own MAIN and was built'}. The PLC project may be in another workspace.`);
   if (o.unreadable.length) lines.push(`Build output unreadable, so not listed: ${o.unreadable.join('; ')}`);
   if (!o.units) lines.push('No PLC projects in this workspace.');
   return lines.join('\n');
