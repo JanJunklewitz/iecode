@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.14
+
+### Release
+- No changes to the extension or the CLI. This release is the first one published to the VS Code Marketplace from the release workflow (trusted publishing), not uploaded by hand.
+
 ## 0.2.13
 
 ### Claude Code and ADS
