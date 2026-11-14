@@ -2,7 +2,7 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.15
 
 ### Function blocks
 - A function block that does not implement every abstract method / property of its base classes, or every member of the interfaces it (or a base class) implements, is underlined at its name with the list of what is missing. Interfaces extended by other interfaces and base classes from referenced libraries count too; abstract function blocks are not checked.
