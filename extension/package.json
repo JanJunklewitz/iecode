@@ -210,6 +210,35 @@
         "icon": "$(add)"
       },
       {
+        "command": "iecode.implementMissing",
+        "title": "Implement Missing Members",
+        "category": "IECode",
+        "icon": "$(symbol-method)"
+      },
+      {
+        "command": "iecode.extendFunctionBlock",
+        "title": "Extend Function Block…",
+        "category": "IECode",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "iecode.addMemberFolder",
+        "title": "Add Folder…",
+        "category": "IECode",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "iecode.moveMember",
+        "title": "Move to Folder…",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.umlDiagram",
+        "title": "UML Class Diagram",
+        "category": "IECode",
+        "icon": "$(symbol-class)"
+      },
+      {
         "command": "iecode.addFolder",
         "title": "New Folder…",
         "category": "IECode",
@@ -635,6 +664,16 @@
           "command": "iecode.adsWatchAddFromEditor",
           "when": "isWindows && (resourceScheme == iecode || editorLangId == twincat-st)",
           "group": "2_iecodeAds@1"
+        },
+        {
+          "command": "iecode.implementMissing",
+          "when": "resourceScheme == iecode && editorLangId == twincat-st",
+          "group": "1_modification@9"
+        },
+        {
+          "command": "iecode.umlDiagram",
+          "when": "resourceScheme =~ /^iecode(-lib)?$/ && editorLangId == twincat-st",
+          "group": "navigation@9"
         }
       ],
       "webview/context": [
@@ -774,6 +813,11 @@
           "command": "iecode.openConfig",
           "when": "view == iecode.adsWatch",
           "group": "settings@1"
+        },
+        {
+          "command": "iecode.umlDiagram",
+          "when": "view == iecode.projects",
+          "group": "navigation@8"
         }
       ],
       "view/item/context": [
@@ -799,8 +843,33 @@
         },
         {
           "command": "iecode.addMember",
-          "when": "view == iecode.projects && viewItem =~ /^object\\.(FUNCTION_BLOCK|PROGRAM|INTERFACE)$/",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.(FUNCTION_BLOCK|PROGRAM|INTERFACE)|memberFolder\\.)/",
           "group": "1_add@1"
+        },
+        {
+          "command": "iecode.addMemberFolder",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.(FUNCTION_BLOCK|PROGRAM|INTERFACE)|memberFolder\\.)/",
+          "group": "1_add@2"
+        },
+        {
+          "command": "iecode.implementMissing",
+          "when": "view == iecode.projects && viewItem == object.FUNCTION_BLOCK",
+          "group": "1_add@3"
+        },
+        {
+          "command": "iecode.extendFunctionBlock",
+          "when": "view == iecode.projects && viewItem =~ /^(object|libraryObject)\\.FUNCTION_BLOCK$/",
+          "group": "1_add@4"
+        },
+        {
+          "command": "iecode.moveMember",
+          "when": "view == iecode.projects && viewItem =~ /^member\\./",
+          "group": "3_edit@0"
+        },
+        {
+          "command": "iecode.umlDiagram",
+          "when": "view == iecode.projects && viewItem =~ /^(unit|folder|group|(object|libraryObject)\\.(FUNCTION_BLOCK|INTERFACE|PROGRAM)$)/",
+          "group": "2_open@4"
         },
         {
           "command": "iecode.openAsST",
@@ -1106,6 +1175,22 @@
         {
           "command": "iecode.mcpDisconnect",
           "when": "isWindows && !remoteName"
+        },
+        {
+          "command": "iecode.extendFunctionBlock",
+          "when": "false"
+        },
+        {
+          "command": "iecode.addMemberFolder",
+          "when": "false"
+        },
+        {
+          "command": "iecode.moveMember",
+          "when": "false"
+        },
+        {
+          "command": "iecode.implementMissing",
+          "when": "resourceScheme == iecode"
         }
       ],
       "iecode.compare": [
@@ -1243,6 +1328,21 @@
           "type": "boolean",
           "default": true,
           "description": "Open TwinCAT object files as Structured Text instead of XML."
+        },
+        "iecode.memberGrouping": {
+          "type": "string",
+          "enum": [
+            "folders",
+            "kind",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Members in the TwinCAT folders of the POU (as in TwinCAT XAE)",
+            "Methods, Properties, Actions and Transitions as groups",
+            "One list of all members"
+          ],
+          "default": "folders",
+          "description": "How methods, properties and actions are shown below a function block, program or interface in the IECode project tree."
         },
         "iecode.greenComments": {
           "type": "boolean",

@@ -9,6 +9,21 @@ import { isEncrypted } from '../core/projects';
 import { WorkspaceState } from '../state';
 import { LIB_SCHEME, LibrarySources } from './librarySources';
 import { elementAt } from './arrays';
+import { describeMissing, memberStubs, missingMembers } from './inheritance';
+
+/** Diagnostic code of "function block does not implement …", for the quick fix. */
+export const MISSING_MEMBERS = 'iecode.missingMembers';
+
+/** What other features (commands, views) use from the language support. */
+export interface LanguageApi {
+  index: SymbolIndex;
+  /** Resolves once the workspace (and open documents) are indexed. */
+  ready(): Promise<void>;
+  /** Stub sections for everything the object (given as view text, indexed under `file`) must still implement. */
+  stubsFor(file: string, view: string): string;
+  /** View URI (iecode: or iecode-lib:) of an indexed file. */
+  toView(file: string): vscode.Uri;
+}
 
 const LANG = 'twincat-st';
 const SCHEME = 'iecode';
@@ -31,7 +46,7 @@ const COMPLETION_KIND: Record<string, vscode.CompletionItemKind> = {
   ENUM_VALUE: vscode.CompletionItemKind.EnumMember, KEYWORD: vscode.CompletionItemKind.Keyword, TYPE: vscode.CompletionItemKind.TypeParameter,
 };
 
-export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, libraries: LibrarySources) {
+export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, libraries: LibrarySources): LanguageApi {
   const index = new SymbolIndex();
   const toView = (file: string) => libraries.isLibraryKey(file) ? LibrarySources.uri(file) : vscode.Uri.file(file).with({ scheme: SCHEME });
   const libraryOf = (file: string) => index.get(file)?.library;
@@ -77,22 +92,49 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, li
   libraries.onDidChange(() => { for (const k of libKeys) index.remove(k); libKeys.clear(); reindexLibraries(); });
 
   /** Keep the open (possibly unsaved) document as the source of truth for its file. */
-  const fromDoc = (doc: vscode.TextDocument) => {
-    if (doc.uri.scheme !== SCHEME || doc.languageId !== LANG) return;
-    const obj = index.update(doc.uri.fsPath, doc.getText());
-    problems.set(doc.uri, obj.parsed.problems.map(p => {
+  const isView = (doc: vscode.TextDocument) => doc.uri.scheme === SCHEME && doc.languageId === LANG;
+  const diagnose = (doc: vscode.TextDocument) => {
+    const obj = index.get(doc.uri.fsPath);
+    if (!obj) return;
+    const out = obj.parsed.problems.map(p => {
       const d = new vscode.Diagnostic(vrange(p.range), p.message, p.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
       d.source = 'IECode';
       return d;
-    }));
+    });
+    // an abstract function block may leave members to its derived classes
+    if (obj.root?.kind === 'FUNCTION_BLOCK' && !obj.root.modifiers?.includes('ABSTRACT')) {
+      const { missing } = missingMembers(index, obj);
+      if (missing.length) {
+        const d = new vscode.Diagnostic(vrange(obj.root.range), describeMissing(obj, missing), vscode.DiagnosticSeverity.Error);
+        d.source = 'IECode';
+        d.code = MISSING_MEMBERS;
+        out.push(d);
+      }
+    }
+    problems.set(doc.uri, out);
   };
-  state.onDidChange(() => void reindex());
+  // members of base classes and interfaces change in other files: check every open view again
+  let pending: NodeJS.Timeout | undefined;
+  const diagnoseAll = () => {
+    clearTimeout(pending);
+    pending = setTimeout(() => vscode.workspace.textDocuments.filter(isView).forEach(diagnose), 150);
+  };
+  ctx.subscriptions.push({ dispose: () => clearTimeout(pending) });
+  const fromDoc = (doc: vscode.TextDocument) => {
+    if (!isView(doc)) return;
+    const obj = index.get(doc.uri.fsPath);
+    if (obj?.view === doc.getText()) return;
+    index.update(doc.uri.fsPath, doc.getText());
+    diagnose(doc);
+    diagnoseAll();
+  };
+  state.onDidChange(() => void reindex().then(diagnoseAll));
   ctx.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(fromDoc),
+    vscode.workspace.onDidOpenTextDocument(d => { fromDoc(d); if (isView(d)) diagnose(d); }),
     vscode.workspace.onDidChangeTextDocument(e => fromDoc(e.document)),
     vscode.workspace.onDidCloseTextDocument(d => d.uri.scheme === SCHEME && problems.delete(d.uri)),
   );
-  void reindex().then(() => vscode.workspace.textDocuments.forEach(fromDoc));
+  const initial = reindex().then(() => { vscode.workspace.textDocuments.forEach(fromDoc); diagnoseAll(); });
 
   const at = (doc: vscode.TextDocument, p: vscode.Position): Location | undefined => {
     fromDoc(doc);
@@ -190,7 +232,69 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, li
         return out;
       },
     }),
+
+    // quick fix on "does not implement": append stubs for the missing members to the view
+    vscode.languages.registerCodeActionsProvider({ language: LANG, scheme: SCHEME }, {
+      provideCodeActions(doc, _range, c) {
+        const diag = c.diagnostics.find(d => d.code === MISSING_MEMBERS);
+        if (!diag) return [];
+        const action = implementAction(doc);
+        if (!action) return [];
+        action.diagnostics = [diag];
+        action.isPreferred = true;
+        return [action];
+      },
+    }, { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
   );
+
+  /** "Implement missing members" as an edit of the open view. */
+  const implementAction = (doc: vscode.TextDocument): vscode.CodeAction | undefined => {
+    fromDoc(doc);
+    const obj = index.get(doc.uri.fsPath);
+    if (!obj) return undefined;
+    const { missing } = missingMembers(index, obj);
+    if (!missing.length) return undefined;
+    const text = doc.getText();
+    const action = new vscode.CodeAction(`Implement ${missing.length === 1 ? `${missing[0].kind.toLowerCase()} ${missing[0].name}` : `${missing.length} missing members`}`, vscode.CodeActionKind.QuickFix);
+    action.edit = new vscode.WorkspaceEdit();
+    action.edit.insert(doc.uri, doc.positionAt(text.length), (text.endsWith('\n') || !text ? '' : '\n') + memberStubs(missing));
+    return action;
+  };
+
+  // project tree / editor: implement what a function block is missing (also when its view is not open)
+  ctx.subscriptions.push(vscode.commands.registerCommand('iecode.implementMissing', async (n?: { kind: string; obj?: { file: string } } | vscode.Uri) => {
+    const file = n instanceof vscode.Uri ? n.fsPath : n?.obj?.file ?? (vscode.window.activeTextEditor?.document.uri.scheme === SCHEME ? vscode.window.activeTextEditor.document.uri.fsPath : undefined);
+    if (!file) return;
+    await initial;
+    await reindex();
+    const doc = await vscode.workspace.openTextDocument(toView(file));
+    const action = implementAction(doc);
+    if (!action?.edit) return vscode.window.showInformationMessage(`IECode: ${index.get(file)?.root?.name ?? 'This object'} implements all members of its base classes and interfaces.`);
+    const wasDirty = doc.isDirty;
+    const from = doc.lineCount - (doc.getText().endsWith('\n') ? 1 : 0);
+    await vscode.workspace.applyEdit(action.edit);
+    if (!wasDirty) await doc.save();
+    const ed = await vscode.window.showTextDocument(doc, { preview: false });
+    const at = new vscode.Position(Math.min(from + 1, doc.lineCount - 1), 0);
+    ed.selection = new vscode.Selection(at, at);
+    ed.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.AtTop);
+  }));
+
+  return {
+    index,
+    ready: () => initial.then(reindex),
+    toView,
+    stubsFor(file, view) {
+      const prev = index.get(file);
+      const obj = index.update(file, view);
+      try {
+        return memberStubs(missingMembers(index, obj).missing);
+      } finally {
+        if (prev) index.update(prev.file, prev.view, prev.library);
+        else index.remove(file);
+      }
+    },
+  };
 }
 
 function hoverText(s: PlcSymbol, owner?: PlcSymbol): string {

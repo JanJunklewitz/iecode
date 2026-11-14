@@ -19,12 +19,14 @@ export interface PlcSymbol {
   type?: string;
   /** VAR_INPUT, VAR_OUTPUT, VAR, VAR_GLOBAL … for variables. */
   scope?: string;
-  /** CONSTANT, RETAIN, PERSISTENT of the variable's block. */
+  /** CONSTANT, RETAIN, PERSISTENT of the variable's block; ABSTRACT, FINAL of function blocks and members. */
   modifiers?: string[];
   extends?: string[];
   implements?: string[];
   /** Access modifier of members. */
   access?: string;
+  /** Accessors of a property (GET / SET sections that follow it). */
+  accessors?: ('GET' | 'SET')[];
   /** Range of the name. */
   range: Range;
   /** Whole section (members) or declaration line (variables). */
@@ -42,6 +44,7 @@ export interface ParsedObject { root?: PlcSymbol; problems: Problem[]; arrays: A
 const VAR_BLOCKS = new Set(['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_GLOBAL', 'VAR_TEMP', 'VAR_STAT', 'VAR_INST', 'VAR_EXTERNAL', 'VAR_CONFIG']);
 const POU_KINDS = new Set(['FUNCTION_BLOCK', 'PROGRAM', 'FUNCTION', 'INTERFACE']);
 const ACCESS = new Set(['PUBLIC', 'PRIVATE', 'PROTECTED', 'INTERNAL']);
+const OO_MODIFIERS = new Set(['ABSTRACT', 'FINAL']);
 
 const rangeOf = (t: Token): Range => ({ line: t.line, col: t.col, endLine: t.line, endCol: t.col + t.text.length });
 
@@ -186,6 +189,7 @@ export function parseObject(view: string, fallbackName: string): ParsedObject {
       // accessors belong to the property declared before them
       if (property && property.name.toUpperCase() === s.name.toUpperCase()) {
         property.full = { ...property.full, endLine: fullRange.endLine, endCol: fullRange.endCol };
+        (property.accessors ??= []).push(s.kind);
         property.children.push(...parseVarBlocks(toks, lines, problems, arrays).map(v => ({ ...v, scope: `${s.kind} ${v.scope}` })));
       }
       continue;
@@ -193,7 +197,12 @@ export function parseObject(view: string, fallbackName: string): ParsedObject {
     const head = toks.find(t => t.type === 'keyword' && ['METHOD', 'PROPERTY', 'ACTION', 'TRANSITION'].includes(t.upper));
     const nameTok = head ? toks[toks.indexOf(head) + 1 + toks.slice(toks.indexOf(head) + 1).findIndex(t => t.type === 'ident')] : undefined;
     let access: string | undefined;
-    if (head) for (const t of toks.slice(toks.indexOf(head) + 1)) { if (ACCESS.has(t.upper)) access = t.upper; if (t.type === 'ident') break; }
+    const modifiers: string[] = [];
+    if (head) for (const t of toks.slice(toks.indexOf(head) + 1)) {
+      if (ACCESS.has(t.upper)) access = t.upper;
+      if (OO_MODIFIERS.has(t.upper)) modifiers.push(t.upper);
+      if (t.type === 'ident') break;
+    }
     let type: string | undefined;
     if (nameTok) {
       // return / property type: the rest of the header line after ':'
@@ -202,7 +211,7 @@ export function parseObject(view: string, fallbackName: string): ParsedObject {
         type = toks.slice(after + 1).filter(t => t.line === nameTok.line).map(t => t.text).join(' ').replace(/\s*([[\](),.])\s*/g, '$1').trim() || undefined;
     }
     const sym: PlcSymbol = {
-      name: s.name, kind: s.kind as SymbolKind, type, access,
+      name: s.name, kind: s.kind as SymbolKind, type, access, ...(modifiers.length ? { modifiers } : {}),
       range: nameTok ? rangeOf(nameTok) : { line: s.headerLine, col: 0, endLine: s.headerLine, endCol: 0 },
       full: fullRange,
       detail: head ? lines[head.line].trim() : `${s.kind} ${s.name}`,
@@ -224,6 +233,8 @@ function parseHeader(toks: Token[], lines: string[], fallbackName: string, main:
   const nameTok = toks.slice(at + 1).find(t => t.type === 'ident');
   if (!nameTok) return undefined;
   const sym: PlcSymbol = { name: nameTok.text, kind: head.upper as SymbolKind, range: rangeOf(nameTok), full, detail: lines[head.line].trim(), children: [] };
+  const mods = toks.slice(at + 1, toks.indexOf(nameTok)).filter(t => OO_MODIFIERS.has(t.upper)).map(t => t.upper);
+  if (mods.length) sym.modifiers = mods;
   const rest = toks.slice(toks.indexOf(nameTok) + 1);
   const list = (kw: string) => {
     const k = rest.findIndex(t => t.upper === kw);

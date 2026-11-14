@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { listMembers, Member, ObjectType, PlcObject, LibraryRef, Solution, TwinCatProject } from '../core/projects';
+import { MemberGrouping, listMemberFolders, listMembers, memberLevel, Member, ObjectType, PlcObject, LibraryRef, Solution, TwinCatProject } from '../core/projects';
 import { Group, Unit, librariesByTitle, systemProjects } from '../core/workspace';
 import { WorkspaceState } from '../state';
 import { LibrarySource, LibrarySources } from '../lang/librarySources';
@@ -18,6 +18,9 @@ export type Node =
   | { kind: 'folder'; unit: Unit; rel: string }
   | { kind: 'object'; unit: Unit; obj: PlcObject }
   | { kind: 'member'; unit: Unit; obj: PlcObject; member: Member }
+  // folder inside a POU (TwinCAT folders, or a Methods / Properties … group): `rel` is the folder path, '#KIND' for a group
+  | { kind: 'memberFolder'; unit: Unit; obj: PlcObject; rel: string }
+  | { kind: 'libraryMemberFolder'; lib: LibrarySource; key: string; obj: LibraryObject; rel: string }
   // sources of a referenced .library (read-only)
   | { kind: 'libraryFolder'; lib: LibrarySource; rel: string }
   | { kind: 'libraryObject'; lib: LibrarySource; key: string; obj: LibraryObject }
@@ -34,6 +37,10 @@ const TYPE_SHORT: Partial<Record<ObjectType, string>> = { FUNCTION_BLOCK: 'FB', 
   TASK: 'task', TEXTLIST: 'texts', IMAGEPOOL: 'images', VISUMANAGER: 'visu settings' };
 const MEMBER_ICON: Record<Member['kind'], string> = { METHOD: 'symbol-method', PROPERTY: 'symbol-property', ACTION: 'symbol-event', TRANSITION: 'arrow-right' };
 
+const KIND_GROUP: Record<Member['kind'], string> = { METHOD: 'Methods', PROPERTY: 'Properties', ACTION: 'Actions', TRANSITION: 'Transitions' };
+
+const grouping = () => vscode.workspace.getConfiguration('iecode').get<MemberGrouping>('memberGrouping', 'folders');
+
 const hasMembers = (t: ObjectType) => t === 'FUNCTION_BLOCK' || t === 'PROGRAM' || t === 'INTERFACE' || t === 'FUNCTION';
 
 export class ProjectTree implements vscode.TreeDataProvider<Node> {
@@ -43,6 +50,7 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
   constructor(private readonly state: WorkspaceState, private readonly libraries: LibrarySources) {
     state.onDidChange(() => this.changed.fire(undefined));
     libraries.onDidChange(() => this.changed.fire(undefined));
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.memberGrouping')) this.changed.fire(undefined); });
   }
 
   refresh() { this.changed.fire(undefined); }
@@ -62,13 +70,15 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       case 'unit': return [{ kind: 'references', unit: n.unit }, ...this.folderChildren(n.unit, '')];
       case 'references': return n.unit.plc.references.map(ref => ({ kind: 'reference' as const, unit: n.unit, ref }));
       case 'folder': return this.folderChildren(n.unit, n.rel);
-      case 'object': return this.members(n.unit, n.obj);
+      case 'object': return this.members(n.unit, n.obj, '');
+      case 'memberFolder': return this.members(n.unit, n.obj, n.rel);
+      case 'libraryMemberFolder': return this.libraryMembers(n.lib, n.key, n.obj, n.rel);
       case 'reference': {
         const lib = this.libraries.get(n.ref.effective.name);
         return lib ? this.libraryChildren(lib, '') : [];
       }
       case 'libraryFolder': return this.libraryChildren(n.lib, n.rel);
-      case 'libraryObject': return listMembers(n.obj.xml).map(member => ({ kind: 'libraryMember' as const, key: n.key, member }));
+      case 'libraryObject': return this.libraryMembers(n.lib, n.key, n.obj, '');
       default: return [];
     }
   }
@@ -98,10 +108,26 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
     return [...folders, ...objects];
   }
 
-  private async members(unit: Unit, obj: PlcObject): Promise<Node[]> {
+  private async members(unit: Unit, obj: PlcObject, rel: string): Promise<Node[]> {
     try {
       const xml = await fs.readFile(obj.file, 'utf8');
-      return listMembers(xml).map(member => ({ kind: 'member' as const, unit, obj, member }));
+      const level = memberLevel(listMembers(xml), listMemberFolders(xml), rel, grouping());
+      return [
+        ...level.folders.map(f => ({ kind: 'memberFolder' as const, unit, obj, rel: f })),
+        ...level.members.map(member => ({ kind: 'member' as const, unit, obj, member })),
+      ];
+    } catch {
+      return [];
+    }
+  }
+
+  private libraryMembers(lib: LibrarySource, key: string, obj: LibraryObject, rel: string): Node[] {
+    try {
+      const level = memberLevel(listMembers(obj.xml), listMemberFolders(obj.xml), rel, grouping());
+      return [
+        ...level.folders.map(f => ({ kind: 'libraryMemberFolder' as const, lib, key, obj, rel: f })),
+        ...level.members.map(member => ({ kind: 'libraryMember' as const, key, member })),
+      ];
     } catch {
       return [];
     }
@@ -182,6 +208,15 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
         it.contextValue = o.encrypted ? 'object.encrypted' : `object.${o.type}`;
         it.id = `obj:${o.file}`;
         if (!o.encrypted) it.command = { command: 'iecode.openAsST', title: 'Open', arguments: [vscode.Uri.file(o.file)] };
+        return it;
+      }
+      case 'memberFolder':
+      case 'libraryMemberFolder': {
+        const group = n.rel.startsWith('#');
+        const it = new vscode.TreeItem(group ? KIND_GROUP[n.rel.slice(1) as Member['kind']] : path.posix.basename(n.rel), C.Collapsed);
+        it.iconPath = group ? new vscode.ThemeIcon(MEMBER_ICON[n.rel.slice(1) as Member['kind']]) : vscode.ThemeIcon.Folder;
+        it.contextValue = n.kind === 'libraryMemberFolder' ? 'libraryMemberFolder' : group ? 'memberGroup' : `memberFolder.${n.obj.type}`;
+        it.id = `${n.kind}:${n.kind === 'memberFolder' ? n.obj.file : n.key}:${n.rel}`;
         return it;
       }
       case 'libraryFolder': {

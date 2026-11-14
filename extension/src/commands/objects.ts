@@ -6,14 +6,15 @@ import { promises as fs } from 'fs';
 import { Node } from '../views/tree';
 import { WorkspaceState } from '../state';
 import { Unit } from '../core/workspace';
-import { PlcObject } from '../core/projects';
+import { addMemberFolder, listMemberFolders, moveMemberToFolder } from '../core/projects';
 import {
-  Access, FILE_EXT, IDENT_RE, NAME_PREFIX, NewObjectKind, actionSection, addSections, interfaceStubs,
+  Access, FILE_EXT, IDENT_RE, NAME_PREFIX, NewObjectKind, actionSection, addSections, guid,
   methodSection, newObjectXml, propertySection,
 } from '../core/templates';
 import { addCompile, addFolder, removeCompile, removeFolder, renameObjectXml, renamePath } from '../core/plcproj';
 import { decode, encode, parseView, HEADER_RE } from '../model';
 import { LibrarySources } from '../lang/librarySources';
+import type { LanguageApi } from '../lang/providers';
 
 const BUILTIN_TYPES = ['BOOL', 'BYTE', 'WORD', 'DWORD', 'LWORD', 'SINT', 'USINT', 'INT', 'UINT', 'DINT', 'UDINT', 'LINT', 'ULINT',
   'REAL', 'LREAL', 'TIME', 'LTIME', 'DATE', 'TOD', 'DT', 'STRING', 'WSTRING', 'HRESULT'];
@@ -77,9 +78,12 @@ async function askAccess(): Promise<Access | undefined> {
 }
 
 /** Writes a file with a new object, registers it (and its folders) in the .plcproj and opens it. */
+const objectPath = (unit: Unit, folderRel: string, kind: NewObjectKind, name: string) =>
+  path.join(unit.plc.dir, ...((folderRel ? folderRel + '/' : '') + name + FILE_EXT[kind]).split('/'));
+
 async function createObject(unit: Unit, folderRel: string, kind: NewObjectKind, name: string, xml: string) {
   const rel = (folderRel ? folderRel + '/' : '') + name + FILE_EXT[kind];
-  const abs = path.join(unit.plc.dir, ...rel.split('/'));
+  const abs = objectPath(unit, folderRel, kind, name);
   try { await fs.access(abs); throw new Error(`${rel} already exists`); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, xml, 'utf8');
@@ -90,7 +94,29 @@ async function createObject(unit: Unit, folderRel: string, kind: NewObjectKind, 
   await vscode.commands.executeCommand('iecode.openAsST', vscode.Uri.file(abs));
 }
 
-export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
+/** Function blocks or interfaces known to the language index (workspace and referenced libraries), workspace first. */
+function knownTypes(lang: LanguageApi, kind: 'FUNCTION_BLOCK' | 'INTERFACE', unit: Unit, exclude?: string): vscode.QuickPickItem[] {
+  const seen = new Set<string>();
+  const own = new Set(unit.plc.objects.map(o => o.file));
+  return lang.index.objects()
+    .filter(o => o.root?.kind === kind && o.root.name.toLowerCase() !== exclude?.toLowerCase())
+    .sort((a, b) => Number(!own.has(a.file)) - Number(!own.has(b.file)) || Number(!!a.library) - Number(!!b.library) || a.root!.name.localeCompare(b.root!.name))
+    .filter(o => !seen.has(o.root!.name.toLowerCase()) && !!seen.add(o.root!.name.toLowerCase()))
+    .map(o => ({
+      label: o.root!.name,
+      description: [o.library ? `library ${o.library}` : own.has(o.file) ? 'project' : 'workspace', o.root!.modifiers?.includes('ABSTRACT') && 'abstract'].filter(Boolean).join(' · '),
+    }));
+}
+
+/** New function block XML with stubs for everything its base class and interfaces require. */
+async function functionBlockXml(lang: LanguageApi, unit: Unit, folder: string, name: string, ext: string | undefined, impl: string[]): Promise<string> {
+  await lang.ready();
+  const xml = newObjectXml('FUNCTION_BLOCK', name, { extends: ext, implements: impl, productVersion: unit.plc.tcVersion });
+  const stubs = lang.stubsFor(objectPath(unit, folder, 'FUNCTION_BLOCK', name), decode(stripBom(xml)));
+  return stubs ? addSections(xml, stubs) : xml;
+}
+
+export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, lang: LanguageApi) {
   const reg = (id: string, fn: (...a: never[]) => unknown) =>
     ctx.subscriptions.push(vscode.commands.registerCommand(id, async (...args: never[]) => {
       try { await fn(...args); await state.reload(); }
@@ -108,17 +134,15 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
 
     const productVersion = unit.plc.tcVersion;
     if (pick.type === 'FUNCTION_BLOCK') {
-      const fbs = unit.plc.objects.filter(o => o.type === 'FUNCTION_BLOCK');
-      const base = fbs.length ? await vscode.window.showQuickPick([{ label: '(none)' }, ...fbs.map(o => ({ label: o.name }))], { title: 'EXTENDS' }) : undefined;
+      await lang.ready();
+      const fbs = knownTypes(lang, 'FUNCTION_BLOCK', unit);
+      const base = fbs.length ? await vscode.window.showQuickPick([{ label: '(none)' }, ...fbs], { title: 'EXTENDS (abstract members are stubbed)', matchOnDescription: true }) : undefined;
       if (fbs.length && !base) return;
-      const itfs = unit.plc.objects.filter(o => o.type === 'INTERFACE');
-      const chosen = itfs.length ? await vscode.window.showQuickPick(itfs.map(o => ({ label: o.name, obj: o })), { title: 'IMPLEMENTS (stubs are created for all members)', canPickMany: true }) : [];
+      const itfs = knownTypes(lang, 'INTERFACE', unit);
+      const chosen = itfs.length ? await vscode.window.showQuickPick(itfs, { title: 'IMPLEMENTS (stubs are created for all members)', canPickMany: true, matchOnDescription: true }) : [];
       if (!chosen) return;
       const ext = base && base.label !== '(none)' ? base.label : undefined;
-      let xml = newObjectXml('FUNCTION_BLOCK', name, { extends: ext, implements: chosen.map(c => c.label), productVersion });
-      const stubs = interfaceStubs((await Promise.all(chosen.map(c => readInterfaceChain(unit, c.obj)))).flat());
-      if (stubs) xml = addSections(xml, stubs);
-      return createObject(unit, folder, 'FUNCTION_BLOCK', name, xml);
+      return createObject(unit, folder, 'FUNCTION_BLOCK', name, await functionBlockXml(lang, unit, folder, name, ext, chosen.map(c => c.label)));
     }
     if (pick.type === 'INTERFACE') {
       const itfs = unit.plc.objects.filter(o => o.type === 'INTERFACE');
@@ -135,8 +159,10 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
   });
 
   reg('iecode.addMember', async (n?: Node, preset?: 'METHOD' | 'PROPERTY' | 'ACTION' | 'IMPLEMENT') => {
-    if (n?.kind !== 'object' && n?.kind !== 'member') return;
+    if (n?.kind !== 'object' && n?.kind !== 'member' && n?.kind !== 'memberFolder') return;
     const { unit, obj } = n;
+    // added inside a TwinCAT folder of the POU
+    const intoFolder = n.kind === 'memberFolder' && !n.rel.startsWith('#') ? n.rel : '';
     const isItf = obj.type === 'INTERFACE';
     const options = [
       { label: 'Method…', id: 'METHOD' as const },
@@ -163,17 +189,63 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
       const name = await askName('Action name', '', taken); if (!name) return;
       sections = actionSection(name);
     } else {
-      const itfs = unit.plc.objects.filter(o => o.type === 'INTERFACE');
-      const chosen = await vscode.window.showQuickPick(itfs.map(o => ({ label: o.name, obj: o })), { title: 'Implement interfaces', canPickMany: true });
+      await lang.ready();
+      const chosen = await vscode.window.showQuickPick(knownTypes(lang, 'INTERFACE', unit), { title: 'Implement interfaces', canPickMany: true, matchOnDescription: true });
       if (!chosen?.length) return;
-      sections = interfaceStubs((await Promise.all(chosen.map(c => readInterfaceChain(unit, c.obj)))).flat(), decode(stripBom(xml)));
       const updated = addImplements(xml, chosen.map(c => c.label));
+      sections = lang.stubsFor(obj.file, decode(stripBom(updated)));
       await fs.writeFile(obj.file, sections ? addSections(updated, sections) : updated, 'utf8');
       return;
     }
-    await fs.writeFile(obj.file, addSections(xml, sections), 'utf8');
+    let out = addSections(xml, sections);
     const name = /^\/\/==== \w+ (\w+) ====/.exec(sections)![1];
+    if (intoFolder) out = moveMemberToFolder(out, what, name, intoFolder);
+    await fs.writeFile(obj.file, out, 'utf8');
     await revealSection(obj.file, name);
+  });
+
+  // a new function block that EXTENDS this one, with stubs for its abstract members and interfaces
+  reg('iecode.extendFunctionBlock', async (n?: Node) => {
+    const baseName = n?.kind === 'object' ? n.obj.name : n?.kind === 'libraryObject' ? n.obj.name : undefined;
+    if (!baseName) return;
+    const unit = n?.kind === 'object' ? n.unit : await pickUnit(state);
+    if (!unit) return;
+    const folder = n?.kind === 'object' ? path.posix.dirname(n.obj.rel).replace(/^\.$/, '') : DEFAULT_FOLDER.FUNCTION_BLOCK;
+    const name = await askName(`Function block that extends ${baseName}`, NAME_PREFIX.FUNCTION_BLOCK, existingNames(unit));
+    if (!name) return;
+    await createObject(unit, folder, 'FUNCTION_BLOCK', name, await functionBlockXml(lang, unit, folder, name, baseName, []));
+  });
+
+  // TwinCAT folders inside a POU / interface
+  reg('iecode.addMemberFolder', async (n?: Node) => {
+    if (n?.kind !== 'object' && n?.kind !== 'memberFolder') return;
+    const parent = n.kind === 'memberFolder' && !n.rel.startsWith('#') ? n.rel : '';
+    const name = await vscode.window.showInputBox({ prompt: `Folder in ${n.obj.name}${parent ? '/' + parent : ''}`, validateInput: v => /^[^\\/:*?"<>|]+$/.test(v) ? undefined : 'Invalid folder name' });
+    if (!name) return;
+    await fs.writeFile(n.obj.file, addMemberFolder(await readText(n.obj.file), parent ? `${parent}/${name}` : name, guid()), 'utf8');
+  });
+
+  reg('iecode.moveMember', async (n?: Node) => {
+    if (n?.kind !== 'member') return;
+    const xml = await readText(n.obj.file);
+    const folders = listMemberFolders(xml);
+    const NEW = '$(new-folder) New folder…', TOP = '$(root-folder) (top level)';
+    const pick = await vscode.window.showQuickPick([TOP, ...folders.filter(f => f !== n.member.folder), NEW], { title: `Move ${n.member.name} to folder` });
+    if (!pick) return;
+    let folder = pick === TOP ? '' : pick;
+    let out = xml;
+    if (pick === NEW) {
+      const name = await vscode.window.showInputBox({ prompt: 'New folder (use / for sub folders)', validateInput: v => /^[^\\:*?"<>|]+$/.test(v) && !v.split('/').some(p => !p) ? undefined : 'Invalid folder name' });
+      if (!name) return;
+      folder = name;
+      const parts = name.split('/');
+      for (let i = 1; i <= parts.length; i++) {
+        const f = parts.slice(0, i).join('/');
+        if (!listMemberFolders(out).some(x => x.toLowerCase() === f.toLowerCase())) out = addMemberFolder(out, f, guid());
+      }
+    }
+    // a property's accessors move with it (they are its children in the XML)
+    await fs.writeFile(n.obj.file, moveMemberToFolder(out, n.member.kind, n.member.name, folder), 'utf8');
   });
 
   reg('iecode.addFolder', async (n?: Node) => {
@@ -243,19 +315,6 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     if (n?.kind === 'member') return revealSection(n.obj.file, n.member.name);
     if (n?.kind === 'libraryMember') return revealSection(LibrarySources.uri(n.key), n.member.name);
   }));
-}
-
-/** Reads an interface and the interfaces it extends (from the same project), most basic first. */
-async function readInterfaceChain(unit: Unit, obj: PlcObject, seen = new Set<string>()): Promise<string[]> {
-  if (seen.has(obj.name.toLowerCase())) return [];
-  seen.add(obj.name.toLowerCase());
-  const out: string[] = [];
-  for (const base of (obj.extends ?? '').split(',').map(x => x.trim()).filter(Boolean)) {
-    const o = unit.plc.objects.find(x => x.type === 'INTERFACE' && x.name.toLowerCase() === base.toLowerCase());
-    if (o) out.push(...await readInterfaceChain(unit, o, seen));
-  }
-  out.push(await readText(obj.file));
-  return out;
 }
 
 /** Adds names to the IMPLEMENTS clause of a function block declaration. */
