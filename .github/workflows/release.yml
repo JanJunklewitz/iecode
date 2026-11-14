@@ -54,7 +54,7 @@ jobs:
         working-directory: extension
         run: |
           npm version "$VERSION" --no-git-tag-version --allow-same-version
-          npx @vscode/vsce@4.0.0 package --no-dependencies $PRE_RELEASE
+          npx @vscode/vsce@4.1.0 package --no-dependencies $PRE_RELEASE
           mkdir -p ../dist && mv *.vsix "../dist/iecode-$VERSION.vsix"
 
       - name: CLI (self-contained win-x64)
@@ -105,7 +105,7 @@ jobs:
         run: |
           # trusted publishing (no stored token) wins; the PAT is the fallback until global PATs retire on 2026-12-01
           if [ "$VSCE_OIDC" = "true" ]; then auth=--oidc; else auth=; fi
-          npx --yes @vscode/vsce@4.0.0 publish $auth $PRE_RELEASE --packagePath "dist/iecode-$VERSION.vsix"
+          npx --yes @vscode/vsce@4.1.0 publish $auth $PRE_RELEASE --packagePath "dist/iecode-$VERSION.vsix"
 
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
