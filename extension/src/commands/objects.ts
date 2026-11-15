@@ -6,13 +6,13 @@ import { promises as fs } from 'fs';
 import { Node } from '../views/tree';
 import { WorkspaceState } from '../state';
 import { Unit } from '../core/workspace';
-import { addMemberFolder, listMemberFolders, moveMemberToFolder } from '../core/projects';
+import { addMemberFolder, deleteMemberFolder, listMemberFolders, listMembers, moveMemberToFolder, renameMemberFolder } from '../core/projects';
 import {
   Access, FILE_EXT, IDENT_RE, NAME_PREFIX, NewObjectKind, actionSection, addSections, guid,
   methodSection, newObjectXml, propertySection,
 } from '../core/templates';
 import { addCompile, addFolder, removeCompile, removeFolder, renameObjectXml, renamePath } from '../core/plcproj';
-import { decode, encode, parseView, HEADER_RE } from '../model';
+import { decode, encode, parseView, removeMemberFromView } from '../model';
 import { LibrarySources } from '../lang/librarySources';
 import type { LanguageApi } from '../lang/providers';
 
@@ -287,6 +287,18 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, la
         .replace(new RegExp(`^(\\s*${kind}\\s+(?:(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|ABSTRACT|FINAL)\\s+)*)${n.member.name}\\b`, 'mi'), `$1${name}`);
       // A renamed section is stored as a new element (new GUID); TwinCAT treats it like delete + add.
       await fs.writeFile(n.obj.file, bomOf(raw) + encode(xml, view), 'utf8');
+    } else if (n?.kind === 'memberFolder' && !n.rel.startsWith('#')) {
+      // a folder inside a POU / interface: only the XML changes, the ST view stays the same
+      const old = path.posix.basename(n.rel);
+      const xml = await readText(n.obj.file);
+      const parent = path.posix.dirname(n.rel).replace(/^\.$/, '');
+      const siblings = new Set(listMemberFolders(xml).filter(f => path.posix.dirname(f).replace(/^\.$/, '') === parent && f !== n.rel).map(f => path.posix.basename(f).toLowerCase()));
+      const name = await vscode.window.showInputBox({
+        prompt: `Rename folder ${old} in ${n.obj.name}`, value: old,
+        validateInput: v => !/^[^\\/:*?"<>|]+$/.test(v) ? 'Invalid folder name' : siblings.has(v.toLowerCase()) ? `${v} already exists` : undefined,
+      });
+      if (!name || name === old) return;
+      await fs.writeFile(n.obj.file, renameMemberFolder(xml, n.rel, name), 'utf8');
     }
   });
 
@@ -308,6 +320,19 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState, la
       const raw = await readText(n.obj.file);
       const xml = stripBom(raw);
       await fs.writeFile(n.obj.file, bomOf(raw) + encode(xml, removeMemberFromView(decode(xml), n.member.kind, n.member.name)), 'utf8');
+    } else if (n?.kind === 'memberFolder' && !n.rel.startsWith('#')) {
+      const xml = await readText(n.obj.file);
+      const inside = listMembers(xml).filter(m => m.folder && (m.folder === n.rel || m.folder.startsWith(n.rel + '/')));
+      const KEEP = 'Keep Members', ALL = 'Delete Members Too', DELETE = 'Delete';
+      const where = path.posix.dirname(n.rel) === '.' ? `the top level of ${n.obj.name}` : path.posix.dirname(n.rel);
+      const pick = inside.length
+        ? await vscode.window.showWarningMessage(`Delete folder ${n.rel} in ${n.obj.name}?`, {
+          modal: true,
+          detail: `It holds ${inside.length} member(s): ${inside.slice(0, 8).map(m => m.name).join(', ')}${inside.length > 8 ? ', …' : ''}.\n${KEEP} moves them and any sub folders to ${where}.`,
+        }, KEEP, ALL)
+        : await vscode.window.showWarningMessage(`Delete folder ${n.rel} in ${n.obj.name}?`, { modal: true }, DELETE);
+      if (!pick) return;
+      await fs.writeFile(n.obj.file, deleteMemberFolder(xml, n.rel, pick === ALL), 'utf8');
     }
   });
 
@@ -325,21 +350,6 @@ function addImplements(xml: string, names: string[]): string {
       const all = [...have, ...names.filter(n => !have.some(h => h.toLowerCase() === n.toLowerCase()))];
       return `${head} IMPLEMENTS ${all.join(', ')}${eol}`;
     });
-}
-
-/** Removes a member's sections (for a property also its GET / SET) from the view text. */
-export function removeMemberFromView(view: string, kind: string, name: string): string {
-  const own = (l: string) => {
-    const m = HEADER_RE.exec(l);
-    return !!m && m[2] === name && (m[1] === kind || (kind === 'PROPERTY' && (m[1] === 'GET' || m[1] === 'SET')));
-  };
-  const out: string[] = [];
-  let skipping = false;
-  for (const l of view.split('\n')) {
-    if (HEADER_RE.test(l)) skipping = own(l);
-    if (!skipping) out.push(l);
-  }
-  return out.join('\n');
 }
 
 /** Opens an object's ST view (a file, or a library object's iecode-lib: URI) at a member's section. */

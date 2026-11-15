@@ -6,7 +6,7 @@ import { parseObject } from '../src/lang/parser';
 import { SymbolIndex } from '../src/lang/index';
 import { memberStubs, missingMembers, describeMissing } from '../src/lang/inheritance';
 import { layout, toMermaid, toPlantUml, toSvg, umlModel } from '../src/lang/uml';
-import { addMemberFolder, listMemberFolders, listMembers, memberLevel, moveMemberToFolder } from '../src/core/projects';
+import { addMemberFolder, deleteMemberFolder, listMemberFolders, listMembers, memberLevel, moveMemberToFolder, renameMemberFolder } from '../src/core/projects';
 import { decode, encode } from '../src/model';
 
 const ITF_BASE = `INTERFACE I_Base
@@ -166,4 +166,43 @@ test('UML model, Mermaid, PlantUML and SVG', () => {
   // a file selection draws other bases as external boxes
   const part = umlModel(ix, { files: new Set(['/p/FB_Motor.TcPOU']) });
   assert.deepEqual(part.classes.map(c => `${c.name}${c.external ? ' (ext)' : ''}`), ['FB_Base (ext)', 'FB_Motor']);
+});
+
+test('member folders: rename and delete', () => {
+  const sample = readFileSync(join(__dirname, '../../samples/FB_Motor.TcPOU'), 'utf8');
+  // Internal (Start, Reset) / Internal/Helpers (Speed)
+  let xml = addMemberFolder(sample, 'Internal/Helpers', '{00000000-0000-0000-0000-00000000abcd}');
+  xml = moveMemberToFolder(xml, 'PROPERTY', 'Speed', 'Internal/Helpers');
+  xml = moveMemberToFolder(xml, 'ACTION', 'Reset', 'Internal');
+  const where = (x: string) => Object.fromEntries(listMembers(x).map(m => [m.name, m.folder ?? '']));
+
+  // rename moves everything below the folder with it
+  const renamed = renameMemberFolder(xml, 'Internal', 'Core');
+  assert.deepEqual(listMemberFolders(renamed), ['Core', 'Core/Helpers']);
+  assert.deepEqual(where(renamed), { Start: 'Core', Speed: 'Core/Helpers', Reset: 'Core', Diagram: '' });
+  assert.match(renamed, /<Folder Name="Core" Id="\{11111111-2222-3333-4444-555555555555\}" \/>/);
+  assert.match(renamed, /<Folder Name="Helpers" Id="\{00000000-0000-0000-0000-00000000abcd\}" FolderPath="Core\\" \/>/);
+  assert.equal(decode(renamed), decode(sample));
+  assert.deepEqual(where(renameMemberFolder(xml, 'Internal/Helpers', 'Util')), { Start: 'Internal', Speed: 'Internal/Util', Reset: 'Internal', Diagram: '' });
+  assert.throws(() => renameMemberFolder(xml, 'Internal/Helpers', 'a/b'), /not a valid folder name/);
+  assert.throws(() => renameMemberFolder(addMemberFolder(xml, 'Other', '{y}'), 'Other', 'internal'), /already exists/);
+  assert.throws(() => renameMemberFolder(xml, 'Nope', 'X'), /not found/);
+
+  // delete, keep members: contents move up one level
+  const kept = deleteMemberFolder(xml, 'Internal', false);
+  assert.deepEqual(listMemberFolders(kept), ['Helpers']);
+  assert.deepEqual(where(kept), { Start: '', Speed: 'Helpers', Reset: '', Diagram: '' });
+  assert.doesNotMatch(kept, /Name="Internal"/);
+  assert.equal(decode(kept), decode(sample));
+  const keptSub = deleteMemberFolder(xml, 'Internal/Helpers', false);
+  assert.deepEqual(listMemberFolders(keptSub), ['Internal']);
+  assert.deepEqual(where(keptSub), { Start: 'Internal', Speed: 'Internal', Reset: 'Internal', Diagram: '' });
+
+  // delete with members: members, their accessors and LineIds go
+  const gone = deleteMemberFolder(xml, 'Internal', true);
+  assert.deepEqual(listMemberFolders(gone), []);
+  assert.deepEqual(listMembers(gone).map(m => m.name), ['Diagram']);
+  assert.doesNotMatch(gone, /<Folder |Name="Start"|Name="Speed"|Name="Reset"|FB_Motor\.Start/);
+  assert.match(decode(gone), /^FUNCTION_BLOCK FB_Motor/);
+  assert.equal(encode(gone, decode(gone)), gone);
 });

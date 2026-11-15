@@ -329,3 +329,18 @@ export function outline(text: string) {
     return m ? [{ kind: m[1] as Kind, name: m[2], line: i }] : [];
   });
 }
+
+/** Removes a member's sections (for a property also its GET / SET) from the view text. */
+export function removeMemberFromView(view: string, kind: string, name: string): string {
+  const own = (l: string) => {
+    const m = HEADER_RE.exec(l);
+    return !!m && m[2] === name && (m[1] === kind || (kind === 'PROPERTY' && (m[1] === 'GET' || m[1] === 'SET')));
+  };
+  const out: string[] = [];
+  let skipping = false;
+  for (const l of view.split('\n')) {
+    if (HEADER_RE.test(l)) skipping = own(l);
+    if (!skipping) out.push(l);
+  }
+  return out.join('\n');
+}
