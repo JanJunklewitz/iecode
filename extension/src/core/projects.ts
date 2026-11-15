@@ -4,6 +4,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { parseXml, XNode, child, cdataText, escapeAttr } from '../xml';
+import { decode, encode, removeMemberFromView } from '../model';
 
 export type ObjectType =
   | 'FUNCTION_BLOCK' | 'PROGRAM' | 'FUNCTION' | 'INTERFACE'
@@ -283,20 +284,104 @@ export function addMemberFolder(xml: string, folder: string, id: string): string
   return bom + src.slice(0, at) + el + src.slice(at);
 }
 
+interface Splice { start: number; end: number; text: string }
+const applySplices = (src: string, edits: Splice[]) =>
+  [...edits].sort((a, b) => b.start - a.start).reduce((out, e) => out.slice(0, e.start) + e.text + out.slice(e.end), src);
+
+/** The main POU / Itf node of an object file (BOM stripped). */
+function pouNode(src: string): XNode {
+  const main = child(parseXml(src), 'TcPlcObject')?.children.find(c => ['POU', 'Itf'].includes(c.name));
+  if (!main) throw new Error('Folders exist only in POUs and interfaces');
+  return main;
+}
+
+/** Splice that sets (or with '' removes) the FolderPath attribute in a node's start tag; `name` also replaces the Name attribute. */
+function retag(src: string, node: XNode, folder: string, name?: string): Splice {
+  const tagEnd = node.innerStart - 1;   // the start tag's '>'
+  let tag = src.slice(node.start, tagEnd);
+  const closing = tag.endsWith('/');
+  if (closing) tag = tag.slice(0, -1).trimEnd();
+  tag = tag.replace(/\s+FolderPath="[^"]*"/, '');
+  if (name !== undefined) tag = tag.replace(/(\sName=")[^"]*(")/, `$1${escapeAttr(name)}$2`);
+  if (folder) tag += ` FolderPath="${escapeAttr(toFolderPath(folder))}"`;
+  return { start: node.start, end: tagEnd, text: tag + (closing ? ' /' : '') };
+}
+
+/** Splice that removes a node with its line. */
+function removeLine(src: string, node: XNode): Splice {
+  const start = src.lastIndexOf('\n', node.start - 1) + 1;
+  let end = node.end;
+  if (src.startsWith('\r\n', end)) end += 2; else if (src[end] === '\n') end += 1;
+  return { start, end, text: '' };
+}
+
+/** Folder path of a <Folder> element itself. */
+const folderPathOf = (n: XNode) => [folderOf(n.attrs.FolderPath), n.attrs.Name].filter(Boolean).join('/');
+const lower = (s: string) => s.toLowerCase();
+const isUnder = (path: string | undefined, folder: string) => !!path && (lower(path) === lower(folder) || lower(path).startsWith(lower(folder) + '/'));
+/** `path` (inside `from`) moved to `to`: from/rest → to/rest. */
+const rebase = (path: string, from: string, to: string) => [to, path.slice(from.length + 1)].filter(Boolean).join('/');
+
 /** Moves a member (method / property / action / transition) into a folder of its POU, or to the top level ('' folder). */
 export function moveMemberToFolder(xml: string, kind: Member['kind'], name: string, folder: string): string {
   const bom = xml.charCodeAt(0) === 0xfeff ? '\ufeff' : '';
   const src = stripBom(xml);
-  const main = child(parseXml(src), 'TcPlcObject')?.children.find(c => ['POU', 'Itf'].includes(c.name));
-  const node = main?.children.find(c => MEMBER_KIND[c.name] === kind && c.attrs.Name === name);
+  const node = pouNode(src).children.find(c => MEMBER_KIND[c.name] === kind && c.attrs.Name === name);
   if (!node) throw new Error(`${kind.toLowerCase()} ${name} not found`);
-  const tagEnd = node.innerStart - 1;   // the start tag's '>'
-  let tag = src.slice(node.start, tagEnd);
-  const closing = tag.endsWith('/') ? '/' : '';
-  if (closing) tag = tag.slice(0, -1).trimEnd();
-  tag = tag.replace(/\s+FolderPath="[^"]*"/, '');
-  if (folder) tag += ` FolderPath="${escapeAttr(toFolderPath(folder))}"`;
-  return bom + src.slice(0, node.start) + tag + (closing ? ' /' : '') + src.slice(tagEnd);
+  return bom + applySplices(src, [retag(src, node, folder)]);
+}
+
+/** Renames a folder inside a POU / interface: its <Folder> element and the FolderPath of everything in it (sub folders included). */
+export function renameMemberFolder(xml: string, folder: string, newName: string): string {
+  if (!newName || /[\\/]/.test(newName)) throw new Error(`'${newName}' is not a valid folder name`);
+  const bom = xml.charCodeAt(0) === 0xfeff ? '\ufeff' : '';
+  const src = stripBom(xml);
+  const folders = listMemberFolders(src);
+  if (!folders.some(f => lower(f) === lower(folder))) throw new Error(`Folder ${folder} not found`);
+  const parent = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '';
+  const target = parent ? `${parent}/${newName}` : newName;
+  if (lower(target) !== lower(folder) && folders.some(f => lower(f) === lower(target))) throw new Error(`Folder ${target} already exists`);
+  const edits: Splice[] = [];
+  for (const c of pouNode(src).children) {
+    const own = folderOf(c.attrs.FolderPath);
+    if (c.name === 'Folder' && lower(folderPathOf(c)) === lower(folder)) edits.push(retag(src, c, parent, newName));
+    else if ((c.name === 'Folder' || MEMBER_KIND[c.name]) && isUnder(own, folder)) edits.push(retag(src, c, rebase(own!, folder, target)));
+  }
+  return bom + applySplices(src, edits);
+}
+
+/**
+ * Deletes a folder inside a POU / interface. `deleteMembers` false: its members and sub folders move up into the parent
+ * folder. true: the members in it (and in its sub folders) are deleted with it, a property with its GET / SET.
+ */
+export function deleteMemberFolder(xml: string, folder: string, deleteMembers: boolean): string {
+  const bom = xml.charCodeAt(0) === 0xfeff ? '\ufeff' : '';
+  let src = stripBom(xml);
+  if (!listMemberFolders(src).some(f => lower(f) === lower(folder))) throw new Error(`Folder ${folder} not found`);
+  const parent = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '';
+  if (deleteMembers) {
+    // through the view, so LineIds and accessors go too
+    let view = decode(src);
+    for (const m of listMembers(src)) if (isUnder(m.folder, folder)) view = removeMemberFromView(view, m.kind, m.name);
+    src = encode(src, view);
+  }
+  const children = pouNode(src).children;
+  const existing = new Set(children.filter(c => c.name === 'Folder' && !isUnder(folderPathOf(c), folder)).map(c => lower(folderPathOf(c))));
+  const edits: Splice[] = [];
+  for (const c of children) {
+    const own = folderOf(c.attrs.FolderPath);
+    if (c.name === 'Folder') {
+      const path = folderPathOf(c);
+      if (!isUnder(path, folder)) continue;
+      const moved = lower(path) === lower(folder) ? undefined : rebase(path, folder, parent);
+      // the folder itself goes; a sub folder goes too when deleted with its members or when the parent already has one of that name
+      if (!moved || deleteMembers || existing.has(lower(moved))) edits.push(removeLine(src, c));
+      else { existing.add(lower(moved)); edits.push(retag(src, c, rebase(own!, folder, parent))); }
+    } else if (MEMBER_KIND[c.name] && isUnder(own, folder)) {
+      edits.push(retag(src, c, rebase(own!, folder, parent)));
+    }
+  }
+  return bom + applySplices(src, edits);
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'bin', 'obj', 'out', '.vs']);

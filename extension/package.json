@@ -905,12 +905,12 @@
         },
         {
           "command": "iecode.rename",
-          "when": "view == iecode.projects && viewItem =~ /^(object|folder|member)/",
+          "when": "view == iecode.projects && viewItem =~ /^(object|folder|member\\.|memberFolder\\.)/",
           "group": "3_edit@1"
         },
         {
           "command": "iecode.delete",
-          "when": "view == iecode.projects && viewItem =~ /^(object|folder|member)/",
+          "when": "view == iecode.projects && viewItem =~ /^(object|folder|member\\.|memberFolder\\.)/",
           "group": "3_edit@2"
         },
         {
