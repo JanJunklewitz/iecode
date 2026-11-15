@@ -79,7 +79,8 @@
           ".TcIPO",
           ".TcGIPO",
           ".TcVMO",
-          ".tmc"
+          ".tmc",
+          ".plcproj"
         ]
       }
     ],
@@ -423,6 +424,12 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "iecode.resolveProjectFile",
+        "title": "Resolve Project File",
+        "category": "IECode",
+        "icon": "$(wrench)"
+      },
+      {
         "command": "iecode.aiAdd",
         "title": "Add to AI Chat",
         "category": "IECode",
@@ -565,6 +572,11 @@
           "group": "navigation"
         },
         {
+          "command": "iecode.resolveProjectFile",
+          "when": "resourceScheme == file && resourceExtname =~ /\\\\.plcproj$/i",
+          "group": "navigation"
+        },
+        {
           "command": "iecode.openVisuEditor",
           "when": "resourceExtname =~ /\\\\.TcVIS$/i",
           "group": "navigation"
@@ -647,6 +659,11 @@
           "command": "iecode.compareWithHead",
           "when": "resourceScheme == iecode",
           "group": "navigation@9"
+        },
+        {
+          "command": "iecode.resolveProjectFile",
+          "when": "resourceScheme == file && resourceExtname =~ /\\\\.plcproj$/i && !isInDiffEditor",
+          "group": "navigation"
         }
       ],
       "editor/context": [
@@ -674,6 +691,11 @@
           "command": "iecode.umlDiagram",
           "when": "resourceScheme =~ /^iecode(-lib)?$/ && editorLangId == twincat-st",
           "group": "navigation@9"
+        },
+        {
+          "command": "iecode.resolveProjectFile",
+          "when": "resourceScheme == file && resourceExtname =~ /\\\\.plcproj$/i",
+          "group": "1_modification"
         }
       ],
       "webview/context": [
@@ -960,6 +982,11 @@
           "command": "iecode.projectSettings",
           "when": "view == iecode.projects && viewItem =~ /^unit\\./",
           "group": "2_settings@1"
+        },
+        {
+          "command": "iecode.resolveProjectFile",
+          "when": "view == iecode.projects && viewItem =~ /^unit\\./",
+          "group": "2_settings@2"
         },
         {
           "command": "iecode.ioLinkSaveIndependent",
@@ -1359,6 +1386,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Keep the `.plcproj` in step with TwinCAT object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders created, deleted, renamed or moved in VS Code (explorer, paste, drag and drop). An empty new `.TcPOU`/`.TcDUT`/`.TcGVL`/`.TcIO` gets a template named after the file; a copied object takes the file's name and new ids. Changes made by other programs (git, TwinCAT) are not touched."
+        },
+        "iecode.checkProjectFiles": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check every `.plcproj` against the files on disk and show what doesn't match in the editor and the Problems panel: entries of files and folders that don't exist, duplicate entries, paths whose case differs from the disk, and object files no `<Compile>` entry lists. Quick fixes repair single entries; **IECode: Resolve Project File** repairs the whole file."
         },
         "iecode.tcVersion": {
           "type": "string",

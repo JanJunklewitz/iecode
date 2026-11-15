@@ -6,7 +6,7 @@ const win = (rel: string) => rel.replace(/\//g, '\\');
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Path as TwinCAT writes it in Include="…" (backslashes), XML-escaped. */
-const includeValue = (rel: string) => win(rel).replace(/&/g, '&amp;');
+export const includeValue = (rel: string) => win(rel).replace(/&/g, '&amp;');
 
 function insertIntoGroup(text: string, element: string, entry: (indent: string, eol: string) => string): string {
   const eol = eolOf(text);
@@ -46,6 +46,19 @@ export function addFolder(text: string, rel: string): string {
     text = insertIntoGroup(text, 'Folder', ind => `${ind}<Folder Include="${includeValue(f)}" />`);
   }
   return text;
+}
+
+/**
+ * Removes the element at [start, end) — with its whole line when nothing else is on it, so no blank line is left.
+ * For an entry that only an offset identifies (e.g. the second of two duplicates).
+ */
+export function removeElement(text: string, start: number, end: number): string {
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  if (/^[ \t]*$/.test(text.slice(lineStart, start))) {
+    const rest = /^[ \t]*(\r?\n|$)/.exec(text.slice(end));
+    if (rest) return text.slice(0, lineStart) + text.slice(end + rest[0].length);
+  }
+  return text.slice(0, start) + text.slice(end);
 }
 
 /** Removes the Compile entry of an object (and its whole element). */
