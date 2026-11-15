@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Task Name="PlcTask" Id="{00000000-0000-0000-0000-000000000004}" />
+</TcPlcObject>

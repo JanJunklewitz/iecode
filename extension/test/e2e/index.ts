@@ -254,5 +254,32 @@ export async function run(): Promise<void> {
   const umlTab = await until(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === 'UML: FB_Motor' || undefined);
   assert.ok(umlTab, 'UML panel open');
 
+  // a .plcproj out of step with the disk is underlined; a quick fix and Resolve Project File repair it
+  const plcprojPath = join(plcDir, 'PLC1.plcproj');
+  const plcprojBefore = await fs.readFile(plcprojPath, 'utf8');
+  const mainEntry = '    <Compile Include="POUs\\MAIN.TcPOU">\r\n      <SubType>Code</SubType>\r\n    </Compile>\r\n';
+  assert.ok(plcprojBefore.includes(mainEntry));
+  await fs.writeFile(plcprojPath, plcprojBefore.replace(mainEntry, mainEntry + mainEntry + mainEntry.replace('MAIN', 'FB_Gone')));
+  await fs.writeFile(join(plcDir, 'POUs/FB_Extra.TcPOU'), (await fs.readFile(join(plcDir, 'POUs/MAIN.TcPOU'), 'utf8')).replace(/Name="MAIN"/, 'Name="FB_Extra"'));
+  const plcprojDoc = await vscode.workspace.openTextDocument(plcprojPath);
+  await vscode.window.showTextDocument(plcprojDoc);
+  const codes = () => vscode.languages.getDiagnostics(plcprojDoc.uri).map(d => String(d.code)).sort().join(',');
+  assert.equal(await until(() => codes() === 'duplicate,missing-file,unlisted' ? codes() : undefined), 'duplicate,missing-file,unlisted', `plcproj diagnostics: ${codes()}`);
+  const dupDiag = vscode.languages.getDiagnostics(plcprojDoc.uri).find(d => d.code === 'duplicate')!;
+  const dupFixes = await vscode.commands.executeCommand<vscode.CodeAction[]>('vscode.executeCodeActionProvider', plcprojDoc.uri, dupDiag.range, vscode.CodeActionKind.QuickFix.value);
+  const dupFix = dupFixes.find(a => a.title === 'Remove the duplicate entry');
+  assert.ok(dupFix?.edit, 'duplicate quick fix offered');
+  await vscode.workspace.applyEdit(dupFix.edit);
+  assert.ok(await plcprojDoc.save(), 'quick fix saved');
+  assert.equal(await until(() => codes() === 'missing-file,unlisted' ? codes() : undefined), 'missing-file,unlisted', `after the quick fix: ${codes()}`);
+  const resolveChanges = await vscode.commands.executeCommand<string[]>('iecode.resolveProjectFile', plcprojDoc.uri, { apply: true });
+  assert.deepEqual(resolveChanges, ['Remove Compile POUs\\FB_Gone.TcPOU (not found)', 'Add Compile POUs\\FB_Extra.TcPOU']);
+  const plcprojAfter = await fs.readFile(plcprojPath, 'utf8');
+  const motorEnd = plcprojBefore.indexOf('</Compile>', plcprojBefore.indexOf('FB_Motor.TcPOU')) + '</Compile>'.length;
+  assert.equal(plcprojAfter, plcprojBefore.slice(0, motorEnd)
+    + '\r\n    <Compile Include="POUs\\FB_Extra.TcPOU">\r\n      <SubType>Code</SubType>\r\n    </Compile>' + plcprojBefore.slice(motorEnd),
+    `resolved: only the stale entry removed and the new file added, BOM and CRLF kept:\n${JSON.stringify(plcprojAfter)}`);
+  assert.ok(await until(() => vscode.languages.getDiagnostics(plcprojDoc.uri).length === 0 || undefined), 'no plcproj diagnostics left');
+
   console.log('E2E OK');
 }

@@ -2,6 +2,14 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### PLC projects
+- A `.plcproj` that is out of step with the files on disk (for example when TwinCAT XAE didn't save the project properly) is now checked, in the open editor and for every PLC project of the workspace in the Problems panel. Underlined are `<Compile>` and `<None>` entries whose file doesn't exist, `<Folder>` entries whose folder doesn't exist, duplicate entries, and paths whose case differs from the file on disk (matched case-insensitively like Windows, reported as warnings). Object files below the project folder that no `<Compile>` entry lists are reported at the `<ItemGroup>`; TwinCAT output folders (`_*`) are skipped. The check updates while you type, on save and when files are created, deleted or renamed.
+- Quick fixes per entry: remove it, add the missing `<Compile>` with its parent folders, fix the case of the path, or point a missing entry to the file of the same name it was moved to.
+- **IECode: Resolve Project File** (editor title and context menu of a `.plcproj`, the project in the IECode view, command palette) repairs the whole file in one go: removes stale and duplicate entries, follows moved files, fixes the case and adds unlisted object files with the folders they need. It shows a summary and a diff before writing and leaves everything else byte-identical (BOM, line endings, element order, `SubType`).
+- The new setting `iecode.checkProjectFiles` (on by default) turns the check off. `.plcproj` files now open with XML highlighting.
+
 ## 0.2.15
 
 ### Function blocks
