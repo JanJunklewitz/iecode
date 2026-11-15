@@ -2,7 +2,7 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.16
 
 ### Function blocks
 - Folders inside a function block, program or interface can be renamed and deleted from the project tree (**Rename…**, **Delete…** on the folder). Renaming moves everything in it along; deleting asks whether to keep the members (they and any sub folders move up one level) or delete them with the folder. The ST view does not change, since folders only exist in the XML.
