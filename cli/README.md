@@ -30,6 +30,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `lib installed [--lib <name>] [--repository <dir>]` | Libraries in the local library repository | files |
 | `lib restore [paths…] -s <folder>… [--dry-run]` | Install the library versions pinned in the `.plcproj` files that are missing locally (CI, fresh PCs) | TwinCAT (`--dry-run`: files) |
 | `lib install <file\|folder> [--overwrite] [--profile]` | Install libraries (RepTool) | TwinCAT |
+| `lib install-project [paths…] [--missing-only] [--dry-run]` | Install the libraries kept in each project's `_Libraries` folder, like XAE's *Install Project Libraries*; `--missing-only` = *(Unknown versions)* | TwinCAT (`--dry-run`: files) |
 | `lib uninstall <name>… --vendor <vendor> [--version all]` | Remove libraries (RepTool) | TwinCAT |
 | `ws list [folder]` | Libraries, applications and standalone PLC projects in a workspace folder | files |
 | `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |

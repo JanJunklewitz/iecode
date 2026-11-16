@@ -296,6 +296,18 @@
         "icon": "$(package)"
       },
       {
+        "command": "iecode.libInstallProject",
+        "title": "Install Project Libraries",
+        "category": "IECode",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "iecode.libInstallProjectMissing",
+        "title": "Install Project Libraries (Unknown Versions)",
+        "category": "IECode",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "iecode.encrypt",
         "title": "Encrypt / Protect…",
         "category": "IECode",
@@ -954,6 +966,16 @@
           "group": "1_add@1"
         },
         {
+          "command": "iecode.libInstallProject",
+          "when": "isWindows && view == iecode.projects && viewItem == references",
+          "group": "1_add@2"
+        },
+        {
+          "command": "iecode.libInstallProjectMissing",
+          "when": "isWindows && view == iecode.projects && viewItem == references",
+          "group": "1_add@3"
+        },
+        {
           "submenu": "iecode.compare",
           "when": "view == iecode.projects && viewItem =~ /^object\\.(?!encrypted)/",
           "group": "2_open@3"
@@ -1113,6 +1135,14 @@
         },
         {
           "command": "iecode.libSaveAll",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.libInstallProject",
+          "when": "isWindows"
+        },
+        {
+          "command": "iecode.libInstallProjectMissing",
           "when": "isWindows"
         },
         {

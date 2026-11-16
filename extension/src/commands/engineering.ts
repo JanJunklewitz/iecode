@@ -239,6 +239,24 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     vscode.window.showInformationMessage(`IECode: saved ${saved} project(s) as ${mode.label}.`);
   });
 
+  /** XAE's "Install Project Libraries" (all, overwriting) and "… (Unknown versions)" (only those missing locally), from the project's _Libraries folder. */
+  async function installProjectLibraries(n: Node | undefined, missingOnly: boolean) {
+    if (!cliAvailable()) return void vscode.window.showWarningMessage('IECode: installing libraries needs Windows with TwinCAT and the iecode CLI.');
+    const u = unitFrom(n);
+    if (!u) return void vscode.window.showWarningMessage('IECode: no PLC project in this workspace.');
+    const what = `${missingOnly ? 'missing ' : ''}project libraries of ${u.plc.title ?? u.plc.name}`;
+    const res = await runCli<{ installed: number; libraries: unknown[] }>(
+      ['lib', 'install-project', u.plc.file, ...(missingOnly ? ['--missing-only'] : [])], `Installing ${what}`);
+    if (!res.ok) return reportFailure(res, `Install ${what}`);
+    const done = res.data?.installed ?? 0;
+    vscode.window.showInformationMessage(done
+      ? `IECode: installed ${done} librar${done === 1 ? 'y' : 'ies'} from _Libraries of ${u.plc.title ?? u.plc.name}.`
+      : `IECode: all project libraries of ${u.plc.title ?? u.plc.name} are already installed.`);
+    await state.reload();
+  }
+  reg('iecode.libInstallProject', (n?: Node) => installProjectLibraries(n, false));
+  reg('iecode.libInstallProjectMissing', (n?: Node) => installProjectLibraries(n, true));
+
   reg('iecode.encrypt', async (n?: Node) => {
     const u = unitFrom(n);
     if (!need(u)) return;
