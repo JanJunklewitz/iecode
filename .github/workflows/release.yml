@@ -7,7 +7,7 @@ on:
 permissions:
   contents: write     # GitHub Release
   packages: write     # GitHub Packages NuGet feed (tcpkg)
-  id-token: write     # VS Code Marketplace trusted publishing (OIDC)
+  id-token: write     # VS Code Marketplace and nuget.org trusted publishing (OIDC)
 
 jobs:
   build:
@@ -21,6 +21,10 @@ jobs:
       # Repository variable; set to 'true' once the trusted publishing policy exists on the Marketplace
       VSCE_OIDC: ${{ vars.VSCE_OIDC }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      # nuget.org: repository variable with the nuget.org user name that owns the trusted publishing policy,
+      # or an API key as the fallback
+      NUGET_USER: ${{ vars.NUGET_USER }}
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -85,6 +89,11 @@ jobs:
           Get-ChildItem dist -File | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } |
             Set-Content -Encoding ascii dist/SHA256SUMS
 
+      - name: .NET tool package (nuget.org)
+        shell: bash
+        working-directory: cli
+        run: dotnet pack src/IECode.Cli -c Release -p:Version="$VERSION" -o ../nuget
+
       - name: GitHub Release
         shell: bash
         env:
@@ -111,3 +120,20 @@ jobs:
         if: env.OVSX_PAT != ''
         shell: bash
         run: npx --yes ovsx@0.10.1 publish "dist/iecode-$VERSION.vsix" $PRE_RELEASE -p "$OVSX_PAT"
+
+      # nuget.org has no pre-release channel that fits the odd-minor scheme: stable versions only
+      - name: nuget.org login (trusted publishing)
+        id: nuget-login
+        if: env.PRE_RELEASE == '' && env.NUGET_USER != ''
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Publish to nuget.org (dotnet tool)
+        if: env.PRE_RELEASE == '' && (env.NUGET_USER != '' || env.NUGET_API_KEY != '')
+        shell: bash
+        env:
+          NUGET_OIDC_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "nuget/IECode.Cli.$VERSION.nupkg" --source https://api.nuget.org/v3/index.json \
+            --api-key "${NUGET_OIDC_KEY:-$NUGET_API_KEY}" --skip-duplicate

@@ -9,6 +9,22 @@
          the analyzer can't follow that into the shell callbacks. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
+  <!-- nuget.org: `dotnet tool install -g IECode.Cli` (framework-dependent, any OS). `dotnet pack` only; the
+       self-contained iecode.exe of the release zip / tcpkg comes from `dotnet publish`. -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>iecode</ToolCommandName>
+    <PackageId>IECode.Cli</PackageId>
+    <Title>IECode CLI</Title>
+    <Description>iecode: TwinCAT 3 engineering from the command line (build, activate, libraries, protection, ADS). The commands that drive TwinCAT need Windows with TwinCAT XAE 4024 or 4026; the file-based commands run on any OS. Not affiliated with Beckhoff Automation GmbH.</Description>
+    <PackageTags>twincat plc iec61131-3 structured-text cli automation</PackageTags>
+    <PackageProjectUrl>https://github.com/JanJunklewitz/iecode</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\NOTICE" Pack="true" PackagePath="\" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\IECode.Core\IECode.Core.csproj" />
     <ProjectReference Include="..\IECode.Automation\IECode.Automation.csproj" />
