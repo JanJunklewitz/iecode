@@ -7,13 +7,13 @@ using static IECode.Cli.Runner;
 
 namespace IECode.Cli.Commands;
 
-/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, install, uninstall.</summary>
+/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, restore, install, install-project, uninstall.</summary>
 internal static class LibraryCommands
 {
     public static Command Create()
     {
         var lib = new Command("lib", "PLC libraries: save (one or all), list, update references, install");
-        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), Uninstall() })
+        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), InstallProject(), Uninstall() })
             lib.Subcommands.Add(c);
         return lib;
     }
@@ -333,6 +333,57 @@ internal static class LibraryCommands
             ctx.Log.Success($"Installed {ctx.Get(path)}");
             return Outcome.Ok(new { path = Path.GetFullPath(ctx.Get(path)), profile = tool.Profile });
         }, windowsOnly: true);
+        return cmd;
+    }
+
+    private static Command InstallProject()
+    {
+        var paths = PathsArg("Projects whose _Libraries folder to install");
+        var missingOnly = new Option<bool>("--missing-only") { Description = "Only versions not yet in the library repository (XAE: \"Install Project Libraries (Unknown versions)\")" };
+        var repo = new Option<string?>("--repository") { Description = "Library repository folder to compare with (default: TwinCAT's Managed Libraries)" };
+        var dryRun = new Option<bool>("--dry-run") { Description = "Only show what would be installed (any OS)" };
+        var profile = ProfileOption();
+        var cmd = new Command("install-project", $"Install the libraries kept in the projects' {ProjectLibraries.FolderName} folder (XAE: \"Install Project Libraries\")")
+            { paths, missingOnly, repo, dryRun, profile };
+        Action(cmd, ctx =>
+        {
+            var projects = LoadProjects(ctx.Get(paths));
+            var withFolder = projects.Where(p => Directory.Exists(ProjectLibraries.FolderOf(p.Path))).ToList();
+            foreach (var p in projects.Except(withFolder))
+                ctx.Log.Detail($"{p.Name}: no {ProjectLibraries.FolderName} folder");
+            if (withFolder.Count == 0)
+                throw new IECodeException(ExitCodes.NotFound, $"No {ProjectLibraries.FolderName} folder next to the .plcproj.",
+                    "Create it in XAE with References → Update Project Library Folder…, and commit it with the project.");
+
+            var repoPath = ctx.Get(repo) ?? LibraryRepository.DefaultPath(Environment.GetEnvironmentVariable("TWINCAT3DIR"));
+            var installed = repoPath is not null && Directory.Exists(repoPath) ? LibraryRepository.Scan(repoPath) : [];
+            var plan = ProjectLibraries.Plan(withFolder, installed, ctx.Get(missingOnly));
+            foreach (var l in plan)
+                ctx.Log.Info($"  {l.Name,-36} {l.Version,-12} {l.Vendor,-32} {(l.Installed ? "installed" : "missing")}");
+            object Data(int done) => new { missingOnly = ctx.Get(missingOnly), dryRun = ctx.Get(dryRun), installed = done, libraries = plan };
+            if (plan.Count == 0)
+            {
+                ctx.Log.Success(ctx.Get(missingOnly) ? "All project libraries are installed" : "The project library folders are empty");
+                return Outcome.Ok(Data(0));
+            }
+            if (ctx.Get(dryRun)) return Outcome.Ok(Data(0));
+            if (!OperatingSystem.IsWindows())
+                throw new IECodeException(ExitCodes.NotSupportedPlatform, "Installing libraries needs Windows with TwinCAT (RepTool).", "Use --dry-run to check on any OS.");
+
+            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            ctx.Log.Step($"RepTool profile: {tool.Profile}");
+            var done = 0;
+            foreach (var l in plan)
+            {
+                var code = tool.Install(l.File, overwrite: true, ctx.Log);
+                if (code != 0)
+                    throw new IECodeException(ExitCodes.LibraryFailed, $"Installing {l.Name} {l.Version} failed (RepTool exit {code}); {done} of {plan.Count} installed.", "Run with --verbose to see its output.");
+                done++;
+                ctx.Log.Success($"[{done}/{plan.Count}] {l.Name} {l.Version}");
+            }
+            ctx.Log.Success($"{done} project librar{(done == 1 ? "y" : "ies")} installed");
+            return Outcome.Ok(Data(done));
+        });
         return cmd;
     }
 

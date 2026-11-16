@@ -12,6 +12,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - **Project Settings (Title, Versionâ€¦)** (right-click a PLC project in the IECode view or a `.plcproj` in the Explorer, Command Palette): edits title, company, version, released, default namespace, placeholder, author, description and compiler defines in the `.plcproj`. Only changed lines are written; undo works in the project file.
 - A new title or version also updates `Global_Version.TcGVL` (`stLibVersion_<Title> : ST_LibVersion`, four-part version), which TwinCAT otherwise regenerates only on build. Library projects without one get `Version/Global_Version.TcGVL` and its `.plcproj` entry.
 
+### Libraries
+- **Install Project Libraries** and **Install Project Libraries (Unknown Versions)** (right-click **References** of a PLC project, Command Palette; Windows): install the libraries kept in the project's `_Libraries` folder into the local library repository, as in TwinCAT XAE. The second one installs only the versions that are missing on this PC. CLI: `iecode lib install-project [--missing-only]`.
+
 ### Visualizations
 - With no element selected, the property panel edits the visualization's **width, height and background color**.
 - Edit errors in the property panel stay visible in the status bar of the editor (they were cleared right away).

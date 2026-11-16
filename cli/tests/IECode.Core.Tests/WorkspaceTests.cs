@@ -92,6 +92,27 @@ public sealed class WorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void ProjectLibrariesPlanInstallsFromTheLibrariesFolder()
+    {
+        _ws.Touch("Machine/Machine/PLC1/_Libraries/Beckhoff Automation GmbH/Tc2_System/3.4.22.0/Tc2_System.compiled-library-ge33");
+        _ws.Touch("Machine/Machine/PLC1/_Libraries/Acme/Tc3_MotorLib/1.2.0/Tc3_MotorLib.library");
+        _ws.Touch("Machine/MotorLib/MotorLib/_Libraries/acme/tc3_motorlib/1.2.0/Tc3_MotorLib.library");
+        _ws.Touch("Machine/MotorLib/MotorLib/_Libraries/Acme/Tc3_Empty/1.0.0/readme.txt");
+        _ws.Touch("Repo/beckhoff automation gmbh/tc2_system/3.4.22.0/x.library");
+        var projects = Load().Units.Select(u => u.Plc).ToList();
+        var installed = LibraryRepository.Scan(_ws["Repo"]);
+
+        var all = ProjectLibraries.Plan(projects, installed, missingOnly: false);
+        // one entry per vendor/name/version across projects, folders without a library file skipped
+        Assert.Equal(["Tc3_MotorLib 1.2.0 missing", "Tc2_System 3.4.22.0 installed"], all.Select(l => $"{l.Name} {l.Version} {(l.Installed ? "installed" : "missing")}"));
+        Assert.Equal(2, all[0].Projects.Count);
+        Assert.EndsWith(".compiled-library-ge33", all[1].File);
+
+        Assert.Equal("Tc3_MotorLib", Assert.Single(ProjectLibraries.Plan(projects, installed, missingOnly: true)).Name);
+        Assert.Empty(ProjectLibraries.Scan(_ws["Nowhere/_Libraries"]));
+    }
+
+    [Fact]
     public void LibraryExportPlansAllProjectsInBuildOrder()
     {
         var plan = LibraryExport.Plan(Load(), compiled: false, outDir: null, librariesOnly: false);
