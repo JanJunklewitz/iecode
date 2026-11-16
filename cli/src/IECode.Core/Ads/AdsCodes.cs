@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace IECode.Core.Ads;
 
 /// <summary>Classification of ADS error codes for the watch host. Pure, so it is unit-tested without a runtime.</summary>
@@ -22,4 +24,36 @@ public static class AdsCodes
 
     /// <summary>The error of a watched item whose name is not in the symbol table.</summary>
     public const string SymbolNotFound = "Symbol not found. " + HiddenHint;
+
+    /// <summary>
+    /// The text appended to "symbol not found". For a path with array indexes it names the declared bounds of the first array whose
+    /// index lies outside them (else of the first array), so an index error is not mistaken for {attribute 'hide'}; otherwise it is
+    /// <see cref="HiddenHint"/>. <paramref name="typeNameOf"/> gives the type name of a symbol path, null when it does not exist.
+    /// </summary>
+    public static string NotFoundHint(string symbol, Func<string, string?> typeNameOf)
+    {
+        string? firstArray = null;
+        for (var open = symbol.IndexOf('['); open >= 0; open = symbol.IndexOf('[', open + 1))
+        {
+            var close = symbol.IndexOf(']', open);
+            if (close < 0) break;
+            var prefix = symbol[..open];
+            var typeName = typeNameOf(prefix);
+            if (typeName is null || !typeName.StartsWith("ARRAY", StringComparison.OrdinalIgnoreCase)) continue;
+            firstArray ??= $"'{prefix}' is {typeName}.";
+
+            var bounds = Regex.Match(typeName, @"^ARRAY\s*\[([^\]]*)\]", RegexOptions.IgnoreCase);
+            if (!bounds.Success) continue;
+            var dims = bounds.Groups[1].Value.Split(',');
+            var indexes = symbol[(open + 1)..close].Split(',');
+            for (var d = 0; d < Math.Min(dims.Length, indexes.Length); d++)
+            {
+                var range = dims[d].Split("..", StringSplitOptions.TrimEntries);
+                if (range.Length == 2 && long.TryParse(range[0], out var lo) && long.TryParse(range[1], out var hi)
+                    && long.TryParse(indexes[d].Trim(), out var index) && (index < lo || index > hi))
+                    return $"'{prefix}' is {typeName}: index {index} is outside {lo}..{hi}.";
+            }
+        }
+        return firstArray ?? HiddenHint;
+    }
 }

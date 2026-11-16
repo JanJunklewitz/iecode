@@ -67,6 +67,18 @@ public sealed class WatchHostTests
     }
 
     [Fact]
+    public void Start_HelloCarriesTheResolvedTarget_OnlyWhenGiven()
+    {
+        var plain = new Rig();
+        plain.Host.Start();
+        Assert.False(Parse(plain.Lines[0]).TryGetProperty("target", out _));
+
+        var lines = new List<string>();
+        new WatchHost(new FakeBackend(), lines.Add, null, "199.4.42.250.1.1").Start();
+        Assert.Equal("199.4.42.250.1.1", Parse(lines[0]).GetProperty("target").GetString());
+    }
+
+    [Fact]
     public void Start_ConnectFailure_EmitsStateDisconnected()
     {
         var r = new Rig();

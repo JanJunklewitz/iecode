@@ -167,11 +167,15 @@ public sealed class McpBridgeTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ToolsList_IsEmptyWithoutAWindowAndWithoutToolsJson()
+    public async Task ToolsList_OffersTheHelpToolWithoutAWindowAndWithoutToolsJson()
     {
         Start();
         await Send(List(1));
-        Assert.Equal(0, (await FromBridge()).GetProperty("result").GetProperty("tools").GetArrayLength());
+        var tools = (await FromBridge()).GetProperty("result").GetProperty("tools");
+        Assert.Equal(1, tools.GetArrayLength());
+        Assert.Equal("ads_help", tools[0].GetProperty("name").GetString());
+        Assert.Contains("No VS Code window with IECode is open", tools[0].GetProperty("description").GetString());
+        Assert.Equal("object", tools[0].GetProperty("inputSchema").GetProperty("type").GetString());
     }
 
     [Fact]
@@ -274,12 +278,35 @@ public sealed class McpBridgeTests : IAsyncDisposable
         Assert.Equal("first", ToolText(await FromBridge()));
     }
 
+
+    [Fact]
+    public async Task HelpTool_AnswersWithTheCauseAndTheStepsWithoutAWindow()
+    {
+        Start();
+        await Send(Call(7, "ads_help"));
+        var reply = await FromBridge();
+        Assert.False(reply.GetProperty("result").GetProperty("isError").GetBoolean());
+        var text = ToolText(reply);
+        Assert.Contains("No VS Code window with IECode is open", text);
+        Assert.Contains("IECode: Install CLI", text);
+        Assert.Contains("IECode: Connect Claude Code", text);
+        Assert.Contains("/mcp", text);
+    }
+
+    [Fact]
+    public async Task ToolsList_WithAnEmptyToolsJson_StillOffersTheHelpTool()
+    {
+        File.WriteAllText(_tools, """{"tools":[]}""");
+        Start();
+        await Send(List(1));
+        Assert.Equal("ads_help", (await FromBridge()).GetProperty("result").GetProperty("tools")[0].GetProperty("name").GetString());
+    }
     [Fact]
     public async Task AWindowFoundAfterAListWithoutAWindow_SendsListChanged()
     {
         Start(search: TimeSpan.FromMilliseconds(50));
         await Send(List(1));
-        Assert.Equal(0, (await FromBridge()).GetProperty("result").GetProperty("tools").GetArrayLength());
+        Assert.Equal("ads_help", (await FromBridge()).GetProperty("result").GetProperty("tools")[0].GetProperty("name").GetString());
         AddInstance("a"); WindowUp("a");
         var note = await FromBridge();
         Assert.Equal("notifications/tools/list_changed", note.GetProperty("method").GetString());

@@ -21,6 +21,7 @@ test('gap note when the newest sample is old', () => {
 test('parseHostLine reads each message kind', () => {
   assert.equal(PROTOCOL, 1);
   assert.deepEqual(parseHostLine('{"event":"hello","protocol":1}'), { event: 'hello', protocol: 1 });
+  assert.deepEqual(parseHostLine('{"event":"hello","protocol":1,"target":"199.4.42.250.1.1"}'), { event: 'hello', protocol: 1, target: '199.4.42.250.1.1' });
   assert.deepEqual(parseHostLine('{"event":"state","connected":false,"error":"x"}'), { event: 'state', connected: false, error: 'x' });
   assert.deepEqual(parseHostLine('{"event":"samples","gen":2,"rows":[{"t":5,"v":["1"]}]}'), { event: 'samples', gen: 2, rows: [{ t: 5, v: ['1'] }] });
   assert.deepEqual(parseHostLine('{"event":"items","gen":2,"items":[]}'), { event: 'items', gen: 2, items: [] });

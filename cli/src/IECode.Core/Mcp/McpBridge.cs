@@ -120,7 +120,7 @@ public sealed class McpBridge
                 _ = Track(ListAsync(key, raw, line));
                 break;
             case "tools/call":
-                Call(hasId, key, raw, line);
+                Call(hasId, key, raw, line, @params);
                 break;
             case "notifications/cancelled":
                 Cancel(@params, line);
@@ -144,11 +144,16 @@ public sealed class McpBridge
         });
     }
 
-    private void Call(bool hasId, string key, string raw, string line)
+    private void Call(bool hasId, string key, string raw, string line, JsonElement @params)
     {
         if (!hasId)
         {
             Reply(RpcError("null", -32600, "tools/call needs an id"));
+            return;
+        }
+        if (IsHelpCall(@params))
+        {
+            _ = Track(HelpAsync(raw));
             return;
         }
         var state = new CallState(key, raw);
@@ -200,20 +205,67 @@ public sealed class McpBridge
             if (!_pending.TryRemove(key, out _)) return; // the link-lost handler already answered
         }
         _listedWithoutWindow = true;
-        Reply(Result(raw, ToolsFromFile()));
+        Reply(Result(raw, ToolsFromFile() ?? HelpList(selection)));
     }
 
-    private string ToolsFromFile()
+    /// <summary>The tool list the extension saved, null when there is none (the extension never ran here, or the file is unreadable or empty).</summary>
+    private string? ToolsFromFile()
     {
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(_toolsFile));
-            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("tools", out var t) && t.ValueKind == JsonValueKind.Array)
+            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("tools", out var t) && t.ValueKind == JsonValueKind.Array && t.GetArrayLength() > 0)
                 return "{\"tools\":" + JsonSerializer.Serialize(t) + "}"; // compact: the file is indented, a reply must be one line
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
-        return "{\"tools\":[]}";
+        return null;
     }
+
+    // ---- help tool: an empty tool list would only make the chat report "tool not found" ----
+
+    private const string HelpTool = "ads_help";
+
+    private const string ConnectSteps =
+        "To get the IECode ADS tools: 1. Open the folder in VS Code with the IECode extension installed. "
+        + "2. If VS Code says the iecode CLI was not found, run \"IECode: Install CLI\". "
+        + "3. Run \"IECode: Connect Claude Code\". "
+        + "4. In Claude Code run /mcp and reconnect \"iecode\" (or start a new session in that folder).";
+
+    /// <summary>Why there are no tools, in one sentence; the generic reason when no window is involved.</summary>
+    private string Why(Selection selection) =>
+        Problem(selection) ?? "The IECode extension has not published its tools here (it never ran, or the connection was never set up).";
+
+    /// <summary>The only tool of a session without IECode tools: its description already names the cause, calling it gives the steps.</summary>
+    private string HelpList(Selection selection)
+    {
+        var description = $"The IECode ADS tools are not available in this session. {Why(selection)} Call this tool for the steps that fix it.";
+        return JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["tools"] = new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["name"] = HelpTool,
+                    ["description"] = description,
+                    ["inputSchema"] = new Dictionary<string, object> { ["type"] = "object", ["properties"] = new Dictionary<string, object>() },
+                },
+            },
+        });
+    }
+
+    private async Task HelpAsync(string raw)
+    {
+        Selection selection;
+        try { selection = await ChooseAsync().ConfigureAwait(false); }
+        catch (Exception) { selection = new Selection.None(); }
+        var text = selection is Selection.Chosen
+            ? "An IECode window is open for this folder, so the ADS tools should exist. If this session does not list them, run /mcp and reconnect \"iecode\"."
+            : $"{Why(selection)} {ConnectSteps}";
+        Reply(Result(raw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonSerializer.Serialize(text)}}}],\"isError\":false}}"));
+    }
+
+    private static bool IsHelpCall(JsonElement @params) =>
+        @params.ValueKind == JsonValueKind.Object && @params.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String && n.GetString() == HelpTool;
 
     // ---- tools/call ----
 
@@ -230,19 +282,8 @@ public sealed class McpBridge
                     link = TryLink(c.Instance.Id);
                     if (link is null) error = NotSent;
                     break;
-                case Selection.None:
-                    error = $"No VS Code window with IECode is open for {_cwd}. Ask the user to open the folder in VS Code.";
-                    break;
-                case Selection.Conflict x:
-                    error = $"{string.Join(" and ", x.Instances.Select(i => "workspace " + Name(i)))} both serve {_cwd}. Ask the user to close one of them.";
-                    break;
-                case Selection.Unsure:
-                    error = $"The IECode window for {_cwd} did not answer in time (a paused debugger can cause this). Nothing was sent. Ask the user to resume it, then retry.";
-                    break;
-                case Selection.VersionMismatch v:
-                    error = v.Instance.ProtocolMin > Wire.Protocol
-                        ? $"The IECode extension in the window for {_cwd} is newer than this CLI (bridge protocol {v.Instance.ProtocolMin}-{v.Instance.ProtocolMax}, the CLI speaks {Wire.Protocol}). Update the iecode CLI."
-                        : $"The IECode extension in the window for {_cwd} is older than this CLI (bridge protocol {v.Instance.ProtocolMin}-{v.Instance.ProtocolMax}, the CLI speaks {Wire.Protocol}). Update the IECode extension.";
+                default:
+                    error = Problem(selection);
                     break;
             }
 
@@ -272,6 +313,18 @@ public sealed class McpBridge
             if (_calls.TryRemove(state.Key, out _)) Reply(ToolError(state.Raw, "The IECode bridge failed before the call was sent. Nothing was sent; retry."));
         }
     }
+
+    /// <summary>What is wrong when no window can serve the folder; null for a chosen window.</summary>
+    private string? Problem(Selection selection) => selection switch
+    {
+        Selection.None => $"No VS Code window with IECode is open for {_cwd}. Ask the user to open the folder in VS Code.",
+        Selection.Conflict x => $"{string.Join(" and ", x.Instances.Select(i => "workspace " + Name(i)))} both serve {_cwd}. Ask the user to close one of them.",
+        Selection.Unsure => $"The IECode window for {_cwd} did not answer in time (a paused debugger can cause this). Nothing was sent. Ask the user to resume it, then retry.",
+        Selection.VersionMismatch v => v.Instance.ProtocolMin > Wire.Protocol
+            ? $"The IECode extension in the window for {_cwd} is newer than this CLI (bridge protocol {v.Instance.ProtocolMin}-{v.Instance.ProtocolMax}, the CLI speaks {Wire.Protocol}). Update the iecode CLI."
+            : $"The IECode extension in the window for {_cwd} is older than this CLI (bridge protocol {v.Instance.ProtocolMin}-{v.Instance.ProtocolMax}, the CLI speaks {Wire.Protocol}). Update the IECode extension.",
+        _ => null,
+    };
 
     /// <summary>Two windows on one folder usually share the workspace name, so the id tells them apart.</summary>
     private static string Name(InstanceInfo i) => (string.IsNullOrEmpty(i.WorkspaceName) ? "window" : i.WorkspaceName) + " [" + i.Id[..Math.Min(8, i.Id.Length)] + "]";
@@ -373,7 +426,7 @@ public sealed class McpBridge
             else
             {
                 _listedWithoutWindow = true;
-                Reply(Result(pending.Raw, ToolsFromFile()));
+                Reply(Result(pending.Raw, ToolsFromFile() ?? HelpList(new Selection.None())));
             }
         }
     }

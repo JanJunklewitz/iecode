@@ -32,7 +32,7 @@ public sealed class AdsWatchBackend : IWatchBackend
     private sealed record Watched(ILinkSymbol? Symbol, string BaseType, IReadOnlyDictionary<long, string>? Members);
 
     public AdsWatchBackend(Core.AmsNetId target, int port, Action<string>? log = null)
-        : this($"{target}:{port}", () => new BeckhoffLink(target, port), log)
+        : this($"{LocalTarget.Resolve(target)}:{port}", () => new BeckhoffLink(LocalTarget.Resolve(target), port), log)
     {
     }
 
@@ -92,7 +92,7 @@ public sealed class AdsWatchBackend : IWatchBackend
                 watched[i] = new Watched(null, "", null);
                 continue;
             }
-            if (sym is null) items[i] = new WatchItem(name, "", false, AdsCodes.SymbolNotFound);
+            if (sym is null) items[i] = new WatchItem(name, "", false, "Symbol not found. " + NotFoundHint(loader, name));
             else if (!sym.IsSingleValue) items[i] = new WatchItem(name, sym.TypeName, false, $"{sym.TypeName} is not a single value; add its members instead");
             else
             {
@@ -242,12 +242,17 @@ public sealed class AdsWatchBackend : IWatchBackend
 
     private ILinkSymbol? Lookup(ISymbolSet loader, string name) => Call($"Symbol lookup on {_where}", () => loader.Find(name));
 
+    /// <summary>The hint for "symbol not found": the declared array bounds when an index of the path is outside them, else the hide hint.</summary>
+    private string NotFoundHint(ISymbolSet loader, string name) =>
+        AdsCodes.NotFoundHint(name, prefix => { try { return Lookup(loader, prefix)?.TypeName; } catch (AdsFault) { return null; } });
+
     /// <summary>A single-value symbol for read / write requests; the loader is refreshed first if the symbol version moved on.</summary>
     private ILinkSymbol Find(string symbol)
     {
         var link = Link();
-        var sym = Lookup(Loader(link, ReadVersion(link), 1), symbol)
-            ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}. {AdsCodes.HiddenHint}");
+        var loader = Loader(link, ReadVersion(link), 1);
+        var sym = Lookup(loader, symbol)
+            ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}. {NotFoundHint(loader, symbol)}");
         if (!sym.IsSingleValue)
             throw new IECodeException(ExitCodes.Usage, $"{sym.TypeName} is not a single value; add its members instead");
         return sym;

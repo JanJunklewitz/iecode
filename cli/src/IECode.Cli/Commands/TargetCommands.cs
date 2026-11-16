@@ -120,10 +120,11 @@ internal static class TargetCommands
 
         // hello comes from host.Start before anything about the target can fail; a bad -t / --port becomes a state event (R3).
         IWatchBackend backend;
-        string? setupError = null;
+        string? setupError = null, resolvedTarget = null;
         try
         {
-            var id = AmsNetId.Parse(target);
+            var id = Automation.LocalTarget.Resolve(AmsNetId.Parse(target));
+            resolvedTarget = id.ToString();
             if (!int.TryParse(port, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n is < 1 or > 65535)
                 throw new IECodeException(ExitCodes.Usage, $"Invalid ADS port '{port}'.");
             backend = new AdsWatchBackend(id, n, Log);
@@ -156,7 +157,7 @@ internal static class TargetCommands
 
         using (backend)
         {
-            var host = new WatchHost(backend, Emit, Log);
+            var host = new WatchHost(backend, Emit, Log, resolvedTarget);
             reader.Start();
             host.Start();
             if (setupError is not null) ctx.Log.Error(setupError);
