@@ -75,6 +75,8 @@ export class AdsHost implements vscode.Disposable {
   private proc: ChildProcessWithoutNullStreams | undefined;
   // what the running host offers (from its hello); cleared with the process so a restarted host never inherits it
   private caps: HostCaps | undefined;
+  /** The NetId the running host connects to when the target is "local" (from its hello; a UMRT has its own NetId, not 127.0.0.1.1.1). */
+  private resolvedTarget: string | undefined;
   /** "<target>:<port>" the running child was started with; a write must go to a child started for the confirmed target. */
   private procKey: string | undefined;
   private ready_: Promise<void> | undefined;
@@ -160,7 +162,8 @@ export class AdsHost implements vscode.Disposable {
   /** The configured target as shown to the user (write confirmations). */
   target(): string {
     const s = settings();
-    return s.port === 851 ? s.target : `${s.target}:${s.port}`;
+    const shown = s.target.toLowerCase() === 'local' && this.procKey === `${s.target}:${s.port}` && this.resolvedTarget ? this.resolvedTarget : s.target;
+    return s.port === 851 ? shown : `${shown}:${s.port}`;
   }
 
   state(): AdsState { return this.state_; }
@@ -379,6 +382,7 @@ export class AdsHost implements vscode.Disposable {
     this.procKey = `${s.target}:${s.port}`;
     this.gen = -1;
     this.caps = undefined;
+    this.resolvedTarget = undefined;
     this.genItems = [];
     // writing to a host that just died must not throw in the extension host
     child.stdin.on('error', () => undefined);
@@ -404,7 +408,7 @@ export class AdsHost implements vscode.Disposable {
             child.kill();
             return;
           }
-          if (this.proc === child) this.caps = n.caps;
+          if (this.proc === child) { this.caps = n.caps; this.resolvedTarget = typeof msg.target === 'string' ? msg.target : undefined; }
           hello = true;
           resolve();
           void this.afterHello(child);
@@ -477,6 +481,7 @@ export class AdsHost implements vscode.Disposable {
     if (this.proc !== child) return;
     this.proc = undefined;
     this.caps = undefined;
+    this.resolvedTarget = undefined;
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.lastEnded_ = { reason, at: Date.now() };
@@ -490,6 +495,7 @@ export class AdsHost implements vscode.Disposable {
     this.stopped.add(child);
     this.proc = undefined;
     this.caps = undefined;
+    this.resolvedTarget = undefined;
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.lastEnded_ = { reason, at: Date.now() };

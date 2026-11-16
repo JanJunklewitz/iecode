@@ -45,7 +45,8 @@ internal sealed record WatchReply(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] uint? AdsCode,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Written = null);
 
-internal sealed record WatchHelloEvent(string Event, int Protocol);
+internal sealed record WatchHelloEvent(string Event, int Protocol,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Target = null);
 internal sealed record WatchStateEvent(string Event, bool Connected,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Error);
 internal sealed record WatchItemsEvent(string Event, int Gen, IReadOnlyList<WatchItem> Items);

@@ -20,6 +20,7 @@ public static class Target
 
     public static TargetState State(Core.AmsNetId target)
     {
+        target = LocalTarget.Resolve(target); // shows the real NetId in messages, not 127.0.0.1.1.1
         using var client = Connect(target, SystemServicePort);
         var info = Try(() => client.ReadState(), target);
         return new TargetState(target.ToString(), info.AdsState.ToString(), info.DeviceState);
@@ -28,6 +29,7 @@ public static class Target
     /// <summary>Switches the runtime to run mode (restart) or config mode.</summary>
     public static void SetMode(Core.AmsNetId target, bool run)
     {
+        target = LocalTarget.Resolve(target); // shows the real NetId in messages, not 127.0.0.1.1.1
         using var client = Connect(target, SystemServicePort);
         var state = run ? AdsState.Reset : AdsState.Reconfig;
         Try(() => { client.WriteControl(new StateInfo(state, 0)); return 0; }, target);
@@ -36,6 +38,7 @@ public static class Target
     /// <summary>Reads a PLC variable by its full symbol name, e.g. MAIN.bStart or GVL.nCount. Value is the raw value as read, Text is the canonical text.</summary>
     public static (string Type, object? Value, string Text) Read(Core.AmsNetId target, int port, string symbol)
     {
+        target = LocalTarget.Resolve(target); // shows the real NetId in messages, not 127.0.0.1.1.1
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
         var (baseType, members) = AdsValues.Resolve(sym.DataType);
@@ -46,6 +49,7 @@ public static class Target
     /// <summary>Writes a PLC variable. The text is converted to the variable's type (enum member names and PlcOpen time / date values included).</summary>
     public static (object Value, string Text) Write(Core.AmsNetId target, int port, string symbol, string text)
     {
+        target = LocalTarget.Resolve(target); // shows the real NetId in messages, not 127.0.0.1.1.1
         using var client = Connect(target, port);
         var sym = FindSymbol(client, symbol, target);
         var (baseType, members) = AdsValues.Resolve(sym.DataType);
@@ -74,7 +78,8 @@ public static class Target
         var loader = Try(() => SymbolLoaderFactory.Create(client, SymbolLoaderSettings.Default), target);
         return Try(() => AdsValues.FindSymbol(loader.Symbols, symbol), target) as IValueSymbol
             ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {target}.",
-                "Use the full instance path, e.g. MAIN.fbMotor.bEnable or GVL.nCount, and check the ADS port (--port, default 851). " + AdsCodes.HiddenHint);
+                "Use the full instance path, e.g. MAIN.fbMotor.bEnable or GVL.nCount, and check the ADS port (--port, default 851). "
+                + AdsCodes.NotFoundHint(symbol, prefix => Try(() => AdsValues.FindSymbol(loader.Symbols, prefix), target)?.DataType?.Name));
     }
 
     private static T Try<T>(Func<T> call, Core.AmsNetId target)

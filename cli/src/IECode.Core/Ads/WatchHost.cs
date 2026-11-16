@@ -6,7 +6,7 @@ namespace IECode.Core.Ads;
 /// Protocol and recovery logic of the ADS watchlist. No threads, no clock: the loop calls <see cref="Tick"/>
 /// with the current time, stdin lines go to <see cref="Handle"/>. All ADS access goes through <see cref="IWatchBackend"/>.
 /// </summary>
-public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null)
+public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null, string? target = null)
 {
     public const int Protocol = 1, MaxSymbols = 200;
     private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000, ResolveBackoffMs = 5000;
@@ -30,7 +30,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
 
     public void Start()
     {
-        emit(WatchJson.Serialize(new WatchHelloEvent("hello", Protocol)));
+        emit(WatchJson.Serialize(new WatchHelloEvent("hello", Protocol, target)));
         TryConnect();
     }
 

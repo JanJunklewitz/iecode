@@ -7,7 +7,7 @@ export interface WatchItem { symbol: string; type: string; numeric: boolean; err
 export interface Row { t: number; v: (string | null)[]; e?: (number | null)[] }
 
 export type HostMessage =
-  | { event: 'hello'; protocol: number }
+  | { event: 'hello'; protocol: number; target?: string }
   | { event: 'samples'; gen: number; rows: Row[] }
   | { event: 'state'; connected: boolean; error?: string }
   | { event: 'items'; gen: number; items: WatchItem[] }
