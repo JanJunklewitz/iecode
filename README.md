@@ -58,9 +58,10 @@ Other ways:
 
 | Way | Command | When |
 |---|---|---|
+| .NET tool | `dotnet tool install -g IECode.Cli` (from [nuget.org](https://www.nuget.org/packages/IECode.Cli)) | you have the .NET 10 SDK; also on Linux and macOS for the file-based commands |
 | GitHub CLI | `gh release download -R JanJunklewitz/iecode -p "iecode-*-win-x64.zip"`, unzip, add the folder to PATH | you already use `gh` (also works with your GitHub login) |
 | ZIP | `iecode-<version>-win-x64.zip` from [Releases](https://github.com/JanJunklewitz/iecode/releases), unzip, add the folder to PATH | offline or locked-down PCs |
-| NuGet / TwinCAT Package Manager | `IECode.Cli` from the GitHub Packages feed `https://nuget.pkg.github.com/JanJunklewitz/index.json` | central distribution in a team (the feed needs a GitHub token) |
+| GitHub Packages / TwinCAT Package Manager | `IECode.Cli` from the GitHub Packages feed `https://nuget.pkg.github.com/JanJunklewitz/index.json` | central distribution in a team (the feed needs a GitHub token) |
 | GitHub Actions | `uses: JanJunklewitz/iecode/setup-iecode@v0` | CI on Windows runners |
 
 A specific version: `& ([scriptblock]::Create((irm https://github.com/JanJunklewitz/iecode/releases/latest/download/install.ps1))) -Version 0.2.1`.

@@ -19,6 +19,7 @@ TestResults/
 
 # Release output
 dist/
+/nuget/
 *.nupkg
 
 # Never commit Beckhoff / Microsoft binaries or interop assemblies
