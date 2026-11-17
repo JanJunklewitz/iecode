@@ -62,6 +62,8 @@ internal sealed class FakeSet(params FakeSymbol[] symbols) : ISymbolSet
 {
     public int Count => symbols.Length;
 
+    public IEnumerable<OnlineSymbol> Enumerate() => symbols.Select(s => new OnlineSymbol(s.Name, s.TypeName, null));
+
     public ILinkSymbol? Find(string path)
     {
         var s = symbols.FirstOrDefault(x => x.Name == path);

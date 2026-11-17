@@ -32,6 +32,8 @@ internal interface ISymbolSet
     int Count { get; }
     /// <summary>Null when there is no such symbol; a value symbol otherwise (maybe a struct or array, see <see cref="ILinkSymbol.IsSingleValue"/>).</summary>
     ILinkSymbol? Find(string path);
+    /// <summary>Every instance path down to depth 8 with its type; arrays, pointers and references are listed but not entered.</summary>
+    IEnumerable<Core.Ads.OnlineSymbol> Enumerate();
 }
 
 internal interface ILinkSymbol
@@ -107,6 +109,20 @@ internal sealed class BeckhoffLink(Core.AmsNetId target, int port) : IAdsLink
         public int Count => symbols.Count;
 
         public ILinkSymbol? Find(string path) => AdsValues.FindSymbol(symbols, path) is IValueSymbol v ? new Symbol(v) : null;
+
+        public IEnumerable<Core.Ads.OnlineSymbol> Enumerate() => Walk(symbols, 1);
+
+        private static IEnumerable<Core.Ads.OnlineSymbol> Walk(IEnumerable<ISymbol> level, int depth)
+        {
+            foreach (var s in level)
+            {
+                yield return new Core.Ads.OnlineSymbol(s.InstancePath, s.DataType?.Name ?? "?", string.IsNullOrWhiteSpace(s.Comment) ? null : s.Comment);
+                if (depth >= MaxEnumerateDepth || AdsValues.KindOf(s.DataType) != Core.Ads.NodeKind.Struct) continue;
+                foreach (var sub in Walk(s.SubSymbols, depth + 1)) yield return sub;
+            }
+        }
+
+        private const int MaxEnumerateDepth = 8;
     }
 
     private sealed class Symbol : ILinkSymbol

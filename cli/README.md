@@ -41,7 +41,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |
 | `ads serve [-t <netid>] [--port 851]` | Live values for tools: JSON requests on stdin, JSON events and replies on stdout, until stdin closes (see [Live values](#live-values)) | ADS |
-| `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
+| `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>] [--online --target <netid> --filter <text>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
 | `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
 | `mcp` | MCP stdio server for Claude Code: relays the ADS tools to the VS Code window that serves the working directory, until stdin closes (see [MCP bridge](#mcp-bridge-for-claude-code)) | VS Code with IECode |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
@@ -133,6 +133,8 @@ value that does not parse, a repeated symbol, more than 20 writes; the error nam
 after sending, so the outcome is unknown for every item. One request does not guarantee that the PLC applies the values in the same
 cycle. Only the two item codes measured to come from the PLC itself with no effect on that item (`DeviceInvalidAccess`, `DeviceInvalidOffset`) are `notWritten`; every other code is `unknown`.
 
+`iecode ads symbols --online --target <netid> [--port 851] --filter <text> [--json]` (Windows only) lists the symbols of the running PLC instead of the build output: a filter is required, at most 500 symbols are returned, the total is reported. It is a command of its own, not an op of the watch host, because uploading the whole symbol table is slow and would stall a running watch.
+
 A `read` request with an integer `depth` (protocol 2, clamped to 1..5) answers a structure, function block instance or array with `members` (`{"name","type","value","error"}` per value leaf, `name` is the full instance path, `value` and `error` of the item itself are null) and `notes` (`omittedMembers`, `omittedElements`, `notExpanded`). The leaves come from one sum read; at most 200 members and 20 elements per array are read, pointers, references and interfaces are listed under `notExpanded`. A single value answers as before, and a request without `depth` is unchanged.
 
 Protocol versions (the `hello` event carries the number):
@@ -140,7 +142,7 @@ Protocol versions (the `hello` event carries the number):
 | Protocol | Ops | Since |
 |---|---|---|
 | 1 | `watch`, `read`, `write`, `interval` | first release |
-| 2 | + `writeMany` (batch write), `read` with `depth` (struct read) | next release (not frozen until it ships) |
+| 2 | + `writeMany` (batch write), `read` with `depth` (struct read), `ads symbols --online` | next release (not frozen until it ships) |
 
 A client accepts every protocol from 1 up to its own and switches off only the features an older host lacks; a host newer than the client is refused.
 
