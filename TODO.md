@@ -12,6 +12,8 @@ Ranked by value for the effort (checked 2026-11-17 against the items below and [
 6. **ADS Scope export as CSV** (small): export a recording; the AI summary can follow later.
 7. **Project view: search and filter in the tree** (small to medium): filter by name and kind.
 
+Items 2, 3, 4 and 7 are planned in the [small items master plan](docs/superpowers/plans/2026-11-17-small-items-master-plan.md) (branch `feature/ads-state-and-tree-filter`): [A auto write expiry](docs/superpowers/plans/2026-11-17-small-items-a-auto-write-expiry.md), [B sampling notice](docs/superpowers/plans/2026-11-17-small-items-b-sampling-notice.md), [C `ads_state`](docs/superpowers/plans/2026-11-17-small-items-c-ads-state.md), [D tree filter](docs/superpowers/plans/2026-11-17-small-items-d-tree-filter.md).
+
 Not now: same-cycle batch write, event order across tasks (both deferred by decision 2026-11-09), the log file viewer, the formatter (both need a design first).
 
 ## Open

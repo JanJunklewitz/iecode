@@ -50,6 +50,8 @@ Lines that no single task's own tests would cover; the owning task carries the t
 
 ## Order
 
+E3 and E4 are superseded by Plans B and C of the [small items master plan](2026-11-17-small-items-master-plan.md) (2026-11-17); build them from there.
+
 E1 -> E8 (extension only, first release train). Then E3 -> E4 -> E5 (E5 needs A3 merged), then E2 after its spike (C0 needed for E2-E4). E6 and E7 last, each only after its go. E9 closes the plan. E3 and E4 both read host state events but touch different files except `host.ts` and `adsTools.ts`: build them one after the other.
 
 ---
