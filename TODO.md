@@ -27,6 +27,12 @@
     - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
     - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
     - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
+- [ ] **ADS MCP: live check of the write and struct-read features**: batch write (`writes`), `pulseMs`, `journal`, `restore`, `confirmPersistent` and the struct read (`ads_read` with `depth`, `ads_watch { expand: true }`) are covered by unit tests only; none was tried against a real target with the installed extension and the iecode CLI of ADS host protocol 2.
+  - [ ] Batch write of 2 to 3 values on a simulation, including one value that fails to parse (nothing may be sent) and the read-back text.
+  - [ ] Pulse of a BOOL command bit: the bit returns to its idle value; cancel the call during the hold and check the reset still runs.
+  - [ ] Journal and restore after a PLC download that renamed a symbol: the restore lists the symbol as skipped and restores the rest.
+  - [ ] Struct read: that the elements of an array are the sub symbols of the array symbol (`SubSymbols`), the 200 member and 20 element caps, a struct that holds a pointer.
+  - [ ] PERSISTENT guard against a built project: a write to a `TcPersistent` variable is refused without `confirmPersistent`.
 - [ ] **ADS MCP: batch write in the same PLC cycle**: Plan C sends several values as one ADS request, which does not guarantee that the PLC sees them in the same cycle. A same-cycle write needs a PLC-side handshake (e.g. a library block that takes the values and applies them in one cycle). Deferred by user decision 2026-11-09; see [docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md](docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
 - [ ] **ADS MCP: event order across several PLC tasks**: the PLC-cycle timestamp work (Plan E7) only promises an order for symbols of one task. Comparing task timestamps across tasks is deferred by user decision 2026-11-09.
 - [ ] **ADS MCP: manual checks of the `ads_symbols` changes**: three changes are covered by unit tests but were not tried in the installed extension against a built PLC project.
