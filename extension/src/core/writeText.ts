@@ -1,10 +1,27 @@
 // Texts of the AI write results that more than one module needs. Pure: no imports.
 
-export interface WriteItem { symbol: string; value: string }
+export interface WriteItem { symbol: string; value: string; pulseMs?: number }
+
+/** What happened to the reset of a pulse: the bit was written, held for about `ms`, then written back to `reset`. */
+export type PulseOutcome =
+  | { ms: number; heldMs: number; reset: string; state: 'done' }
+  | { ms: number; heldMs: number; reset: string; state: 'notSent' | 'unknown'; reason: string };
+
 export type WriteItemResult =
-  | { symbol: string; status: 'written'; readBack: string | null; readBackError?: string }
+  | { symbol: string; status: 'written'; readBack: string | null; readBackError?: string; pulse?: PulseOutcome }
   | { symbol: string; status: 'notWritten'; reason: string }
-  | { symbol: string; status: 'unknown'; reason: string };
+  | { symbol: string; status: 'unknown'; reason: string; pulse?: PulseOutcome };
+
+export const MIN_PULSE_MS = 10;
+export const MAX_PULSE_MS = 5000;
+
+/** The value a pulse returns to: TRUE or 1 gives FALSE, FALSE or 0 gives TRUE, anything else is not a BOOL value. */
+export function oppositeBool(value: string): string | undefined {
+  const t = value.trim().toUpperCase();
+  if (t === 'TRUE' || t === '1') return 'FALSE';
+  if (t === 'FALSE' || t === '0') return 'TRUE';
+  return undefined;
+}
 
 /** Strips one trailing dot, so a reason reads inside a sentence of ours. */
 export const sentence = (s: string): string => s.replace(/\.$/, '');
@@ -37,14 +54,26 @@ export function readBackChanged(requested: string, readBack: string, baseType?: 
 const oneLine = (s: string): string => s.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
 
 /** The dialog text; one item: "Write S := V on <where>?<note>", several: header, then one line per item. */
-export function confirmMessage(items: readonly WriteItem[], where: string, note: string): string {
-  const line = (i: WriteItem): string => `${oneLine(i.symbol)} := ${oneLine(i.value)}`;
-  if (items.length === 1) return `Write ${line(items[0])} on ${where}?${note}`;
-  return [`Write ${items.length} values on ${where}?${note}`, ...items.map(line)].join('\n');
+export function confirmMessage(items: readonly WriteItem[], where: string, note: string, opts: { restore?: boolean; persistent?: readonly string[] } = {}): string {
+  const verb = opts.restore ? 'Restore' : 'Write';
+  const guard = (opts.persistent ?? []).map(s => `\nPERSISTENT: ${oneLine(s)} survives a PLC restart.`).join('');
+  const line = (i: WriteItem): string => `${oneLine(i.symbol)} := ${oneLine(i.value)}${i.pulseMs === undefined ? '' : ` (pulse ${i.pulseMs} ms, then ${oppositeBool(i.value) ?? '?'})`}`;
+  if (items.length === 1) return `${verb} ${line(items[0])} on ${where}?${note}${guard}`;
+  return [`${verb} ${items.length} values on ${where}?${note}`, ...items.map(line)].join('\n') + guard;
 }
 
-/** True when any item of a done result is not 'written'. */
-export const doneIsError = (results: readonly WriteItemResult[]): boolean => results.some(r => r.status !== 'written');
+/** True when any item of a done result is not 'written', or a pulse did not return to its idle value. */
+export const doneIsError = (results: readonly WriteItemResult[]): boolean =>
+  results.some(r => r.status !== 'written' || (r.pulse !== undefined && r.pulse.state !== 'done'));
+
+/** The line of a pulsed item; the reset that did not go through says the bit may still be set. */
+function pulseLine(name: string, wanted: string | undefined, p: PulseOutcome): string {
+  const first = oneLine(wanted ?? '?');
+  if (p.state === 'done') return `${name}: pulsed ${first} for ${p.heldMs} ms (asked ${p.ms} ms, timed by the extension, not cycle-exact), then ${p.reset}`;
+  const what = p.state === 'notSent' ? 'was not sent' : 'has an unknown outcome';
+  const next = p.state === 'notSent' ? 'reset it or ask the user' : 'read it, reset it or ask the user';
+  return `${name}: written ${first}, but the reset to ${p.reset} ${what}: ${oneLine(sentence(p.reason))}. ${name} may still be ${first}; ${next}.`;
+}
 
 /** Batch lines for a `done` result; `items` are the requested items (same order as `results`). */
 export function doneText(items: readonly WriteItem[], results: readonly WriteItemResult[]): string {
@@ -57,7 +86,14 @@ export function doneText(items: readonly WriteItem[], results: readonly WriteIte
   const lines = results.map((r, k) => {
     const name = oneLine(r.symbol);
     if (r.status === 'notWritten') return `${name}: not written: ${oneLine(sentence(r.reason))}`;
-    if (r.status === 'unknown') return `${name}: outcome unknown: ${oneLine(sentence(r.reason))}`;
+    if (r.status === 'unknown') {
+      const base = `${name}: outcome unknown: ${oneLine(sentence(r.reason))}`;
+      if (!r.pulse) return base;
+      return r.pulse.state === 'done'
+        ? `${base}; the reset to ${r.pulse.reset} was sent after ${r.pulse.heldMs} ms`
+        : `${base}; the reset to ${r.pulse.reset} ${r.pulse.state === 'notSent' ? 'was not sent' : 'has an unknown outcome'}, so ${name} may be set`;
+    }
+    if (r.pulse) return pulseLine(name, items[k]?.value, r.pulse);
     if (r.readBack === null) {
       noReadBack = true;
       return `${name}: written, but it could not be read back: ${oneLine(sentence(r.readBackError ?? 'unknown error'))}`;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateWritePolicy, writePolicyReason } from '../src/core/writePolicy';
+import { evaluateWritePolicy, writePolicyReason, persistentIn, persistentRefusal } from '../src/core/writePolicy';
 
 test('an empty list allows everything', () => assert.deepEqual(evaluateWritePolicy('MAIN.x', { allowedPaths: [] }), { allowed: true }));
 
@@ -26,4 +26,15 @@ test('a batch reason names every symbol outside', () => {
     'MAIN.a, MAIN.b are outside the paths the user allows for AI writes (iecode.ads.aiWritePaths: GVL.Test)');
   assert.equal(writePolicyReason(['GVL.Test.a'], { allowedPaths: ['GVL.Test'] }), undefined);
   assert.equal(writePolicyReason(['MAIN.a'], { allowedPaths: [] }), undefined);
+});
+
+test('persistentIn finds the symbols below a persistent prefix, same rule as the allow-list', () => {
+  const paths = ['GVL.Persistent', ' ', 'MAIN.Cfg.'];
+  assert.deepEqual(persistentIn(['GVL.Persistent.nA', 'gvl.persistent', 'GVL.PersistentX.n', 'MAIN.Cfg.nB', 'MAIN.nOther'], paths), ['GVL.Persistent.nA', 'gvl.persistent', 'MAIN.Cfg.nB']);
+  assert.deepEqual(persistentIn(['GVL.Persistent.nA'], []), []);
+});
+
+test('persistentRefusal names every symbol and the flag', () => {
+  assert.equal(persistentRefusal(['MAIN.nCfg']), 'MAIN.nCfg is PERSISTENT data (it survives a PLC restart). Call again with confirmPersistent: true if the user asked for this write.');
+  assert.equal(persistentRefusal(['MAIN.nCfg', 'MAIN.nOther']), 'MAIN.nCfg, MAIN.nOther are PERSISTENT data (they survive a PLC restart). Call again with confirmPersistent: true if the user asked for these writes.');
 });

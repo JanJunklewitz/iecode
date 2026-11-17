@@ -3,6 +3,8 @@
 // the clock through Clock, so the rules are unit-tested without VS Code.
 
 import { WriteDecision, writeStillApproved } from './adswatch';
+import type { WriteCall } from './toolInput';
+import { restoreFooter } from './writeJournal';
 import { WriteItem, WriteItemResult, doneIsError, doneText, readBackChanged, sentence } from './writeText';
 import { COPILOT_NAMES, MCP_NAMES, ToolNames, targetLine, targetOfKey } from './adsToolText';
 
@@ -24,6 +26,20 @@ export interface WriteOp {
   prepared?: { decision: WriteDecision };
   /** A batch: all items in order; `symbol` and `value` mirror items[0]. */
   items?: WriteItem[];
+  /** A restore of the journal: the dialog says "Restore", the result lists what was left out, the journal marks the symbols undone. */
+  /** Symbols of this op that lie in persistent data; the user asked for them with confirmPersistent. */
+  persistent?: string[];
+  restore?: { skipped: { symbol: string; reason: string }[]; remaining: number };
+}
+
+/**
+ * The op of a parsed write call. A single write without `pulseMs` stays the plain form; a batch, or a pulse (it needs the
+ * result list for its reset), carries `items`, with `symbol` and `value` mirroring the first item.
+ */
+export function opOf(input: WriteCall, base: Pick<WriteOp, 'targetKey' | 'via' | 'prepared'>): WriteOp {
+  if ('writes' in input) return { symbol: input.writes[0].symbol, value: input.writes[0].value, items: input.writes, ...base };
+  if (input.pulseMs !== undefined) return { symbol: input.symbol, value: input.value, items: [{ symbol: input.symbol, value: input.value, pulseMs: input.pulseMs }], ...base };
+  return { symbol: input.symbol, value: input.value, ...base };
 }
 
 export const itemsOf = (op: WriteOp): WriteItem[] => op.items ?? [{ symbol: op.symbol, value: op.value }];
@@ -91,7 +107,8 @@ export function sendOutcome(e: unknown): WriteResult {
 }
 
 export function writeResultText(r: WriteResult, op: WriteOp): string {
-  return `${writeVerdict(r, op)}\n${targetLine(targetOfKey(op.targetKey))}`;
+  const footer = op.restore ? restoreFooter(op.restore) : '';
+  return `${writeVerdict(r, op)}${footer ? `\n${footer}` : ''}\n${targetLine(targetOfKey(op.targetKey))}`;
 }
 
 function writeVerdict(r: WriteResult, op: WriteOp): string {

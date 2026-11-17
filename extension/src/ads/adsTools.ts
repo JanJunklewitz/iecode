@@ -16,7 +16,9 @@ import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '..
 import type { CaptureInput } from '../core/mcpTools';
 
 import { encodeMarker, logText, markNow, readLog } from '../core/logRead';
-import { logDirectorySetting } from './aiSettings';
+import { logDirectorySetting, persistentPathsSetting } from './aiSettings';
+import { RestorePlan, journalText, planRestore } from '../core/writeJournal';
+import { persistentIn } from '../core/writePolicy';
 import { nodeLogFs } from './logFs';
 import { LogRequest, ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
 import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
@@ -151,6 +153,35 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
 
   return {
     host,
+
+    /** The "needs a newer iecode CLI" text when the host lacks the protocol feature, else undefined. */
+    requires: (feature: string): Promise<string | undefined> => host.requires(feature),
+
+    /** The journal of AI writes on the current target, as text (read-only). */
+    journal(): ToolText {
+      const text = journalText(host.journal.entries(host.targetKey()), { target: host.targetKey(), dropped: host.journal.dropped(), clock });
+      return ok(text);
+    },
+
+    /** What a restore would write back: the journal against the values the symbols have now. */
+    async restorePlan(): Promise<RestorePlan> {
+      const entries = host.journal.entries();
+      const symbols = [...new Set(entries.filter(e => e.kind === 'write' && !e.restored).map(e => e.symbol))];
+      const unreadable = new Map<string, string>();
+      if (symbols.length) {
+        try {
+          for (const r of await host.read(symbols)) if (r.error) unreadable.set(r.symbol.trim().toLowerCase(), r.error);
+        } catch (e) {
+          for (const s of symbols) unreadable.set(s.trim().toLowerCase(), (e as Error).message);
+        }
+      }
+      return planRestore(entries, host.targetKey(), unreadable);
+    },
+
+    /** The symbols of those given that lie below the user's persistent paths. */
+    async persistentOf(symbols: string[]): Promise<string[]> {
+      return persistentIn(symbols, persistentPathsSetting());
+    },
 
     async symbols(input: SymbolsInput): Promise<ToolText> {
       // Copilot hands the input over unparsed

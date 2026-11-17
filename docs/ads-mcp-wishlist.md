@@ -1,6 +1,6 @@
 # ADS MCP tools: wishlist and status
 
-What an AI agent would like from the `iecode` ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_write`, `ads_scope`, `ads_wait`), collected during simulation tests against a running PLC. Items are ordered by how much context or time they save. Status as of 2026-11-09, branch `feature/ads-mcp-wishlist`.
+What an AI agent would like from the `iecode` ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_write`, `ads_scope`, `ads_wait`), collected during simulation tests against a running PLC. Items are ordered by how much context or time they save. Status as of 2026-11-17: sections 5 and 8 (writes) were built on branch `feature/ads-local-netid`; the rest of this file is as of 2026-11-09 and partly out of date (`ads_config`, `ads_preset`, `ads_capture`, `ads_log`, enum members and the build time in `ads_symbols` exist).
 
 - Roadmap with design and review: [plans/2026-11-06-ads-mcp-wishlist.md](superpowers/plans/2026-11-06-ads-mcp-wishlist.md) (phase numbers below refer to it).
 - Master plan and sub-plans for the open items: [plans/2026-11-09-ads-wishlist-master-plan.md](superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
@@ -63,11 +63,11 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_write` with several symbols in one call, one confirmation | Planned (Phase 4) | One ADS sum write; first an SDK contract check. |
+| `ads_write` with several symbols in one call, one confirmation | Done (Plan C2, C3a-c; needs the CLI with ADS host protocol 2) | `writes` (1-20 items): all values are parsed first, then one ADS sum write without a fallback to single writes, one read-back, one result per item (written, not written, outcome unknown). Tests: `WriteMany_*` in `AdsWatchBackendTests.cs` and `WatchHostTests.cs`; `writeManyStage maps a reply, a proof of not sent and everything else to unknown`, `a batch on a protocol-1 host is refused before the gate`, `confirmMessage: one item is byte-identical to the old dialog, several list every write`. Item codes follow the SDK contract check of 2026-11-12 (plan C, "C1 findings"): only 0x703 and 0x704 count as "not written", every other code is "unknown". |
 | Same-cycle write of several symbols | Out of scope | One ADS request does not guarantee the same PLC cycle; that needs a PLC-side handshake (roadmap, open question 2). |
-| Pulse mode (`pulseMs`) for command bits | New | So a command start does not depend on the PLC resetting the bit. |
-| Read-back text that tells "the PLC reset the bit" from "write rejected" | New | Both read "reads back as FALSE (the PLC may change it again)" today. |
-| List what a session wrote (old and new value) and restore it in one call (`ads_snapshot` / `ads_restore`) | New | |
+| Pulse mode (`pulseMs`) for command bits | Done (Plan C4) | BOOL only (type read first), timing kept by the extension, the reset is always attempted and a failed reset names the bit that may still be set. Tests in `writeExec.test.ts` (`a pulse writes the value, waits, then writes the opposite`, `a failing reset says the bit may still be set`, `an unknown first write still tries the reset`), `pulseMs is refused when out of range, fractional, on a non-BOOL value or twice`. |
+| Read-back text that tells "the PLC reset the bit" from "write rejected" | Done (Plan C5) | `writeResultText tells a bit the PLC reset from a plain read-back`, `readBackChanged compares BOOL literals only`. |
+| List what a session wrote (old and new value) and restore it in one call (`ads_snapshot` / `ads_restore`) | Done (Plan C6a, C6b) as `ads_write` with `journal: true` and `restore: true`, not as separate tools | The old value is read just before each AI write (best effort, a failed read never blocks the write); the journal is per window and in memory. A restore is one confirmed batch of at most 20 values, lists what it had to skip (value never read, symbol not readable now, other target) and never plans its own writes again. Tests: `writeJournal.test.ts`, `a restore op journals its writes as restore and marks the written symbols restored`, `ads_write restore goes through the gate as one op with the restore flag`. |
 
 ## 6. Symbols and build state
 
@@ -92,9 +92,9 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| Allow-list of path prefixes for AI writes (`iecode.ads.aiWrites`) | New | So `auto` can be used on a simulation without risk on a real target. Also listed in `TODO.md`. |
+| Allow-list of path prefixes for AI writes (`iecode.ads.aiWritePaths`) | Done (Plan C7a) | The list limits symbol names, not machines: the same names exist on a real target. Tests in `writePolicy.test.ts`. |
 | Done (Plan B) | `adsToolText.test.ts`, `writeGate.test.ts`. Watch, write and wait results end with `ADS target: <target>`. Live check 2026-11-11 ok. |
-| Refuse PERSISTENT or configuration writes unless confirmed; list the persistent symbols changed in a session | New | |
+| Refuse PERSISTENT or configuration writes unless confirmed; list the persistent symbols changed in a session | Done (Plan C7b, variant B: a list you keep) | Setting `iecode.ads.persistentPaths`; a write below one of the prefixes is refused unless `confirmPersistent: true`, the dialog marks it and the journal tags it `[PERSISTENT]`. The build output (`.tmc`) was not checked for a persistent marker, so nothing is detected automatically. Tests: `persistentIn finds the symbols below a persistent prefix`, `a write to persistent data is refused without confirmPersistent`. |
 | Aliases for long paths | Planned, deferred (Phase 6) | Small saving, hidden state in every input. Revisit after the output-volume items are in. |
 
 ## Suggested order for the open items

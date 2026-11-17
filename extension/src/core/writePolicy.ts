@@ -39,3 +39,19 @@ export function writePolicyReason(symbols: readonly string[], s: WritePolicySett
   const bad = symbols.filter(x => !isAllowed(x, s)).map(x => x.trim());
   return bad.length ? outside(bad, s) : undefined;
 }
+
+/**
+ * The symbols of `symbols` that lie below one of the user's prefixes of persistent or configuration data
+ * (iecode.ads.persistentPaths; same matching as the allow-list). Blank entries are ignored; an empty list guards nothing.
+ */
+export function persistentIn(symbols: readonly string[], persistentPaths: readonly string[]): string[] {
+  const prefixes = persistentPaths.map(norm).filter(Boolean);
+  return symbols.filter(s => prefixes.some(p => matches(norm(s), p))).map(s => s.trim());
+}
+
+/** The refusal of a write to persistent data that the user did not ask for. */
+export function persistentRefusal(persistent: readonly string[]): string {
+  return persistent.length === 1
+    ? `${persistent[0]} is PERSISTENT data (it survives a PLC restart). Call again with confirmPersistent: true if the user asked for this write.`
+    : `${persistent.join(', ')} are PERSISTENT data (they survive a PLC restart). Call again with confirmPersistent: true if the user asked for these writes.`;
+}

@@ -2,6 +2,14 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Claude Code and ADS
+- `ads_write` with `journal: true` lists what the AI wrote in this window (time, symbol, old and new value, pulses, unknown outcomes), without a confirmation. With `restore: true` it writes the old values of this session's writes back after one confirmation (newest write first, at most 20 per call) and lists what could not be restored, for example a variable that no longer exists after a rebuild. The old value is read just before each write; it is a best-effort "before", not atomic with the write.
+- New setting `iecode.ads.persistentPaths` lists path prefixes of persistent or configuration data. An AI write to them is refused unless the call sets `confirmPersistent: true`, and the confirmation marks them `PERSISTENT`. The build output is not checked for persistent variables; the list is yours.
+- `ads_write` can pulse a command bit: `pulseMs` (10-5000) writes a BOOL, waits, then writes the opposite value after one confirmation, so a start does not depend on the PLC resetting the bit. The timing is kept by the extension and is not cycle-exact; the result says how long the bit was held and, if the reset failed, that it may still be set.
+- `ads_write` takes `writes` (up to 20 symbol and value pairs) to set several values after one confirmation. They are sent in one ADS request (not guaranteed to land in the same PLC cycle) and the result lists every item: written, not written or outcome unknown. If any value is invalid nothing is sent. Needs the matching iecode CLI release (ADS host protocol 2); with an older CLI the single write keeps working and the batch says "needs a newer iecode CLI".
+
 ## 0.2.20
 
 ### CLI

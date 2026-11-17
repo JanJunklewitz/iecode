@@ -5,8 +5,10 @@
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { Sampling, overridesAfterSettingChange } from '../core/adsConfig';
-import { HostEnd, HostMessage, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage } from '../core/adswatch';
+import { HostEnd, HostMessage, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage, writeManyStage } from '../core/adswatch';
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
+import type { WriteItemResult } from '../core/writeText';
+import { WriteJournal } from '../core/writeJournal';
 import { WatchList } from '../core/watchList';
 import type { SampleBatch } from '../core/waitRun';
 import { HostCaps, negotiate } from '../core/hostProtocol';
@@ -58,6 +60,8 @@ export class AdsHost implements vscode.Disposable {
   }
 
   private readonly samples = new vscode.EventEmitter<SampleBatch>();
+  /** What the AI wrote in this window, with the old values; per window, in memory only. */
+  readonly journal = new WriteJournal();
   private readonly itemsChanged = new vscode.EventEmitter<void>();
   private readonly stateChanged = new vscode.EventEmitter<AdsState>();
   private readonly ended = new vscode.EventEmitter<string>();
@@ -282,6 +286,54 @@ export class AdsHost implements vscode.Disposable {
         this.itemsChanged.fire();
       }
       return { value: done.value, readBackError: done.readBackError };
+    });
+  }
+
+  /**
+   * Writes several symbols in one ADS request (host op `writeMany`). Same contract as `write`: the caller confirmed,
+   * `beforeSend` runs right before the request leaves, a failure is `WriteNotSent` or `WriteOutcomeUnknown`. A reply is a
+   * result per item; the items written with a read-back refresh the watch list's last written values.
+   */
+  async writeMany(writes: { symbol: string; value: string }[], beforeSend?: () => string | undefined): Promise<{ items: WriteItemResult[] }> {
+    return this.leased(async () => {
+      try {
+        await this.ensure(true);
+      } catch (e) {
+        throw new WriteNotSent((e as Error).message, e instanceof StartError);
+      }
+      // From here to the write there is no await: the guard, the child it checks and the write see the same state.
+      const child = this.proc;
+      if (!child) throw new WriteNotSent('The ADS host is not running.');
+      if (this.procKey !== this.targetKey()) throw new WriteNotSent('The ADS host runs for another target than the settings name; try again.');
+      const missing = this.caps?.missing('writeMany');
+      if (!this.caps || missing) throw new WriteNotSent(missing ?? 'The ADS host is not running.');
+      const refused = beforeSend?.();
+      if (refused) throw new WriteNotSent(refused);
+      const reply = this.send(child, { op: 'writeMany', writes });
+      let data: unknown;
+      try {
+        data = await reply;
+      } catch (e) {
+        for (const w of writes) this.written.delete(w.symbol.trim().toLowerCase());
+        const failed = writeManyStage({ error: e }, writes);
+        if (failed.kind === 'notSent') throw new WriteNotSent(failed.reason);
+        const reason = e instanceof RequestTimeout ? `Write of ${writes.length} values timed out` : failed.kind === 'unknown' ? failed.reason.replace(/\.$/, '') : '';
+        throw new WriteOutcomeUnknown(`${reason}; the values may or may not have been written`);
+      }
+      const done = writeManyStage({ data }, writes);
+      if (done.kind !== 'items') throw new WriteOutcomeUnknown(`${done.kind === 'unknown' ? done.reason : 'Unexpected reply to the batch write'}; the values may or may not have been written`);
+      let changed = false;
+      for (const item of done.items) {
+        const key = item.symbol.trim().toLowerCase();
+        if (item.status === 'written' && item.readBack !== null) {
+          this.written.set(key, item.readBack);
+          changed = true;
+        } else {
+          this.written.delete(key);
+        }
+      }
+      if (changed) this.itemsChanged.fire();
+      return { items: done.items };
     });
   }
 
