@@ -35,12 +35,13 @@ public static class PlcValueText
     }
 
     /// <summary>canonical / user text -> .NET value of the IEC type. Throws IECodeException(ExitCodes.Usage, ...) on bad input.</summary>
-    public static object Parse(string iecType, string text, IReadOnlyDictionary<long, string>? enumMembers = null)
+    public static object Parse(string iecType, string text, IReadOnlyDictionary<long, string>? enumMembers = null,
+        IReadOnlyList<(string Name, long Value)>? enumAll = null)
     {
         var t = iecType.ToUpperInvariant();
         try
         {
-            if (enumMembers is not null) return ParseEnum(text, enumMembers);
+            if (enumMembers is not null) return ParseEnum(text, enumMembers, enumAll);
             return t switch
             {
                 "BOOL" => text.Trim().ToUpperInvariant() switch { "TRUE" or "1" => true, "FALSE" or "0" => false, _ => throw new FormatException() },
@@ -74,15 +75,20 @@ public static class PlcValueText
         or "LWORD" or "ULINT" or "LINT" or "REAL" or "LREAL" or "TIME" or "LTIME";
 
     /// <summary>A member name (exact spelling first, then ignoring case like IEC identifiers) or a number.</summary>
-    private static object ParseEnum(string text, IReadOnlyDictionary<long, string> members)
+    /// <summary>
+    /// <paramref name="all"/> lists every member name including aliases (two names for one value are legal in IEC 61131-3); without it
+    /// only the first name of each value in <paramref name="members"/> can be written.
+    /// </summary>
+    private static object ParseEnum(string text, IReadOnlyDictionary<long, string> members, IReadOnlyList<(string Name, long Value)>? all)
     {
         var s = text.Trim();
-        foreach (var (value, name) in members)
+        var candidates = all ?? members.Select(m => (Name: m.Value, Value: m.Key)).ToList();
+        foreach (var (name, value) in candidates)
             if (string.Equals(name, s, StringComparison.Ordinal)) return value;
-        var matches = members.Where(m => string.Equals(m.Value, s, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (matches.Count == 1) return matches[0].Key;
+        var matches = candidates.Where(m => string.Equals(m.Name, s, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Select(m => m.Value).Distinct().Count() == 1) return matches[0].Value;
         if (matches.Count > 1)
-            throw new IECodeException(ExitCodes.Usage, $"'{s}' matches several enum members: {string.Join(", ", matches.Select(m => m.Value))}. Use the exact spelling.");
+            throw new IECodeException(ExitCodes.Usage, $"'{s}' matches several enum members: {string.Join(", ", matches.Select(m => m.Name))}. Use the exact spelling.");
         return long.Parse(s, Inv);
     }
 

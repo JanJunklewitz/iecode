@@ -61,7 +61,7 @@ public static class AdsValues
     public static object ParseForWrite(IDataType? type, string text)
     {
         var (baseType, members) = Resolve(type);
-        var value = PlcValueText.Parse(baseType, text, members);
+        var value = PlcValueText.Parse(baseType, text, members, AllMembers(type));
         if (members is not null && type is not null) value = PlcValueText.Parse(EnumBaseType(type), System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!);
         return value;
     }
@@ -88,6 +88,12 @@ public static class AdsValues
     /// <summary>The alias chain's end; an enum ends it, because Beckhoff's EnumType is also an alias of its base integer.</summary>
     private static IDataType? Underlying(IDataType? type) =>
         TypeChain.Underlying(type, t => t is IEnumType, t => (t as IAliasType)?.BaseType);
+
+    /// <summary>Every member name of an enum with its value, aliases included; null for a type that is not an enum.</summary>
+    public static IReadOnlyList<(string Name, long Value)>? AllMembers(IDataType? type) =>
+        Underlying(type) is IEnumType en
+            ? en.EnumValues.Where(m => m.Value is not null).Select(m => (m.Name, System.Convert.ToInt64(m.Value, System.Globalization.CultureInfo.InvariantCulture))).ToList()
+            : null;
 
     private static IReadOnlyDictionary<long, string> Members(IEnumType en)
     {
