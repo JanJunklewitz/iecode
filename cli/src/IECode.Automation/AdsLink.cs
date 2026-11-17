@@ -42,6 +42,12 @@ internal interface ILinkSymbol
     string BaseType { get; }
     IReadOnlyDictionary<long, string>? Members { get; }
     object? Read();
+    /// <summary>The instance path of the symbol.</summary>
+    string Path { get; }
+    /// <summary>What a read does with it: a value, a container to enter, or something never entered (pointer, reference, interface).</summary>
+    Core.Ads.NodeKind Kind { get; }
+    /// <summary>The members of a structure or the elements of an array; empty for a value.</summary>
+    IReadOnlyList<ILinkSymbol> Children { get; }
     /// <summary>Converts the text to the value to send; throws <see cref="Core.Ads.WriteNotSentException"/> when it does not fit the type.</summary>
     object Prepare(string text);
     void Write(string text);
@@ -118,6 +124,13 @@ internal sealed class BeckhoffLink(Core.AmsNetId target, int port) : IAdsLink
         public string BaseType { get; } = "";
         public IReadOnlyDictionary<long, string>? Members { get; }
         public object? Read() => Value.ReadValue();
+        public string Path => Value.InstancePath;
+
+        public Core.Ads.NodeKind Kind => AdsValues.KindOf(Value.DataType);
+
+        public IReadOnlyList<ILinkSymbol> Children => Kind is Core.Ads.NodeKind.Struct or Core.Ads.NodeKind.Array
+            ? Value.SubSymbols.OfType<IValueSymbol>().Select(v => (ILinkSymbol)new Symbol(v)).ToList()
+            : [];
         public object Prepare(string text)
         {
             try

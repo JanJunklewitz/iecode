@@ -321,6 +321,38 @@ public sealed class AdsWatchBackend : IWatchBackend
         }
     }
 
+    public StructRead? ReadMembers(string symbol, int depth)
+    {
+        var link = Link();
+        var loader = Loader(link, ReadVersion(link), 1);
+        var sym = Lookup(loader, symbol)
+            ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}. {NotFoundHint(loader, symbol)}");
+        if (sym.IsSingleValue) return null;
+        var walk = StructExpand.Walk(sym, depth, StructExpand.MaxMembers, StructExpand.MaxElements, s => s.Kind, s => s.Children, s => s.Path);
+        if (walk.Leaves.Count == 0) return new StructRead(sym.TypeName, [], walk.OmittedMembers, walk.OmittedElements, walk.NotExpanded);
+        SumRead read;
+        try
+        {
+            read = link.PrepareRead(walk.Leaves).Read();
+        }
+        catch (Exception e)
+        {
+            throw ReadFault(e);
+        }
+        if (read.Items is null || read.Code != AdsErrorCode.NoError || read.Items.Count != walk.Leaves.Count)
+            throw new AdsFault(Text($"Read from {_where}", (uint)read.Code), (uint)read.Code, AdsCodes.IsConnectionLost((uint)read.Code));
+        var members = new MemberValue[walk.Leaves.Count];
+        for (var i = 0; i < members.Length; i++)
+        {
+            var leaf = walk.Leaves[i];
+            var item = read.Items[i];
+            members[i] = item.Code == AdsErrorCode.NoError
+                ? new MemberValue(leaf.Path, leaf.TypeName, PlcValueText.Format(leaf.BaseType, AdsValues.Normalize(leaf.BaseType, item.Value), leaf.Members), null)
+                : new MemberValue(leaf.Path, leaf.TypeName, null, $"{item.Code} (0x{(uint)item.Code:X})");
+        }
+        return new StructRead(sym.TypeName, members, walk.OmittedMembers, walk.OmittedElements, walk.NotExpanded);
+    }
+
     public void Dispose() => Drop();
 
     private void Drop()

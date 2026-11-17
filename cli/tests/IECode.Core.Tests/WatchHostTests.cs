@@ -34,6 +34,13 @@ public sealed class WatchHostTests
         public (string Type, string Value) ReadOnce(string symbol) => ("INT", "1");
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => WriteFn(symbol, text);
         public int WriteManyCalls;
+        public List<int> MembersDepths = [];
+        public Func<string, int, StructRead?> MembersFn = (_, _) => null;
+        public StructRead? ReadMembers(string symbol, int depth)
+        {
+            MembersDepths.Add(depth);
+            return MembersFn(symbol, depth);
+        }
         public Func<IReadOnlyList<(string Symbol, string Value)>, IReadOnlyList<WriteManyItem>> WriteManyFn =
             w => w.Select(x => new WriteManyItem(x.Symbol, WriteStatus.Written, x.Value)).ToList();
         public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes)
@@ -633,5 +640,63 @@ public sealed class WatchHostTests
         Assert.False(reply.GetProperty("ok").GetBoolean());
         Assert.False(reply.TryGetProperty("written", out _));
         Assert.Equal(0x745u, reply.GetProperty("adsCode").GetUInt32());
+    }
+
+    private static StructRead OneMember() => new("ST_Axis", [new MemberValue("MAIN.st.a", "DINT", "5", null)], 0, 0, []);
+
+    [Fact]
+    public void Read_with_depth_asks_the_backend_for_members()
+    {
+        var r = new Rig();
+        r.Backend.MembersFn = (_, _) => OneMember();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.st"],"depth":3}""");
+        var item = r.Last().GetProperty("data")[0];
+        Assert.Equal("ST_Axis", item.GetProperty("type").GetString());
+        Assert.Equal("MAIN.st.a", item.GetProperty("members")[0].GetProperty("name").GetString());
+        Assert.Equal(0, item.GetProperty("notes").GetProperty("omittedMembers").GetInt32());
+    }
+
+    [Fact]
+    public void Read_without_depth_has_no_members_property()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"]}""");
+        var item = r.Last().GetProperty("data")[0];
+        Assert.False(item.TryGetProperty("members", out _));
+        Assert.False(item.TryGetProperty("notes", out _));
+        Assert.Equal(4, item.EnumerateObject().Count());
+        Assert.Empty(r.Backend.MembersDepths);
+    }
+
+    [Fact]
+    public void Read_with_depth_of_a_single_value_falls_back_to_the_scalar_read()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":2}""");
+        Assert.Equal("1", r.Last().GetProperty("data")[0].GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Depth_is_clamped_to_the_allowed_range()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":9}""");
+        r.Host.Handle("""{"id":8,"op":"read","symbols":["MAIN.n"],"depth":0}""");
+        Assert.Equal([5, 1], r.Backend.MembersDepths);
+    }
+
+    [Fact]
+    public void A_non_integer_depth_fails_the_request()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":"x"}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("read needs an integer 'depth'.", reply.GetProperty("error").GetString());
     }
 }

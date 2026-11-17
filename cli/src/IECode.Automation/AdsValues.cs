@@ -73,6 +73,15 @@ public static class AdsValues
     }
 
     /// <summary>Name of the integer type underlying an enum (INT if unknown), so a parsed enum number can be written.</summary>
+    /// <summary>How a read treats a symbol of this type: values are leaves, structures and function blocks and arrays are entered, everything else is not.</summary>
+    public static IECode.Core.Ads.NodeKind KindOf(IDataType? type) => Underlying(type)?.Category switch
+    {
+        DataTypeCategory.Primitive or DataTypeCategory.Enum or DataTypeCategory.String or DataTypeCategory.SubRange => IECode.Core.Ads.NodeKind.Leaf,
+        DataTypeCategory.Struct or DataTypeCategory.FunctionBlock or DataTypeCategory.Program or DataTypeCategory.Union => IECode.Core.Ads.NodeKind.Struct,
+        DataTypeCategory.Array => IECode.Core.Ads.NodeKind.Array,
+        _ => IECode.Core.Ads.NodeKind.Opaque,
+    };
+
     private static string EnumBaseType(IDataType type) =>
         Underlying(type) is IEnumType { BaseType: { } b } ? b.Name : "INT";
 

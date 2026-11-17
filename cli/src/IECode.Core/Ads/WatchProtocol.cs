@@ -41,7 +41,17 @@ public interface IWatchBackend : IDisposable
     /// <see cref="AdsFault"/>: the outcome is unknown for every item.
     /// </summary>
     IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes);
+    /// <summary>
+    /// The value leaves of a structure, function block instance or array in one sum read, to <paramref name="depth"/> levels.
+    /// Null when the symbol is a single value or this backend cannot expand (the host then falls back to <see cref="ReadOnce"/>).
+    /// </summary>
+    StructRead? ReadMembers(string symbol, int depth) => null;
 }
+
+/// <summary>One leaf of a structure read; <c>Name</c> is the full instance path.</summary>
+public sealed record MemberValue(string Name, string Type, string? Value, string? Error);
+
+public sealed record StructRead(string Type, IReadOnlyList<MemberValue> Members, int OmittedMembers, int OmittedElements, IReadOnlyList<string> NotExpanded);
 
 public static class WriteStatus
 {
@@ -72,7 +82,10 @@ internal sealed record WatchSamplesEvent(string Event, int Gen, IReadOnlyList<Wa
 internal sealed record WatchRow(long T, IReadOnlyList<string?> V,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<long?>? E);
 internal sealed record WatchItemsData(int Gen, IReadOnlyList<WatchItem> Items);
-internal sealed record WatchReadItem(string Symbol, string? Type, string? Value, string? Error);
+internal sealed record WatchReadNotes(int OmittedMembers, int OmittedElements, IReadOnlyList<string> NotExpanded);
+internal sealed record WatchReadItem(string Symbol, string? Type, string? Value, string? Error,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<MemberValue>? Members = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] WatchReadNotes? Notes = null);
 internal sealed record WatchWriteData(string Symbol, string? Value,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReadBackError = null);
 internal sealed record WatchIntervalData(int Ms);

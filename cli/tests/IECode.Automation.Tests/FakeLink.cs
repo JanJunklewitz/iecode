@@ -79,6 +79,9 @@ internal sealed class FakeSymbol(string name, string type, string baseType, IRea
     public Exception? WriteThrow;
     public object? Value;
     public string? Written;
+    public string Path => name;
+    public NodeKind Kind { get; init; } = single ? NodeKind.Leaf : NodeKind.Struct;
+    public IReadOnlyList<ILinkSymbol> Children { get; init; } = [];
     public string TypeName => type;
     public bool IsSingleValue => single;
     public string BaseType => baseType;

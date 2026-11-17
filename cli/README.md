@@ -133,12 +133,14 @@ value that does not parse, a repeated symbol, more than 20 writes; the error nam
 after sending, so the outcome is unknown for every item. One request does not guarantee that the PLC applies the values in the same
 cycle. Only the two item codes measured to come from the PLC itself with no effect on that item (`DeviceInvalidAccess`, `DeviceInvalidOffset`) are `notWritten`; every other code is `unknown`.
 
+A `read` request with an integer `depth` (protocol 2, clamped to 1..5) answers a structure, function block instance or array with `members` (`{"name","type","value","error"}` per value leaf, `name` is the full instance path, `value` and `error` of the item itself are null) and `notes` (`omittedMembers`, `omittedElements`, `notExpanded`). The leaves come from one sum read; at most 200 members and 20 elements per array are read, pointers, references and interfaces are listed under `notExpanded`. A single value answers as before, and a request without `depth` is unchanged.
+
 Protocol versions (the `hello` event carries the number):
 
 | Protocol | Ops | Since |
 |---|---|---|
 | 1 | `watch`, `read`, `write`, `interval` | first release |
-| 2 | + `writeMany` (batch write) | next release (not frozen until it ships) |
+| 2 | + `writeMany` (batch write), `read` with `depth` (struct read) | next release (not frozen until it ships) |
 
 A client accepts every protocol from 1 up to its own and switches off only the features an older host lacks; a host newer than the client is refused.
 

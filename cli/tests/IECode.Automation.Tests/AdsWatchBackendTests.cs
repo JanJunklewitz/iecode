@@ -280,6 +280,64 @@ public class AdsWatchBackendTests
         Assert.Throws<AdsFault>(() => b.Write("MAIN.nWatch", "42"));
     }
 
+    private static FakeSymbol Axis(params FakeSymbol[] kids) => new("MAIN.stAxis", "ST_Axis", "", single: false) { Children = kids };
+
+    private static (AdsWatchBackend Backend, FakeLink Link) MakeStruct(FakeSymbol root)
+    {
+        var link = new FakeLink { Upload = () => new FakeSet(root) };
+        var backend = new AdsWatchBackend("test:851", () => link);
+        backend.Connect();
+        return (backend, link);
+    }
+
+    [Fact]
+    public void ReadMembers_reads_all_leaves_of_a_struct_in_one_sum_read()
+    {
+        var root = Axis(new FakeSymbol("MAIN.stAxis.nPos", "DINT", "DINT"), new FakeSymbol("MAIN.stAxis.bOn", "BOOL", "BOOL"));
+        var (b, link) = MakeStruct(root);
+        link.Sum = () => Ok(120, true);
+        var r = b.ReadMembers("MAIN.stAxis", 3)!;
+        Assert.Equal("ST_Axis", r.Type);
+        Assert.Equal([new MemberValue("MAIN.stAxis.nPos", "DINT", "120", null), new MemberValue("MAIN.stAxis.bOn", "BOOL", "TRUE", null)], r.Members);
+        Assert.Equal(1, link.SumReads);
+    }
+
+    [Fact]
+    public void ReadMembers_returns_null_for_a_single_value()
+    {
+        var (b, _) = MakeStruct(Int("MAIN.stAxis"));
+        Assert.Null(b.ReadMembers("MAIN.stAxis", 3));
+    }
+
+    [Fact]
+    public void ReadMembers_of_an_unknown_symbol_is_not_found_with_the_hide_hint()
+    {
+        var (b, _) = MakeStruct(Axis());
+        var e = Assert.Throws<IECode.Core.IECodeException>(() => b.ReadMembers("MAIN.nope", 3));
+        Assert.Equal(IECode.Core.ExitCodes.NotFound, e.ExitCode);
+        Assert.Contains("{attribute 'hide'}", e.Message);
+    }
+
+    [Fact]
+    public void One_member_with_a_read_error_does_not_fail_the_others()
+    {
+        var root = Axis(new FakeSymbol("MAIN.stAxis.nPos", "DINT", "DINT"), new FakeSymbol("MAIN.stAxis.nGone", "DINT", "DINT"));
+        var (b, link) = MakeStruct(root);
+        link.Sum = () => new SumRead(AdsErrorCode.NoError, [new SumItem(AdsErrorCode.NoError, 7), new SumItem(AdsErrorCode.DeviceSymbolNotFound, null)]);
+        var r = b.ReadMembers("MAIN.stAxis", 3)!;
+        Assert.Equal("7", r.Members[0].Value);
+        Assert.Null(r.Members[1].Value);
+        Assert.Equal("DeviceSymbolNotFound (0x710)", r.Members[1].Error);
+    }
+
+    [Fact]
+    public void A_failed_sum_read_of_a_struct_is_an_ads_fault()
+    {
+        var (b, link) = MakeStruct(Axis(new FakeSymbol("MAIN.stAxis.nPos", "DINT", "DINT")));
+        link.Sum = () => new SumRead((AdsErrorCode)0x745, null);
+        Assert.Throws<AdsFault>(() => b.ReadMembers("MAIN.stAxis", 3));
+    }
+
     private static readonly IReadOnlySet<uint> TestNoEffect = new HashSet<uint> { 0x1 };
 
     private static (AdsWatchBackend Backend, FakeLink Link, FakeSymbol[] Syms) MakeWriteMany(int count, IReadOnlySet<uint>? noEffect = null)

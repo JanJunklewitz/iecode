@@ -47,7 +47,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
             object data = op switch
             {
                 "watch" => DoWatch(Symbols(root)),
-                "read" => DoRead(Symbols(root)),
+                "read" => DoRead(Symbols(root), Depth(root)),
                 "write" => DoWrite(Str(root, "symbol"), Str(root, "value")),
                 "writeMany" => DoWriteMany(root),
                 "interval" => DoInterval(root),
@@ -300,13 +300,26 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         return new WatchItemsData(_gen, _items);
     }
 
-    private object DoRead(IReadOnlyList<string> symbols)
+    /// <summary>The optional `depth` of a read: absent is null (scalar read as before), else clamped to 1..MaxDepth.</summary>
+    private static int? Depth(JsonElement root)
+    {
+        if (!root.TryGetProperty("depth", out var d) || d.ValueKind == JsonValueKind.Null) return null;
+        if (d.ValueKind != JsonValueKind.Number || !d.TryGetInt32(out var n)) throw new IECodeException(ExitCodes.Usage, "read needs an integer 'depth'.");
+        return Math.Clamp(n, 1, StructExpand.MaxDepth);
+    }
+
+    private object DoRead(IReadOnlyList<string> symbols, int? depth)
     {
         var result = new List<WatchReadItem>();
         foreach (var s in symbols)
         {
             try
             {
+                if (depth is { } levels && backend.ReadMembers(s, levels) is { } sr)
+                {
+                    result.Add(new WatchReadItem(s, sr.Type, null, null, sr.Members, new WatchReadNotes(sr.OmittedMembers, sr.OmittedElements, sr.NotExpanded)));
+                    continue;
+                }
                 var (type, value) = backend.ReadOnce(s);
                 result.Add(new WatchReadItem(s, type, value, null));
             }
