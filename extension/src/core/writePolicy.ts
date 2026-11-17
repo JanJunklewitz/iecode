@@ -42,11 +42,25 @@ export function writePolicyReason(symbols: readonly string[], s: WritePolicySett
 
 /**
  * The symbols of `symbols` that lie below one of the user's prefixes of persistent or configuration data
- * (iecode.ads.persistentPaths; same matching as the allow-list). Blank entries are ignored; an empty list guards nothing.
+ * (iecode.ads.persistentPaths; same matching as the allow-list) or are marked persistent in the build output (`built`: lower-case
+ * names of the symbols the .tmc marks, parents count for their members). Blank entries are ignored; no list and no mark guard nothing.
  */
-export function persistentIn(symbols: readonly string[], persistentPaths: readonly string[]): string[] {
+export function persistentIn(symbols: readonly string[], persistentPaths: readonly string[], built: ReadonlySet<string> = new Set()): string[] {
   const prefixes = persistentPaths.map(norm).filter(Boolean);
-  return symbols.filter(s => prefixes.some(p => matches(norm(s), p))).map(s => s.trim());
+  return symbols.filter(s => {
+    const n = norm(s);
+    return prefixes.some(p => matches(n, p)) || underBuilt(n, built);
+  }).map(s => s.trim());
+}
+
+/** True when the symbol or one of its parents (`a.b.c` has `a.b` and `a`; `a[2].b` has `a[2]` and `a`) is marked persistent in the build output. */
+function underBuilt(name: string, built: ReadonlySet<string>): boolean {
+  if (!built.size) return false;
+  for (let n = name; n; n = n.replace(/(.[^.[]*|[[^]]*])$/, '')) {
+    if (built.has(n)) return true;
+    if (!/(.[^.[]*|[[^]]*])$/.test(n)) break;
+  }
+  return false;
 }
 
 /** The refusal of a write to persistent data that the user did not ask for. */

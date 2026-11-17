@@ -38,3 +38,9 @@ test('persistentRefusal names every symbol and the flag', () => {
   assert.equal(persistentRefusal(['MAIN.nCfg']), 'MAIN.nCfg is PERSISTENT data (it survives a PLC restart). Call again with confirmPersistent: true if the user asked for this write.');
   assert.equal(persistentRefusal(['MAIN.nCfg', 'MAIN.nOther']), 'MAIN.nCfg, MAIN.nOther are PERSISTENT data (they survive a PLC restart). Call again with confirmPersistent: true if the user asked for these writes.');
 });
+
+test('persistentIn also counts symbols the build output marks, and their members', () => {
+  const built = new Set(['gvl.stpair', 'gvl.stcfg.nkept', 'gvl.arr[2]']);
+  assert.deepEqual(persistentIn(['GVL.stPair', 'GVL.stPair.nA', 'GVL.stCfg.nKept', 'GVL.stCfg.nLost', 'GVL.Arr[2].x', 'GVL.Arr[3].x', 'GVL.nPlain'], [], built),
+    ['GVL.stPair', 'GVL.stPair.nA', 'GVL.stCfg.nKept', 'GVL.Arr[2].x']);
+});

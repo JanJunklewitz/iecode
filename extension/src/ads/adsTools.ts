@@ -50,6 +50,9 @@ export const errorText = (e: unknown) => `Error: ${(e as Error).message}${e inst
 const ok = (text: string): ToolText => ({ text: capText(text) });
 const failure = (e: unknown): ToolText => ({ text: capText(errorText(e)), isError: true });
 
+/** Persistent marks of a build output by file and requested array elements, valid while the file's time is unchanged. */
+const persistentCache = new Map<string, { mtime: number; names: Set<string> }>();
+
 /** Keeps the host alive for the duration of a tool call. */
 async function leased<T>(host: AdsHost, fn: () => Promise<T>): Promise<T> {
   const lease = host.use();
@@ -180,7 +183,26 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
 
     /** The symbols of those given that lie below the user's persistent paths. */
     async persistentOf(symbols: string[]): Promise<string[]> {
-      return persistentIn(symbols, persistentPathsSetting());
+      // the build output marks persistent symbols (TcPersistent); an unbuilt or unreadable unit just adds no marks
+      const built = new Set<string>();
+      const elements = [...new Set(symbols.flatMap(s => elementPrefixes(`${s}.`)))];
+      for (const u of state.current.units) {
+        try {
+          const file = await findTmc(u.plc.file);
+          if (!file) continue;
+          // parsing the members of a large build output takes seconds: keep the marks until the file changes
+          const key = `${file}|${elements.join('|')}`;
+          const mtime = (await fsp.stat(file)).mtimeMs;
+          let hit = persistentCache.get(key);
+          if (!hit || hit.mtime !== mtime) {
+            const names = new Set<string>();
+            for (const s of (await fromBuild(u.plc, true, elements)).symbols) if (s.persistent) names.add(s.name.toLowerCase());
+            persistentCache.set(key, hit = { mtime, names });
+          }
+          for (const n of hit.names) built.add(n);
+        } catch { /* no build output: the path list still applies */ }
+      }
+      return persistentIn(symbols, persistentPathsSetting(), built);
     },
 
     async symbols(input: SymbolsInput): Promise<ToolText> {
