@@ -99,7 +99,7 @@ talks JSON lines: requests on stdin (←), events and replies on stdout (→). L
 code 0 when stdin closes, after it has answered every request read before that.
 
 ```text
-→ {"event":"hello","protocol":1}                       first line, before anything about the target can fail
+→ {"event":"hello","protocol":2}                       first line, before anything about the target can fail
 → {"event":"state","connected":true}                   or connected:false with "error"; retried every 2 s
 ← {"id":1,"op":"watch","symbols":["MAIN.nCount","GVL.bRun"]}
 → {"id":1,"ok":true,"data":{"gen":1,"items":[{"symbol":"MAIN.nCount","type":"INT","numeric":true,"error":null}, …]}}
@@ -107,6 +107,7 @@ code 0 when stdin closes, after it has answered every request read before that.
 ← {"id":2,"op":"read","symbols":["MAIN.sName"]}       one-off read, also of symbols not watched
 ← {"id":3,"op":"write","symbol":"MAIN.nCount","value":"7"}   replies with the value read back
 ← {"id":4,"op":"interval","ms":50}                    poll interval, 10 … 5000 ms (default 100)
+← {"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}   protocol 2: one sum write
 ```
 
 Values are canonical text (`TRUE`/`FALSE`, decimal integers, REAL with `.`, enum member names, TIME as
@@ -122,11 +123,22 @@ read-back failed; `ok:false` with `"written":"no"` was not sent (unknown symbol,
 `ok:false` without a `written` field failed in the ADS call itself, so the value may or may not have reached the PLC (a client
 must treat a missing `written` as "outcome unknown", also when talking to an older CLI).
 
+A `writeMany` request (protocol 2, 1 to 20 writes, each symbol once) prepares every value first and then sends them in one ADS sum
+write, without a fallback to single writes, and reads the written items back with one sum read. The reply is
+`{"ok":true,"data":{"items":[…]}}` with one entry per write in request order: `{"symbol","status","value"}` where `status` is
+`written` (`value` is the read-back, or `readBackError` when only the read-back failed), `notWritten` (a device rejection proven
+to have no effect, with `error` and `adsCode`) or `unknown` (every other non-zero code, with `error`; the value may or may not
+have been written). `ok:false` with `"written":"no"` means nothing was sent (invalid request, unknown or non-single-value symbol, a
+value that does not parse, a repeated symbol, more than 20 writes; the error names `writes[i]`); `ok:false` without `written` failed
+after sending, so the outcome is unknown for every item. One request does not guarantee that the PLC applies the values in the same
+cycle. Only the two item codes measured to come from the PLC itself with no effect on that item (`DeviceInvalidAccess`, `DeviceInvalidOffset`) are `notWritten`; every other code is `unknown`.
+
 Protocol versions (the `hello` event carries the number):
 
 | Protocol | Ops | Since |
 |---|---|---|
 | 1 | `watch`, `read`, `write`, `interval` | first release |
+| 2 | + `writeMany` (batch write) | next release (not frozen until it ships) |
 
 A client accepts every protocol from 1 up to its own and switches off only the features an older host lacks; a host newer than the client is refused.
 

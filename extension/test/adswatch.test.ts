@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, hostNote, changeEntries, CUT_MARK, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage } from '../src/core/adswatch';
+import { SCOPE_SPANS, niceTicks, spanOptions, PendingRequests, PROTOCOL, ScopeBuffer, WatchItem, downsample, thinKeepingChanges, fillEvenly, hostStartFailure, minMaxBuckets, numericValue, parseHostLine, scopeText, hostNote, changeEntries, CUT_MARK, formatNumber, formatValueText, settingsError, symbolAt, MAX_WATCHED, watchLimitError, aiWriteDecision, watchEdit, watchRename, clampInterval, clampBufferSeconds, parseWatchList, workspaceOverrides, oneLine, writeStillApproved, sampleAge, gapNote, HostError, HostGone, RequestTimeout, writeStage, writeManyStage } from '../src/core/adswatch';
 
 const item = (symbol: string, numeric = true): WatchItem => ({ symbol, type: 'INT', numeric, error: null });
 const rows = (n: number, step = 1000, t0 = 0) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * step, v: [String(i)] }));
@@ -19,7 +19,7 @@ test('gap note when the newest sample is old', () => {
 });
 
 test('parseHostLine reads each message kind', () => {
-  assert.equal(PROTOCOL, 1);
+  assert.equal(PROTOCOL, 2);
   assert.deepEqual(parseHostLine('{"event":"hello","protocol":1}'), { event: 'hello', protocol: 1 });
   assert.deepEqual(parseHostLine('{"event":"hello","protocol":1,"target":"199.4.42.250.1.1"}'), { event: 'hello', protocol: 1, target: '199.4.42.250.1.1' });
   assert.deepEqual(parseHostLine('{"event":"state","connected":false,"error":"x"}'), { event: 'state', connected: false, error: 'x' });
@@ -714,4 +714,18 @@ test('parseWatchList keeps groups, drops blanks and leaves old entries untouched
 test('the user taking over or renaming an AI entry clears its groups', () => {
   assert.deepEqual(watchEdit([{ symbol: 'a', ai: true, groups: ['T1'] }], ['A']), [{ symbol: 'a', ai: false }]);
   assert.deepEqual(watchRename([{ symbol: 'a', ai: true, groups: ['T1'] }], 'a', 'a2'), [{ symbol: 'a2', ai: false }]);
+});
+
+test('writeManyStage maps a reply, a proof of not sent and everything else to unknown', () => {
+  const w = [{ symbol: 'MAIN.a' }, { symbol: 'MAIN.b' }];
+  assert.deepEqual(writeManyStage({ data: { items: [{ symbol: 'MAIN.a', status: 'written', value: '1' }, { symbol: 'main.b', status: 'notWritten', error: 'ADS error 0x1' }] } }, w),
+    { kind: 'items', items: [{ symbol: 'MAIN.a', status: 'written', readBack: '1' }, { symbol: 'MAIN.b', status: 'notWritten', reason: 'ADS error 0x1' }] });
+  assert.deepEqual(writeManyStage({ data: { items: [{ symbol: 'MAIN.a', status: 'written', readBackError: 'link down' }, { symbol: 'MAIN.b', status: 'unknown' }] } }, w),
+    { kind: 'items', items: [{ symbol: 'MAIN.a', status: 'written', readBack: null, readBackError: 'link down' }, { symbol: 'MAIN.b', status: 'unknown', reason: 'no reason given' }] });
+  assert.deepEqual(writeManyStage({ error: new HostError("writes[1] MAIN.b: 'zz' is not a valid INT.", 'no') }, w), { kind: 'notSent', reason: "writes[1] MAIN.b: 'zz' is not a valid INT." });
+  assert.equal(writeManyStage({ error: new HostError('x', undefined) }, w).kind, 'unknown');
+  assert.equal(writeManyStage({ error: new RequestTimeout('t') }, w).kind, 'unknown');
+  assert.equal(writeManyStage({ data: { items: [{ symbol: 'MAIN.a', status: 'written', value: '1' }] } }, w).kind, 'unknown');
+  assert.equal(writeManyStage({ data: { items: [{ symbol: 'MAIN.b', status: 'written' }, { symbol: 'MAIN.a', status: 'written' }] } }, w).kind, 'unknown');
+  assert.equal(writeManyStage({ data: 'x' }, w).kind, 'unknown');
 });

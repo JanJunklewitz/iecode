@@ -36,12 +36,17 @@ public sealed class AdsWatchBackend : IWatchBackend
     {
     }
 
-    internal AdsWatchBackend(string where, Func<IAdsLink> newLink, Action<string>? log = null)
+    internal AdsWatchBackend(string where, Func<IAdsLink> newLink, Action<string>? log = null,
+        IReadOnlySet<uint>? noEffectCodes = null, IReadOnlySet<uint>? notSentAggregateCodes = null)
     {
         _where = where;
         _newLink = newLink;
         _log = log;
+        _noEffect = noEffectCodes ?? DefaultNoEffectCodes;
+        _notSentAggregate = notSentAggregateCodes ?? DefaultNotSentAggregateCodes;
     }
+
+    private readonly IReadOnlySet<uint> _noEffect, _notSentAggregate;
 
     /// <summary>Opens the ADS port and proves the target is there: connecting alone only opens the local router port.</summary>
     public void Connect()
@@ -196,6 +201,123 @@ public sealed class AdsWatchBackend : IWatchBackend
         catch (Exception e)
         {
             return (null, e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Codes of a sum write item that are proven to be a device rejection without effect on that item (SDK contract check C1,
+    /// 2026-11-12: both come from the PLC itself and the neighbours of the item were written). Every other non-zero code stays
+    /// "unknown", for example 0x701 (service not supported for that item).
+    /// </summary>
+    internal static readonly IReadOnlySet<uint> DefaultNoEffectCodes = new HashSet<uint>
+    {
+        (uint)AdsErrorCode.DeviceInvalidAccess,
+        (uint)AdsErrorCode.DeviceInvalidOffset,
+    };
+
+    /// <summary>Aggregate codes proven to come back before any sub-write ran: the router found no runtime on the port.</summary>
+    internal static readonly IReadOnlySet<uint> DefaultNotSentAggregateCodes = new HashSet<uint>
+    {
+        (uint)AdsErrorCode.TargetPortNotFound,
+    };
+
+    public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes)
+    {
+        var link = Link();
+        var loader = Loader(link, ReadVersion(link), writes.Count);
+        var symbols = new ILinkSymbol[writes.Count];
+        var values = new object[writes.Count];
+        // Everything that can fail without a request is checked here, before one value is sent.
+        for (var i = 0; i < writes.Count; i++)
+        {
+            var (name, text) = writes[i];
+            ILinkSymbol? sym;
+            try
+            {
+                sym = Lookup(loader, name);
+            }
+            catch (AdsFault f) when (!f.ConnectionLost)
+            {
+                throw new WriteNotSentException($"writes[{i}] {name}: {f.Message}", f);
+            }
+            if (sym is null) throw new WriteNotSentException($"writes[{i}] {name}: Symbol '{name}' not found on {_where}. {NotFoundHint(loader, name)}");
+            if (!sym.IsSingleValue) throw new WriteNotSentException($"writes[{i}] {name}: {sym.TypeName} is not a single value; write its members instead");
+            try
+            {
+                values[i] = sym.Prepare(text);
+            }
+            catch (WriteNotSentException e)
+            {
+                throw new WriteNotSentException($"writes[{i}] {name}: {e.Message}", e);
+            }
+            symbols[i] = sym;
+        }
+
+        SumWrite sum;
+        try
+        {
+            sum = Call($"Write of {writes.Count} values to {_where}", () => link.PrepareWrite(symbols).Write(values));
+        }
+        catch (Exception e) when (e is ArgumentException or IndexOutOfRangeException)
+        {
+            // The SDK throws these while it builds the request (a value that does not fit its symbol): nothing was sent.
+            throw new WriteNotSentException($"Write of {writes.Count} values to {_where}: {e.Message}", e);
+        }
+        if (sum.Code != AdsErrorCode.NoError || sum.Items is null)
+        {
+            var text = Text($"Write of {writes.Count} values to {_where}", (uint)sum.Code);
+            if (_notSentAggregate.Contains((uint)sum.Code)) throw new WriteNotSentException(text);
+            throw new AdsFault(text, (uint)sum.Code, AdsCodes.IsConnectionLost((uint)sum.Code));
+        }
+        if (sum.Items.Count != writes.Count)
+        {
+            var mismatch = $"ADS returned {sum.Items.Count} results for {writes.Count} writes";
+            return writes.Select(w => new WriteManyItem(w.Symbol, WriteStatus.Unknown, Error: mismatch)).ToList();
+        }
+
+        var result = new WriteManyItem[writes.Count];
+        var written = new List<int>();
+        for (var i = 0; i < writes.Count; i++)
+        {
+            var code = sum.Items[i];
+            if (code == AdsErrorCode.NoError)
+            {
+                written.Add(i);
+                continue;
+            }
+            var status = _noEffect.Contains((uint)code) ? WriteStatus.NotWritten : WriteStatus.Unknown;
+            result[i] = new WriteManyItem(writes[i].Symbol, status, Error: Text($"Write {writes[i].Symbol}", (uint)code), AdsCode: (uint)code);
+        }
+        ReadBack(link, written, symbols, writes, result);
+        return result;
+    }
+
+    /// <summary>One sum read of the written items. From here on the PLC took the values: a failing read-back never changes "written".</summary>
+    private void ReadBack(IAdsLink link, List<int> written, ILinkSymbol[] symbols, IReadOnlyList<(string Symbol, string Value)> writes, WriteManyItem[] result)
+    {
+        if (written.Count == 0) return;
+        string? failure = null;
+        IReadOnlyList<SumItem>? items = null;
+        try
+        {
+            var read = link.PrepareRead(written.Select(i => symbols[i]).ToList()).Read();
+            if (read.Items is null || read.Code != AdsErrorCode.NoError || read.Items.Count != written.Count)
+                failure = read.Items is not null && read.Code == AdsErrorCode.NoError
+                    ? $"ADS returned {read.Items.Count} read-back results for {written.Count} items"
+                    : Text("Read-back", (uint)read.Code);
+            else items = read.Items;
+        }
+        catch (Exception e)
+        {
+            failure = e.Message;
+        }
+        for (var k = 0; k < written.Count; k++)
+        {
+            var i = written[k];
+            var name = writes[i].Symbol;
+            if (items is null) result[i] = new WriteManyItem(name, WriteStatus.Written, ReadBackError: failure);
+            else if (items[k].Code != AdsErrorCode.NoError) result[i] = new WriteManyItem(name, WriteStatus.Written, ReadBackError: Text($"Read {name}", (uint)items[k].Code));
+            else result[i] = new WriteManyItem(name, WriteStatus.Written, PlcValueText.Format(symbols[i].BaseType, AdsValues.Normalize(symbols[i].BaseType, items[k].Value), symbols[i].Members));
         }
     }
 

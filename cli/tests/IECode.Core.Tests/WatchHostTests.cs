@@ -33,6 +33,14 @@ public sealed class WatchHostTests
         public bool SymbolVersionChanged() => VersionFn();
         public (string Type, string Value) ReadOnce(string symbol) => ("INT", "1");
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => WriteFn(symbol, text);
+        public int WriteManyCalls;
+        public Func<IReadOnlyList<(string Symbol, string Value)>, IReadOnlyList<WriteManyItem>> WriteManyFn =
+            w => w.Select(x => new WriteManyItem(x.Symbol, WriteStatus.Written, x.Value)).ToList();
+        public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes)
+        {
+            WriteManyCalls++;
+            return WriteManyFn(writes);
+        }
         public void Dispose() { }
     }
 
@@ -63,7 +71,7 @@ public sealed class WatchHostTests
         r.Host.Start();
         var e = Parse(r.Lines[0]);
         Assert.Equal("hello", e.GetProperty("event").GetString());
-        Assert.Equal(1, e.GetProperty("protocol").GetInt32());
+        Assert.Equal(2, e.GetProperty("protocol").GetInt32());
     }
 
     [Fact]
@@ -551,5 +559,79 @@ public sealed class WatchHostTests
         Assert.Equal(2, r.Backend.ResolveCalls);
         r.Host.Tick(T0.AddMilliseconds(5010));
         Assert.Equal(3, r.Backend.ResolveCalls);
+    }
+
+    [Fact]
+    public void WriteMany_reply_has_one_entry_per_item()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = w => [new WriteManyItem("MAIN.a", "written", "1"), new WriteManyItem("MAIN.b", "notWritten", Error: "rejected", AdsCode: 1808)];
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        var items = reply.GetProperty("data").GetProperty("items");
+        Assert.Equal(2, items.GetArrayLength());
+        Assert.Equal("written", items[0].GetProperty("status").GetString());
+        Assert.Equal("1", items[0].GetProperty("value").GetString());
+        Assert.False(items[0].TryGetProperty("readBackError", out _));
+        Assert.Equal("notWritten", items[1].GetProperty("status").GetString());
+        Assert.Equal(1808u, items[1].GetProperty("adsCode").GetUInt32());
+    }
+
+    [Theory]
+    [InlineData("""{"id":5,"op":"writeMany"}""", "Missing array 'writes'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":"x"}""", "Missing array 'writes'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[]}""", "writes must not be empty.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[{"symbol":"A","value":"1"},{"symbol":"B"}]}""", "writes[1] needs string 'symbol' and 'value'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.A","value":"1"},{"symbol":"main.a","value":"2"}]}""", "Duplicate symbol: main.a")]
+    public void WriteMany_validation_failures_say_written_no_and_call_no_backend(string request, string error)
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle(request);
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+        Assert.Equal(error, reply.GetProperty("error").GetString());
+        Assert.Equal(0, r.Backend.WriteManyCalls);
+    }
+
+    [Fact]
+    public void WriteMany_more_than_the_limit_is_refused_before_the_backend()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        var writes = string.Join(",", Enumerable.Range(0, WatchHost.MaxWrites + 1).Select(i => $$"""{"symbol":"S{{i}}","value":"1"}"""));
+        r.Host.Handle($$"""{"id":5,"op":"writeMany","writes":[{{writes}}]}""");
+        var reply = r.Last();
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+        Assert.Equal("At most 20 writes are allowed.", reply.GetProperty("error").GetString());
+        Assert.Equal(0, r.Backend.WriteManyCalls);
+    }
+
+    [Fact]
+    public void WriteMany_not_sent_exception_says_written_no()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = _ => throw new WriteNotSentException("writes[1] MAIN.b: bad");
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+    }
+
+    [Fact]
+    public void WriteMany_ads_fault_has_no_written_field_and_keeps_the_code()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = _ => throw new AdsFault("no reply", 0x745, false);
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.False(reply.TryGetProperty("written", out _));
+        Assert.Equal(0x745u, reply.GetProperty("adsCode").GetUInt32());
     }
 }

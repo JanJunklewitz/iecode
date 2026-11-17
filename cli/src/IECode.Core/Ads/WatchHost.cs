@@ -8,7 +8,7 @@ namespace IECode.Core.Ads;
 /// </summary>
 public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null, string? target = null)
 {
-    public const int Protocol = 1, MaxSymbols = 200;
+    public const int Protocol = 2, MaxSymbols = 200, MaxWrites = 20;
     private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000, ResolveBackoffMs = 5000;
 
     private readonly Action<string> _log = log ?? Console.Error.WriteLine;
@@ -49,6 +49,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
                 "watch" => DoWatch(Symbols(root)),
                 "read" => DoRead(Symbols(root)),
                 "write" => DoWrite(Str(root, "symbol"), Str(root, "value")),
+                "writeMany" => DoWriteMany(root),
                 "interval" => DoInterval(root),
                 _ => throw new IECodeException(ExitCodes.Usage, $"Unknown op '{op}'."),
             };
@@ -325,6 +326,31 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     {
         var (back, readBackError) = backend.Write(symbol, value);
         return new WatchWriteData(symbol, back, readBackError);
+    }
+
+    /// <summary>Every validation failure is a <see cref="WriteNotSentException"/>, so the client reads it as "nothing was sent".</summary>
+    private object DoWriteMany(JsonElement root)
+    {
+        if (!root.TryGetProperty("writes", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            throw new WriteNotSentException("Missing array 'writes'.");
+        var n = arr.GetArrayLength();
+        if (n == 0) throw new WriteNotSentException("writes must not be empty.");
+        if (n > MaxWrites) throw new WriteNotSentException($"At most {MaxWrites} writes are allowed.");
+        var writes = new List<(string Symbol, string Value)>(n);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var i = 0;
+        foreach (var e in arr.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.Object
+                || !e.TryGetProperty("symbol", out var s) || s.ValueKind != JsonValueKind.String
+                || !e.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.String)
+                throw new WriteNotSentException($"writes[{i}] needs string 'symbol' and 'value'.");
+            var symbol = s.GetString()!;
+            if (!seen.Add(symbol.Trim())) throw new WriteNotSentException($"Duplicate symbol: {symbol}");
+            writes.Add((symbol, v.GetString()!));
+            i++;
+        }
+        return new WatchWriteManyData(backend.WriteMany(writes));
     }
 
     private object DoInterval(JsonElement root)
