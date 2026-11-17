@@ -240,7 +240,7 @@ test('the manifest declares the ten tools in client-neutral words', () => {
   const props = watch.inputSchema.properties as unknown as Record<string, { type: string }>;
   assert.equal(props.clearAi.type, 'boolean');
   assert.equal(props.force.type, 'boolean');
-  assert.deepEqual(Object.keys(props).sort(), ['add', 'clearAi', 'enable', 'force', 'group', 'list', 'remove', 'removeGroup']);
+  assert.deepEqual(Object.keys(props).sort(), ['add', 'clearAi', 'enable', 'expand', 'force', 'group', 'list', 'remove', 'removeGroup']);
   assert.equal((props.group as unknown as { maxLength: number }).maxLength, 64);
   for (const d of found) {
     assert.ok(d.description.length > 20);
@@ -386,4 +386,18 @@ test('ads_write to persistent data is refused before the gate unless confirmPers
   await result(r.session.handle(call(17, 'ads_write', { symbol: 'GVL.P.n', value: '1', confirmPersistent: true })));
   assert.equal(r.sent.length, 1);
   assert.deepEqual(r.sent[0].op.persistent, ['GVL.P.n']);
+});
+
+test('ads_read passes depth and ads_watch passes expand to the tool functions', async () => {
+  const seen: unknown[] = [];
+  const r = rig({
+    read: async input => { seen.push(['read', input]); return { text: 'ok' }; },
+    watch: async input => { seen.push(['watch', input]); return { text: 'ok' }; },
+  });
+  await result(r.session.handle(call(20, 'ads_read', { symbols: ['MAIN.st'], depth: 2 })));
+  await result(r.session.handle(call(21, 'ads_watch', { add: ['MAIN.st'], expand: true })));
+  assert.deepEqual(seen[0], ['read', { symbols: ['MAIN.st'], depth: 2 }]);
+  assert.equal((seen[1] as [string, { expand?: boolean }])[1].expand, true);
+  const bad = await result(r.session.handle(call(22, 'ads_read', { symbols: ['MAIN.st'], depth: 9 })));
+  assert.equal(bad.content[0].text, 'Invalid arguments: depth must be a whole number from 1 to 5');
 });

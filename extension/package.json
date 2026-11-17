@@ -1690,7 +1690,7 @@
         "toolReferenceName": "adsWatch",
         "displayName": "ADS Watch",
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
-        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history.",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history. With expand: true, a structure in add is replaced by its members (at most 200).",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1742,6 +1742,10 @@
             "removeGroup": {
               "type": "boolean",
               "description": "With group: remove the group and the entries that belong to no other group."
+            },
+            "expand": {
+              "type": "boolean",
+              "description": "Add the members of a structure instead of failing; at most 200 members."
             }
           }
         }
@@ -1751,7 +1755,7 @@
         "toolReferenceName": "adsRead",
         "displayName": "ADS Read",
         "userDescription": "Read current values of PLC variables over ADS.",
-        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned.",
+        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned. A structure, function block instance or array is returned as the list of its members (see depth); the result says what was left out.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1769,6 +1773,12 @@
               },
               "maxItems": 200,
               "description": "ADS names to read; default all watched symbols."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "How many levels of nested structures to read, default 3; a structure or array is returned as a list of its members, at most 200 members and 20 array elements."
             }
           }
         }

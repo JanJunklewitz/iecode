@@ -8,6 +8,7 @@ import { Sampling, overridesAfterSettingChange } from '../core/adsConfig';
 import { HostEnd, HostMessage, PendingRequests, RequestTimeout, ScopeBuffer, WatchEntry, WatchItem, clampBufferSeconds, clampInterval, hostStartFailure, parseHostLine, parseWatchList, settingsError, watchLimitError, writeStage, writeManyStage } from '../core/adswatch';
 import { WriteNotSent, WriteOutcomeUnknown } from '../core/writeGate';
 import type { WriteItemResult } from '../core/writeText';
+import type { ReadMember, ReadNotes } from '../core/adsToolText';
 import { WriteJournal } from '../core/writeJournal';
 import { WatchList } from '../core/watchList';
 import type { SampleBatch } from '../core/waitRun';
@@ -24,7 +25,7 @@ const HELLO_MS = 10_000;
 const IDLE_MS = 30_000;
 
 export interface AdsState { connected: boolean; error?: string }
-export interface AdsReadResult { symbol: string; type: string; value: string | null; error: string | null }
+export interface AdsReadResult { symbol: string; type: string; value: string | null; error: string | null; members?: ReadMember[]; notes?: ReadNotes }
 
 interface Settings { target: string; port: number; intervalMs: number; bufferSeconds: number }
 
@@ -239,11 +240,13 @@ export class AdsHost implements vscode.Disposable {
     });
   }
 
-  async read(symbols: string[]): Promise<AdsReadResult[]> {
+  /** `depth` (1-5) asks a host with the structRead feature for the members of structures and arrays; a host without it is not sent the field. */
+  async read(symbols: string[], depth?: number): Promise<AdsReadResult[]> {
     return this.leased(async () => {
       await this.ensure(true);
-      const rows = await this.request({ op: 'read', symbols }) as { symbol: string; type: string | null; value: string | null; error: string | null }[];
-      return rows.map(r => ({ symbol: r.symbol, type: r.type ?? '', value: r.value, error: r.error }));
+      const rows = await this.request(depth === undefined ? { op: 'read', symbols } : { op: 'read', symbols, depth }) as
+        { symbol: string; type: string | null; value: string | null; error: string | null; members?: ReadMember[]; notes?: ReadNotes }[];
+      return rows.map(r => ({ symbol: r.symbol, type: r.type ?? '', value: r.value, error: r.error, ...(r.members ? { members: r.members } : {}), ...(r.notes ? { notes: r.notes } : {}) }));
     });
   }
 

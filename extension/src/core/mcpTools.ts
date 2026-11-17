@@ -17,7 +17,7 @@ export interface ToolDescriptor { name: string; description: string; inputSchema
 export interface AdsToolFns {
   symbols(input: { filter: string }): Promise<ToolText>;
   watch(input: WatchRequest, signal: AbortSignal): Promise<ToolText>;
-  read(input: { symbols?: string[] }): Promise<ToolText>;
+  read(input: { symbols?: string[]; depth?: number }): Promise<ToolText>;
   scope(input: Partial<ScopeArgs>): ToolText | Promise<ToolText>;
   wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
   config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText>;

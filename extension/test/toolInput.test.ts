@@ -283,3 +283,20 @@ test('confirmPersistent is kept only when true, on the single and the batch form
   const bad = parseWriteInput({ symbol: 'A', value: '1', confirmPersistent: 'yes' });
   assert.equal(bad.ok, false);
 });
+
+test('parseReadInput takes a depth from 1 to 5 and keeps the plain form untouched', () => {
+  assert.deepEqual(parseReadInput({ symbols: ['a'], depth: 2 }), { ok: true, value: { symbols: ['a'], depth: 2 } });
+  const plain = parseReadInput({ symbols: ['a'] });
+  assert.ok(plain.ok && !('depth' in plain.value));
+  for (const d of [0, 6, 2.5, '2']) {
+    const p = parseReadInput({ symbols: ['a'], depth: d });
+    assert.ok(!p.ok && p.error === 'depth must be a whole number from 1 to 5', String(d));
+  }
+});
+
+test('parseWatchInput keeps expand only as a boolean', () => {
+  const p = parseWatchInput({ add: ['a'], expand: true });
+  assert.ok(p.ok && p.value.expand === true);
+  const bad = parseWatchInput({ add: ['a'], expand: 'yes' });
+  assert.ok(!bad.ok && bad.error === 'expand must be a boolean');
+});

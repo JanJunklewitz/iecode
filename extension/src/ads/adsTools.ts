@@ -21,8 +21,9 @@ import { RestorePlan, journalText, planRestore } from '../core/writeJournal';
 import { persistentIn } from '../core/writePolicy';
 import { nodeLogFs } from './logFs';
 import { LogRequest, ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readStructRows, structNeedsNewerCli, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
+import { expandAdds } from '../core/watchExpand';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
 import { WaitDeps, runWait } from '../core/waitRun';
@@ -32,7 +33,7 @@ export type { ToolNames, ToolText };
 
 export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 export type WatchInput = WatchRequest;
-export interface ReadInput { symbols?: string[] }
+export interface ReadInput { symbols?: string[]; depth?: number }
 export type ScopeInput = Partial<ScopeArgs>;
 export interface WaitInput { symbol: string; condition: WaitCondition; timeoutSeconds: number }
 
@@ -306,8 +307,21 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       return { ...r, text: capText(head + r.text) };
     },
 
-    async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {
+    async watch(request: WatchInput, signal: AbortSignal): Promise<ToolText> {
       let result: WatchRunResult;
+      let input = request;
+      const expandLines: string[] = [];
+      if (request.expand && request.add.length) {
+        try {
+          await host.ready();
+          if (host.hostCaps()?.supports('structRead') !== true) return { text: 'Error: expand needs a newer iecode CLI: structRead', isError: true };
+          const expanded = expandAdds(request.add, await host.read(request.add, 3));
+          input = { ...request, add: expanded.names };
+          expandLines.push(...expanded.lines);
+        } catch (e) {
+          return failure(e);
+        }
+      }
       const owned = new Set(input.force ? host.list.userOwned(input.remove).map(x => x.toLowerCase()) : []);
       try {
         result = await leased(host, () => runWatchRequest(host.list, input, confirmRemove, signal));
@@ -323,7 +337,8 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
         const h = await propertyHint(state.current.units, i.symbol);
         if (h) hints.push(`Hint for ${i.symbol}: ${h}`);
       }
-      return ok(watchResultText({ hints, full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
+      const answer = watchResultText({ hints, full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() });
+      return ok(expandLines.length ? `${expandLines.join('\n')}\n${answer}` : answer);
     },
 
     async read(input: ReadInput): Promise<ToolText> {
@@ -344,7 +359,14 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
             }
           }
           if (others.length) {
-            for (const r of await host.read(others)) rows.push(readOnceRow(/not found/i.test(r.error ?? '') ? { ...r, hint: await propertyHint(state.current.units, r.symbol) } : r));
+            // a host that can expand structures is asked for the members (default depth 3); an older one is sent the plain read
+            await host.ready();
+            const expands = host.hostCaps()?.supports('structRead') === true;
+            for (const r of await host.read(others, expands ? input.depth ?? 3 : undefined)) {
+              if (r.members) rows.push(readStructRows({ symbol: r.symbol, type: r.type, members: r.members, notes: r.notes }));
+              else if (!expands && /is not a single value/.test(r.error ?? '')) rows.push(structNeedsNewerCli(r.symbol));
+              else rows.push(readOnceRow(/not found/i.test(r.error ?? '') ? { ...r, hint: await propertyHint(state.current.units, r.symbol) } : r));
+            }
           }
           return ok(readText(host.target(), rows));
         });

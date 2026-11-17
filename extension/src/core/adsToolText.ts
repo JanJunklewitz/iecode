@@ -39,7 +39,7 @@ export function watchListText(items: WatchItem[], entries: WatchEntry[], off: re
   const lines = items.length
     ? items.map(i => {
       const e = byName.get(i.symbol.toLowerCase());
-      return `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${i.error})` : ''}${e?.ai ? ' [added by AI]' : ' [added by the user]'}${label(e)}`;
+      return `${i.symbol} : ${i.type || '?'}${i.error ? ` (error: ${notSingleValueHint(i.error)})` : ''}${e?.ai ? ' [added by AI]' : ' [added by the user]'}${label(e)}`;
     })
     : ['The ADS watch list is empty.'];
   const shown = new Set(items.map(i => i.symbol.toLowerCase()));
@@ -247,6 +247,29 @@ export function readRow(r: ReadRow): string {
 }
 
 /** A symbol that was read once, not watched. */
+export interface ReadMember { name: string; type: string; value: string | null; error: string | null }
+export interface ReadNotes { omittedMembers: number; omittedElements: number; notExpanded: string[] }
+
+/** One structure, function block instance or array as a row with one indented line per member, and what was left out. */
+export function readStructRows(r: { symbol: string; type: string; members: ReadMember[]; notes?: ReadNotes }): string {
+  const n = r.members.length;
+  const lines = [`${r.symbol} : ${r.type} (${n} member${n === 1 ? '' : 's'})`];
+  for (const m of r.members) lines.push(m.error ? `  ${m.name} : error ${m.error}` : `  ${m.name} : ${m.type} = ${m.value}`);
+  const notes = r.notes;
+  if (notes?.omittedMembers) lines.push(`  (${notes.omittedMembers} members left out: at most 200 are read; read a part of the structure for the rest)`);
+  if (notes?.omittedElements) lines.push(`  (${notes.omittedElements} array elements left out: at most 20 per array are read)`);
+  if (notes?.notExpanded.length) lines.push(`  (not expanded: ${notes.notExpanded.join(', ')})`);
+  return lines.join('\n');
+}
+
+/** What a structure read says on a host that cannot expand it. */
+export const structNeedsNewerCli = (symbol: string): string => `${symbol} : error is not a single value; struct expansion needs a newer iecode CLI: structRead`;
+
+/** The "not a single value" item error also tells how to add the members in one go; any other text passes through. */
+export function notSingleValueHint(error: string | null | undefined): string | null | undefined {
+  return error && /is not a single value; add its members instead$/.test(error) ? `${error}, or add it with expand: true` : error;
+}
+
 export function readOnceRow(r: ReadRow): string {
   return r.error ? `${r.symbol} : error ${r.error}${r.hint ? ` ${r.hint}` : ''}` : `${r.symbol} : ${r.type || '?'} = ${r.value}`;
 }

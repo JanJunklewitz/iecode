@@ -81,7 +81,7 @@ test('the real table accepts its own protocol and refuses the next one', () => {
 
 test('protocol 2 adds batch write and drops nothing', () => {
   assert.equal(PROTOCOL, 2);
-  assert.deepEqual(PROTOCOL_TABLE[2], { ops: ['watch', 'read', 'write', 'interval', 'writeMany'], features: ['writeMany'] });
+  assert.deepEqual(PROTOCOL_TABLE[2], { ops: ['watch', 'read', 'write', 'interval', 'writeMany'], features: ['writeMany', 'structRead'] });
   assert.equal(FEATURE_LABELS.writeMany, 'batch write');
   assert.deepEqual(tableProblems(PROTOCOL_TABLE), []);
   const old = negotiate(1);

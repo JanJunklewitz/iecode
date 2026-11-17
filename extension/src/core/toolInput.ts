@@ -77,7 +77,7 @@ function bool(o: Record<string, unknown>, field: string): boolean | undefined | 
   return typeof v === 'boolean' ? v : { error: `${field} must be a boolean` };
 }
 
-export interface WatchRequest { add: string[]; remove: string[]; list?: boolean; clearAi?: boolean; force?: boolean; group?: string; enable?: boolean; removeGroup?: boolean }
+export interface WatchRequest { add: string[]; remove: string[]; list?: boolean; clearAi?: boolean; force?: boolean; group?: string; enable?: boolean; removeGroup?: boolean; expand?: boolean }
 
 /** The full list is returned for an empty call and for `list: true`. */
 export const wantsFullList = (r: WatchRequest): boolean => r.list === true || (!r.add.length && !r.remove.length && !r.clearAi && r.group === undefined);
@@ -97,7 +97,7 @@ export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
     if (bad) return fail(bad);
     flags.group = group.trim();
   }
-  for (const field of ['list', 'force', 'clearAi', 'enable', 'removeGroup'] as const) {
+  for (const field of ['list', 'force', 'clearAi', 'enable', 'removeGroup', 'expand'] as const) {
     const v = bool(o, field);
     if (isErr(v)) return fail(v.error);
     if (v !== undefined) flags[field] = v;
@@ -116,12 +116,15 @@ export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
   return { ok: true, value: { add, remove, ...flags } };
 }
 
-export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {
+export function parseReadInput(raw: unknown): Parsed<{ symbols: string[]; depth?: number }> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const symbols = stringArray(o, 'symbols');
   if (typeof symbols === 'string') return fail(symbols);
-  return { ok: true, value: { symbols } };
+  const depth = o.depth;
+  if (depth === undefined || depth === null) return { ok: true, value: { symbols } };
+  if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1 || depth > 5) return fail('depth must be a whole number from 1 to 5');
+  return { ok: true, value: { symbols, depth } };
 }
 
 export const SCOPE_MAX_ROWS = 200;
