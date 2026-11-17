@@ -2,6 +2,7 @@
 
 import { MAX_WATCHED } from './adswatch';
 import { groupNameError } from './watchGroups';
+import type { SourceChoice } from './symbolSource';
 import { MAX_PULSE_MS, MIN_PULSE_MS, WriteItem, oppositeBool } from './writeText';
 import { CAPTURE_DEFAULT_POST, CAPTURE_DEFAULT_PRE, CAPTURE_MAX_POST, CAPTURE_MAX_PRE, CaptureRequest } from './captureRun';
 import { DEFAULT_LOG_LINES, LogMarker, MAX_LOG_LINES, decodeMarker } from './logRead';
@@ -41,7 +42,7 @@ function str(o: Record<string, unknown>, field: string, max: number, required: b
 
 const isErr = (x: unknown): x is { error: string } => typeof x === 'object' && x !== null;
 
-export interface SymbolsRequest { filter: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
+export interface SymbolsRequest { filter: string; source?: SourceChoice; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 
 export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   const o = asObject(raw);
@@ -60,7 +61,11 @@ export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   if (offset !== undefined && offset !== null && (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)) return fail('offset must be a whole number of 0 or more');
   const limit = o.limit;
   if (limit !== undefined && limit !== null && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 100)) return fail('limit must be a whole number from 1 to 100');
+  const source = str(o, 'source', 16, false);
+  if (isErr(source)) return fail(source.error);
+  if (source !== undefined && !['auto', 'online', 'build', 'source'].includes(source)) return fail('source must be one of auto, online, build, source');
   const value: SymbolsRequest = { filter: filter ?? '' };
+  if (source && source !== 'auto') value.source = source as SourceChoice;
   if (prefix?.trim()) value.prefix = prefix.trim();
   if (type?.trim()) value.type = type.trim();
   if (typeof offset === 'number') value.offset = offset;

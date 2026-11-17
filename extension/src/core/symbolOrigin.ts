@@ -32,3 +32,9 @@ export function buildHeader(o: { unit: string; builtAt: Date; newer: string[] })
   }
   return lines;
 }
+
+/** The source line of a listing taken from the running PLC. */
+export const onlineHeader = (target: string): string => `Symbols from the running PLC (${target}).`;
+
+/** The source line of a listing taken from the source code: it can differ from what runs. */
+export const sourceHeader = (unit: string): string => `Symbols from the source code of ${unit} (may differ from the PLC).`;

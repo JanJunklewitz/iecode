@@ -32,6 +32,7 @@
   - [ ] Pulse of a BOOL command bit: the bit returns to its idle value; cancel the call during the hold and check the reset still runs.
   - [ ] Journal and restore after a PLC download that renamed a symbol: the restore lists the symbol as skipped and restores the rest.
   - [ ] Struct read: that the elements of an array are the sub symbols of the array symbol (`SubSymbols`), the 200 member and 20 element caps, a struct that holds a pointer.
+  - [ ] `ads_symbols` from the running PLC (`source: "online"` with a filter) on a large project: how long the upload takes and that the 500 match cap and the total are right.
   - [ ] PERSISTENT guard against a built project: a write to a `TcPersistent` variable is refused without `confirmPersistent`.
 - [ ] **ADS MCP: batch write in the same PLC cycle**: Plan C sends several values as one ADS request, which does not guarantee that the PLC sees them in the same cycle. A same-cycle write needs a PLC-side handshake (e.g. a library block that takes the values and applies them in one cycle). Deferred by user decision 2026-11-09; see [docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md](docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
 - [ ] **ADS MCP: event order across several PLC tasks**: the PLC-cycle timestamp work (Plan E7) only promises an order for symbols of one task. Comparing task timestamps across tasks is deferred by user decision 2026-11-09.

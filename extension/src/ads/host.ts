@@ -164,6 +164,12 @@ export class AdsHost implements vscode.Disposable {
     return `${s.target}:${s.port}`;
   }
 
+  /** The target and port of the current settings, as the CLI takes them (`local` is resolved by the CLI). */
+  endpoint(): { target: string; port: number } {
+    const s = settings();
+    return { target: s.target, port: s.port };
+  }
+
   /** The configured target as shown to the user (write confirmations). */
   target(): string {
     const s = settings();

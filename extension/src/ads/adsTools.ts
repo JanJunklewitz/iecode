@@ -11,7 +11,10 @@ import { CaptureDeps, runCapture } from '../core/captureRun';
 import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
 import { PAGE_SIZE, SymbolQuery, elementPrefixes, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
-import { buildHeader } from '../core/symbolOrigin';
+import { buildHeader, onlineHeader, sourceHeader } from '../core/symbolOrigin';
+import { SourceChoice, UnitState, planSources } from '../core/symbolSource';
+import { onlineFailureText } from '../core/onlineSymbols';
+import { listOnline } from './onlineSymbols';
 import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
 import type { CaptureInput } from '../core/mcpTools';
 
@@ -31,7 +34,7 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
+export interface SymbolsInput { filter?: string; source?: SourceChoice; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 export type WatchInput = WatchRequest;
 export interface ReadInput { symbols?: string[]; depth?: number }
 export type ScopeInput = Partial<ScopeArgs>;
@@ -222,9 +225,30 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const unreadable: string[] = [];
       const libraries: string[] = [];
       const headers: string[] = [];
+      let extraTotal = 0;
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
-      for (const u of units) {
+      const choice: SourceChoice = input.source === 'online' || input.source === 'build' || input.source === 'source' ? input.source : 'auto';
+      const hasFilter = !!(query.filter || query.prefix);
+      const unitStates: UnitState[] = [];
+      for (const u of units) unitStates.push({ name: u.plc.name, hasBuild: !!(await findTmc(u.plc.file)), isLibrary: u.plc.isLibrary });
+      // the host starts only when the running PLC could answer, so a plain build-output call never touches it
+      let onlineSupported = false;
+      if (choice === 'online' || (choice === 'auto' && hasFilter && unitStates.some(s => !s.hasBuild && !s.isLibrary))) {
+        try {
+          await host.ready();
+          onlineSupported = host.hostCaps()?.supports('onlineSymbols') === true;
+        } catch (e) {
+          if (choice === 'online') return failure(e);
+        }
+      }
+      const plan = planSources({ choice, units: unitStates, onlineSupported, hasFilter });
+      if (plan.error) return { text: `Error: ${plan.error}`, isError: true };
+      const fromSource: Unit[] = [];
+      for (const step of plan.perUnit) {
+        const u = units.find(x => x.plc.name === step.unit)!;
+        if (step.source === 'source') { fromSource.push(u); continue; }
+        if (step.source === 'skip') { (u.plc.isLibrary ? libraries : missing).push(u.plc.name); continue; }
         try {
           const built = await fromBuild(u.plc, true, elementPrefixes(query.prefix));
           headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
@@ -234,10 +258,32 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
+      if (plan.online) {
+        const { target, port } = host.endpoint();
+        const online = await listOnline(target, port, query.prefix || query.filter);
+        if (online.ok) {
+          headers.push(onlineHeader(host.target()));
+          for (const s of online.value.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
+          // the CLI capped its answer: the paging note must still count what it left out
+          extraTotal = Math.max(0, online.value.total - online.value.symbols.length);
+        } else {
+          headers.push(onlineFailureText(show(online.error)));
+          for (const s of unitStates) if (!s.hasBuild && !s.isLibrary) fromSource.push(units.find(x => x.plc.name === s.name)!);
+        }
+      }
+      for (const u of fromSource) {
+        try {
+          headers.push(sourceHeader(u.plc.name));
+          for (const s of (await fromSourceAt(u.plc, undefined, true)).symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
+        } catch (e) {
+          unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
+        }
+      }
+      headers.push(...plan.notes);
       // a smaller page than the default keeps a narrow look-up cheap
       const page = typeof input.limit === 'number' && Number.isInteger(input.limit) && input.limit >= 1 && input.limit <= PAGE_SIZE ? input.limit : PAGE_SIZE;
       const matches = all.slice(query.offset, query.offset + page);
-      const listing = symbolsText({ headers, matches, total: all.length, max: page, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
+      const listing = symbolsText({ headers, matches, total: all.length + extraTotal, max: page, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 

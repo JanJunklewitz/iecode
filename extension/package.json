@@ -1637,7 +1637,7 @@
         "toolReferenceName": "adsSymbols",
         "displayName": "ADS Symbols",
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
-        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol. A project without a build output is listed from the running PLC when a filter or prefix is given, else from the source code (see source); the first lines of the answer name the source.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1681,6 +1681,16 @@
               "minimum": 1,
               "maximum": 100,
               "description": "Rows per page, 1 to 100 (default 100). A small limit keeps a narrow look-up cheap; continue with offset."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "online",
+                "build",
+                "source"
+              ],
+              "description": "Where the list comes from. auto (default) uses the build output of each PLC project and falls back to the running PLC (a filter or prefix is needed, at most 500 matches) and then to the source code; the result always says which source it used."
             }
           }
         }
