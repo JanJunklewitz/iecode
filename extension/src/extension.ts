@@ -3,6 +3,8 @@ import { promises as fs } from 'fs';
 import { decode, encode, hasXmlConflict, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree, registerAutoReveal } from './views/tree';
+import { FilterTyping, filterMessage } from './core/treeFilter';
+import type { TreeFilter } from './core/treeFilter';
 import { showGraph } from './views/graph';
 import { registerUml } from './views/umlDiagram';
 import { showLibraryManager } from './views/libraryManager';
@@ -109,11 +111,43 @@ export function activate(ctx: vscode.ExtensionContext) {
   const state = new WorkspaceState();
   const libraries = registerLibrarySources(ctx, state);
   const tree = new ProjectTree(state, libraries);
-  const projectsView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
+  const treeView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
+  const showFilterMessage = () => {
+    const f = tree.filter();
+    const h = f && tree.hits();
+    treeView.message = f && h ? filterMessage(f, h.objects, h.projects) : undefined;
+  };
+  const applyTreeFilter = (f: TreeFilter | undefined) => {
+    tree.setFilter(f);
+    showFilterMessage();
+    void vscode.commands.executeCommand('setContext', 'iecode.treeFiltered', !!f);
+  };
+  const filterTree = () => {
+    const before = tree.filter();
+    const box = vscode.window.createInputBox();
+    box.title = 'Filter the project tree';
+    box.placeholder = 'Name words and kinds, e.g. motor @fb (kinds: @fb @prg @fun @itf @gvl …)';
+    box.value = before?.text ?? '';
+    const typing = new FilterTyping(
+      { set: (fn, ms) => setTimeout(fn, ms), clear: h => clearTimeout(h as ReturnType<typeof setTimeout>) },
+      applyTreeFilter, msg => { box.validationMessage = msg; });
+    let accepted = false;
+    box.onDidChangeValue(v => typing.change(v));
+    box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) { accepted = true; box.hide(); } });
+    box.onDidHide(() => {
+      typing.abandon();
+      if (!accepted && tree.filter()?.text !== before?.text) applyTreeFilter(before);
+      box.dispose();
+    });
+    box.show();
+  };
   ctx.subscriptions.push(
     state,
-    projectsView,
-    registerAutoReveal(projectsView, tree, state),
+    treeView,
+    registerAutoReveal(treeView, tree, state),
+    vscode.commands.registerCommand('iecode.filterTree', () => filterTree()),
+    vscode.commands.registerCommand('iecode.clearTreeFilter', () => applyTreeFilter(undefined)),
+    state.onDidChange(showFilterMessage),
     vscode.commands.registerCommand('iecode.refresh', () => state.reload()),
     vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
     vscode.commands.registerCommand('iecode.libraries', (n?: Node) =>

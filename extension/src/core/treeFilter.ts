@@ -52,3 +52,53 @@ export function filterMessage(f: TreeFilter, objectCount: number, projectCount: 
   if (!objectCount) return `Filter "${f.text}": nothing found.`;
   return `Filter "${f.text}": ${objectCount} object${objectCount === 1 ? '' : 's'} in ${projectCount} project${projectCount === 1 ? '' : 's'}.`;
 }
+
+/** Id suffix that makes VS Code treat a node as new (and so expand it) while a filter is active. */
+export const filterIdSuffix = (generation: number): string => `#f${generation}`;
+
+export interface FilterTimers { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
+
+/**
+ * Typing logic of the filter input box: changes apply after a pause, Enter applies at once
+ * and only closes the box for a valid text, Escape drops the pending change.
+ */
+export class FilterTyping {
+  private timer: unknown;
+  private current = '';
+  constructor(
+    private readonly timers: FilterTimers,
+    /** Called with the parsed filter (undefined = none) when a text parsed. */
+    private readonly apply: (f: TreeFilter | undefined) => void,
+    /** Called with an error text or undefined to clear the message. */
+    private readonly showError: (msg: string | undefined) => void,
+    private readonly delayMs = 200,
+  ) {}
+
+  change(text: string) {
+    this.current = text;
+    this.stop();
+    this.timer = this.timers.set(() => { this.timer = undefined; this.run(); }, this.delayMs);
+  }
+
+  /** Applies the current text at once. Returns true when the box may close. */
+  accept(): boolean {
+    this.stop();
+    return this.run();
+  }
+
+  /** Escape: drop the pending change so a late timer cannot re-apply it. */
+  abandon() { this.stop(); }
+
+  private stop() {
+    if (this.timer !== undefined) this.timers.clear(this.timer);
+    this.timer = undefined;
+  }
+
+  private run(): boolean {
+    const f = parseTreeFilter(this.current);
+    if (f && 'error' in f) { this.showError(f.error); return false; }
+    this.showError(undefined);
+    this.apply(f);
+    return true;
+  }
+}

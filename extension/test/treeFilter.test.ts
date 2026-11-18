@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KIND_WORDS, TYPE_SHORT, TreeFilter, filterMessage, objectMatches, parseTreeFilter, visibleIn } from '../src/core/treeFilter';
+import { KIND_WORDS, TYPE_SHORT, TreeFilter, FilterTyping, filterIdSuffix, filterMessage, objectMatches, parseTreeFilter, visibleIn } from '../src/core/treeFilter';
 import { ObjectType, PlcObject } from '../src/core/projects';
 
 const obj = (rel: string, type: ObjectType = 'FUNCTION_BLOCK'): PlcObject =>
@@ -46,4 +46,30 @@ test('edge cases of the parser', () => {
   assert.deepEqual((parseTreeFilter('@fb @FB') as TreeFilter).kinds, ['FUNCTION_BLOCK']);
   assert.ok('error' in (parseTreeFilter('@constructor') as { error: string }));
   assert.equal(objectMatches(parseTreeFilter('@fb') as TreeFilter, { name: 'X', type: 'OTHER' }), false);
+});
+test('ids get a generation suffix', () => assert.equal(filterIdSuffix(3), '#f3'));
+const typing = () => {
+  const pending = new Map<number, () => void>(); let next = 0;
+  const applied: (string | undefined)[] = []; const errors: (string | undefined)[] = [];
+  const t = new FilterTyping({ set: fn => { pending.set(++next, fn); return next; }, clear: h => { pending.delete(h as number); } },
+    f => applied.push(f?.text), e => errors.push(e));
+  return { t, applied, errors, fire: () => { const fns = [...pending.values()]; pending.clear(); fns.forEach(f => f()); } };
+};
+test('typing applies only the last text after the pause', () => {
+  const x = typing(); x.t.change('mo'); x.t.change('motor');
+  assert.deepEqual(x.applied, []); x.fire(); assert.deepEqual(x.applied, ['motor']);
+});
+test('accept applies at once and a late timer does nothing', () => {
+  const x = typing(); x.t.change('motor');
+  assert.equal(x.t.accept(), true); x.fire(); assert.deepEqual(x.applied, ['motor']);
+});
+test('accept on an invalid text keeps the box open and shows the error', () => {
+  const x = typing(); x.t.change('@xyz');
+  assert.equal(x.t.accept(), false); assert.deepEqual(x.applied, []); assert.match(x.errors[0]!, /Unknown kind/);
+});
+test('abandon drops the pending change', () => {
+  const x = typing(); x.t.change('motor'); x.t.abandon(); x.fire(); assert.deepEqual(x.applied, []);
+});
+test('an empty text applies no filter', () => {
+  const x = typing(); x.t.change('  '); assert.equal(x.t.accept(), true); assert.deepEqual(x.applied, [undefined]);
 });

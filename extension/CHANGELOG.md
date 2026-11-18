@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### Project tree
+- **Filter Project Tree…** (filter button of the IECode view) narrows the tree to the objects whose name contains the typed words, optionally limited to kinds such as `@fb` or `@gvl`; folders with hits open by themselves. Methods and library sources are not searched yet.
+
 ## 0.2.20
 
 ### CLI
