@@ -22,6 +22,8 @@ export class SamplingLog {
   private connected = false;
   /** A stopped was recorded and no started followed since. */
   private stoppedPending = false;
+  /** A started was recorded and no stopped followed since (since the last clear). */
+  private running = false;
 
   constructor(private readonly cap = 50) {}
 
@@ -36,14 +38,20 @@ export class SamplingLog {
     this.push(connected ? { kind: 'restored', t } : { kind: 'lost', t, error: error ?? 'connection lost' });
   }
 
-  /** reloaded and stopped are always kept; started only after a stopped (since the last clear) and it resets the connection baseline. */
+  /**
+   * reloaded is always kept; stopped only while a host runs (a failed start never said hello, so nothing was sampling)
+   * and once per run; started only after a stopped (since the last clear) and it resets the connection baseline.
+   */
   record(e: SamplingEvent): void {
     if (e.kind === 'started') {
+      this.running = true;
       if (!this.stoppedPending) return;
       this.stoppedPending = false;
       this.baseline = false;
       this.connected = false;
     } else if (e.kind === 'stopped') {
+      if (!this.running) return;
+      this.running = false;
       this.stoppedPending = true;
     }
     this.push(e);
@@ -68,6 +76,7 @@ export class SamplingLog {
     this.baseline = false;
     this.connected = false;
     this.stoppedPending = false;
+    this.running = false;
   }
 
   private push(e: SamplingEvent): void {

@@ -65,7 +65,7 @@ test('a repeated disconnect is one loss and the return is one restore', () => {
   assert.deepEqual(log.since(0).events.map(e => e.kind), ['lost', 'restored']);
 });
 test('a stop is not a loss and a new host\'s first connect is not a restore', () => {
-  const log = new SamplingLog(); log.state(true, undefined, 1);
+  const log = new SamplingLog(); log.record({ kind: 'started', t: 0 }); log.state(true, undefined, 1);
   log.record({ kind: 'stopped', t: 2, reason: 'The ADS host stopped (idle).' });   // host.ts calls setState(false) here too, but that never reaches the log
   log.record({ kind: 'started', t: 3 }); log.state(true, undefined, 4);
   assert.deepEqual(log.since(0).events, [{ kind: 'stopped', t: 2, reason: 'The ADS host stopped (idle).' }, { kind: 'started', t: 3 }]);
@@ -98,7 +98,7 @@ test('clear() drops the events but ids keep counting', () => {
   assert.deepEqual(log.since(head).events, [reloaded(3)]);
 });
 test('clear() forgets a pending stop and the connection baseline', () => {
-  const log = new SamplingLog(); log.state(true, undefined, 1);
+  const log = new SamplingLog(); log.record({ kind: 'started', t: 0 }); log.state(true, undefined, 1);
   log.record({ kind: 'stopped', t: 2, reason: 'x' }); log.clear();
   const head = log.head();
   log.record({ kind: 'started', t: 3 }); assert.equal(log.head(), head);
@@ -197,4 +197,21 @@ test('the scope warns about holes in the window up to its newest sample', () => 
   assert.equal(scopeGapWarning(ev, 5, 30_000, 500_000, clock), undefined);
   // no sample yet: the window ends now
   assert.match(scopeGapWarning(ev, 60, undefined, 100_000, clock)!, /from T90000 to T100000 \(sampling stopped\)/);
+});
+
+test('a stop without a start is not recorded and the next start is no notice', () => {
+  // a failed start (CLI missing, exit before hello) goes through exited() without a started
+  const log = new SamplingLog();
+  log.record({ kind: 'stopped', t: 1, reason: 'The ADS host exited (code 1).' });
+  assert.equal(log.head(), 0);
+  log.record({ kind: 'started', t: 2 });
+  assert.equal(log.head(), 0);
+});
+
+test('a second stop without a start in between is not recorded', () => {
+  const log = new SamplingLog();
+  log.record({ kind: 'started', t: 1 });
+  log.record({ kind: 'stopped', t: 2, reason: 'a' });
+  log.record({ kind: 'stopped', t: 3, reason: 'b' });
+  assert.deepEqual(log.since(0).events, [{ kind: 'stopped', t: 2, reason: 'a' }]);
 });
