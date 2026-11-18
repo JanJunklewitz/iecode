@@ -14,7 +14,7 @@
 
 - See the master plan. Hints use `DiagnosticSeverity.Hint` with the `Unnecessary` tag; they never appear in the Problems count of errors or warnings.
 - The marks are on by default only when the analysis has roots; the setting `iecode.analysis.markUnused` (boolean, default `true`) switches them off.
-- Plan H may later register the same finding as a rule; the data function here (`unusedHints`) is the single source for both.
+- Plan H may later register the same finding as a rule; the data function here (`unusedMarks`) is the single source for both. Hints are published on the `iecode:` view document of the file (the line numbers are view lines of the disk text). A dirty document shows **no** hints: after an insertion above a marked declaration the old positions would fade unrelated code; they come back after the save and the next analysis.
 
 ## Review Focus
 
@@ -23,6 +23,8 @@
 3. A member of an unused object is marked as part of it (one mark on the object, members not marked separately); a used object with one unused method marks only the method.
 4. The mark disappears after the referencing code is added and the file is saved (state change event), without reloading the window.
 5. A name that exists twice (workspace object and library object of the same name): the workspace object is judged, the library one is not.
+6. Contract members (implementations of interface members, overrides) and interface members are never marked (Plan D rule); a CFC-only caller keeps its callee unmarked.
+7. The tree never waits for the analysis: it asks `AnalysisState.peek`, shows no mark until the result exists, then refreshes on `onDidChange`. **Something has to start the computation:** when `iecode.analysis.markUnused` is on, the first expand of a unit (and the first opened ST view of it) calls `void analysis.request(unit.id)`, deduplicated and debounced; a test covers the automatic first computation without `iecode.showUnused`.
 
 ## File Structure
 
@@ -55,7 +57,7 @@
 **Files:** Create `extension/src/commands/unused.ts`; modify `extension/src/views/tree.ts`, `extension/src/lang/providers.ts`, `extension/src/extension.ts`, `extension/package.json`, `CHANGELOG.md`.
 
 **Interfaces:**
-- Consumes: `AnalysisState.analysisOf`, `AnalysisState.onDidChange` (Plan D Task 4); Task 1.
+- Consumes: `AnalysisState.peek` / `request` and `onDidChange` (Plan D Task 4); Task 1. `iecode.showUnused` uses `request` (with a progress notification); tree and hints use `peek`.
 - Produces: `registerUnused(ctx, analysis: AnalysisState): void`; command `iecode.showUnused` (palette and the unit node context menu).
 
 - [ ] **Step 1: Write the failing test** for the one pure addition the tree needs: `treeDescription(mark: UnusedMark | undefined, base: string): string` in `core/unusedView.ts` (`unused` appended to the existing description, unchanged when no mark); assert both.

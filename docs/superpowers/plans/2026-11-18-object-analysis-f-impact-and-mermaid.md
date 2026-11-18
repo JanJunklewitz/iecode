@@ -17,9 +17,10 @@
 
 ## Review Focus
 
-1. The PLC side of an IO link, as `HwLink.left` has it, is `PlcTask Inputs^MAIN.bStart`; the impact of `MAIN.bStart` must find that link, and a same-named variable in another program must not. Real links also name array elements and sub-paths (`...iaState[3]`, `...stData^D[0]`): the impact of the array variable must find them (use `normalizeLinkPath` of `core/ioLinkSymbols.ts`, created by Plan G Task 1 or here, whichever is built first: lower-case, `[n]` removed, `^` as `.`).
+1. The PLC side of an IO link, as `HwLink.left` has it, is `TIPC^PLC1^PLC1 Instance^PlcTask Inputs^MAIN.bStart` (the first draft wrongly showed only the part after `Instance^`; `iolinks.ts` and the `iotree` tests have the full form). The impact of `MAIN.bStart` of PLC project `PLC1` must find that link; a same-named variable in another program, **and the same variable path in another PLC project** (`TIPC^PLC2^...`), must not. Real links also name array elements and sub-paths (`...iaState[3]`, `...stData^D[0]`): the impact of the array variable must find them. Use `parsePlcLinkSide` and `normalizeLinkPath` of `core/ioLinkSymbols.ts`, created by **Plan G Task 0** (merged before this task starts, see the master plan order).
+   Impact of a variable is supported for program and GVL variables and their struct / array children (`Owner.Name`); a member variable of a function block instance is reported as "instance paths not analysed" in the notes.
 2. Impact of a method called only through an interface lists the callers of the interface method.
-3. Names with characters Mermaid cannot take as ids (dots, spaces, brackets, quotes, umlauts) export as valid text (test with a round trip through the id sanitiser: two different names never collapse to one id).
+3. Names with characters Mermaid cannot take as ids (dots, spaces, brackets, quotes, umlauts) export as valid text (test through `mermaidIds`: two different names never get one id, and no name needs sanitising because ids are generated).
 4. Impact of an unused object: "no task reaches it" and the callers list is empty or only unused objects.
 5. A project with no IO links file or a `.tsproj` that does not parse: impact still lists code callers and says IO links were not read.
 
@@ -38,12 +39,12 @@
 - Produces:
   ```ts
   export interface ImpactResult { target: NodeId; tasks: NodeId[]; directCallers: { id: NodeId; line: number }[]; transitiveCallers: number; ioLinks: IoLink[]; notes: string[] }
-  export function ioVariablePath(link: IoLink): string | undefined          // 'main.bstart' from 'PlcTask Inputs^MAIN.bStart' via normalizeLinkPath; undefined for a side that is not a PLC area ('TIPC^' safety links, IO sides)
-  export function impactOf(g: ObjectGraph, reach: Reach, roots: NodeId[], target: NodeId, links: IoLink[] | undefined, variable?: string): ImpactResult
+  export function ioVariablePath(link: IoLink, plc: string): string | undefined   // 'main.bstart' from 'TIPC^<plc>^<plc> Instance^PlcTask Inputs^MAIN.bStart' via parsePlcLinkSide + normalizeLinkPath; undefined for another PLC project, a TIPC side that is not a PLC area (safety) and IO sides
+  export function impactOf(g: ObjectGraph, reach: Reach, roots: NodeId[], target: NodeId, links: IoLink[] | undefined, plc: string, variable?: string): ImpactResult
   ```
-  `variable` is an optional member variable path (`MAIN.bStart`) for impact of a variable rather than an object; IO links match when `ioVariablePath(link)` equals the variable path case-insensitively, or starts with it plus `.` (struct member). With `links` undefined the note says IO links were not read.
+  `plc` is the PLC project name of the analysed unit (the `PLC1` in the link path). `variable` is an optional member variable path (`MAIN.bStart`) for impact of a variable rather than an object; IO links match when `ioVariablePath(link, plc)` equals the variable path case-insensitively, or starts with it plus `.` (struct member or array element). With `links` undefined the note says IO links were not read.
 
-- [ ] **Step 1: Write the failing tests:** `ioVariablePath cuts the area path and keeps the symbol path` (inputs, outputs, an unrelated path gives undefined); `impact of an object lists tasks, direct callers and the count of transitive callers`; `impact of a variable finds its IO links and not a same-named variable of another program`; `a struct member link matches its struct variable`; `impact of a method called through an interface lists the interface callers`; `undefined links add a note`.
+- [ ] **Step 1: Write the failing tests:** `ioVariablePath cuts the area path and keeps the symbol path` (inputs, outputs, an unrelated path and another PLC project give undefined); `the same variable path in another PLC project is not a match`; `impact of an object lists tasks, direct callers and the count of transitive callers`; `impact of a variable finds its IO links and not a same-named variable of another program`; `a struct member link matches its struct variable`; `impact of a method called through an interface lists the interface callers`; `undefined links add a note`.
 - [ ] **Step 2: Run** `npm test`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Callers through an interface come from the implicit edges Plan D already added to `in`.
 - [ ] **Step 4: Run tests.** Expected: PASS.
@@ -54,7 +55,7 @@
 **Files:** Create `extension/src/commands/impact.ts`; modify `extension/src/extension.ts`, `extension/package.json`, `CHANGELOG.md`.
 
 **Interfaces:**
-- Consumes: `impactOf` (Task 1); `AnalysisState.analysisOf`; `readProject` (`core/iotree.ts`) through the workspace's system project (`systemProjects` in `core/workspace.ts`), `toIoLink`; the symbol under the cursor via `SymbolIndex.resolve`.
+- Consumes: `impactOf` (Task 1); `AnalysisState.request` (Plan D; the PLC name for `impactOf` is `unit.plc.name`); `readProject` (`core/iotree.ts`) through the system project that **contains** the analysed PLC: `systemProjectOf(model, unit)` (Plan G Task 0; it takes the `TwinCatProject` of `unit.solution.projects` whose `plcs` contains `unit.plc`, the way `iecode.ioLinks` in `extension.ts` does). `systemProjects()` of `core/workspace.ts` is **not** usable: it returns only TwinCAT projects with zero PLC projects, so the normal solution (PLC and IO in one `.tsproj`) would give "IO links not read". Separate system-only projects are added only when their links name this PLC. The PLC name in the link path (`TIPC^<plc>^...`) is the PLC item name in the `.tsproj`; `systemProjectOf` also returns it, and `impactOf` receives that, not necessarily `unit.plc.name` (test with a renamed PLC item). `toIoLink`; the symbol under the cursor via `SymbolIndex.resolve`.
 - Produces: `registerImpact(ctx, analysis, state): void`; command `iecode.showImpact` (tree node `object` / `member`, ST editor context menu).
 
 - [ ] **Step 1: Write the failing test** for the pure row builder `impactRows(r: ImpactResult): { label: string; detail?: string; kind: 'task' | 'caller' | 'io' | 'note'; target?: { file: string; line: number } }[]` in `core/impact.ts` (separator-free list: tasks first, then callers, then IO links with `io` side as label and the variable as detail, then notes).
@@ -68,15 +69,15 @@
 **Files:** Create `extension/src/core/graphExport.ts`, `extension/src/commands/graphExport.ts`, `extension/test/graphExport.test.ts`; modify `extension/src/extension.ts`, `extension/package.json`, `CHANGELOG.md`.
 
 **Interfaces:**
-- Consumes: `ObjectGraph`, `UnusedFinding[]` (Plan D, optional), `toMermaid` of `core/workspace.ts` for the project graph.
+- Consumes: `ObjectGraph`, `UnusedFinding[]` (Plan D, optional), `toMermaid` of `core/workspace.ts` for the project graph (import it with an alias, e.g. `toProjectMermaid`: `lang/uml.ts` exports a different `toMermaid` for class diagrams and `views/umlDiagram.ts` imports that one).
 - Produces:
   ```ts
-  export function mermaidId(name: string): string                       // injective: sanitised text plus a short hash of the original when sanitising changed it
+  export function mermaidIds(names: string[]): Map<string, string>       // deterministic and injective: ids are `n1`, `n2` ... by sorted order of the distinct names; the readable name is only the label. A sanitise-plus-short-hash scheme is not injective (hashes collide, a generated id can equal a real name)
   export function objectGraphMermaid(g: ObjectGraph, opts: { unused?: UnusedFinding[]; only?: NodeId[]; members?: boolean }): string
   ```
   Output `flowchart LR`; a node is `id["Label"]` (quotes in labels escaped as `#quot;`), edges `a --> b`; unused nodes get `classDef unused stroke-dasharray: 4 3` and `class id unused`; `only` restricts to those nodes plus their direct neighbours; `members: false` (default) folds member nodes into their object. Commands: `iecode.exportGraphMermaid` asks "Project graph" or "Object graph", for the object graph asks the scope (one task or whole project when at most 300 nodes) and then "Copy" or "Save as .mmd".
 
-- [ ] **Step 1: Write the failing tests:** `mermaidId is injective for names that differ only in characters it replaces`; `labels with quotes, brackets and umlauts are escaped`; `unused nodes get the unused class`; `members are folded into their object by default`; `only restricts to the nodes and their neighbours`; `the project graph export is the existing toMermaid output unchanged` (call both).
+- [ ] **Step 1: Write the failing tests:** `mermaidIds gives distinct ids for names that differ only in punctuation, and a name that looks like a generated id (n1) does not collide`; `the project graph export goes through the same allocator` (`toMermaid` of `core/workspace.ts` is refactored to use `mermaidIds` and labels escaped; its existing output was never used by a command, so its expected text in the existing test is updated in the same commit); `labels with quotes, brackets and umlauts are escaped`; `unused nodes get the unused class`; `members are folded into their object by default`; `only restricts to the nodes and their neighbours`; 
 - [ ] **Step 2: Run tests.** Expected: FAIL.
 - [ ] **Step 3: Implement** the two functions and the command (copy and save as in `views/umlDiagram.ts`).
 - [ ] **Step 4: Run** `npm test`, `npm run compile`. Manual check: paste the output into a Mermaid renderer and confirm it draws.
