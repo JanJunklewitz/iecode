@@ -60,17 +60,21 @@ export async function show(root: string, ref: string, file: string): Promise<str
   try { return await git(root, ['show', `${checkRef(ref)}:${rel(root, file)}`]); } catch { return undefined; }
 }
 
-/** Contents of many files at a commit with one git call; files missing at that commit are left out. */
-export async function showMany(root: string, ref: string, files: string[]): Promise<Map<string, string>> {
+/**
+ * Contents of many blobs with one `git cat-file --batch`. `file` is a repo-relative path used as given, `ref` may be `<sha>^`.
+ * The key is `${ref}:${file}`; missing blobs are left out.
+ */
+export async function blobsAt(root: string, items: { ref: string; file: string }[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (!files.length) return out;
+  if (!items.length) return out;
+  const keys = items.map(i => `${checkRef(i.ref)}:${i.file}`);
   const data = await new Promise<Buffer>((resolve, reject) => {
     const p = execFile('git', ['cat-file', '--batch'], { cwd: root, maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer' },
       (err, stdout, stderr) => (err ? reject(new Error(stderr.toString().trim() || err.message)) : resolve(stdout)));
-    p.stdin!.end(files.map(f => `${ref}:${rel(root, f)}\n`).join(''));
+    p.stdin!.end(keys.map(k => k + '\n').join(''));
   });
   let pos = 0;
-  for (const f of files) {
+  for (const k of keys) {
     const nl = data.indexOf(10, pos);
     if (nl < 0) break;
     const header = data.subarray(pos, nl).toString('utf8');
@@ -78,8 +82,19 @@ export async function showMany(root: string, ref: string, files: string[]): Prom
     const m = / blob (\d+)$/.exec(header);
     if (!m) continue;                           // "<object> missing" (or not a file)
     const size = Number(m[1]);
-    out.set(f, data.subarray(pos, pos + size).toString('utf8'));
+    out.set(k, data.subarray(pos, pos + size).toString('utf8'));
     pos += size + 1;
+  }
+  return out;
+}
+
+/** Contents of many files at a commit with one git call; files missing at that commit are left out. */
+export async function showMany(root: string, ref: string, files: string[]): Promise<Map<string, string>> {
+  const blobs = await blobsAt(root, files.map(f => ({ ref, file: rel(root, f) })));
+  const out = new Map<string, string>();
+  for (const f of files) {
+    const t = blobs.get(`${ref}:${rel(root, f)}`);
+    if (t !== undefined) out.set(f, t);
   }
   return out;
 }
@@ -202,4 +217,29 @@ export async function lineHistory(root: string, commit: string, origPath: string
   }
   flush();
   return entries;
+}
+
+export interface HistoryCommit { commit: Commit; path: string; parentPath?: string; parents: number }
+
+/**
+ * Commits that touched a file, following renames, newest first. `path` is the repo-relative path of the file in that
+ * commit, `parentPath` its path in the first parent (differs only for a rename). A merge prints no name line and reuses the known path.
+ */
+export async function historyCommits(root: string, file: string, max: number): Promise<HistoryCommit[]> {
+  const sep = '\u001f';
+  const out = await git(root, ['log', '--follow', '-z', '--name-status', '--date=short', `-n${max}`,
+    `--format=%x01%H${sep}%h${sep}%ad${sep}%an${sep}%s${sep}%P`, '--', rel(root, file)]);
+  const res: HistoryCommit[] = [];
+  let cur = rel(root, file);
+  for (const chunk of out.split('\u0001').slice(1)) {
+    const z = chunk.indexOf('\0');
+    const [hash, short, date, author, subject, parents] = chunk.slice(0, z).split(sep);
+    const t = chunk.slice(z + 1).replace(/^\n/, '').split('\0');
+    let path = cur, parentPath: string | undefined;
+    if (t[0] && /^[RC]/.test(t[0]) && t[2]) { parentPath = t[1]; path = t[2]; }
+    else if (t[0] && t[1]) path = t[1];
+    res.push({ commit: { hash, short, date, author, subject }, path, parentPath, parents: parents ? parents.split(' ').length : 0 });
+    cur = parentPath ?? path;
+  }
+  return res;
 }
