@@ -23,6 +23,13 @@ export function baseTypeName(type: string | undefined): string | undefined {
   return t.replace(/\(.*\)$/, '').trim() || undefined;
 }
 
+/** Parses a view into an indexable object without putting it into an index. */
+export function indexObject(file: string, view: string, library?: string): IndexedObject {
+  const name = file.split(/[\\/]/).pop()!.replace(/\.\w+$/, '');
+  const parsed = parseObject(view, name);
+  return { file, view, parsed, root: parsed.root, library };
+}
+
 export class SymbolIndex {
   private readonly byFile = new Map<string, IndexedObject>();
   private readonly byName = new Map<string, IndexedObject>();
@@ -31,10 +38,13 @@ export class SymbolIndex {
 
   /** Adds or replaces an object from its view text. Workspace objects win over library objects of the same name. */
   update(file: string, view: string, library?: string): IndexedObject {
+    return this.add(indexObject(file, view, library));
+  }
+
+  /** Adds an already parsed object (shared between indexes, so a library view is parsed once). */
+  add(obj: IndexedObject): IndexedObject {
+    const { file, library } = obj;
     this.remove(file);
-    const name = file.split(/[\\/]/).pop()!.replace(/\.\w+$/, '');
-    const parsed = parseObject(view, name);
-    const obj: IndexedObject = { file, view, parsed, root: parsed.root, library };
     this.byFile.set(file, obj);
     if (obj.root) {
       const prev = this.byName.get(U(obj.root.name));

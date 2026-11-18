@@ -8,7 +8,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { WorkspaceState } from '../state';
 import { LibraryId } from '../core/projects';
-import { librariesByTitle } from '../core/workspace';
+import { Unit, librariesByTitle } from '../core/workspace';
 import { findLibrarySource } from '../core/libraries';
 import { LibraryObject, readLibraryArchive } from '../core/libraryArchive';
 import { availableLibraries } from '../views/libraryManager';
@@ -26,6 +26,8 @@ export interface LibrarySource {
   /** Referenced by a workspace project (not only through another library). */
   direct: boolean;
   objects: { key: string; obj: LibraryObject }[];
+  /** Libraries this library references. */
+  deps?: LibraryId[];
 }
 
 /** At most this many libraries are read (direct references and what they reference, breadth first). */
@@ -52,6 +54,20 @@ export class LibrarySources implements vscode.FileSystemProvider, vscode.Disposa
   /** Library of a referenced name (lower-case match), once loaded. */
   get(name: string) { return this.libs.get(name.toLowerCase()); }
   all() { return [...this.libs.values()]; }
+
+  /** The libraries a unit uses: its references and, transitively, what they reference (compiled sources only). */
+  librariesOf(unit: Unit): LibrarySource[] {
+    const out = new Map<string, LibrarySource>();
+    const queue = unit.plc.references.map(r => r.effective.name.toLowerCase());
+    while (queue.length) {
+      const k = queue.shift()!;
+      const lib = this.libs.get(k);
+      if (!lib || out.has(k)) continue;
+      out.set(k, lib);
+      queue.push(...(lib.deps ?? []).map(d => d.name.toLowerCase()));
+    }
+    return [...out.values()];
+  }
 
   /** Namespaces of the libraries referenced in the workspace (placeholder / namespace name → library name). */
   namespaces(): Map<string, string> {
@@ -93,6 +109,7 @@ export class LibrarySources implements vscode.FileSystemProvider, vscode.Disposa
         const { objects, deps } = await this.read(src.file);
         // canonical file system path (as Uri.fsPath gives it back), so document URIs map to the same key
         src.objects = objects.map(obj => ({ key: vscode.Uri.file(path.join(src.file!, ...obj.folder.split('/').filter(Boolean), obj.name + obj.ext)).fsPath, obj }));
+        src.deps = deps;
         queue.push(...deps.map(d => ({ id: d, direct: false })));
       } catch (e) {
         src.error = (e as Error).message;
