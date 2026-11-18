@@ -15,7 +15,9 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly List<Diagnostic> _diagnostics = [];
     private readonly List<string> _messages = [];
-    private bool _color = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null;
+    // ConsoleVt last: it switches the Windows console into ANSI mode, and only matters when colors are wanted.
+    // Without that mode (old conhost), colors and the overwriting status line are dropped instead of printed raw.
+    private bool _color = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && ConsoleVt.IsAvailable;
 
     // IECODE_PROGRESS=1: in JSON mode also echo progress lines to stderr (used by the VS Code extension).
     private readonly bool _progress = Environment.GetEnvironmentVariable("IECODE_PROGRESS") == "1";
