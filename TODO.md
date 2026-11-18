@@ -64,6 +64,7 @@
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#c-read-only-diagnostics-for-ai). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (`tc_state`, `tc_event_list`, `tc_runtime_error_list`, `tc_log_read`, `tc_diagnose_*`, `nc_read_axis`, `io_read_group`).
   - Open: the logger source is the same question as in the log file viewer item; decide it once for both.
 - [ ] **XML structure checks and OOP rules**: validate `.TcPOU` / `.TcDUT` / `.TcGVL` / `.TcIO` after edits by hand or by AI (GUID format and uniqueness, LineIds, method wrappers, naming prefixes) and check IEC 61131-3 OOP rules (override signature, `FB_init` super call, interface contract, abstract instantiation).
+  - Plan: [H](docs/superpowers/plans/2026-11-18-object-analysis-h-structure-checks.md) (master plan: [docs/superpowers/plans/2026-11-18-object-analysis-master-plan.md](docs/superpowers/plans/2026-11-18-object-analysis-master-plan.md)).
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#g-xml-structure-checks-and-oop-rules). Prior art: [agenticcontrolio/twincat-validator-mcp](https://github.com/agenticcontrolio/twincat-validator-mcp) (structure checks, 21 OOP checks, auto-fix, health score).
   - Idea: `iecode check` rules plus Problems-panel diagnostics on save; auto-fix only for the safe structural cases.
 - [ ] **Metadata-only changes in the SCM view**: mark files whose only change is XAE metadata (new `TmcHash`, new `ProductVersion`, build timestamps) so they do not look like real changes, and offer "discard" for them.
@@ -73,12 +74,14 @@
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). Prior art: Beckhoff TcProjectCompare ([manual](https://download.beckhoff.com/download/document/automation/twincat3/TC3_Project_Compare_Tool_EN.pdf), section 5.3.1: formal changes marked with a bar, "Hide equal items + formal changes").
   - Idea: map the existing categories and noise filters to logical / formal as a top-level switch; apply to the config diff and the IO links diff.
 - [ ] **IO link consistency checks**: find dead links (link to a symbol that no longer exists), type mismatches between linked variables, unlinked variables, and inputs linked twice.
+  - Plan: [G](docs/superpowers/plans/2026-11-18-object-analysis-g-io-link-checks.md).
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). No other tool found that does this.
   - Idea: new rules in `iecode check` and warnings in the IO links view; the IO links parser and the PLC symbol list already exist.
 - [ ] **Semantic EtherCAT topology diff**: compare the device tree of two versions (devices, slots / modules, PDO mapping, DC settings) by identity instead of as raw XML.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#6-io-and-config-views-what-others-do). Related: the `.xti` survey in [docs/research/xti-diff](docs/research/xti-diff/README.md) shows which parts of the config matter. TcProjectCompare only offers a generic XML comparison here.
   - Open: which `.xti` / `.tsproj` parts hold the topology, how large the files get, how to match renamed devices.
 - [ ] **Per-object history and staging**: history of one object (POU, method, property, ...) following renames and moves, and staging / discarding a single method instead of the whole file.
+  - Plans: [A spans and blame](docs/superpowers/plans/2026-11-18-object-analysis-a-object-spans-and-blame.md), [B history](docs/superpowers/plans/2026-11-18-object-analysis-b-object-history.md), [C staging](docs/superpowers/plans/2026-11-18-object-analysis-c-object-staging.md).
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#7-more-ideas-ranked-by-interest-for-iecode). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (views "TwinCAT Changes", "TwinCAT Commits", "TwinCAT History").
   - Idea: history first (read-only, lower risk); staging needs a partial write into the git index and is the harder part.
 - [ ] **ADS Scope export and summary**: export recordings as CSV, save and reload them, and give AI a readable summary (min / max, edges, time between edges).
@@ -98,13 +101,16 @@
 - [ ] **Project view: search and filter in the tree**: filter the tree by name and kind.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (Go to Object, Find in Folder / Project).
 - [ ] **Mark unused objects**: flag objects that no task can reach (not called from any program, not referenced).
+  - Plans: [D object graph](docs/superpowers/plans/2026-11-18-object-analysis-d-object-graph.md), [E unused objects](docs/superpowers/plans/2026-11-18-object-analysis-e-unused-objects.md).
   - Research: same section as above. Builds on the dependency graph.
   - Open: how to treat objects only used through interfaces, FB_init or libraries.
 - [ ] **Dependency graph as Mermaid export**: export the graph of `iecode.showGraph` as Mermaid text for docs and pull requests.
+  - Plan: [F impact and Mermaid](docs/superpowers/plans/2026-11-18-object-analysis-f-impact-and-mermaid.md) (the project graph already has `toMermaid` in `core/workspace.ts`; no command calls it yet).
   - Research: same section as above.
 - [ ] **Libraries: outdated versions and version diff**: show which libraries have newer versions available and compare two versions as ST.
   - Research: same section as above. Builds on `iecode.libraries` and the ST compare.
 - [ ] **git blame per method**: blame for a method, property or action of the ST view instead of XML lines.
+  - Plan: [A](docs/superpowers/plans/2026-11-18-object-analysis-a-object-spans-and-blame.md).
   - Research: same section as above. Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (optional line blame, known to misattribute the first and last line of a section).
 - [ ] **ST formatter on the TcTidier engine**: "Format Document" for the ST view; the result is written back into the XML like any edit. Config: `.tctidier.json` (indent, alignment of declarations / assignments / named parameters, blank lines between CASE branches, one-line IF, print width).
   - Research and decisions: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#f-formatter-for-st). Engine: [CodePiercerTechnology/TcTidier](https://github.com/CodePiercerTechnology/TcTidier) (MIT, TypeScript, `src/native/` has no `vscode` dependency).
