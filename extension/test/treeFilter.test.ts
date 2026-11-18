@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KIND_WORDS, TYPE_SHORT, TreeFilter, FilterTyping, filterIdSuffix, filterMessage, objectMatches, parseTreeFilter, visibleIn } from '../src/core/treeFilter';
+import { KIND_WORDS, TYPE_SHORT, TreeFilter, FilterTyping, filterIdSuffix, sameFilter, filterMessage, objectMatches, parseTreeFilter, visibleIn } from '../src/core/treeFilter';
 import { ObjectType, PlcObject } from '../src/core/projects';
 
 const obj = (rel: string, type: ObjectType = 'FUNCTION_BLOCK'): PlcObject =>
@@ -72,4 +72,11 @@ test('abandon drops the pending change', () => {
 });
 test('an empty text applies no filter', () => {
   const x = typing(); x.t.change('  '); assert.equal(x.t.accept(), true); assert.deepEqual(x.applied, [undefined]);
+});
+test('sameFilter ignores surrounding whitespace and treats none as equal to none', () => {
+  const p = (s: string) => parseTreeFilter(s) as TreeFilter | undefined;
+  assert.equal(sameFilter(p('motor'), p('motor ')), true);
+  assert.equal(sameFilter(undefined, p(' ')), true);
+  assert.equal(sameFilter(p('motor'), p('motor @fb')), false);
+  assert.equal(sameFilter(undefined, p('motor')), false);
 });

@@ -102,3 +102,6 @@ export class FilterTyping {
     return true;
   }
 }
+
+/** True when applying b over a would not change what is shown (same trimmed text). */
+export const sameFilter = (a: TreeFilter | undefined, b: TreeFilter | undefined): boolean => a?.text === b?.text;

@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import { decode, encode, hasXmlConflict, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree, registerAutoReveal } from './views/tree';
-import { FilterTyping, filterMessage } from './core/treeFilter';
+import { FilterTyping, filterMessage, sameFilter } from './core/treeFilter';
 import type { TreeFilter } from './core/treeFilter';
 import { showGraph } from './views/graph';
 import { registerUml } from './views/umlDiagram';
@@ -118,6 +118,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     treeView.message = f && h ? filterMessage(f, h.objects, h.projects) : undefined;
   };
   const applyTreeFilter = (f: TreeFilter | undefined) => {
+    if (sameFilter(tree.filter(), f)) return; // a new generation would re-expand what the user collapsed
     tree.setFilter(f);
     showFilterMessage();
     void vscode.commands.executeCommand('setContext', 'iecode.treeFiltered', !!f);
@@ -136,9 +137,10 @@ export function activate(ctx: vscode.ExtensionContext) {
     box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) { accepted = true; box.hide(); } });
     box.onDidHide(() => {
       typing.abandon();
-      if (!accepted && tree.filter()?.text !== before?.text) applyTreeFilter(before);
+      if (!accepted) applyTreeFilter(before);
       box.dispose();
     });
+    box.ignoreFocusOut = true; // clicking a hit in the tree must not close the box (a close without Enter restores the old filter)
     box.show();
   };
   ctx.subscriptions.push(
