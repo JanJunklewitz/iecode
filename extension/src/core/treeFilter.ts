@@ -22,7 +22,8 @@ export function parseTreeFilter(text: string): TreeFilter | undefined | { error:
   const kinds: ObjectType[] = [];
   for (const tok of tokens) {
     if (!tok.startsWith('@')) { words.push(tok.toLowerCase()); continue; }
-    const kind = Object.prototype.hasOwnProperty.call(KIND_WORDS, tok.slice(1).toLowerCase()) ? KIND_WORDS[tok.slice(1).toLowerCase()] : undefined;
+    const word = tok.slice(1).toLowerCase();
+    const kind = Object.prototype.hasOwnProperty.call(KIND_WORDS, word) ? KIND_WORDS[word] : undefined;
     if (!kind) return { error: `Unknown kind "${tok}". Kinds: ${Object.keys(KIND_WORDS).map(k => '@' + k).join(' ')}` };
     if (!kinds.includes(kind)) kinds.push(kind);
   }

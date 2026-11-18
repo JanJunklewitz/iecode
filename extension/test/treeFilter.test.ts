@@ -41,3 +41,9 @@ test('filterMessage counts objects and projects', () => {
   assert.equal(filterMessage(f, 1, 1), 'Filter "@fb motor": 1 object in 1 project.');
   assert.equal(filterMessage(f, 0, 0), 'Filter "@fb motor": nothing found.');
 });
+test('edge cases of the parser', () => {
+  assert.ok('error' in (parseTreeFilter('@') as { error: string }));
+  assert.deepEqual((parseTreeFilter('@fb @FB') as TreeFilter).kinds, ['FUNCTION_BLOCK']);
+  assert.ok('error' in (parseTreeFilter('@constructor') as { error: string }));
+  assert.equal(objectMatches(parseTreeFilter('@fb') as TreeFilter, { name: 'X', type: 'OTHER' }), false);
+});
