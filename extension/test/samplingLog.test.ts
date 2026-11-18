@@ -151,3 +151,31 @@ test('gapWarning names a stop and several holes', () => {
   assert.equal(gapWarning([{ from: 10, to: 20, why: 'lost' }, { from: 50, to: 100, why: 'stopped' }], clock),
     'Warning: no samples from T10 to T20 (connection lost), from T50 to T100 (sampling stopped); the values do not show what happened in between.');
 });
+test('gapsIn closes a lost gap at the stop and does not let it swallow a later loss', () => {
+  const ev: SamplingEvent[] = [{ kind: 'lost', t: 10, error: 'x' }, { kind: 'stopped', t: 20, reason: 'idle' }, { kind: 'started', t: 30 },
+    { kind: 'lost', t: 50, error: 'y' }, { kind: 'restored', t: 60 }];
+  assert.deepEqual(gapsIn(ev, 0, 100), [{ from: 10, to: 20, why: 'lost' }, { from: 20, to: 30, why: 'stopped' }, { from: 50, to: 60, why: 'lost' }]);
+  assert.deepEqual(gapsIn(ev.slice(0, 3), 0, 100), [{ from: 10, to: 20, why: 'lost' }, { from: 20, to: 30, why: 'stopped' }]);
+});
+test('gapsIn makes no zero-length gap at the window edge but keeps an open gap running to the end', () => {
+  assert.deepEqual(gapsIn([{ kind: 'lost', t: 0, error: 'x' }, { kind: 'restored', t: 10 }], 10, 100), []);
+  assert.deepEqual(gapsIn([{ kind: 'stopped', t: 100, reason: 'idle' }], 0, 100), []);
+  assert.deepEqual(gapsIn([{ kind: 'lost', t: 0, error: 'x' }], 10, 100), [{ from: 10, to: 100, why: 'lost' }]);
+});
+test('a lost and restored pair and a stopped and started pair each count as one notice toward the cap', () => {
+  const ev: SamplingEvent[] = [{ kind: 'lost', t: 1, error: 'x' }, { kind: 'restored', t: 2 }, { kind: 'stopped', t: 3, reason: 'r' }, { kind: 'started', t: 4 },
+    reloaded(5), reloaded(6)];
+  const lines = noticeText(ev, false, clock, names)!.split('\n');
+  assert.equal(lines.length, 4);
+  assert.equal(lines[0], '(1 earlier notice not shown)');
+  assert.match(lines[1], /stopped from T3 to T4/);
+  const three = noticeText(ev.slice(0, 5), false, clock, names)!.split('\n');
+  assert.equal(three.length, 3);
+  assert.match(three[0], /lost at T1 and restored at T2/);
+});
+test('lost, reloaded, restored coalesces the pair and keeps the reload as its own line after it', () => {
+  const lines = noticeText([{ kind: 'lost', t: 1, error: 'x' }, reloaded(2), { kind: 'restored', t: 3 }], false, clock, names)!.split('\n');
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /lost at T1 and restored at T3/);
+  assert.match(lines[1], /reloaded at T2 /);
+});

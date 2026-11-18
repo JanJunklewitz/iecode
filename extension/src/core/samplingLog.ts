@@ -15,7 +15,7 @@ export interface Logged { id: number; e: SamplingEvent }
 export class SamplingLog {
   private items: Logged[] = [];
   private lastId = 0;
-  /** Highest id the cap evicted; a cursor below it missed events. clear() does not raise it. */
+  /** Highest id the cap evicted; a cursor below it missed events. clear() keeps it on purpose: a reader behind the cap gets "(earlier notices dropped)" also after a clear(). */
   private evicted = 0;
   /** A connected:true of the current host process was seen, so a later change is a real loss or restore. */
   private baseline = false;
@@ -154,7 +154,7 @@ export class NoticeReader {
 export function gapsIn(events: SamplingEvent[], fromMs: number, toMs: number): { from: number; to: number; why: 'lost' | 'stopped' }[] {
   const out: { from: number; to: number; why: 'lost' | 'stopped' }[] = [];
   const add = (start: number, end: number, why: 'lost' | 'stopped') => {
-    if (end < fromMs || start > toMs) return;
+    if (end <= fromMs || start >= toMs) return;
     out.push({ from: Math.max(start, fromMs), to: Math.min(end, toMs), why });
   };
   let lost: number | undefined;
@@ -162,7 +162,10 @@ export function gapsIn(events: SamplingEvent[], fromMs: number, toMs: number): {
   for (const e of events) {
     if (e.kind === 'lost' && lost === undefined) lost = e.t;
     else if (e.kind === 'restored' && lost !== undefined) { add(lost, e.t, 'lost'); lost = undefined; }
-    else if (e.kind === 'stopped' && stopped === undefined) stopped = e.t;
+    else if (e.kind === 'stopped' && stopped === undefined) {
+      if (lost !== undefined) { add(lost, e.t, 'lost'); lost = undefined; }
+      stopped = e.t;
+    }
     else if (e.kind === 'started' && stopped !== undefined) { add(stopped, e.t, 'stopped'); stopped = undefined; }
   }
   if (lost !== undefined) add(lost, toMs, 'lost');
