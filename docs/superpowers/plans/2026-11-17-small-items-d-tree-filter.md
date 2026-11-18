@@ -19,11 +19,17 @@
 
 ## Decisions (taken by the planner, 2026-11-17)
 
-1. **Syntax:** words separated by spaces. A word starting with `@` is a kind (`@fb`, `@prg`, `@fun`, `@itf`, `@struct`, `@enum`, `@union`, `@alias`, `@gvl`, `@task`, `@texts`, `@images`; the short names the tree already shows, `TYPE_SHORT` in `tree.ts:30`); several kinds are OR. Every other word must be contained in the object name, case-insensitive (AND). An unknown `@word` is an input error that lists the kinds.
+1. **Syntax:** words separated by spaces. A word starting with `@` is a kind (`@fb`, `@prg`, `@fun`, `@itf`, `@struct`, `@enum`, `@union`, `@alias`, `@gvl`, `@task`, `@texts`, `@images`; the short names the tree already shows, `TYPE_SHORT`, today in `tree.ts:36`, moved by Decision 6); several kinds are OR. Every other word must be contained in the object name, case-insensitive (AND). An unknown `@word` is an input error that lists the kinds.
 2. **What is searched:** the names of the objects of the workspace PLC projects. Not searched: methods, properties and actions (would read every object file; a later item), library sources under References, system projects. While a filter is active the References nodes and the System Projects group are hidden.
 3. **Live input:** `vscode.window.createInputBox` applies the filter 200 ms after the last key; Enter keeps it, Escape restores the filter from before the box opened. The filter lives for the session (not saved).
 4. **Visible structure:** a project or group without a hit is hidden; folders that contain a hit are shown expanded; objects keep their normal children (members are not filtered). Expansion works through ids: while filtering, folder and unit ids get the suffix `#f<generation>`, so VS Code treats them as new nodes and uses `Expanded`.
 5. **Feedback:** `TreeView.message` shows `Filter "<text>": <n> objects in <m> projects.` or `Filter "<text>": nothing found.`; the title shows **Clear Filter** while a filter is active (context key `iecode.treeFiltered`).
+6. **One table of kind short names** (eng review 2026-11-18, R5). `TYPE_SHORT` moves from `tree.ts` to `core/treeFilter.ts` (exported) and `tree.ts` imports it; `KIND_WORDS` is derived from it (lower case, one-word entries only, so `VISUMANAGER` 'visu settings' and `OTHER` get no kind word). Two hand-kept lists would drift when a type is added. This replaces the original "move nothing out of `tree.ts`".
+7. **Input box timing** (R6): Enter applies the current text at once (the pending 200 ms timer is cleared first); Enter on an invalid text keeps the box open with its validation message. Escape clears the pending timer before it restores the earlier filter, so a late timer cannot re-apply the abandoned text.
+8. **Visibility cache** (R7): `visibleIn` results are cached in a `WeakMap` keyed by the `Unit` object and cleared on `setFilter` and on `state.onDidChange`; a cache keyed by unit id and generation would keep the hits of the old model after a reload.
+9. **Own pull request from `origin/main`** (R8): the stack under this branch (protocol 2 work, 15 commits) touches neither `tree.ts` nor `extension.ts`, so Plan D is built on a branch from `origin/main` (`feature/tree-filter`) and ships on its own; only `package.json` and `CHANGELOG.md` may need a trivial merge later.
+10. **Group nodes are filtered and expanded too** (R25, outside voice). Group nodes (`Applications`, `Libraries`, `Standalone PLC`) have no id today (`tree.ts` `case 'group'`), so a group the user collapsed stays collapsed and hides every hit, and `case 'group'` returns all units of the group. While filtering, `getChildren` of a group returns only units with hits, and group items get the id `group:<group>#f<generation>` and `Expanded`; without a filter they keep no id, as today. Whether VS Code brings back the user's own collapsed state after the filter is cleared is checked by hand (Task 2, step 5), not assumed.
+11. **Kind list order** (R26): the error text lists the kind words in the order of `TYPE_SHORT` (`@fb @prg @fun @itf @enum @struct @union @alias @gvl @task @texts @images`), since `KIND_WORDS` is derived from it.
 
 ## Review Focus
 
@@ -31,7 +37,10 @@
 2. Only kind words (`@gvl`): every GVL, no name restriction. (Task 1, `kind words alone list every object of the kinds`)
 3. An object in a nested folder: every folder on its path is visible, sibling folders without hits are not. (Task 1, `folders on the path to a hit are visible, others are not`)
 4. Whitespace only or empty input: same as no filter. (Task 1, `an empty filter is no filter`)
-5. A filter active while the workspace reloads (file added): the tree re-applies the filter to the new model. (Task 2, manual check)
+5. A filter active while the workspace reloads (file added): the tree re-applies the filter to the new model. (Task 2, manual check; the cache rule of Decision 8)
+6. Every kind word maps to a type whose short name it is, and every one-word short name has a kind word. (Task 1, `kind words are derived from the short names`)
+7. Typing `motor` and pressing Enter within 200 ms filters by `motor`, not by `moto`. (Task 2, manual check)
+8. A group the user collapsed before filtering opens while filtering and lists only projects with hits. (Task 2, manual check; Decision 10)
 
 ## File Structure
 
@@ -50,7 +59,10 @@
 - Consumes: `PlcObject`, `ObjectType` (`core/projects.ts:9-24`).
 - Produces:
   ```ts
-  export const KIND_WORDS: Readonly<Record<string, ObjectType>>;  // fb -> FUNCTION_BLOCK, prg -> PROGRAM, fun -> FUNCTION, itf -> INTERFACE, struct, enum, union, alias, gvl, task, texts -> TEXTLIST, images -> IMAGEPOOL
+  /** Moved from tree.ts unchanged (Decision 6); tree.ts imports it for the item descriptions. */
+  export const TYPE_SHORT: Partial<Record<ObjectType, string>>;
+  /** Derived from TYPE_SHORT: lower-case one-word short names -> type. fb, prg, fun, itf, struct, enum, union, alias, gvl, task, texts, images. */
+  export const KIND_WORDS: Readonly<Record<string, ObjectType>>;
   export interface TreeFilter { text: string; words: string[]; kinds: ObjectType[] }   // words lower case
   export function parseTreeFilter(text: string): TreeFilter | undefined | { error: string };  // undefined = no filter
   export function objectMatches(f: TreeFilter, o: Pick<PlcObject, 'name' | 'type'>): boolean;
@@ -71,7 +83,7 @@ test('words and kinds are parsed', () => {
   assert.deepEqual(parseTreeFilter(' Motor  @fb @FUN axis'), { text: 'Motor  @fb @FUN axis', words: ['motor', 'axis'], kinds: ['FUNCTION_BLOCK', 'FUNCTION'] });
 });
 test('an unknown kind is an error that lists the kinds', () => {
-  assert.deepEqual(parseTreeFilter('@xyz'), { error: 'Unknown kind "@xyz". Kinds: @fb @prg @fun @itf @struct @enum @union @alias @gvl @task @texts @images' });
+  assert.deepEqual(parseTreeFilter('@xyz'), { error: 'Unknown kind "@xyz". Kinds: @fb @prg @fun @itf @enum @struct @union @alias @gvl @task @texts @images' });
 });
 test('name words match case-insensitively and all must match', () => {
   const f = parseTreeFilter('motor ctrl') as TreeFilter;
@@ -89,6 +101,11 @@ test('folders on the path to a hit are visible, others are not', () => {
   assert.deepEqual([...v.folders].sort(), ['POUs', 'POUs/Motion', 'POUs/Motion/Axis']);
   assert.deepEqual([...v.objects].map(o => o.name), ['FB_Axis']);
 });
+test('kind words are derived from the short names', () => {
+  for (const [w, t] of Object.entries(KIND_WORDS)) assert.equal(TYPE_SHORT[t]!.toLowerCase(), w);
+  for (const s of Object.values(TYPE_SHORT)) if (!s!.includes(' ')) assert.ok(s!.toLowerCase() in KIND_WORDS, s);
+  assert.equal('visu settings' in KIND_WORDS, false);
+});
 test('filterMessage counts objects and projects', () => {
   const f = parseTreeFilter('@fb motor') as TreeFilter;
   assert.equal(filterMessage(f, 12, 3), 'Filter "@fb motor": 12 objects in 3 projects.');
@@ -99,14 +116,14 @@ test('filterMessage counts objects and projects', () => {
 
 - [ ] **Step 2: Run to verify they fail.** Run: `cd extension && npm test`. Expected: compile error `Cannot find module '../src/core/treeFilter'`.
 
-- [ ] **Step 3: Implement `treeFilter.ts`.** `KIND_WORDS` mirrors `TYPE_SHORT` of `tree.ts` (lower case); move nothing out of `tree.ts`.
+- [ ] **Step 3: Implement `treeFilter.ts`.** Move `TYPE_SHORT` here and import it in `tree.ts` (Decision 6); derive `KIND_WORDS` from it.
 
 - [ ] **Step 4: Run to verify they pass.** Run: `cd extension && npm test`. Expected: all pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add extension/src/core/treeFilter.ts extension/test/treeFilter.test.ts
+git add extension/src/core/treeFilter.ts extension/src/views/tree.ts extension/test/treeFilter.test.ts
 git commit -s -m "Add the filter logic for the project tree" -m "Finding one object in a large PLC project meant expanding folder after folder. VS Code's own type-to-find only searches expanded nodes, so the tree needs its own filter over the model."
 ```
 
@@ -127,15 +144,15 @@ git commit -s -m "Add the filter logic for the project tree" -m "Finding one obj
   hits(): { objects: number; projects: number };
   ```
 
-- [ ] **Step 1: Tree.** In `getChildren`: with a filter, the root lists only groups with a unit that has hits (no System Projects); `unit` children skip References and use `folderChildren` limited to `visibleIn(...)`; cache `visibleIn` per unit and generation. In `getTreeItem`: with a filter, `unit` and `folder` items are `Expanded` and their ids get `#f<generation>`.
+- [ ] **Step 1: Tree.** In `getChildren`: with a filter, the root lists only groups with a unit that has hits (no System Projects), and a group lists only its units with hits (Decision 10); `unit` children skip References and use `folderChildren` limited to `visibleIn(...)`; cache `visibleIn` per `Unit` object in a `WeakMap`, cleared on `setFilter` and on `state.onDidChange` (Decision 8). In `getTreeItem`: with a filter, `group`, `unit` and `folder` items are `Expanded` and get ids with `#f<generation>` (groups: `group:<group>#f<generation>`; without a filter groups keep no id).
 
-- [ ] **Step 2: Commands and input box (`extension.ts`).** Keep the `TreeView` returned by `createTreeView('iecode.projects', ...)` in a const. `iecode.filterTree`: an input box with `title` `Filter the project tree`, `placeholder` `Name words and kinds, e.g. motor @fb (kinds: @fb @prg @fun @itf @gvl …)`, `value` the current text; `onDidChangeValue` debounced 200 ms: parse, set `validationMessage` on an error, else `tree.setFilter`; Escape (`onDidHide` without accept) restores the previous filter. After each change: `view.message = filter ? filterMessage(...) : undefined` and `setContext('iecode.treeFiltered', !!filter)`. `iecode.clearTreeFilter` clears it. Re-apply the message on `state.onDidChange`.
+- [ ] **Step 2: Commands and input box (`extension.ts`).** Keep the `TreeView` returned by `createTreeView('iecode.projects', ...)` in a const. `iecode.filterTree`: an input box with `title` `Filter the project tree`, `placeholder` `Name words and kinds, e.g. motor @fb (kinds: @fb @prg @fun @itf @gvl …)`, `value` the current text; `onDidChangeValue` debounced 200 ms: parse, set `validationMessage` on an error, else `tree.setFilter`; `onDidAccept` clears the timer and applies the current value at once, then hides the box only when the value parsed; Escape (`onDidHide` without accept) clears the timer and restores the previous filter (Decision 7). After each change: `view.message = filter ? filterMessage(...) : undefined` and `setContext('iecode.treeFiltered', !!filter)`. `iecode.clearTreeFilter` clears it. Re-apply the message on `state.onDidChange`.
 
 - [ ] **Step 3: Manifest.** Commands `iecode.filterTree` (`Filter Project Tree…`, category `IECode`, icon `$(filter)`) and `iecode.clearTreeFilter` (`Clear Project Tree Filter`, icon `$(clear-all)`); `view/title` `navigation@0` with `view == iecode.projects && !iecode.treeFiltered` and `view == iecode.projects && iecode.treeFiltered` respectively. Hide `iecode.clearTreeFilter` from the command palette unless filtered (`commandPalette` `when: iecode.treeFiltered`).
 
 - [ ] **Step 4: Run the tests.** Run: `cd extension && npm test`. Expected: compiles, all pass.
 
-- [ ] **Step 5: Manual check (F5, about 10 min, on `testdata/`):** `motor` (or a name of the test data) narrows and expands; `@gvl` lists the GVLs; `@xyz` shows the error and keeps the old filter; Escape restores; Clear brings back the unfiltered tree with its earlier collapsed state; a new file added while filtered appears if it matches.
+- [ ] **Step 5: Manual check (F5, about 10 min, on `testdata/`):** `motor` (or a name of the test data) narrows and expands; `@gvl` lists the GVLs; `@xyz` shows the error and keeps the old filter; type `motor` and press Enter at once: filtered by the full word; type, then Escape at once: the earlier filter stays; Escape restores; Clear brings back the unfiltered tree with its earlier collapsed state; a new file added while filtered appears if it matches; collapse the Applications group, then filter: the group opens and shows only the projects with hits; clear the filter: record whether VS Code restores the collapsed group and folders (Decision 10).
 
 - [ ] **Step 6: CHANGELOG and commit**
 
