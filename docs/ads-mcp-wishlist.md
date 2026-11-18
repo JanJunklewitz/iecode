@@ -36,7 +36,7 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 | `ads_wait(symbol, condition, timeoutSeconds)` | Done (see above) | Replaces the sleep plus `ads_read` polling loop. |
 | `edges: true` on `ads_scope`: rising and falling edges of BOOLs with timestamps | Done (Plan A7; live check 2026-11-11 ok) | Only the exact type BOOL; an alias is named, not guessed. An edge across a read error is dated as unknown between two times. Tests: `edgesText lists rising and falling edges of a BOOL`, `edgesText cannot date an edge across a read error`, `toolInput scope edges`. |
 | Trigger and capture: arm a condition, return the scope window around it (pre and post seconds) | Done (`ads_capture`, Plan E5) | Built on the change log of the scope buffer; tests in `captureRun.test.ts`. |
-| Resume watch sampling after a PLC download or restart and show a one-line notice | New | Sampling was stale for 974 s once. `ads_wait` already reports the end reason; the watch view and scope do not. |
+| Resume watch sampling after a PLC download or restart and show a one-line notice | Planned ([small items Plan B](superpowers/plans/2026-11-17-small-items-b-sampling-notice.md)) | Sampling was stale for 974 s once. `ads_wait` already reports the end reason; the watch view and scope do not. |
 | PLC-cycle timestamps via ADS notifications | Planned (Phase 8, spike first) | Task-cycle resolution, not the order inside one cycle. |
 
 ## 3. Reads
@@ -83,7 +83,7 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_state`: run or stop state, task cycle time, cycle counter | New | Detects a restart (everything reset). |
+| `ads_state`: run or stop state, task cycle time, cycle counter | Planned ([small items Plan C](superpowers/plans/2026-11-17-small-items-c-ads-state.md), plus the TwinCAT system state) | Detects a restart (everything reset). |
 | Active alarms or the last N logger messages | Planned (Phase 9, spike first) | |
 | A one-call overview of a state-machine function block (step, description, elapsed time, error text, busy, release and interlock texts) | Done as user-defined presets (`ads_preset`, Plan E8) | A preset is a named list of member names you define, so no naming convention is built in. |
 | Component mode (manual or automatic) of a path | New | Same convention problem as the line above. |

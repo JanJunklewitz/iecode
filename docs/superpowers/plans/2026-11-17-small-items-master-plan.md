@@ -23,7 +23,7 @@
 |---|---|---|---|
 | [A](2026-11-17-small-items-a-auto-write-expiry.md) | Auto-approved AI writes expire after `iecode.ads.aiWritesAutoMinutes` (default 60) | no | 0.5 day |
 | [B](2026-11-17-small-items-b-sampling-notice.md) | Notice in the tools, the ADS Watch view and the ADS Scope after a connection loss, a reload or a stop | yes (additive `reloaded` event) | 1 day |
-| [C](2026-11-17-small-items-c-ads-state.md) | New tool `ads_state`: run state, cycle time and counter, restart and online change detection | yes (op `state`) | 1 day plus 30 min on a simulation |
+| [C](2026-11-17-small-items-c-ads-state.md) | New tool `ads_state`: PLC run state, TwinCAT system state (router port 10000), cycle time and counter, restart and online change detection | yes (op `state`) | 1 day plus 30 min on a simulation |
 | [D](2026-11-17-small-items-d-tree-filter.md) | Filter the project tree by name words and `@kind` | no | 0.5 day |
 
 Plans B and C supersede tasks E3 and E4 of [Plan E](2026-11-09-ads-wishlist-e-runtime-and-plc.md); they take over its amendments where still valid and say where they differ.
@@ -42,8 +42,8 @@ Why: D and A need no PLC and no CLI and ship value at once. B before C because b
 ## Decisions (planner, 2026-11-17; the user delegated every decision)
 
 1. **Auto expiry (A):** fixed window from arming, not sliding; expired means "confirm", never "off"; the arming time is a user setting written only by **IECode: Set AI Write Access…**, because `globalState` is not shared live between windows; a time further ahead than the window counts as not armed.
-2. **Sampling notice (B):** notice only, no keep-alive (it would keep the full sampling load running and needs a reproduction first); an explicit `reloaded` event from the CLI so a download with an unchanged list is visible; cursor by event id.
-3. **`ads_state` (C):** joins protocol entry 2 (unreleased); a 32-bit counter drop near the top is reported as "restart or wrap", a count that rose too little as "stopped or restarted in between"; no "everything is reset" claim.
+2. **Sampling notice (B):** notice only, no keep-alive (it would keep the full sampling load running and needs a reproduction first); an explicit `reloaded` event from the CLI so a download with an unchanged list is visible; cursor by event id. Expected notices per case come from earlier measurements (route cut, download, PLC restart), listed in Plan B; online change is unmeasured and part of its manual check.
+3. **`ads_state` (C):** joins protocol entry 2 (unreleased); a 32-bit counter drop near the top is reported as "restart or wrap", a count that rose too little as "stopped or restarted in between"; no "everything is reset" claim; the TwinCAT system state is read with `ReadState` on the router port 10000 (answers on every TwinCAT PC), so config mode, a stopped PLC and an unreachable target are told apart.
 4. **Tree filter (D):** `@kind` words plus name words; object names only (members and libraries later); live input box; session only.
 
 ## Not in scope
@@ -61,3 +61,7 @@ Why: D and A need no PLC and no CLI and ship value at once. B before C because b
 ## First action
 
 Start Plan D, Task 1: write `extension/test/treeFilter.test.ts`.
+
+## Prior measurements used (2026-11-18)
+
+Measurements from an earlier ADS project on simulation targets (October 2026) were taken into Plans B and C, without code, names or data: which ADS codes and symbol-version changes a route cut, a download and a PLC restart produce; that port 10000 answers `ReadState` on every TwinCAT PC; and that a bare TCP connect to the router port 48898 breaks concurrent ADS connections on that PC, so no plan probes router ports. Not covered there: the PLC task counters (`_TaskInfo`, `OnlineChangeCnt`) and online changes; Plan C step 1 and Plan B's manual check measure them.

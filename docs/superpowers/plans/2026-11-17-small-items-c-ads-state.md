@@ -39,6 +39,7 @@
 3. A host from an older CLI: `ads_state` answers with the "needs a newer iecode CLI" text, the other tools work. (Task 2, `ads_state on a protocol-1 host gives the missing-feature text`)
 4. Two tasks queried alternately never compare their counters. (Task 2, `the tracker is per target and task`)
 5. PLC in Stop: the text says values are not updated. (Task 2, `stateText for a stopped PLC`)
+6. Port 10000 does not answer (no route to the router port, older runtime): the PLC fields still come back, no system line. (Task 1, `ReadPlcState_without_an_answer_from_port_10000_leaves_the_system_state_out`)
 
 ## File Structure
 
