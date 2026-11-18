@@ -71,9 +71,10 @@ public sealed class AdsWatchBackend : IWatchBackend
         _link = link;
     }
 
-    /// <summary>Builds a new symbol loader after a fault or a symbol version change, otherwise looks the names up in the old one (O2).</summary>
+    /// <summary>True when the last successful <see cref="Resolve"/> saw another symbol version than the one before it, also across a reconnect.</summary>
     public bool ResolveChangedVersion { get; private set; }
 
+    /// <summary>Builds a new symbol loader after a fault or a symbol version change, otherwise looks the names up in the old one (O2).</summary>
     public IReadOnlyList<WatchItem> Resolve(IReadOnlyList<string> symbols)
     {
         // Until this resolve succeeds there is nothing valid to read; ReadWatched then asks the host to resolve again.

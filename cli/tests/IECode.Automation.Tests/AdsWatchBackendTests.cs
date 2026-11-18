@@ -527,6 +527,25 @@ public class AdsWatchBackendTests
         b.Resolve(["MAIN.nWatch"]);
         Assert.False(b.ResolveChangedVersion);
     }
+
+    [Fact]
+    public void An_unreadable_version_keeps_the_baseline_for_a_later_change()
+    {
+        var (b, link, _) = Make(l =>
+        {
+            l.Versions = new([(AdsErrorCode.NoError, [3])]);
+            l.Upload = () => new FakeSet(Int("MAIN.nWatch"));
+        });
+        b.Connect();
+        b.Resolve(["MAIN.nWatch"]);
+        b.Connect();
+        link.Versions = new([(AdsErrorCode.DeviceInvalidGroup, [])]);
+        b.Resolve(["MAIN.nWatch"]);
+        b.Connect();
+        link.Versions = new([(AdsErrorCode.NoError, [4])]);
+        b.Resolve(["MAIN.nWatch"]);
+        Assert.True(b.ResolveChangedVersion);
+    }
 }
 
 

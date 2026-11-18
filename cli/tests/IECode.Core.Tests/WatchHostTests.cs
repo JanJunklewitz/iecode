@@ -816,6 +816,7 @@ public sealed class WatchHostTests
         r.Host.Tick(T0);
         Assert.Empty(r.Events("reloaded"));
         r.Backend.ResolveFn = ok;
+        r.Backend.ResolveChangedVersion = true;
         r.Host.Tick(T0.AddMilliseconds(2000));
         Assert.Equal(["symbol handles no longer valid"], Reasons(r));
     }
@@ -834,5 +835,21 @@ public sealed class WatchHostTests
         r.Host.Tick(T0);
         Assert.Equal(before, versionCalls);
         Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Samples_buffered_before_the_reload_poll_come_before_the_reloaded_event()
+    {
+        var r = new Rig();
+        var changed = false;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        changed = true;
+        r.Host.Tick(T0.AddMilliseconds(10));
+        var kinds = r.Lines.Select(Parse).Where(e => e.TryGetProperty("event", out _)).Select(e => e.GetProperty("event").GetString()).ToList();
+        Assert.True(kinds.IndexOf("samples") >= 0 && kinds.IndexOf("samples") < kinds.IndexOf("reloaded"));
     }
 }
