@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SymbolIndex } from '../src/lang/index';
-import { fileEdges } from '../src/core/objectGraph';
+import { ObjectGraph, assemble, callersOf, fileEdges, findUnused, reach, reachedFrom, whyReachable } from '../src/core/objectGraph';
 
 const FB_A = `FUNCTION_BLOCK FB_A EXTENDS FB_Base IMPLEMENTS I_X
 VAR
@@ -184,4 +184,158 @@ test('performance: a 5000-line GVL, 20000 identifier tokens and 3000 library obj
   console.log(`fileEdges over ~40000 tokens with 3000 library objects: ${ms} ms`);
   assert.ok(e.refs.some(r => r.to === 'GVL_BIG'));
   assert.ok(ms < 2000, `${ms} ms`);
+});
+
+// ---------------------------------------------------------------- graph and reachability
+
+const prg = (name: string, vars: string, body: string) => `PROGRAM ${name}\nVAR\n${vars}\nEND_VAR\n//---- IMPLEMENTATION ----\n${body}\n`;
+const fb = (head: string, methods: Record<string, string> = {}, vars = '') =>
+  `${head}\nVAR\n${vars}\nEND_VAR\n//---- IMPLEMENTATION ----\n` + Object.entries(methods).map(([n, b]) => `//==== METHOD ${n} ====\nMETHOD ${n} : BOOL\n//---- IMPLEMENTATION ----\n${b}\n`).join('');
+const itf = (name: string, extendsName: string | undefined, methods: string[]) =>
+  `INTERFACE ${name}${extendsName ? ' EXTENDS ' + extendsName : ''}\n//---- IMPLEMENTATION ----\n` + methods.map(n => `//==== METHOD ${n} ====\nMETHOD ${n} : BOOL\n//---- IMPLEMENTATION ----\n`).join('');
+
+function graphOf(views: Record<string, string>, libs: Record<string, string> = {}) {
+  const ix = new SymbolIndex();
+  for (const [n, v] of Object.entries(views)) ix.update(`/p/${n}.TcPOU`, v);
+  for (const [n, v] of Object.entries(libs)) ix.update(`/lib/${n}.TcPOU`, v, 'Lib');
+  const g = assemble(ix.objects().map(o => fileEdges(ix, o)), ix);
+  return { g, ix };
+}
+const unused = (g: ObjectGraph, roots: string[]) => findUnused(g, reach(g, roots)).map(f => `${f.id}:${f.confidence}`).sort();
+const isReach = (g: ObjectGraph, roots: string[], id: string) => reach(g, roots).reachable.has(id);
+
+test('an object nobody references is unreferenced; one called only by an unused object is only-from-unused', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    fb : FB_Used;', 'fb.Run();'),
+    FB_Used: fb('FUNCTION_BLOCK FB_Used', { Run: ';' }),
+    FB_Lonely: fb('FUNCTION_BLOCK FB_Lonely', {}, '    c : FB_Callee;'),
+    FB_Callee: fb('FUNCTION_BLOCK FB_Callee'),
+  });
+  assert.deepEqual(unused(g, ['MAIN']), ['FB_CALLEE:only-from-unused', 'FB_LONELY:unreferenced']);
+});
+
+test('a method of a used function block that nobody calls is listed, and not its object', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    fb : FB_Used;', 'fb.Run();'),
+    FB_Used: fb('FUNCTION_BLOCK FB_Used', { Run: ';', Stop: ';' }),
+  });
+  assert.deepEqual(unused(g, ['MAIN']), ['FB_USED.STOP:unreferenced']);
+});
+
+test('Review 1: a call through an interface reaches the implementations of reachable implementers only', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    i : I_X;\n    a : FB_A;', 'i.M();'),
+    I_X: itf('I_X', undefined, ['M']),
+    FB_A: fb('FUNCTION_BLOCK FB_A IMPLEMENTS I_X', { M: ';' }),
+    FB_B: fb('FUNCTION_BLOCK FB_B IMPLEMENTS I_X', { M: ';' }),
+  });
+  assert.ok(isReach(g, ['MAIN'], 'FB_A.M'));
+  assert.ok(!isReach(g, ['MAIN'], 'FB_B.M'));
+});
+
+test('a call through I_X reaches FB_A.M when FB_A implements I_Y that extends I_X; IMPLEMENTS inherited from a base counts', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    i : I_X;\n    a : FB_A;\n    d : FB_D;', 'i.M();'),
+    I_X: itf('I_X', undefined, ['M']),
+    I_Y: itf('I_Y', 'I_X', []),
+    FB_A: fb('FUNCTION_BLOCK FB_A IMPLEMENTS I_Y', { M: ';' }),
+    FB_Base: fb('FUNCTION_BLOCK FB_Base IMPLEMENTS I_X', { M: ';' }),
+    FB_D: fb('FUNCTION_BLOCK FB_D EXTENDS FB_Base'),
+  });
+  assert.ok(isReach(g, ['MAIN'], 'FB_A.M'));
+  assert.ok(isReach(g, ['MAIN'], 'FB_BASE.M'));
+});
+
+test('Review 2: an override is reachable when the base method and the derived block are', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    d : FB_Derived;', 'd.Run();'),
+    FB_Base: fb('FUNCTION_BLOCK FB_Base', { Run: ';', Other: ';' }),
+    FB_Derived: fb('FUNCTION_BLOCK FB_Derived EXTENDS FB_Base', { Run: ';', Other: 'SUPER^.Other();' }),
+  });
+  const r = reach(g, ['MAIN']).reachable;
+  assert.ok(r.has('FB_DERIVED.RUN') && r.has('FB_BASE.RUN'));
+  assert.ok(r.has('FB_BASE.OTHER'));
+});
+
+test('Review 3: FB_init, FB_exit and FB_reinit of a reachable block are reachable without a call', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    fb : FB_A;', ''),
+    FB_A: fb('FUNCTION_BLOCK FB_A', { FB_init: ';', FB_exit: ';', FB_reinit: ';', Plain: ';' }),
+  });
+  const r = reach(g, ['MAIN']).reachable;
+  assert.ok(r.has('FB_A.FB_INIT') && r.has('FB_A.FB_EXIT') && r.has('FB_A.FB_REINIT'));
+  assert.ok(!r.has('FB_A.PLAIN'));
+});
+
+test('Review 4: an identifier that cannot be resolved reaches every member of that name', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    p : POINTER TO INT;', 'pUnknown^.Start();'),
+    FB_A: fb('FUNCTION_BLOCK FB_A', { Start: ';' }),
+    FB_B: fb('FUNCTION_BLOCK FB_B', { Start: ';' }),
+  });
+  const rec = reach(g, ['MAIN']).reachable;
+  assert.equal(rec.get('FB_A.START')?.reason, 'by-name');
+  assert.ok(rec.has('FB_B.START'));
+});
+
+test('Review 5: recursion, mutual recursion and an object that extends itself terminate', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    a : FB_A;', 'a.Rec();'),
+    FB_A: fb('FUNCTION_BLOCK FB_A EXTENDS FB_A', { Rec: 'Rec(); Other();', Other: 'Rec();' }),
+  });
+  assert.ok(isReach(g, ['MAIN'], 'FB_A.OTHER'));
+});
+
+test('Review 8: a function called only from a non-ST body is reachable (reason non-st)', () => {
+  const ix = new SymbolIndex();
+  ix.update('/p/MAIN.TcPOU', prg('MAIN', '', ''));
+  ix.update('/p/FC_Calc.TcPOU', 'FUNCTION FC_Calc : INT\n//---- IMPLEMENTATION ----\n');
+  const files = ix.objects().map(o => fileEdges(ix, o, o.root?.name === 'MAIN' ? new Map([['MAIN', '<CFC>FC_Calc</CFC>']]) : undefined));
+  const g = assemble(files, ix);
+  assert.equal(reach(g, ['MAIN']).reachable.get('FC_CALC')?.reason, 'non-st');
+});
+
+test('Review 9: contract members are never listed as unused; an interface nobody uses is the finding, not its methods', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    a : FB_A;', ''),
+    I_X: itf('I_X', undefined, ['M']),
+    FB_A: fb('FUNCTION_BLOCK FB_A IMPLEMENTS I_X EXTENDS FB_Base', { M: ';', Run: ';', Own: ';' }),
+    FB_Base: fb('FUNCTION_BLOCK FB_Base', { Run: ';' }),
+  });
+  assert.deepEqual(unused(g, ['MAIN']), ['FB_A.OWN:unreferenced']);
+});
+
+test('an implementation of an interface that is not in the index is never listed', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    a : FB_A;', ''),
+    FB_A: fb('FUNCTION_BLOCK FB_A IMPLEMENTS I_Library', { Cb: ';' }),
+  });
+  assert.deepEqual(unused(g, ['MAIN']), []);
+});
+
+test('a contract member of a reachable owner is reachable and what it calls is not unused', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    a : FB_A;', ''),
+    I_X: itf('I_X', undefined, ['Cb']),
+    FB_A: fb('FUNCTION_BLOCK FB_A IMPLEMENTS I_X', { Cb: 'Helper();', Helper: ';' }),
+  });
+  const r = reach(g, ['MAIN']).reachable;
+  assert.equal(r.get('FB_A.CB')?.reason, 'contract');
+  assert.ok(r.has('FB_A.HELPER'));
+});
+
+test('a library node is never listed as unused', () => {
+  const { g } = graphOf({ MAIN: prg('MAIN', '', '') }, { FB_L: fb('FUNCTION_BLOCK FB_L', { M: ';' }) });
+  assert.deepEqual(unused(g, ['MAIN']), []);
+});
+
+test('whyReachable returns the path from the root to a method; callersOf and reachedFrom answer the other way', () => {
+  const { g } = graphOf({
+    MAIN: prg('MAIN', '    a : FB_A;', 'a.Go();'),
+    OTHER: prg('OTHER', '', ''),
+    FB_A: fb('FUNCTION_BLOCK FB_A', { Go: 'Inner();', Inner: ';' }),
+  });
+  assert.deepEqual(whyReachable(reach(g, ['MAIN']), 'FB_A.INNER').map(p => p.id), ['MAIN', 'FB_A.GO', 'FB_A.INNER']);
+  assert.deepEqual(callersOf(g, 'FB_A.INNER'), ['FB_A.GO']);
+  assert.deepEqual(reachedFrom(g, 'FB_A.INNER', ['MAIN', 'OTHER']), ['MAIN']);
 });
