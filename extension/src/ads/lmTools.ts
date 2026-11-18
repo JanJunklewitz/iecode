@@ -213,7 +213,8 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
       ];
       for (const p of picks) {
         if (p.value !== current) continue;
-        p.description = w.auto.kind === 'armed' ? `(current, ${Math.ceil(w.auto.leftMs / 60_000)} min left)` : '(current)';
+        p.description = w.auto.kind === 'armed' ? `(current, ${Math.ceil(w.auto.leftMs / 60_000)} min left)`
+          : w.auto.kind === 'expired' ? '(current, expired)' : w.auto.kind === 'notArmed' ? '(current, not armed)' : '(current)';
       }
       const pick = await vscode.window.showQuickPick(picks, { title: 'AI write access to the PLC (iecode.ads.aiWrites)' });
       if (pick) await setAiWrites(pick.value as 'off' | 'confirm' | 'auto');
