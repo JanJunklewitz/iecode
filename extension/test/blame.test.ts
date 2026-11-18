@@ -4,7 +4,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { tempRepo } from './helpers/gitRepo';
 import { blame, runGit } from '../src/core/git';
-import { LineBlame, SectionBlame, blameSections, makeRefine, parseBlamePorcelain, stripTags } from '../src/core/blame';
+import { LineBlame, SectionBlame, blameSections, lensText, makeRefine, parseBlamePorcelain, stripTags } from '../src/core/blame';
 import { spansOf, SectionSpan } from '../src/core/objectSpans';
 
 const H = (n: number) => String(n).repeat(40);
@@ -172,4 +172,19 @@ test('runGit writes the input option to the child stdin', async () => {
     const sha = await runGit(r.dir, ['hash-object', '--stdin'], { input: 'hello\n' });
     assert.equal(sha.trim(), 'ce013625030ba8dba906f756967f9e9ca394464a');
   } finally { r.cleanup(); }
+});
+
+test('lensText names author, relative time, subject and short hash; uncommitted says so', () => {
+  const now = 1_000_000_000;
+  const mk = (ago: number, over: Partial<LineBlame> = {}): SectionBlame =>
+    ({ key: 'METHOD:M', authors: [], lines: [], last: lb(1, now - ago, { author: 'Ada Lovelace', summary: 'Fix cooling alarm', commit: 'a1b2c3d' + '0'.repeat(33), ...over }) });
+  const day = 86400;
+  assert.equal(lensText(mk(3 * 7 * day), now), 'Ada Lovelace, 3 weeks ago: Fix cooling alarm (a1b2c3d)');
+  assert.match(lensText(mk(30), now), /^Ada Lovelace, just now: /);
+  assert.match(lensText(mk(5 * 60), now), /, 5 minutes ago: /);
+  assert.match(lensText(mk(3600), now), /, 1 hour ago: /);
+  assert.match(lensText(mk(2 * day), now), /, 2 days ago: /);
+  assert.match(lensText(mk(90 * day), now), /, 3 months ago: /);
+  assert.match(lensText(mk(800 * day), now), /, 2 years ago: /);
+  assert.equal(lensText(mk(0, { uncommitted: true }), now), 'Not committed yet');
 });

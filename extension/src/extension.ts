@@ -38,6 +38,7 @@ import { registerClaudeConnect } from './ads/claudeConnect';
 import { CLAUDE_TOOL_TIMEOUT_MS, gatePolicyFor } from './core/mcpTools';
 import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
+import { registerBlame } from './commands/blame';
 
 const SCHEME = 'iecode';
 const LANG = 'twincat-st';
@@ -132,6 +133,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   setup.register(ctx);
   registerIoYaml(ctx);
   registerConfigDiff(ctx);
+  registerBlame(ctx);
   registerIoLinkView(ctx, state);
   registerVisuEditor(ctx);
   registerAiChat(ctx);

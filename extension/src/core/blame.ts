@@ -150,3 +150,20 @@ export function makeRefine(root: string): RefineLine {
     return current;
   };
 }
+
+/** "3 weeks ago" for a time in the past; `now` and `time` are Unix seconds. */
+function relativeTime(time: number, now: number): string {
+  const s = Math.max(0, now - time);
+  const units: [number, string][] = [[365 * 86400, 'year'], [30 * 86400, 'month'], [7 * 86400, 'week'], [86400, 'day'], [3600, 'hour'], [60, 'minute']];
+  for (const [size, name] of units) {
+    const n = Math.floor(s / size);
+    if (n >= 1) return `${n} ${name}${n === 1 ? '' : 's'} ago`;
+  }
+  return 'just now';
+}
+
+/** Text of the CodeLens above a section, e.g. `Ada Lovelace, 3 weeks ago: Fix cooling alarm (a1b2c3d)`. */
+export function lensText(b: SectionBlame, now: number): string {
+  if (b.last.uncommitted) return 'Not committed yet';
+  return `${b.last.author}, ${relativeTime(b.last.time, now)}: ${b.last.summary} (${b.last.commit.slice(0, 7)})`;
+}
