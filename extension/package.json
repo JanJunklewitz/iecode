@@ -1563,7 +1563,7 @@
           "default": "",
           "scope": "application",
           "ignoreSync": true,
-          "markdownDescription": "Set by **IECode: Set AI Write Access…**: when you last chose Auto-approve (cleared when you choose Off or Confirm). Not meant to be edited; a time in the future is ignored. Not synced with Settings Sync, so each PC is armed on its own."
+          "markdownDescription": "Set by **IECode: Set AI Write Access…**: when you last chose Auto-approve (cleared when you choose Off or Confirm). It is cleared only by choosing Off or Confirm in **IECode: Set AI Write Access…**, so editing `aiWrites` by hand does not clear it. Not meant to be edited; a time in the future is ignored. Not synced with Settings Sync, so each PC is armed on its own."
         },
         "iecode.ads.presets": {
           "type": "object",
