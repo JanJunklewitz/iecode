@@ -5,12 +5,12 @@
 Ranked by value for the effort (checked 2026-11-17 against the items below and [docs/ads-mcp-wishlist.md](docs/ads-mcp-wishlist.md)). Each is a day or less; none needs a design decision first.
 
 1. **Live check of the ADS MCP features** (no code, about 1 hour on a simulation): the checklist under "ADS MCP: live check of the write and struct-read features". Everything from batch write to `ads_symbols --online` is unit-tested only, so a defect found here costs more than any new feature.
-2. **ARMED expiry for `auto` AI writes** (small): the path allowlist exists (`iecode.ads.aiWritePaths`, Plan C7a); only the expiry of `auto` is missing. See "ADS write allowlist and ARMED expiry".
-3. **Resume notice after a download or restart** (small): the watch view and the scope show a one-line notice when sampling resumed (wishlist section 2, "New"). `ads_wait` already reports the end reason; reuse it.
+2. **ARMED expiry for `auto` AI writes** (small): the path allowlist exists (`iecode.ads.aiWritePaths`, Plan C7a); only the expiry of `auto` is missing. See "ADS write allowlist and ARMED expiry". Built 2026-11-18 (Plan A, `feature/ads-state-and-tree-filter`); the F5 check is open.
+3. **Resume notice after a download or restart** (small): the watch view and the scope show a one-line notice when sampling resumed (wishlist section 2, "New"). `ads_wait` already reports the end reason; reuse it. Built 2026-11-18 (Plan B, same branch); the simulation check is open.
 4. **`ads_state`** (small): run / stop state, task cycle time and cycle counter in one read, so an AI sees that the PLC restarted (wishlist section 7, "New").
 5. **Dependency graph as Mermaid export** (small): text export of the graph `iecode.showGraph` already builds.
 6. **ADS Scope export as CSV** (small): export a recording; the AI summary can follow later.
-7. **Project view: search and filter in the tree** (small to medium): filter by name and kind.
+7. **Project view: search and filter in the tree** (small to medium): filter by name and kind. Built 2026-11-18 on `feature/tree-filter` (Plan D, own PR); the F5 check is open.
 
 Items 2, 3, 4 and 7 are planned in the [small items master plan](docs/superpowers/plans/2026-11-17-small-items-master-plan.md) (branch `feature/ads-state-and-tree-filter`): [A auto write expiry](docs/superpowers/plans/2026-11-17-small-items-a-auto-write-expiry.md), [B sampling notice](docs/superpowers/plans/2026-11-17-small-items-b-sampling-notice.md), [C `ads_state`](docs/superpowers/plans/2026-11-17-small-items-c-ads-state.md), [D tree filter](docs/superpowers/plans/2026-11-17-small-items-d-tree-filter.md).
 
@@ -84,7 +84,7 @@ Not now: same-cycle batch write, event order across tasks (both deferred by deci
 - [ ] **ADS write allowlist and ARMED expiry**: restrict which variables an AI may write and let `auto` write access lapse.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#b-ads-write-allowlist-and-armed-mode). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (per-symbol `writeAllowlist` as third gate), [idomp/twincat-mcp-public](https://github.com/idomp/twincat-mcp-public) (SAFE / ARMED mode, armed expires after 5 minutes), [eponce00/twincat-mcp](https://github.com/eponce00/twincat-mcp) (expiring, scoped grants).
   - Idea: extend `iecode.ads.aiWrites` (off / confirm / auto) with glob patterns for allowed symbols and an expiry for `auto`. Replaces the "AI write allowlist" line under the ADS item above.
-  - Status 2026-11-17: the path allowlist is done (`iecode.ads.aiWritePaths`, wishlist Plan C7a). Left: the expiry of `auto`.
+  - Status 2026-11-17: the path allowlist is done (`iecode.ads.aiWritePaths`, wishlist Plan C7a). The expiry of `auto` is built (Plan A, 2026-11-18, unit-tested); left: the F5 check, then tick this item.
 - [ ] **Read-only diagnostics tools for AI**: TwinCAT state, event / runtime error list, log tail, NC axis and IO state as read-only tools, plus a "what is wrong right now" bundle.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#c-read-only-diagnostics-for-ai). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (`tc_state`, `tc_event_list`, `tc_runtime_error_list`, `tc_log_read`, `tc_diagnose_*`, `nc_read_axis`, `io_read_group`).
   - Open: the logger source is the same question as in the log file viewer item; decide it once for both.
@@ -120,7 +120,7 @@ Not now: same-cycle batch write, event order across tasks (both deferred by deci
 - [ ] **Merge by identity in the merge editor**: use the semantic model instead of lines to resolve GUID and LineIds conflicts automatically.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: Beckhoff TcProjectCompare ([manual](https://download.beckhoff.com/download/document/automation/twincat3/TC3_Project_Compare_Tool_EN.pdf): merge direction, accept single / block / all).
   - Idea: builds on the config diff, which already compares by identity.
-- [ ] **Project view: search and filter in the tree**: filter the tree by name and kind.
+- [ ] **Project view: search and filter in the tree**: filter the tree by name and kind. Built on `feature/tree-filter` (2026-11-18, names only, members and libraries not searched); the F5 check is open.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (Go to Object, Find in Folder / Project).
 - [ ] **Mark unused objects**: flag objects that no task can reach (not called from any program, not referenced).
   - Research: same section as above. Builds on the dependency graph.
