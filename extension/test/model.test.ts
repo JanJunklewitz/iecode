@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { decode, encode, hasXmlConflict, ConflictError } from '../src/model';
+import { decode, encode, hasXmlConflict, ConflictError, sectionsOfXml } from '../src/model';
 import { parseXml } from '../src/xml';
 
 const dir = join(__dirname, '..', '..', 'samples');
@@ -107,4 +107,12 @@ test('hasXmlConflict: only markers in the XML structure count, a BOM is ignored'
   assert.equal(hasXmlConflict(codeConflict), false);
   assert.equal(hasXmlConflict(pou), false);
   assert.equal(hasXmlConflict('<not an object/>'), false, 'other decode errors are no conflict');
+});
+
+test('sectionsOfXml lists the same keys decode writes headers for', () => {
+  const xml = pou;
+  const keys = sectionsOfXml(xml).map(s => s.key);
+  const headers = decode(xml).split('\n').flatMap(l => { const m = /^\/\/==== (\w+) (\w+) ====$/.exec(l); return m ? [`${m[1]}:${m[2]}`] : []; });
+  assert.equal(keys[0], 'MAIN');
+  assert.deepEqual(keys.slice(1), headers);
 });

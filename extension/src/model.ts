@@ -32,7 +32,7 @@ export const HEADER_RE = /^\/\/==== (METHOD|PROPERTY|GET|SET|ACTION|TRANSITION) 
 export const IMPL_RE = /^\/\/---- IMPLEMENTATION(?: \((.*)\))? ----\s*$/;
 const IMPL_MARKER = '//---- IMPLEMENTATION ----';
 
-interface XmlSection {
+export interface XmlSection {
   kind: Kind;
   name: string;
   key: string;
@@ -89,6 +89,11 @@ function collect(main: XNode): XmlSection[] {
     }
   }
   return out;
+}
+
+/** The sections `decode()` writes, in view order, with their XML nodes. Used by analyses that map view lines back to the XML. */
+export function sectionsOfXml(xml: string): XmlSection[] {
+  return collect(findMain(parseOrConflict(xml)));
 }
 
 // ---------------------------------------------------------------- decode
