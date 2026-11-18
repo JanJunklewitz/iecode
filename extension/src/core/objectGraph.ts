@@ -33,7 +33,7 @@ export const objectId = (o: IndexedObject): NodeId =>
 export const memberId = (o: IndexedObject, name: string): NodeId => `${objectId(o)}.${U(name)}`;
 
 /** Edges of one object: references from its members (or from the object itself for its declaration part and its main body). */
-export function fileEdges(index: SymbolIndex, obj: IndexedObject, nonSt?: Map<string, string>): FileEdges {
+export function fileEdges(index: SymbolIndex, obj: IndexedObject, nonSt?: Map<string, string>, opts: { nodesOnly?: boolean } = {}): FileEdges {
   const out: FileEdges = { nodes: [], refs: [], unresolved: [], words: [] };
   const root = obj.root;
   if (!root) return out;
@@ -69,6 +69,7 @@ export function fileEdges(index: SymbolIndex, obj: IndexedObject, nonSt?: Map<st
     if (target?.root) add(self, objectId(target), root.range.line, reason);
   }
 
+  if (opts.nodesOnly) return out;                           // library objects: targets of edges, their own code is never analysed
   const toks = tokenize(obj.view);
   let paren = 0;
   for (let i = 0; i < toks.length; i++) {

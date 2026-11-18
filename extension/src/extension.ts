@@ -38,6 +38,7 @@ import { registerClaudeConnect } from './ads/claudeConnect';
 import { CLAUDE_TOOL_TIMEOUT_MS, gatePolicyFor } from './core/mcpTools';
 import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
+import { registerAnalysis } from './commands/analysis';
 import { registerBlame } from './commands/blame';
 import { registerObjectHistory } from './commands/objectHistory';
 import { registerObjectStage } from './commands/objectStage';
@@ -111,6 +112,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   // Workspace model, project tree and object commands.
   const state = new WorkspaceState();
   const libraries = registerLibrarySources(ctx, state);
+  registerAnalysis(ctx, state, libraries);
   const tree = new ProjectTree(state, libraries);
   const projectsView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
   ctx.subscriptions.push(

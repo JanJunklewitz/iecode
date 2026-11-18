@@ -19,7 +19,7 @@ export function globToRegExp(pattern: string): RegExp {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): { roots: Root[]; notes: string[]; noTasks: boolean } {
+export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): { roots: Root[]; notes: string[]; noTasks: boolean; missingTaskCalls: string[] } {
   const roots: Root[] = [];
   const notes: string[] = [];
   const seen = new Set<string>();
@@ -27,6 +27,7 @@ export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): {
 
   // 1. task calls
   let tasks = 0;
+  const missingTaskCalls: string[] = [];
   for (const xml of src.taskFiles) {
     let task;
     try { task = parsePlcArchive(xml); } catch { notes.push('a task file could not be read'); continue; }
@@ -36,7 +37,7 @@ export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): {
       const target = index.find(call.value);
       const id = target?.root ? objectId(target) : undefined;
       if (id && g.nodes.has(id)) add({ id, task: task.name, why: 'task' });
-      else notes.push(`task ${task.name} calls ${call.value}, which is not in the index`);
+      else { notes.push(`task ${task.name} calls ${call.value}, which is not in the index`); missingTaskCalls.push(call.value); }
     }
   }
   const noTasks = tasks === 0;
@@ -75,5 +76,5 @@ export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): {
     if ((pragma && pragma.test(head)) || (n.kind === 'PROPERTY' && monitoringCall.test(head))) add({ id: n.id, why: 'pragma' });
     if (!n.owner && (n.kind === 'GVL' || n.kind === 'PROGRAM' || n.kind === 'FUNCTION_BLOCK') && /\bAT\s+%[IQ]/i.test(obj.view)) add({ id: n.id, why: 'io' });
   }
-  return { roots, notes, noTasks };
+  return { roots, notes, noTasks, missingTaskCalls };
 }
