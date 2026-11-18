@@ -333,3 +333,9 @@ export function waitResultText(o: { symbol: string; condition: WaitCondition; ou
     case 'cancelled': return { text: 'Wait cancelled.' };
   }
 }
+
+/** Puts a sampling notice before the result text; without a notice the text stays byte-identical. */
+export function withNotice(text: string, notice: string | undefined): string { return notice === undefined ? text : `${notice}\n${text}`; }
+
+/** Puts a sampling notice after the result text (ads_wait keeps its verdict first). */
+export function withTrailingNotice(text: string, notice: string | undefined): string { return notice === undefined ? text : `${text}\n${notice}`; }
