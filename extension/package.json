@@ -1544,11 +1544,26 @@
           "enumDescriptions": [
             "AI tools cannot write PLC variables.",
             "You confirm each AI write. Claude Code writes always show IECode's own dialog. In Copilot Chat this relies on you not choosing \"Always Allow\" for the ADS Write tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
-            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\"."
+            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\". Lasts iecode.ads.aiWritesAutoMinutes (default 60) from arming, then each write is confirmed again."
           ],
           "default": "off",
           "scope": "application",
           "markdownDescription": "Whether AI tools (GitHub Copilot Chat in agent mode, Claude Code) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
+        },
+        "iecode.ads.aiWritesAutoMinutes": {
+          "type": "integer",
+          "default": 60,
+          "minimum": 1,
+          "maximum": 1440,
+          "scope": "application",
+          "markdownDescription": "How long **Auto-approve** of `iecode.ads.aiWrites` lasts after you arm it with **IECode: Set AI Write Access…**. Afterwards every AI write is confirmed again until you arm it again. Changing it changes the current arming too: a lower value can end it at once, a higher one extends it."
+        },
+        "iecode.ads.aiWritesArmedAt": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "ignoreSync": true,
+          "markdownDescription": "Set by **IECode: Set AI Write Access…**: when you last chose Auto-approve (cleared when you choose Off or Confirm). Not meant to be edited; a time in the future is ignored. Not synced with Settings Sync, so each PC is armed on its own."
         },
         "iecode.ads.presets": {
           "type": "object",

@@ -7,7 +7,8 @@ import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError, WriteNotSent } from '../ads/host';
 import { MAX_WATCHED, WatchItem, symbolAt, watchEdit, watchRename } from '../core/adswatch';
-import { aiWritesSetting } from '../ads/aiSettings';
+import { aiWriteState } from '../ads/aiSettings';
+import { autoLabel, nextRefreshMs } from '../core/writeArming';
 import { writeAdsSetting } from '../ads/settingsWrite';
 
 const REFRESH_MS = 250;
@@ -97,7 +98,16 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   };
   showState();
   // the target is always shown (a write goes there); auto-approved AI writes must never be on unnoticed
-  const showAiWrites = () => { view.description = [host.target(), mcp?.serving() ? 'MCP: on' : undefined, aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
+  // while armed, a one-shot timer re-runs this at the next label change or at the expiry, so "expired" shows at once
+  let armTimer: NodeJS.Timeout | undefined;
+  const showAiWrites = () => {
+    clearTimeout(armTimer);
+    armTimer = undefined;
+    const auto = aiWriteState().auto;
+    view.description = [host.target(), mcp?.serving() ? 'MCP: on' : undefined, autoLabel(auto)].filter(Boolean).join(' · ');
+    const next = nextRefreshMs(auto);
+    if (next !== undefined) armTimer = setTimeout(showAiWrites, next);
+  };
   showAiWrites();
 
   // the host runs while the view is visible with a non-empty list; a saved list alone does not connect (O11)
@@ -115,8 +125,8 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     host.onState(() => { showState(); schedule(); }),
     ...(mcp ? [mcp.onState(showAiWrites)] : []),
     view.onDidChangeVisibility(updateLease),
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
-    new vscode.Disposable(() => { clearTimeout(timer); lease?.dispose(); }),
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.aiWritesArmedAt') || e.affectsConfiguration('iecode.ads.aiWritesAutoMinutes') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
+    new vscode.Disposable(() => { clearTimeout(timer); clearTimeout(armTimer); lease?.dispose(); }),
   );
 
   const add = async (symbols: string[]) => {

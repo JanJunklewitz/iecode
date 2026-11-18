@@ -40,7 +40,7 @@ const POLICY: GatePolicy = { dialogMs: 100_000, operationMs: 150_000, maxQueued:
 
 function rig(policy: Partial<GatePolicy> = {}) {
   const clock = new FakeClock();
-  const state = { decision: 'confirm' as WriteDecision, target: 'A:851' };
+  const state = { decision: 'confirm' as WriteDecision, target: 'A:851', queue: [] as WriteDecision[] };
   const confirms: { op: WriteOp; signal: AbortSignal; answer: Deferred<boolean> }[] = [];
   const sent: string[] = [];
   const late: [string, string][] = [];
@@ -56,7 +56,7 @@ function rig(policy: Partial<GatePolicy> = {}) {
     gate: undefined as unknown as WriteGate,
   };
   const deps: GateDeps = {
-    decision: () => state.decision,
+    decision: () => state.queue.shift() ?? state.decision,
     targetKey: () => state.target,
     confirm: (o, signal) => { const answer = deferred<boolean>(); confirms.push({ op: o, signal, answer }); return answer.promise; },
     send: (o, b) => r.send(o, b),
@@ -373,6 +373,23 @@ test('gate refuses an allow that now needs confirmation', async () => {
   r.state.decision = 'confirm';
   gateOpen.resolve();
   assert.match(refused(await p), /needs the user's confirmation now/);
+});
+
+test('an auto approval that lapses before the send is refused', async () => {
+  const r = rig();
+  // the arming window ends between the decision and beforeSend: allow on the first call, confirm afterwards
+  r.state.queue = ['allow'];
+  const res = await r.gate.run(op(), ac().signal);
+  assert.match(refused(res), /needs the user's confirmation now/);
+  assert.equal(r.sent.length, 0);
+});
+
+test('a prepared Copilot allow is refused when the auto window lapsed since the prepare step', async () => {
+  const r = rig();
+  r.state.decision = 'confirm';
+  const res = await r.gate.run(op('MAIN.x', { via: 'Copilot', prepared: { decision: 'allow' } }), ac().signal);
+  assert.match(refused(res), /changed after this write was prepared/);
+  assert.equal(r.sent.length, 0);
 });
 
 test('gate takes a prepared Copilot approval', async () => {

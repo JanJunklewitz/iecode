@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { clampAutoMinutes, autoState, effectiveSetting, autoNote, autoLabel, armedAtNow, nextRefreshMs, REDIRECT_NOTE } from '../src/core/writeArming';
 
 const M = 60_000, NOW = Date.UTC(2026, 10, 17, 12, 0, 0);
@@ -75,4 +77,12 @@ test('nextRefreshMs', () => {
 });
 test('a non-finite duration is never armed (fail closed)', () => {
   for (const minutes of [NaN, Infinity, -Infinity, 0, -5]) assert.equal(st(iso(NOW), minutes).kind, 'notArmed', String(minutes));
+});
+test('the AI write settings are application-scoped and the arming time is not synced', () => {
+  // out/test/*.js -> the extension's package.json is two levels up
+  const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
+  const sections = Array.isArray(manifest.contributes.configuration) ? manifest.contributes.configuration : [manifest.contributes.configuration];
+  const props: Record<string, { scope?: string; ignoreSync?: boolean }> = Object.assign({}, ...sections.map((x: { properties: object }) => x.properties));
+  for (const k of ['iecode.ads.aiWrites', 'iecode.ads.aiWritePaths', 'iecode.ads.aiWritesAutoMinutes', 'iecode.ads.aiWritesArmedAt']) assert.equal(props[k]?.scope, 'application', k);
+  assert.equal(props['iecode.ads.aiWritesArmedAt'].ignoreSync, true);
 });

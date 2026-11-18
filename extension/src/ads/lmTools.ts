@@ -14,7 +14,8 @@ import { lmToolEntries } from '../core/lmToolTable';
 import { PreparedWrites, WriteGate, WriteOp, itemsOf, writeResultText } from '../core/writeGate';
 import { writePolicyReason } from '../core/writePolicy';
 import { sendToAiChat } from '../commands/aiChat';
-import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
+import { autoNote, clampAutoMinutes } from '../core/writeArming';
+import { aiWritePathsSetting, aiWriteState, aiWritesSetting, setAiWrites } from './aiSettings';
 import { SCOPE_SECONDS, adsTools, newest, scopeSummary } from './adsTools';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -154,12 +155,11 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
         return { invocationMessage: 'Not writing: outside the allowed paths' };
       }
       const summary = call.op.restore ? `restoring ${items.length} value${items.length === 1 ? '' : 's'}` : items.length === 1 ? `${show(items[0].symbol)} := ${show(items[0].value)}` : `${items.length} values`;
-      const setting = aiWritesSetting();
-      const redirected = workspaceTarget();
-      const decision = aiWriteDecision(setting, redirected);
+      const w = aiWriteState();
+      const decision = aiWriteDecision(w.effective, w.redirected);
       prepared.prepare(preparedKey(parsed.value, items), { decision, targetKey: host.targetKey() });
       if (decision !== 'confirm') return { invocationMessage: decision === 'allow' ? `Writing ${summary}` : undefined };
-      const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
+      const note = autoNote(w.auto, w.redirected);
       return {
         invocationMessage: `Writing ${summary}`,
         confirmationMessages: {
@@ -204,14 +204,19 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     }),
     vscode.commands.registerCommand('iecode.adsAiWrites', async () => {
       const current = aiWritesSetting();
+      const w = aiWriteState();
+      const minutes = clampAutoMinutes(vscode.workspace.getConfiguration('iecode.ads').inspect<unknown>('aiWritesAutoMinutes')?.globalValue);
       const picks: (vscode.QuickPickItem & { value: string })[] = [
         { value: 'off', label: 'Off', detail: 'AI tools cannot write PLC variables.' },
         { value: 'confirm', label: 'Confirm each write', detail: 'You confirm every AI write (in Copilot Chat unless you chose "Always Allow" for the ADS Write tool).' },
-        { value: 'auto', label: 'Auto-approve', detail: 'IECode writes without asking; VS Code may still ask by its own tool approval rules.' },
+        { value: 'auto', label: 'Auto-approve', detail: `IECode writes without asking; VS Code may still ask by its own tool approval rules. Lasts ${minutes} min, then each write is confirmed again.` },
       ];
-      for (const p of picks) if (p.value === current) p.description = '(current)';
+      for (const p of picks) {
+        if (p.value !== current) continue;
+        p.description = w.auto.kind === 'armed' ? `(current, ${Math.ceil(w.auto.leftMs / 60_000)} min left)` : '(current)';
+      }
       const pick = await vscode.window.showQuickPick(picks, { title: 'AI write access to the PLC (iecode.ads.aiWrites)' });
-      if (pick) await vscode.workspace.getConfiguration('iecode.ads').update('aiWrites', pick.value, vscode.ConfigurationTarget.Global);
+      if (pick) await setAiWrites(pick.value as 'off' | 'confirm' | 'auto');
     }),
   );
 }

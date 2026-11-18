@@ -8,7 +8,8 @@ import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { RegisteredEntry, addArgs, cmdLine, findOnPath, getArgs, isNotRegistered, manualCommand, parseEntry, removeArgs, restoreArgs } from '../core/claudeRegistration';
 import { output, resolveIecodeExe } from '../cli/iecode';
-import { aiWritesSetting } from './aiSettings';
+import { aiWriteState } from './aiSettings';
+import { autoLabel } from '../core/writeArming';
 import { AdsMcpServer, discoveryDir } from './mcpServer';
 
 interface Claude { exe?: string; cmd?: string }
@@ -131,8 +132,9 @@ export function registerClaudeConnect(ctx: vscode.ExtensionContext, server: AdsM
     });
     if (!done) return;
     await server.setConnected(true);
+    const w = aiWriteState();
     void vscode.window.showInformationMessage(
-      `IECode: Claude Code connected. A running Claude session needs /mcp to reconnect or a restart. AI writes are currently "${aiWritesSetting()}"; change with "IECode: Set AI Write Access…".`);
+      `IECode: Claude Code connected. A running Claude session needs /mcp to reconnect or a restart. AI writes are currently "${autoLabel(w.auto)?.replace(/^AI writes: /, '') ?? w.setting}"; change with "IECode: Set AI Write Access…".`);
   };
 
   const disconnect = async () => {
