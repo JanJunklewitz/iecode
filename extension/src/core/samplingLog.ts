@@ -179,3 +179,18 @@ export function gapWarning(gaps: ReturnType<typeof gapsIn>, clock: (ms: number) 
   const parts = gaps.map(g => `${clock(g.from)} to ${clock(g.to)} (${g.why === 'lost' ? 'connection lost' : 'sampling stopped'})`);
   return `Warning: no samples from ${parts.join(', from ')}; the values do not show what happened in between.`;
 }
+
+/** How long the ADS Watch view and the ADS Scope show a notice. */
+export const VIEW_NOTICE_MS = 120_000;
+
+/** The status line of a view: the disconnect message first, else the notices of the last two minutes (Decision 5). */
+export function viewNotice(state: { connected: boolean; error?: string }, log: SamplingLog, nowMs: number, clock: (ms: number) => string, names: ToolNames): string | undefined {
+  if (!state.connected && state.error) return `Disconnected: ${state.error}`;
+  return noticeText(log.recent(nowMs, VIEW_NOTICE_MS), false, clock, names);
+}
+
+/** The gap warning of an ads_scope table: its window is `seconds` up to the newest sample, or up to now while there is none (R16). */
+export function scopeGapWarning(events: SamplingEvent[], seconds: number, newestMs: number | undefined, nowMs: number, clock: (ms: number) => string): string | undefined {
+  const to = newestMs ?? nowMs;
+  return gapWarning(gapsIn(events, to - seconds * 1000, to), clock);
+}

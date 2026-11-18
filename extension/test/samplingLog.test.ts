@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { NoticeReader, SamplingEvent, SamplingLog, gapWarning, gapsIn, noticeText } from '../src/core/samplingLog';
+import { NoticeReader, SamplingEvent, SamplingLog, VIEW_NOTICE_MS, gapWarning, gapsIn, noticeText, scopeGapWarning, viewNotice } from '../src/core/samplingLog';
 import { COPILOT_NAMES, MCP_NAMES } from '../src/core/adsToolText';
 
 const clock = (ms: number) => `T${ms}`;
@@ -178,4 +178,23 @@ test('lost, reloaded, restored coalesces the pair and keeps the reload as its ow
   assert.equal(lines.length, 2);
   assert.match(lines[0], /lost at T1 and restored at T3/);
   assert.match(lines[1], /reloaded at T2 /);
+});
+
+test('a view shows the disconnect message first, else the notices of the last two minutes', () => {
+  const log = new SamplingLog(); log.state(true, undefined, 1); log.state(false, 'ADS error 0x745', 1000);
+  assert.equal(viewNotice({ connected: false, error: 'ADS error 0x745' }, log, 2000, clock, names), 'Disconnected: ADS error 0x745');
+  log.state(true, undefined, 3000);
+  assert.equal(viewNotice({ connected: true }, log, 4000, clock, names), 'Notice: the connection to the PLC was lost at T1000 and restored at T3000; values in between are missing.');
+  assert.equal(viewNotice({ connected: true }, log, 3000 + VIEW_NOTICE_MS + 1, clock, names), undefined);
+  assert.equal(viewNotice({ connected: false }, new SamplingLog(), 0, clock, names), undefined);
+});
+
+test('the scope warns about holes in the window up to its newest sample', () => {
+  const ev: SamplingEvent[] = [{ kind: 'lost', t: 10_000, error: 'x' }, { kind: 'restored', t: 20_000 }, { kind: 'stopped', t: 90_000, reason: 'idle' }];
+  // newest sample at 30 s, 60 s shown: the lost hole is inside, the later stop is not
+  assert.equal(scopeGapWarning(ev, 60, 30_000, 500_000, clock),
+    'Warning: no samples from T10000 to T20000 (connection lost); the values do not show what happened in between.');
+  assert.equal(scopeGapWarning(ev, 5, 30_000, 500_000, clock), undefined);
+  // no sample yet: the window ends now
+  assert.match(scopeGapWarning(ev, 60, undefined, 100_000, clock)!, /from T90000 to T100000 \(sampling stopped\)/);
 });
