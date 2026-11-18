@@ -104,6 +104,7 @@ code 0 when stdin closes, after it has answered every request read before that.
 ← {"id":1,"op":"watch","symbols":["MAIN.nCount","GVL.bRun"]}
 → {"id":1,"ok":true,"data":{"gen":1,"items":[{"symbol":"MAIN.nCount","type":"INT","numeric":true,"error":null}, …]}}
 → {"event":"samples","gen":1,"rows":[{"t":1730539200000,"v":["42","TRUE"]}]}
+→ {"event":"reloaded","reason":"symbol version changed"}   the host resolved the symbols again by itself (download, online change, PLC restart); also when the items did not change
 ← {"id":2,"op":"read","symbols":["MAIN.sName"]}       one-off read, also of symbols not watched
 ← {"id":3,"op":"write","symbol":"MAIN.nCount","value":"7"}   replies with the value read back
 ← {"id":4,"op":"interval","ms":50}                    poll interval, 10 … 5000 ms (default 100)

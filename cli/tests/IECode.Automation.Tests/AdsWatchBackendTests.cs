@@ -496,6 +496,37 @@ public class AdsWatchBackendTests
         Assert.Equal(1, link.Uploads);
         Assert.Equal(1, link.VersionReads - versionReads);
     }
+
+    [Fact]
+    public void Resolve_reports_a_version_change_across_a_reconnect()
+    {
+        var (b, link, _) = Make(l =>
+        {
+            l.Versions = new([(AdsErrorCode.NoError, [3])]);
+            l.Upload = () => new FakeSet(Int("MAIN.nWatch"));
+        });
+        b.Connect();
+        b.Resolve(["MAIN.nWatch"]);
+        Assert.False(b.ResolveChangedVersion);
+        b.Connect();
+        link.Versions = new([(AdsErrorCode.NoError, [4])]);
+        b.Resolve(["MAIN.nWatch"]);
+        Assert.True(b.ResolveChangedVersion);
+        b.Resolve(["MAIN.nWatch"]);
+        Assert.False(b.ResolveChangedVersion);
+    }
+
+    [Fact]
+    public void Resolve_with_an_unreadable_version_reports_no_change()
+    {
+        var (b, link, _) = Make(l => l.Upload = () => new FakeSet(Int("MAIN.nWatch")));
+        b.Connect();
+        b.Resolve(["MAIN.nWatch"]);
+        b.Connect();
+        link.Versions = new([(AdsErrorCode.DeviceInvalidGroup, [])]);
+        b.Resolve(["MAIN.nWatch"]);
+        Assert.False(b.ResolveChangedVersion);
+    }
 }
 
 
