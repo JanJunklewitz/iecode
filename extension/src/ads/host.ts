@@ -15,6 +15,7 @@ import type { SampleBatch } from '../core/waitRun';
 import { HostCaps, negotiate } from '../core/hostProtocol';
 import { activeSymbols } from '../core/watchGroups';
 import { UnresolvedNotes } from '../core/unresolved';
+import { SamplingLog } from '../core/samplingLog';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -66,6 +67,7 @@ export class AdsHost implements vscode.Disposable {
   private readonly itemsChanged = new vscode.EventEmitter<void>();
   private readonly stateChanged = new vscode.EventEmitter<AdsState>();
   private readonly ended = new vscode.EventEmitter<string>();
+  private readonly logged = new vscode.EventEmitter<void>();
   /** Rows of the current gen with the items of their columns; fires only for a batch with rows (an item error arrives as a row with a null value). */
   readonly onSamples = this.samples.event;
   /** The resolved watch items changed (types, errors, list). */
@@ -73,6 +75,10 @@ export class AdsHost implements vscode.Disposable {
   readonly onState = this.stateChanged.event;
   /** The running host went away (stop, restart, exit) or the target changed; carries the reason. */
   readonly onEnded = this.ended.event;
+  /** Connection and sampling events for the notices of the tools and views (only the host's own state events, Decision 7). */
+  readonly log = new SamplingLog();
+  /** An event was recorded in `log`, or the log was cleared. */
+  readonly onLog = this.logged.event;
   readonly buffer: ScopeBuffer;
   /** The one owner of every list edit (user, AI, wait holds). */
   readonly list: WatchList;
@@ -115,7 +121,7 @@ export class AdsHost implements vscode.Disposable {
     this.intervalMs = s.intervalMs;
     this.items_ = this.watched().map(symbol => ({ symbol, type: '', numeric: false, error: null }));
     this.list = new WatchList({ entries: () => this.entries(), set: (e, a, o) => this.setEntries(e, a, o), groupsOff: () => this.groupsOff() });
-    this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, this.ended, vscode.workspace.onDidChangeConfiguration(e => {
+    this.disposables.push(this.samples, this.itemsChanged, this.stateChanged, this.ended, this.logged, vscode.workspace.onDidChangeConfiguration(e => {
       const targetChanged = e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port');
       if (targetChanged) {
         // samples and read-back values of the old target must not be shown under the new one, also while no host runs
@@ -131,6 +137,11 @@ export class AdsHost implements vscode.Disposable {
         this.failure = undefined;
         if (this.proc) this.restart();
         else if (this.leases > 0) void this.ensure().catch(() => undefined);
+      }
+      // after the restart, whose stop records a "stopped" of the old target: the new host's "started" then pairs with nothing (Decision 11)
+      if (targetChanged) {
+        this.log.clear();
+        this.logged.fire();
       }
       this.override = overridesAfterSettingChange(this.override, { sampleIntervalMs: e.affectsConfiguration('iecode.ads.sampleIntervalMs'), bufferSeconds: e.affectsConfiguration('iecode.ads.bufferSeconds') });
       if (e.affectsConfiguration('iecode.ads.bufferSeconds')) this.buffer.setSeconds(clampBufferSeconds(settings().bufferSeconds));
@@ -469,7 +480,11 @@ export class AdsHost implements vscode.Disposable {
             child.kill();
             return;
           }
-          if (this.proc === child) { this.caps = n.caps; this.resolvedTarget = typeof msg.target === 'string' ? msg.target : undefined; }
+          if (this.proc === child) {
+            this.caps = n.caps;
+            this.resolvedTarget = typeof msg.target === 'string' ? msg.target : undefined;
+            this.record(() => this.log.record({ kind: 'started', t: Date.now() }));
+          }
           hello = true;
           resolve();
           void this.afterHello(child);
@@ -546,6 +561,7 @@ export class AdsHost implements vscode.Disposable {
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.lastEnded_ = { reason, at: Date.now() };
+    this.record(() => this.log.record({ kind: 'stopped', t: this.lastEnded_!.at, reason }));
     this.setState({ connected: false, error: this.failure?.message ?? (this.leases > 0 ? reason : undefined) });
     this.ended.fire(reason);
   }
@@ -560,6 +576,7 @@ export class AdsHost implements vscode.Disposable {
     this.ready_ = undefined;
     this.pending.rejectAll(reason);
     this.lastEnded_ = { reason, at: Date.now() };
+    this.record(() => this.log.record({ kind: 'stopped', t: this.lastEnded_!.at, reason }));
     this.setState({ connected: false });
     this.ended.fire(reason);
     // the host answers what it has read and exits when stdin closes; kill if it hangs in an ADS call
@@ -607,9 +624,21 @@ export class AdsHost implements vscode.Disposable {
         this.applyItems(msg);
         break;
       case 'state':
+        // only the host's own state events feed the loss tracking; stop() and exited() also set a state (Decision 7)
+        this.record(() => this.log.state(msg.connected, msg.error, Date.now()));
         this.setState({ connected: msg.connected, error: msg.error });
         break;
+      case 'reloaded':
+        this.record(() => this.log.record({ kind: 'reloaded', t: Date.now(), reason: msg.reason }));
+        break;
     }
+  }
+
+  /** Runs a log update and tells the views when it recorded an event. */
+  private record(update: () => void) {
+    const before = this.log.head();
+    update();
+    if (this.log.head() !== before) this.logged.fire();
   }
 
   private applyItems(data: { gen: number; items: WatchItem[] }) {

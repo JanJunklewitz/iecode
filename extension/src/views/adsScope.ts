@@ -6,6 +6,9 @@ import { randomBytes } from 'crypto';
 import { AdsHost } from '../ads/host';
 import { clampBufferSeconds, clampInterval, minMaxBuckets, niceTicks, spanOptions } from '../core/adswatch';
 import { writeAdsSetting } from '../ads/settingsWrite';
+import { clock } from '../ads/adsTools';
+import { MCP_NAMES } from '../core/adsToolText';
+import { VIEW_NOTICE_MS, viewNotice } from '../core/samplingLog';
 
 const POST_MS = 100;
 const MAX_WIDTH = 4000;
@@ -41,12 +44,13 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
     for (const s of syms) { const l = host.buffer.latest(s); if (l) end = Math.max(end, l.t); }
     if (view.paused && frozenEnd !== undefined) end = frozenEnd;
     const from = end - view.seconds * 1000;
-    const s = host.state();
+    // the disconnect message and the sampling notice come as a 'note' message, which the webview also applies while paused
+    postNote();
     p.webview.postMessage({
       type: 'data',
       spans: spanOptions(host.buffer.span()),
       sampling: host.sampling(),
-      note: !s.connected && s.error ? `Disconnected: ${s.error}` : host.watched().length === 0 ? 'No variables watched.' : syms.length === 0 ? 'No numeric variables to plot.' : '',
+      note: host.watched().length === 0 ? 'No variables watched.' : syms.length === 0 ? 'No numeric variables to plot.' : '',
       series: items.map(i => ({
         symbol: i.symbol,
         bool: i.type.toUpperCase() === 'BOOL',
@@ -54,6 +58,16 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
         pts: view.hidden.has(i.symbol) || end === -Infinity ? [] : minMaxBuckets(host.buffer.series(i.symbol, from), view.width).map(pt => [(pt.t - end) / 1000, pt.y]),
       })),
     });
+  };
+
+  // the disconnect message first, else the notices of the last two minutes (Decision 12)
+  const postNote = () => { void panel?.webview.postMessage({ type: 'note', note: viewNotice(host.state(), host.log, Date.now(), clock, MCP_NAMES) ?? '' }); };
+  // a notice is shown for two minutes: re-post once when the newest one expires
+  let noticeTimer: NodeJS.Timeout | undefined;
+  const onLog = () => {
+    postNote();
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(postNote, VIEW_NOTICE_MS + 1);
   };
 
   // at most 10 posts per second, however fast samples arrive
@@ -90,10 +104,11 @@ export function showAdsScope(ctx: vscode.ExtensionContext) {
     post();
   }, undefined, subs);
 
-  subs.push(host.onSamples(schedule), host.onItems(schedule), host.onState(schedule));
+  subs.push(host.onSamples(schedule), host.onItems(schedule), host.onState(() => { schedule(); postNote(); }), host.onLog(onLog));
   panel.onDidDispose(() => {
     panel = undefined;
     clearTimeout(timer);
+    clearTimeout(noticeTimer);
     subs.forEach(s => s.dispose());
     lease.dispose();
   });
@@ -110,7 +125,7 @@ select,input{background:var(--vscode-input-background);color:var(--vscode-input-
 button{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0;padding:4px 12px;cursor:pointer;font:inherit}
 label{font-size:12px}
 input[type=number]{width:64px}
-#note{opacity:.8;font-size:12px}
+#note{opacity:.8;font-size:12px;white-space:pre-line}
 #legend{display:flex;gap:14px;flex-wrap:wrap;padding:6px 14px}
 #legend label{display:flex;align-items:center;gap:4px;white-space:nowrap}
 #legend i{display:inline-block;width:10px;height:10px}
@@ -141,6 +156,9 @@ let hidden = new Set(saved.hidden || []), seconds = saved.seconds || 10, paused 
 // a span typed in by the user (not one of the offered ones)
 const customSpans = new Set(saved.customSpans || []);
 let data = { series: [], spans: [10] }, cursor = null;
+// the line next to the controls: the status (disconnect or sampling notice, also while paused) before the data's own note
+let status = '', dataNote = '';
+function showNote() { $('note').textContent = status || dataNote; }
 // replies still owed to control changes; while paused only those redraw
 let waiting = 0;
 const cv = $('cv'), ctx = cv.getContext('2d');
@@ -315,12 +333,14 @@ $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ?
 new ResizeObserver(() => { send(); draw(); }).observe($('wrap'));
 window.addEventListener('message', ev => {
   const m = ev.data;
+  if (m.type === 'note') { status = m.note; showNote(); return; }
   if (m.type !== 'data') return;
   if (waiting > 0) waiting--;
   else if (paused) return;
   const same = m.series.length === data.series.length && m.series.every((s, i) => s.symbol === data.series[i].symbol);
   data = m;
-  $('note').textContent = m.note;
+  dataNote = m.note;
+  showNote();
   if (!same) legend();
   spans();
   sampling();
