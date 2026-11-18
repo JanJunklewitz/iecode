@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changedSections, discardSection, hasMixedEol, sectionRanges, stageSection } from '../src/core/objectStage';
+import { changedSections, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection } from '../src/core/objectStage';
 import { tempRepo } from './helpers/gitRepo';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, runGit, writeIndexBlob } from '../src/core/git';
 import { join } from 'path';
@@ -274,4 +274,18 @@ test('the sha check is repeated after an index.lock retry', async () => {
     await runGit(r.dir, ['update-index', '--cacheinfo', `100644,${sneaky},a.txt`]);
     await assert.rejects(p, /index changed/);
   } finally { r.cleanup(); }
+});
+
+test('stageGuard gives one message per refusal and offers the whole file for untracked and intent-to-add', () => {
+  const ok = { tracked: true, intentToAdd: false, conflict: false, decodes: true, dirty: false, mixedEol: false, utf8: true };
+  assert.deepEqual(stageGuard(ok), { ok: true });
+  const bad = (o: Partial<typeof ok>) => stageGuard({ ...ok, ...o }) as { ok: false; message: string; wholeFile?: boolean };
+  assert.match(bad({ dirty: true }).message, /save first/);
+  assert.match(bad({ conflict: true }).message, /merge conflicts/);
+  assert.equal(bad({ tracked: false }).wholeFile, true);
+  assert.equal(bad({ intentToAdd: true }).wholeFile, true);
+  assert.match(bad({ utf8: false }).message, /UTF-8/);
+  assert.match(bad({ mixedEol: true }).message, /mixed line endings/);
+  assert.match(bad({ decodes: false }).message, /cannot be read/);
+  assert.equal(bad({ dirty: true }).wholeFile, undefined);
 });

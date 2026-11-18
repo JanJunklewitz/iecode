@@ -186,3 +186,17 @@ function takeSection(targetXml: string, sourceXml: string, key: string): string 
 export const stageSection = (baseXml: string, workXml: string, key: string) => takeSection(baseXml, workXml, key);
 /** New work text: only `key` is taken from the base text. */
 export const discardSection = (baseXml: string, workXml: string, key: string) => takeSection(workXml, baseXml, key);
+
+export interface GuardInput { tracked: boolean; intentToAdd: boolean; conflict: boolean; decodes: boolean; dirty: boolean; mixedEol: boolean; utf8: boolean }
+
+/** Why staging one section is refused, one message per reason; `wholeFile` marks the cases where staging the whole file is the way out. */
+export function stageGuard(i: GuardInput): { ok: true } | { ok: false; message: string; wholeFile?: boolean } {
+  if (i.dirty) return { ok: false, message: 'The file has unsaved changes: save first' };
+  if (i.conflict) return { ok: false, message: 'The file has merge conflicts: resolve them first' };
+  if (!i.tracked) return { ok: false, message: 'The file is not tracked by git yet: stage the whole file', wholeFile: true };
+  if (i.intentToAdd) return { ok: false, message: 'The file is only marked as intent-to-add: stage the whole file', wholeFile: true };
+  if (!i.utf8) return { ok: false, message: 'The file is not valid UTF-8: staging single sections would change other bytes' };
+  if (i.mixedEol) return { ok: false, message: 'The file has mixed line endings (CRLF and LF): fix them first' };
+  if (!i.decodes) return { ok: false, message: 'The file cannot be read as a PLC object' };
+  return { ok: true };
+}

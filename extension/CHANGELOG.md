@@ -9,6 +9,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - Blame and the line history also work for object files with non-ASCII characters in their name.
 - **History of one object or member:** **IECode: Show History of Object or Member** (project tree, editor context menu of the ST view) lists the commits that changed a method, property, action or the whole object and opens the change of one commit as a diff. It follows renames of members and files, compares each commit with its first parent and shows an unreadable commit as such. Uncommitted changes appear as a *Working copy* entry.
 - The history entry in the project tree is offered on objects and members only, not on member folders or groups. The working copy row of a whole object also shows changes of CFC, FBD and SFC bodies, and a similar new member no longer takes over the history of a member that an exact replacement continues.
+- **Stage single methods:** a changed method, property, action or the main declaration shows **Stage Method** above it in the ST view and stages only that section of the object file, so unrelated method edits no longer end up in one commit. The XML is spliced node by node: bytes outside the section and the `Id` of a new method stay as they are. The index write is checked right before it happens but is not atomic (git has no compare-and-swap for one entry); if the index changed in between, staging stops and asks to try again. Turn the lens off with `iecode.stage.codeLens`.
 
 ## 0.2.20
 

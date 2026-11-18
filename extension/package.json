@@ -1442,6 +1442,11 @@
           "default": true,
           "markdownDescription": "Keep the `.plcproj` in step with TwinCAT object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders created, deleted, renamed or moved in VS Code (explorer, paste, drag and drop). An empty new `.TcPOU`/`.TcDUT`/`.TcGVL`/`.TcIO` gets a template named after the file; a copied object takes the file's name and new ids. Changes made by other programs (git, TwinCAT) are not touched."
         },
+        "iecode.stage.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show **Stage Method** above every changed method, property or action in the Structured Text view. It stages only that section of the object file; the index is written with git plumbing, so the rest of the file stays unstaged. Nothing is shown for a view or XML editor with unsaved edits, an untracked file or a file with merge conflicts."
+        },
         "iecode.blame.enabled": {
           "type": "boolean",
           "default": false,
