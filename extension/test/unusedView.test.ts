@@ -72,3 +72,28 @@ test('a library node and a contract member never get a mark', () => {
   const a: UnitAnalysis = { unit: 'U', graph, reach: rc, roots: [], unused: findUnused(graph, rc), notes: [], complete: true };
   assert.deepEqual(unusedMarks(a).map(m => m.id), []);   // the interface is implemented by a used block; its member, the implementation and the library are not marked
 });
+
+import { UnusedMarks } from '../src/core/unusedView';
+
+test('Review 7: ensure starts the computation by itself, once, and only when marks are on', async () => {
+  const requests: string[] = [];
+  let cache: UnitAnalysis | undefined;
+  const fake = { peek: () => cache, request: async (id: string) => { requests.push(id); return analysis({ MAIN: prg('MAIN', '', '') }); } };
+  let on = false;
+  const m = new UnusedMarks(fake, () => on, 5);
+  m.ensure('U');
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(requests, [], 'off: nothing starts');
+  on = true;
+  m.ensure('U'); m.ensure('U'); m.ensure('U');                       // debounced and deduplicated
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(requests, ['U']);
+  cache = analysis({ MAIN: prg('MAIN', '', ''), FB_Dead: fb('FUNCTION_BLOCK FB_Dead') });
+  assert.equal(m.markOf('U', 'FB_Dead')?.id, 'FB_DEAD');
+  m.ensure('U');
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(requests, ['U'], 'a result exists: no new request');
+  on = false;
+  assert.equal(m.markOf('U', 'FB_Dead'), undefined, 'switched off: no marks');
+  m.dispose();
+});

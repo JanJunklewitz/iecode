@@ -1,7 +1,7 @@
 // Display data for unused objects: the tree, the editor hints and the list command show the same set.
 
 import type { NodeId } from './objectGraph';
-import type { UnitAnalysis } from './analysisState';
+import type { AnalysisState, UnitAnalysis } from './analysisState';
 
 export interface UnusedMark {
   id: NodeId; name: string; file: string; line: number; col: number;
@@ -46,3 +46,42 @@ export function treeDescription(mark: UnusedMark | undefined, base: string): str
   if (!mark) return base;
   return base ? `${base} · unused` : 'unused';
 }
+
+/** What the project tree asks: the mark of a node, and a nudge to compute a unit's analysis. */
+export interface UnusedLookup {
+  markOf(unitId: string, nodeId: string): UnusedMark | undefined;
+  ensure(unitId: string): void;
+}
+
+export class UnusedMarks implements UnusedLookup {
+  private readonly memo = new WeakMap<UnitAnalysis, Map<string, UnusedMark>>();
+  private readonly timers = new Map<string, NodeJS.Timeout>();
+
+  constructor(private readonly analysis: Pick<AnalysisState, 'peek' | 'request'>, private readonly enabled: () => boolean, private readonly delayMs = 300) {}
+
+  private marksOf(a: UnitAnalysis) {
+    let m = this.memo.get(a);
+    if (!m) { m = new Map(unusedMarks(a).map(k => [k.id, k])); this.memo.set(a, m); }
+    return m;
+  }
+
+  markOf(unitId: string, nodeId: string): UnusedMark | undefined {
+    if (!this.enabled()) return undefined;
+    const a = this.analysis.peek(unitId);
+    return a && !emptyReason(a) ? this.marksOf(a).get(nodeId.toUpperCase()) : undefined;
+  }
+
+  /** Starts the computation for a unit when marks are on; debounced, and AnalysisState deduplicates running requests. */
+  ensure(unitId: string): void {
+    if (!this.enabled() || this.analysis.peek(unitId) || this.timers.has(unitId)) return;
+    this.timers.set(unitId, setTimeout(() => { this.timers.delete(unitId); void this.analysis.request(unitId).catch(() => undefined); }, this.delayMs));
+  }
+
+  marksByFileOf(unitId: string): Map<string, UnusedMark[]> {
+    const a = this.analysis.peek(unitId);
+    return a && !emptyReason(a) ? marksByFile([...this.marksOf(a).values()]) : new Map();
+  }
+
+  dispose() { this.timers.forEach(clearTimeout); this.timers.clear(); }
+}
+
