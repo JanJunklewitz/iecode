@@ -6,6 +6,7 @@ import { Group, Unit, librariesByTitle, systemProjects } from '../core/workspace
 import { WorkspaceState } from '../state';
 import { LIB_SCHEME, LibrarySource, LibrarySources } from '../lang/librarySources';
 import { LibraryObject } from '../core/libraryArchive';
+import { TYPE_SHORT } from '../core/treeFilter';
 
 /** Tree nodes. `contextValue` drives the context menus in package.json. */
 export type Node =
@@ -33,8 +34,6 @@ const TYPE_ICON: Record<ObjectType, string> = {
   STRUCT: 'symbol-structure', ENUM: 'symbol-enum', UNION: 'symbol-structure', ALIAS: 'symbol-type-parameter',
   GVL: 'symbol-variable', TASK: 'watch', TEXTLIST: 'symbol-text', IMAGEPOOL: 'file-media', VISUMANAGER: 'settings', OTHER: 'file',
 };
-const TYPE_SHORT: Partial<Record<ObjectType, string>> = { FUNCTION_BLOCK: 'FB', PROGRAM: 'PRG', FUNCTION: 'FUN', INTERFACE: 'ITF', ENUM: 'ENUM', STRUCT: 'STRUCT', UNION: 'UNION', ALIAS: 'ALIAS', GVL: 'GVL',
-  TASK: 'task', TEXTLIST: 'texts', IMAGEPOOL: 'images', VISUMANAGER: 'visu settings' };
 const MEMBER_ICON: Record<Member['kind'], string> = { METHOD: 'symbol-method', PROPERTY: 'symbol-property', ACTION: 'symbol-event', TRANSITION: 'arrow-right' };
 
 const KIND_GROUP: Record<Member['kind'], string> = { METHOD: 'Methods', PROPERTY: 'Properties', ACTION: 'Actions', TRANSITION: 'Transitions' };
