@@ -30,6 +30,7 @@
    No finding on the first call per key or when a counter is missing. The texts never claim "everything is reset" (persistent data survive).
 4. **Time budget:** the op reads the state and the three counters with one ADS state read and one sum read through the existing backend; each call has the ADS client timeout; the extension uses the normal request timeout.
 5. **No change to `ads_watch`**: the restart finding is only in `ads_state` (Plan B already gives a reload notice).
+6. **TwinCAT system state from the router port.** The AMS router's own ADS port 10000 answers `ReadState` on every TwinCAT PC (measured in another ADS project, October 2026), also when no PLC runs. `ReadPlcState` reads it with a second, short-lived client and returns it as `systemState` (`Run`, `Config`, ...), so the tool tells "TwinCAT is in config mode" from "the PLC is stopped" and from "target not reachable". A failure there only leaves the field out. Only `ReadState` is sent to port 10000; nothing connects to the router TCP ports (a bare connect to 48898 broke concurrent ADS connections in those measurements).
 
 ## Review Focus
 
@@ -54,19 +55,21 @@
 - Produces C#:
   ```csharp
   // WatchProtocol.cs
-  public sealed record PlcState(string AdsState, ushort DeviceState, long? CycleCount, long? CycleTimeUs, long? OnlineChangeCount, string? TaskNote);
+  public sealed record PlcState(string AdsState, ushort DeviceState, long? CycleCount, long? CycleTimeUs, long? OnlineChangeCount, string? TaskNote, string? SystemState);
   // IWatchBackend (default throws NotSupportedException so fakes keep compiling)
   PlcState ReadPlcState(int task);
   // AdsLink.cs, IAdsLink
   (AdsErrorCode Code, string AdsState, ushort DeviceState) ReadStateInfo();
+  // AdsWatchBackend: new optional ctor parameter Func<IAdsLink>? newRouterLink (the public ctor passes () => new BeckhoffLink(resolved, 10000)); null = no system state (fakes)
   // WatchHost.cs: "state" => DoState(root); optional integer "task" 1..16, default 1
   internal sealed record WatchStateData(string AdsState, ushort DeviceState,
       [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? CycleCount,
       [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? CycleTimeUs,
       [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? OnlineChangeCount,
-      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TaskNote);
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TaskNote,
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SystemState);
   ```
-  Wire: `{"id":5,"op":"state","task":1}` -> `{"id":5,"ok":true,"data":{"adsState":"Run","deviceState":0,"cycleCount":1234567,"cycleTimeUs":10000,"onlineChangeCount":3}}`.
+  Wire: `{"id":5,"op":"state","task":1}` -> `{"id":5,"ok":true,"data":{"adsState":"Run","deviceState":0,"cycleCount":1234567,"cycleTimeUs":10000,"onlineChangeCount":3,"systemState":"Run"}}`.
 
 - [ ] **Step 1: Check the names against a simulation (about 30 min)**
 
@@ -85,13 +88,15 @@ With `iecode ads serve` (stdin): `{"id":1,"op":"read","symbols":["TwinCAT_System
 [Fact] public void ReadPlcState_reads_state_and_task_counters()                 // CycleTime 100000 -> CycleTimeUs 10000
 [Fact] public void ReadPlcState_without_the_system_info_symbols_returns_state_and_a_note()  // TaskNote starts "task counters not readable: "
 [Fact] public void ReadPlcState_maps_a_failing_state_read_to_an_AdsFault()
+[Fact] public void ReadPlcState_adds_the_system_state_from_port_10000()          // fake link for port 10000 answers Config -> SystemState "Config"
+[Fact] public void ReadPlcState_without_an_answer_from_port_10000_leaves_the_system_state_out()  // the PLC fields still come back
 ```
 
 - [ ] **Step 3: Run to verify they fail (PowerShell tool, separate commands)**
 
 `dotnet build cli/tests/IECode.Core.Tests`, then `dotnet test cli/tests/IECode.Core.Tests --no-build --filter "FullyQualifiedName~State_"`. Expected: compile errors (`ReadPlcState`, `PlcState` missing).
 
-- [ ] **Step 4: Implement.** `DoState` reads `task` like `DoInterval` reads `ms`; `AdsWatchBackend.ReadPlcState` calls `link.ReadStateInfo()` (code other than `NoError` -> `AdsFault` through the existing mapping) and reads the three names in one go; a missing symbol or a non-connection `AdsFault` becomes `TaskNote = "task counters not readable: <message>"`. `BeckhoffLink.ReadStateInfo` uses `_client.TryReadState(out var info)` and returns `info.AdsState.ToString()` and `info.DeviceState`. `UnavailableBackend.ReadPlcState` throws its stored fault.
+- [ ] **Step 4: Implement.** `DoState` reads `task` like `DoInterval` reads `ms`; `AdsWatchBackend.ReadPlcState` calls `link.ReadStateInfo()` (code other than `NoError` -> `AdsFault` through the existing mapping) and reads the three names in one go; a missing symbol or a non-connection `AdsFault` becomes `TaskNote = "task counters not readable: <message>"`. `BeckhoffLink.ReadStateInfo` uses `_client.TryReadState(out var info)` and returns `info.AdsState.ToString()` and `info.DeviceState`. The system state uses `newRouterLink`: `Connect`, `ReadStateInfo`, dispose; no factory or any failure leaves `SystemState` null. `UnavailableBackend.ReadPlcState` throws its stored fault.
 
 - [ ] **Step 5: Run to verify they pass**, then both test projects in full (separate commands). Expected: all pass.
 
@@ -115,7 +120,7 @@ git commit -s -m "Add a state op to the ADS watch host" -m "An agent cannot tell
 - Produces:
   ```ts
   // plcState.ts
-  export interface PlcStateReply { adsState: string; deviceState: number; cycleCount?: number; cycleTimeUs?: number; onlineChangeCount?: number; taskNote?: string }
+  export interface PlcStateReply { adsState: string; deviceState: number; cycleCount?: number; cycleTimeUs?: number; onlineChangeCount?: number; taskNote?: string; systemState?: string }
   export function parsePlcState(data: unknown): PlcStateReply | string;   // string = 'unexpected reply to the state request'
   export type StateFinding =
     | { kind: 'restart' | 'restartOrWrap' | 'slow'; was: number; now: number; sinceMs: number }
@@ -151,6 +156,7 @@ test('stateText for a running PLC', () => {
 });
 test('stateText for a stopped PLC', ...)    // second line 'The PLC is not running: values are not updated.', then the task line
 test('stateText without counters', ...)     // 'Task 1: task counters not readable: <note>' (default 'task counters not available')
+test('stateText names a TwinCAT system that is not in Run', ...)   // systemState 'Config': second line 'TwinCAT system: Config (config mode: no PLC program runs).'; systemState 'Run' or missing adds no line
 test('stateText findings', ...)             // pinned:
 // restart:       'Restart detected: the cycle count went from 1000000 to 12 since the call at T1000.'
 // restartOrWrap: 'The cycle count went from 4294960000 to 5000 since the call at T1000: a restart or a counter wrap.'
@@ -167,7 +173,7 @@ test('ads_state on a protocol-1 host gives the missing-feature text', ...)   // 
 
 - [ ] **Step 3: Implement in one compiling step** (round 2 item 17): `plcState.ts`, `parseStateInput`, `ToolNames.state`, `AdsToolFns.state` with its MCP registration, `LM_TOOL_NAMES` entry, the `lmTools.ts` handler, `adsTools.state` (`const missing = await host.requires('plcState'); if (missing) return error(missing);` then `plcState`, tracker per `adsTools()` call, `stateText` plus the target line), `hostProtocol.ts` entry 2 and `FEATURE_LABELS.plcState = 'PLC state'`, and the manifest:
   - `displayName` `ADS State`; `userDescription` `Read the run state of the PLC and detect a restart.`
-  - `modelDescription`: `Returns the PLC run state (Run, Stop, Config), the cycle time and cycle counter of a PLC task (default 1) and the online change count. Call it again later: it says when the cycle counter went down (restart) or the online change count changed (download or online change) since the previous call. Needs a recent iecode CLI.`
+  - `modelDescription`: `Returns the PLC run state (Run, Stop, Config), the state of the TwinCAT system when it is not running, the cycle time and cycle counter of a PLC task (default 1) and the online change count. Call it again later: it says when the cycle counter went down (restart) or the online change count changed (download or online change) since the previous call. Needs a recent iecode CLI.`
   - `inputSchema`: `task` (integer, minimum 1, maximum 16, `PLC task number, default 1.`).
 
 - [ ] **Step 4: Run to verify they pass.** Run: `cd extension && npm test`. Expected: all pass.

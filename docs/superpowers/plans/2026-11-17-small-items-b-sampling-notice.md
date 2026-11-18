@@ -27,6 +27,19 @@
 5. **Where the notice goes:** first line of `ads_watch`, `ads_read`, `ads_scope`; last line of `ads_wait` (its verdict stays first). ADS Watch view: `TreeView.message` shows the newest notice for 120 s when the view has no disconnect message. ADS Scope: the existing `note` field shows it under the same rule.
 6. **At most three notice lines** per result, newest kept, plus `(N earlier notices not shown)`.
 
+## Prior measurements (another ADS project, simulation targets, October 2026)
+
+Measured with a handle-based poll loop of up to 3000 symbols; they tell which notice each scenario should produce.
+
+| Scenario | Measured behaviour | Expected notice here |
+|---|---|---|
+| Route cut for about 20 s while polling | Reads fail with `0x7` (target machine not found); the PLC keeps its handles, values come back by themselves without a re-resolve; no SDK connection event fired | `lost ... and restored ...`, no `reloaded` |
+| PLC download with a changed symbol list | Reads fail with `0x710`, then `0x745` timeouts for about 30 s, then `0x1D` (secure route coming back); the symbol version (index group `0xF008`) went up by one | `lost ... restored`, then `reloaded` (symbol version changed) |
+| PLC restart without download | Stale handles answer `0x711`; exactly one re-resolve; values equal afterwards; recovery 6-16 s after a system restart (20 restarts in 10 h) | `reloaded` (symbol handles no longer valid), usually after `lost/restored` |
+| Online change | Not measured (the attempt failed in the XAE). A change that adds a symbol may keep the old handles valid and need no re-resolve | Unknown: record in the manual check |
+
+Two cautions taken over from those runs: a bare TCP connect to the router port 48898 made every concurrent ADS connection on that PC fail with `TlsSendError`, so no part of this plan probes router ports (the `TODO.md` note "the route needs a TCP probe of 8016 / 48898" was a manual observation, not a mechanism to build); and while the target is down, a re-resolve that fails every cycle floods the log unless it is throttled (the host's `ReportOnce` already keeps one line per message).
+
 ## Review Focus
 
 1. The first `connected:false` before any `connected:true` (target not reachable at start) is not a "lost" event. (Task 2, `an initial disconnect is not a loss`)
@@ -200,7 +213,7 @@ git commit -s -m "Add a log of connection and sampling events" -m "The tools nee
 
 1. H1 idle stop: add symbols with `ads_watch` through MCP, close the ADS Watch view and the scope, wait 60 s, call `ads_scope`: first line `Notice: sampling stopped at ...; ads_watch or ads_wait starts it again.`
 2. H2 restart with the view open: restart TwinCAT; the view shows the loss message, then the notice; the next `ads_watch` starts with `lost at ... and restored at ...`.
-3. Download with an unchanged list (if the target allows a download): `ads_read` starts with `the symbols were reloaded`.
+3. Download with an unchanged list (if the target allows a download): `ads_read` starts with `the symbols were reloaded`. If the target allows an online change, try one and record whether the symbol version changes and whether a `reloaded` notice comes (not measured anywhere yet).
 4. H3: kill the `iecode ads serve` child with the view open; record whether anything restarts it (expected: no; record as a new TODO item if so).
 5. A call without events: no notice line.
 
