@@ -629,7 +629,7 @@ export class AdsHost implements vscode.Disposable {
         this.setState({ connected: msg.connected, error: msg.error });
         break;
       case 'reloaded':
-        this.record(() => this.log.record({ kind: 'reloaded', t: Date.now(), reason: msg.reason }));
+        this.record(() => this.log.record({ kind: 'reloaded', t: Date.now(), reason: typeof msg.reason === 'string' ? msg.reason : 'symbols reloaded' }));
         break;
     }
   }
