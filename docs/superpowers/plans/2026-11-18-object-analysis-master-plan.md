@@ -60,9 +60,18 @@ One PR per lane: Lane 1 (A to C), Lane 2 (D to F), Lane 3 (G, H). This branch ca
 | 6 | D, E | Library projects get no unused findings (their users are outside the workspace); only application projects and standalone projects are analysed. Extra roots come from the setting `iecode.analysis.rootObjects` (names or globs). | Marking library objects too. |
 | 7 | G | The symbol list for IO links comes from the build output (`.tmc`, the same source XAE resolves links against), with the existing stale warning; without a build the checks say "not built" and report nothing. | Re-deriving `AT %I*` variables from the source (aliases and nesting differ from the build). |
 
+## Check against a real project (2026-11-18)
+
+The plans were checked read-only against a real XAE 4024 project (one PLC project, one system project, 1057 commits; only numbers are recorded here, no names). What changed because of it:
+
+- **Plan G** was rewritten: 10 % of the links name array elements or `^` sub-paths that are not symbols of their own in the `.tmc`, so a naive lookup would report about 90 dead links where there are 2; the size rule was dropped (`Size` is not `BitSize / 8`); an `<UnrestoredVarLinks>` block full of old links must be ignored. Details and numbers in Plan G.
+- **Plan D** got the qualified task call and the 141 visualization files as cases.
+- **Plan H** got a baseline: 359 object files, zero violations of the structure rules (so a finding on a healthy project is a rule bug).
+- Confirmed unchanged: the area / symbol model of `linksOfFile` and `parseTmc` (139 ms for 7 MB), two tasks, `TcTTO` calls. Not yet measured: blame and history speed on a repository of that size (1057 commits; one sampled object file has 4); Plan A and B check it in their manual steps.
+
 ## Open questions (do not block A to F; each has a default)
 
-1. **Which rules does TwinCAT itself enforce for double links?** G's "channel linked twice" default: warning for two PLC variables on one output channel, info for several variables on one input channel. Check on a simulation project before G ships.
+1. **Which rules does TwinCAT itself enforce for double links?** Measured on the real project: 18 input channels feed 2 or more PLC variables (normal), 2 output channels have 2 or more sources. G's defaults stand (info for inputs, warning for outputs); still check the output case in XAE before G ships.
 2. **Variables, not only objects:** unused GVL / FB variables are out of scope for E; the graph (D) keeps member granularity so it can follow.
 3. **`iecode lint` for CI:** see decision 1; decide after H's rules have run on real projects for a while.
 4. **Object moves between files in the history (B):** needs the changed-file list of every commit and a cross-file pairing; left out until someone needs it.

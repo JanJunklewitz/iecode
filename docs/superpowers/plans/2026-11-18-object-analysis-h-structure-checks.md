@@ -24,6 +24,7 @@
 3. A function block that extends a base which is a library object without source: the OOP rules say "not checked" (info), never an error.
 4. An interface method implemented with a different return type or a different `VAR_INPUT` order is an error naming both signatures.
 5. A file with a git conflict marker in the XML: one finding `merge-conflict` (reuse `hasXmlConflict`), nothing else.
+6. **Real-project baseline (2026-11-18):** a scan of 359 object files of a real project (55 POU, 299 DUT, 5 GVL; BOM and CRLF) for the rules `guid-format`, `guid-unique`, `name-mismatch`, `file-name-mismatch` and `lineids-orphan` found no violation; one file has no `TcPlcObject` root (a project information file) and must give no finding or at most one `xml-parse` info, not an error. Task 2 ends with a manual run on such a project: more than a handful of findings on a project that builds in XAE means a rule is wrong.
 
 ## File Structure
 
@@ -70,7 +71,7 @@
 - [ ] **Step 1: Write the failing tests**, one valid-file test per Review Focus 1 and 2 (load the fixtures from `extension/test/fixtures`; assert zero findings) and one failing fixture string per rule asserting rule id, level, and the line of the first character of the offending attribute or node; `merge-conflict` test asserts exactly one finding; `lineids-orphan` fix: applying `fix.edit` to the text gives XML that still parses and whose other bytes are identical (compare with the orphan node cut out).
 - [ ] **Step 2: Run tests.** Expected: FAIL.
 - [ ] **Step 3: Implement** the rules; positions from node offsets (`attrs` have no offsets in `XNode`; if `xml.ts` lacks attribute offsets, search the opening-tag text for `Id="` between `node.start` and `node.innerStart` and keep that helper local).
-- [ ] **Step 4: Run tests.** Expected: PASS.
+- [ ] **Step 4: Run tests,** then run `checkStructure` over every object file of a real project (script in the scratchpad, not committed; print counts per rule only). Expected: PASS and, per Review Focus 6, no more than a handful of findings.
 - [ ] **Step 5: Commit** `Check the structure of PLC object files` (body: hand and AI edits can leave a file TwinCAT refuses to load; these are the failures seen as bad GUIDs, name drift and stale LineIds).
 
 ### Task 3: OOP rules

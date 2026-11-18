@@ -23,7 +23,8 @@
 3. `FB_init`, `FB_exit`, `FB_reinit` of a reachable function block are reachable without any textual call.
 4. An identifier that cannot be resolved (unknown name, call through a pointer, library without source) marks every member of that name in the project reachable, with the reason `by-name`.
 5. Recursive and mutually recursive calls, and an object that extends itself by mistake, terminate.
-6. Objects named only in a visualization file (`.TcVIS`) or in `iecode.analysis.rootObjects` are roots.
+6. **Qualified task call (measured on a real project):** a project has two task files; one calls `MAIN`, the other a program of a visualization library with a namespace prefix (`<Lib>.<Program>`). The call resolves through `SymbolIndex.find`, which skips a known namespace prefix; if the library has no source in the index, the call is a note, not a root and not an error. The same project has 141 visualization files, so the visualization text roots below matter in practice.
+7. Objects named only in a visualization file (`.TcVIS`) or in `iecode.analysis.rootObjects` are roots.
 
 ## File Structure
 

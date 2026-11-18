@@ -17,7 +17,7 @@
 
 ## Review Focus
 
-1. A variable address in an IO link is `PlcTask Inputs^MAIN.bStart` below the PLC instance path; the impact of `MAIN.bStart` must find that link, and a same-named variable in another program must not.
+1. The PLC side of an IO link, as `HwLink.left` has it, is `PlcTask Inputs^MAIN.bStart`; the impact of `MAIN.bStart` must find that link, and a same-named variable in another program must not. Real links also name array elements and sub-paths (`...iaState[3]`, `...stData^D[0]`): the impact of the array variable must find them (use `normalizeLinkPath` of `core/ioLinkSymbols.ts`, created by Plan G Task 1 or here, whichever is built first: lower-case, `[n]` removed, `^` as `.`).
 2. Impact of a method called only through an interface lists the callers of the interface method.
 3. Names with characters Mermaid cannot take as ids (dots, spaces, brackets, quotes, umlauts) export as valid text (test with a round trip through the id sanitiser: two different names never collapse to one id).
 4. Impact of an unused object: "no task reaches it" and the callers list is empty or only unused objects.
@@ -38,7 +38,7 @@
 - Produces:
   ```ts
   export interface ImpactResult { target: NodeId; tasks: NodeId[]; directCallers: { id: NodeId; line: number }[]; transitiveCallers: number; ioLinks: IoLink[]; notes: string[] }
-  export function ioVariablePath(link: IoLink): string | undefined          // 'MAIN.bStart' from the area-based path, undefined when the path has no 'Inputs^' / 'Outputs^' / 'Internal^' area part
+  export function ioVariablePath(link: IoLink): string | undefined          // 'main.bstart' from 'PlcTask Inputs^MAIN.bStart' via normalizeLinkPath; undefined for a side that is not a PLC area ('TIPC^' safety links, IO sides)
   export function impactOf(g: ObjectGraph, reach: Reach, roots: NodeId[], target: NodeId, links: IoLink[] | undefined, variable?: string): ImpactResult
   ```
   `variable` is an optional member variable path (`MAIN.bStart`) for impact of a variable rather than an object; IO links match when `ioVariablePath(link)` equals the variable path case-insensitively, or starts with it plus `.` (struct member). With `links` undefined the note says IO links were not read.
