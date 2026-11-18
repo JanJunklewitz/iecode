@@ -73,3 +73,6 @@ test('nextRefreshMs', () => {
   assert.equal(nextRefreshMs({ kind: 'expired', untilMs: 0 }), undefined);
   assert.equal(nextRefreshMs({ kind: 'notArmed' }), undefined);
 });
+test('a non-finite duration is never armed (fail closed)', () => {
+  for (const minutes of [NaN, Infinity, -Infinity, 0, -5]) assert.equal(st(iso(NOW), minutes).kind, 'notArmed', String(minutes));
+});

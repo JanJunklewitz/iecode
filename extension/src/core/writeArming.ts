@@ -16,9 +16,12 @@ export type AutoState =
 
 export function autoState(o: { setting: string; armedAt: unknown; minutes: number; nowMs: number }): AutoState {
   if (o.setting !== 'auto') return { kind: 'notAuto' };
+  // fail closed: a duration that is not a positive finite number must never read as armed
+  if (!Number.isFinite(o.minutes) || o.minutes <= 0) return { kind: 'notArmed' };
   const armedMs = typeof o.armedAt === 'string' ? Date.parse(o.armedAt) : NaN;
   if (Number.isNaN(armedMs) || armedMs > o.nowMs) return { kind: 'notArmed' };
   const untilMs = armedMs + o.minutes * MINUTE_MS;
+  if (!Number.isFinite(untilMs)) return { kind: 'notArmed' };
   if (untilMs <= o.nowMs) return { kind: 'expired', untilMs };
   return { kind: 'armed', untilMs, leftMs: untilMs - o.nowMs };
 }
