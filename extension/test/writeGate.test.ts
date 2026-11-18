@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WriteGate, GateDeps, GatePolicy, WriteOp, WriteResult, PreparedWrites, WriteNotSent, WriteOutcomeUnknown, sendOutcome, writeResultText, writeResultIsError, itemsOf, featureOf } from '../src/core/writeGate';
-import { WriteDecision } from '../src/core/adswatch';
+import { WriteDecision, aiWriteDecision } from '../src/core/adswatch';
+import { autoState, effectiveSetting } from '../src/core/writeArming';
 
 // ---- helpers ----
 
@@ -384,13 +385,16 @@ test('an auto approval that lapses before the send is refused', async () => {
   assert.equal(r.sent.length, 0);
 });
 
-test('a prepared Copilot allow is refused when the auto window lapsed since the prepare step', async () => {
-  const r = rig();
-  r.state.decision = 'confirm';
-  const res = await r.gate.run(op('MAIN.x', { via: 'Copilot', prepared: { decision: 'allow' } }), ac().signal);
-  assert.match(refused(res), /changed after this write was prepared/);
-  assert.equal(r.sent.length, 0);
+test('an expired or not-armed auto window decides confirm', () => {
+  const NOW = 1_000_000_000_000;
+  const expired = autoState({ setting: 'auto', armedAt: new Date(NOW - 120 * 60_000).toISOString(), minutes: 60, nowMs: NOW });
+  const notArmed = autoState({ setting: 'auto', armedAt: new Date(NOW + 60_000).toISOString(), minutes: 60, nowMs: NOW });
+  assert.equal(expired.kind, 'expired');
+  assert.equal(notArmed.kind, 'notArmed');
+  assert.equal(aiWriteDecision(effectiveSetting('auto', expired), false), 'confirm');
+  assert.equal(aiWriteDecision(effectiveSetting('auto', notArmed), false), 'confirm');
 });
+
 
 test('gate takes a prepared Copilot approval', async () => {
   const r = rig();
