@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.18
+
+### CLI
+- In the classic Windows console (`cmd.exe`, a double-clicked `iecode.exe`) the output shows colors instead of raw escape codes such as `[2K[2m`: `iecode` now switches the console into ANSI mode itself. Consoles that refuse it get plain lines.
+
 ## 0.2.17
 
 ### Libraries
