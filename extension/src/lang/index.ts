@@ -33,6 +33,8 @@ export function indexObject(file: string, view: string, library?: string): Index
 export class SymbolIndex {
   private readonly byFile = new Map<string, IndexedObject>();
   private readonly byName = new Map<string, IndexedObject>();
+  /** GVL variables by upper-case name, in the order the GVLs were added; kept up to date by add() / remove(). */
+  private readonly gvlVars = new Map<string, { obj: IndexedObject; sym: PlcSymbol }[]>();
   /** Library namespaces (upper case) → library name, for qualified names like Tc2_Standard.TON. */
   private namespaces = new Map<string, string>();
 
@@ -46,6 +48,8 @@ export class SymbolIndex {
     const { file, library } = obj;
     this.remove(file);
     this.byFile.set(file, obj);
+    if (obj.root?.kind === 'GVL')
+      for (const sym of obj.root.children) { const k = U(sym.name); this.gvlVars.set(k, [...(this.gvlVars.get(k) ?? []), { obj, sym }]); }
     if (obj.root) {
       const prev = this.byName.get(U(obj.root.name));
       if (!prev || !library || prev.library) this.byName.set(U(obj.root.name), obj);
@@ -57,6 +61,11 @@ export class SymbolIndex {
     const old = this.byFile.get(file);
     if (!old) return;
     this.byFile.delete(file);
+    if (old.root?.kind === 'GVL')
+      for (const sym of old.root.children) {
+        const k = U(sym.name), rest = (this.gvlVars.get(k) ?? []).filter(e => e.obj !== old);
+        if (rest.length) this.gvlVars.set(k, rest); else this.gvlVars.delete(k);
+      }
     if (old.root && this.byName.get(U(old.root.name)) === old) {
       const n = U(old.root.name);
       this.byName.delete(n);
@@ -109,6 +118,15 @@ export class SymbolIndex {
     if (/^\/\/(====|----)/.test(lines[line] ?? '')) return undefined;
     const offset = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0) + col;
     if (this.inTrivia(obj.view, offset)) return undefined;
+    return this.resolveAt(obj, line, offset);
+  }
+
+  /**
+   * The lookup of resolve() for an identifier whose character offset in the view is known, without the per-call work
+   * (splitting the view, tokenizing it again to find trivia). The caller guarantees the offset is not in a comment, string,
+   * pragma or section header; this is what a loop over the tokens of one file needs.
+   */
+  resolveAt(obj: IndexedObject, line: number, offset: number): Location | undefined {
     const w = wordAt(obj.view, offset);
     if (!w || KEYWORDS.has(U(w.word)) || ELEMENTARY_TYPES.has(U(w.word))) return undefined;
     const chain = [...w.qualifier, w.word];
@@ -139,11 +157,8 @@ export class SymbolIndex {
     }
     const global = this.find(name);
     if (global?.root) return this.loc(global, global.root);
-    for (const o of this.byFile.values()) {
-      if (o.root?.kind !== 'GVL') continue;
-      const v = o.root.children.find(c => U(c.name) === n);
-      if (v) return this.loc(o, v, o.root);
-    }
+    const gv = this.gvlVars.get(n)?.[0];
+    if (gv) return this.loc(gv.obj, gv.sym, gv.obj.root);
     return undefined;
   }
 
