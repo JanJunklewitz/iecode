@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { changedSections, discardSection, hasMixedEol, sectionRanges, stageSection } from '../src/core/objectStage';
+import { tempRepo } from './helpers/gitRepo';
+import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, runGit, writeIndexBlob } from '../src/core/git';
+import { join } from 'path';
+import { readFileSync, rmSync, writeFileSync } from 'fs';
 import { decode, sectionsOfXml } from '../src/model';
 import { ViewError } from '../src/model';
 
@@ -174,4 +178,100 @@ test('line endings follow the target', () => {
 test('a key in neither side throws', () => {
   const x = pou({});
   assert.throws(() => stageSection(x, x, 'METHOD:Nope'), ViewError);
+});
+
+// ---------------------------------------------------------------- git index
+
+test('readIndex returns the staged text and undefined for an untracked file', async () => {
+  const r = tempRepo();
+  try {
+    r.write('a.txt', 'one\n'); r.commitAll('c1'); r.write('u.txt', 'x');
+    assert.equal(await readIndex(r.dir, join(r.dir, 'a.txt')), 'one\n');
+    assert.equal(await readIndex(r.dir, join(r.dir, 'u.txt')), undefined);
+  } finally { r.cleanup(); }
+});
+
+test('writeIndexBlob changes the index but not the working file or HEAD; BOM and CRLF survive', async () => {
+  const r = tempRepo();
+  try {
+    r.write('a.txt', '﻿one\r\n'); r.commitAll('c1');
+    r.write('a.txt', '﻿two\r\n');
+    const f = join(r.dir, 'a.txt');
+    const e = (await indexEntry(r.dir, f))!;
+    await writeIndexBlob(r.dir, f, '﻿staged\r\n', e.sha);
+    assert.equal(await readIndex(r.dir, f), '﻿staged\r\n');
+    assert.match(r.git('diff', '--cached', '--stat'), /a\.txt/);
+    assert.equal(r.git('show', 'HEAD:a.txt'), '﻿one\r\n');
+    assert.equal(readFileSync(f, 'utf8'), '﻿two\r\n');
+  } finally { r.cleanup(); }
+});
+
+test('with core.autocrlf=true an LF index stays LF', async () => {
+  const r = tempRepo();
+  try {
+    r.git('config', 'core.autocrlf', 'true');
+    r.write('a.txt', 'one\n'); r.commitAll('c1');
+    const f = join(r.dir, 'a.txt');
+    const e = (await indexEntry(r.dir, f))!;
+    await writeIndexBlob(r.dir, f, 'two\n', e.sha);
+    assert.equal(await readIndex(r.dir, f), 'two\n');
+  } finally { r.cleanup(); }
+});
+
+test('writeIndexBlob refuses when the index entry changed in between', async () => {
+  const r = tempRepo();
+  try {
+    r.write('a.txt', 'one\n'); r.commitAll('c1');
+    const f = join(r.dir, 'a.txt');
+    const e = (await indexEntry(r.dir, f))!;
+    r.write('a.txt', 'other\n'); r.git('add', 'a.txt');
+    await assert.rejects(writeIndexBlob(r.dir, f, 'two\n', e.sha), /index changed/);
+  } finally { r.cleanup(); }
+});
+
+test('an intent-to-add file has an empty index blob', async () => {
+  const r = tempRepo();
+  try {
+    r.write('seed.txt', 's'); r.commitAll('c1');
+    r.write('n.txt', 'new\n'); r.git('add', '-N', 'n.txt');
+    assert.equal(await readIndex(r.dir, join(r.dir, 'n.txt')), '');
+  } finally { r.cleanup(); }
+});
+
+test('indexHasConflict is true during a conflicted merge', async () => {
+  const r = tempRepo();
+  try {
+    r.commit('a\nb\nc\n', 'base');
+    r.git('checkout', '-q', '-b', 't'); r.commit('a\nT\nc\n', 'topic');
+    r.git('checkout', '-q', 'main'); r.commit('a\nM\nc\n', 'main');
+    assert.equal(await indexHasConflict(r.dir, r.file), false);
+    r.tryGit('merge', 't');
+    assert.equal(await indexHasConflict(r.dir, r.file), true);
+  } finally { r.cleanup(); }
+});
+
+test('a blob with a non-UTF-8 byte is refused', async () => {
+  const r = tempRepo();
+  try {
+    r.write('a.txt', Buffer.from([0x2f, 0x2f, 0x20, 0xe4, 0x0a])); r.commitAll('c1');
+    await assert.rejects(readIndex(r.dir, join(r.dir, 'a.txt')), NotUtf8Error);
+  } finally { r.cleanup(); }
+});
+
+test('the sha check is repeated after an index.lock retry', async () => {
+  const r = tempRepo();
+  try {
+    r.write('a.txt', 'one\n'); r.commitAll('c1');
+    const f = join(r.dir, 'a.txt');
+    const e = (await indexEntry(r.dir, f))!;
+    const lock = join(r.dir, '.git', 'index.lock');
+    writeFileSync(lock, '');
+    const p = writeIndexBlob(r.dir, f, 'two\n', e.sha, 600);
+    await new Promise(res => setTimeout(res, 200));
+    rmSync(lock);
+    // behind the writer's back, during its retry delay
+    const sneaky = (await runGit(r.dir, ['hash-object', '-w', '--stdin'], { input: 'sneaky\n' })).trim();
+    await runGit(r.dir, ['update-index', '--cacheinfo', `100644,${sneaky},a.txt`]);
+    await assert.rejects(p, /index changed/);
+  } finally { r.cleanup(); }
 });
