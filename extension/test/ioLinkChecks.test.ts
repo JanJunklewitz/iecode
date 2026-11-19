@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HwLink, linksOfFile } from '../src/core/iotree';
-import { LinkSource, checkIoLinks, withLines } from '../src/core/ioLinkChecks';
+import { LinkSource, checkIoLinks, ioFindingRows, withLines } from '../src/core/ioLinkChecks';
+import type { Finding } from '../src/core/findings';
 import type { TmcFile, TmcVar } from '../src/core/tmc';
 
 const IN = 'PlcTask Inputs', OUT = 'PlcTask Outputs';
@@ -130,4 +131,12 @@ test('links in UnrestoredVarLinks are ignored; withLines finds the line of each 
   const sources = withLines(links, () => src);
   assert.equal(sources[0].line, 4);
   assert.deepEqual(rules(sources), []);
+});
+
+test('ioFindingRows sorts errors first, then by file and line', () => {
+  const f = (rule: string, level: Finding['level'], file: string, line: number): Finding =>
+    ({ rule, level, message: `m-${rule}`, file, line, col: 0, endLine: line, endCol: 1 });
+  const rows = ioFindingRows([f('a', 'hint', 'x', 1), f('b', 'error', 'z', 9), f('c', 'error', 'y', 2), f('d', 'warning', 'x', 0)]);
+  assert.deepEqual(rows.map(r => r.label), ['m-c', 'm-b', 'm-d', 'm-a']);
+  assert.deepEqual(rows[0], { label: 'm-c', description: 'error · c', file: 'y', line: 2, level: 'error' });
 });

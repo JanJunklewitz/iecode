@@ -111,3 +111,14 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
   }
   return out;
 }
+
+export interface IoFindingRow { label: string; description: string; file: string; line: number; level: Level }
+
+const LEVEL_ORDER: Record<Level, number> = { error: 0, warning: 1, info: 2, hint: 3 };
+
+/** One row per finding for the "Checks" group of the IO links view: errors first, then by file and line. */
+export function ioFindingRows(findings: Finding[]): IoFindingRow[] {
+  return [...findings]
+    .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] || a.file.localeCompare(b.file) || a.line - b.line)
+    .map(f => ({ label: f.message, description: `${f.level} · ${f.rule}`, file: f.file, line: f.line, level: f.level }));
+}
