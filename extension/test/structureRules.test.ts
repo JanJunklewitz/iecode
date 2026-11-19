@@ -146,3 +146,22 @@ test('a BOM does not shift the reported lines', () => {
 test('a protected (encrypted) object file gives no finding', () => {
   assert.deepEqual(run('TcEncryptedFile\u0001<\u0007\u0000garbage<'), []);
 });
+
+test('a truncated closing tag throws instead of looping', () => {
+  assert.throws(() => parseXml('<a></a '), /Unterminated closing tag/);
+  assert.throws(() => parseXml('<TcPlcObject><POU></POU></TcPlcObject '), /Unterminated closing tag/);
+});
+
+test('guid-unique edits the Id value even when another attribute value contains Id=', () => {
+  const xml = `<TcPlcObject><POU Name="P" Id="${G(1)}"><Method Name="M" Note="x Id=" Id="${G(1)}"><Declaration><![CDATA[METHOD M]]></Declaration><Implementation><ST><![CDATA[;]]></ST></Implementation></Method></POU></TcPlcObject>`;
+  const f = checkStructure(xml, '/p/P.TcPOU').find(x => x.rule === 'guid-unique');
+  assert.ok(f?.fix);
+  const fixed = xml.slice(0, f.fix.edit.start) + f.fix.edit.text + xml.slice(f.fix.edit.end);
+  assert.ok(fixed.includes('Note="x Id="'), 'the Note attribute stays intact');
+  assert.equal(fixed.split(G(1)).length - 1, 1, 'only the later Id changed');
+});
+
+test('a property without a Declaration is a member-structure finding', () => {
+  const xml = `<TcPlcObject><POU Name="P" Id="${G(1)}"><Declaration><![CDATA[FUNCTION_BLOCK P]]></Declaration><Property Name="X" Id="${G(2)}"><Get Name="Get" Id="${G(3)}"><Declaration><![CDATA[]]></Declaration></Get></Property></POU></TcPlcObject>`;
+  assert.ok(checkStructure(xml, '/p/P.TcPOU').some(x => x.rule === 'member-structure' && /no Declaration/.test(x.message)));
+});

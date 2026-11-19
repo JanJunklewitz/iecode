@@ -37,6 +37,7 @@ export function parseXml(src: string): XNode {
       i = close + 1;
     } else if (src[lt + 1] === '/') {
       const close = src.indexOf('>', lt);
+      if (close < 0) throw new Error(`Unterminated closing tag at ${lt}`);
       const name = src.slice(lt + 2, close).trim();
       const node = stack.pop();
       if (!node || node.name !== name) throw new Error(`Mismatched </${name}> at ${lt}`);

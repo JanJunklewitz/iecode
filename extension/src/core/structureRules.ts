@@ -29,10 +29,14 @@ const child = (n: XNode, name: string) => n.children.find(c => c.name === name);
 /** The value range of an attribute inside the opening tag of a node (or the node's tag when absent). */
 function attrRange(src: string, node: XNode, name: string): { start: number; end: number } {
   const tag = src.slice(node.start, node.innerStart);
-  const m = new RegExp(`(?<=\\s)${name}\\s*=\\s*"`).exec(tag);
-  if (!m) return { start: node.start, end: Math.min(node.innerStart, node.start + 1 + node.name.length) };
-  const start = node.start + m.index + m[0].length;
-  return { start, end: start + (tag.slice(m.index + m[0].length).indexOf('"')) };
+  // walk the attributes in order, as the scanner does, so a value that contains ` Id="` is not taken for the attribute
+  const re = /([^\s=<>/]+)\s*=\s*"([^"]*)"/g;
+  for (let m: RegExpExecArray | null; (m = re.exec(tag.slice(1 + node.name.length))); ) {
+    if (m[1] !== name) continue;
+    const end = node.start + 1 + node.name.length + m.index + m[0].length - 1;
+    return { start: end - m[2].length, end };
+  }
+  return { start: node.start, end: Math.min(node.innerStart, node.start + 1 + node.name.length) };
 }
 
 /** Text of a declaration: its CDATA sections, or the raw element text when it has none. */
@@ -143,9 +147,9 @@ export function checkStructure(xml: string, file: string, opts: { namingPrefixes
     const decl = child(m, 'Declaration');
     const text = declText(xml, decl);
     const nameAt = attrRange(xml, m, 'Name');
+    if (!decl) add('member-structure', level('member-structure'), `${m.name} ${m.attrs.Name} has no Declaration`, nameAt.start, nameAt.end);
     if (m.name === 'Method') {
-      if (!decl) add('member-structure', level('member-structure'), `Method ${m.attrs.Name} has no Declaration`, nameAt.start, nameAt.end);
-      else if (!isItf && !child(m, 'Implementation') && !/\bABSTRACT\b/i.test(stripNoise(text ?? '')))
+      if (decl && !isItf && !child(m, 'Implementation') && !/\bABSTRACT\b/i.test(stripNoise(text ?? '')))
         add('member-structure', level('member-structure'), `Method ${m.attrs.Name} has no Implementation`, nameAt.start, nameAt.end);
     } else if (!isItf && !m.children.some(c => c.name === 'Get' || c.name === 'Set')) {
       add('member-structure', level('member-structure'), `Property ${m.attrs.Name} has neither Get nor Set`, nameAt.start, nameAt.end);

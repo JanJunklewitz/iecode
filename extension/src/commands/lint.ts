@@ -60,7 +60,8 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
     const raw = await readXml(file);
     if (raw === undefined) { diags.delete(uri); versions.delete(uri.toString()); return []; }
     const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;   // VS Code reports open documents without the BOM
-    const found = levels(checkStructure(text, file, { namingPrefixes: cfg().get<Record<string, string>>('namingPrefixes', {}) }));
+    if (!enabled()) return [];   // switched off while the file was read
+    const found = levels(checkStructure(text, file,{ namingPrefixes: cfg().get<Record<string, string>>('namingPrefixes', {}) }));
     found.length ? publish(uri, found) : (diags.delete(uri), versions.delete(uri.toString()));
     return found;
   };
@@ -87,7 +88,7 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
     oopUris.delete(unit.id);
     if (!enabled()) return [];
     const { index } = await buildUnitIndex(unit, state.current, unitIndexInput, []);
-    if (oopRun.get(unit.id) !== run) return [];   // a newer run started while the index was built: it publishes
+    if (oopRun.get(unit.id) !== run || !enabled()) return [];   // a newer run started while the index was built (it publishes), or lint was switched off meanwhile
     const all: Finding[] = [];
     const uris = new Set<string>();
     for (const o of unit.plc.objects) {
