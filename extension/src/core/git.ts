@@ -269,14 +269,14 @@ export async function readIndex(root: string, file: string): Promise<string | un
 
 /** Mode, blob sha and stage of the first index entry of a file, undefined when it has none. */
 export async function indexEntry(root: string, file: string): Promise<{ mode: string; sha: string; stage: number } | undefined> {
-  const out = await git(root, ['ls-files', '-s', '--', rel(root, file)]);
+  const out = await git(root, ['--literal-pathspecs', 'ls-files', '-s', '--', rel(root, file)]);
   const m = /^(\d+) ([0-9a-f]+) (\d)\t/.exec(out.split('\n')[0]);
   return m ? { mode: m[1], sha: m[2], stage: Number(m[3]) } : undefined;
 }
 
 /** True while the file has unmerged index entries (stages 1 to 3). */
 export async function indexHasConflict(root: string, file: string): Promise<boolean> {
-  return (await git(root, ['ls-files', '-u', '--', rel(root, file)])).trim() !== '';
+  return (await git(root, ['--literal-pathspecs', 'ls-files', '-u', '--', rel(root, file)])).trim() !== '';
 }
 
 /**

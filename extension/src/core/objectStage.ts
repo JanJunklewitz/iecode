@@ -202,6 +202,10 @@ function takeSection(targetXml: string, sourceXml: string, key: string): string 
   edits.sort((a, b) => b.start - a.start || b.end - a.end);
   let out = t.body;
   for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  // the splice works on line starts: a layout it does not expect (one-line elements) must not reach the index as broken XML
+  let secs: Map<string, Sec>;
+  try { secs = analyze(t.bom + out).secs; } catch { throw new ViewError(`Staging ${key} alone would produce an invalid file: stage the whole file`); }
+  if (secs.has(key) !== !!inS) throw new ViewError(`Staging ${key} alone would put it in the wrong place: stage the whole file`);
   return t.bom + out;
 }
 

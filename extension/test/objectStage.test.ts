@@ -322,3 +322,20 @@ test('a GET added to a property that has a SET lands before the SET', () => {
   assert.ok(out.indexOf('<Get ') >= 0 && out.indexOf('<Get ') < out.indexOf('<Set '), out);
   assert.deepEqual(changedSections(out, work), []);
 });
+
+test('a layout the splice does not expect is refused, not staged as broken XML', () => {
+  const oneLine = (extra: string) => '<?xml version="1.0" encoding="utf-8"?>\n<TcPlcObject Version="1.1.0.1"><POU Name="FB_A" Id="' + guid(1) + '">'
+    + '<Declaration><![CDATA[FUNCTION_BLOCK FB_A]]></Declaration>' + extra + '</POU></TcPlcObject>\n';
+  const method = '<Method Name="M" Id="' + guid(5) + '"><Declaration><![CDATA[METHOD M]]></Declaration><Implementation><ST><![CDATA[x;]]></ST></Implementation></Method>';
+  assert.throws(() => stageSection(oneLine(''), oneLine(method), 'METHOD:M'), ViewError);
+});
+
+test('the index entry of a file name with glob characters is that file, not a neighbour matching the pattern', async () => {
+  const r = tempRepo();
+  try {
+    r.write('Pump1.TcPOU', 'one\n'); r.write('Pump[1].TcPOU', 'bracket\n'); r.commitAll('c1');
+    const want = r.git('rev-parse', 'HEAD:Pump[1].TcPOU').trim();
+    assert.equal((await indexEntry(r.dir, join(r.dir, 'Pump[1].TcPOU')))?.sha, want);
+    assert.equal(await indexHasConflict(r.dir, join(r.dir, 'Pump[1].TcPOU')), false);
+  } finally { r.cleanup(); }
+});
