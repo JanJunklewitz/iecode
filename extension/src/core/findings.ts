@@ -40,7 +40,7 @@ export function offsetToPosition(text: string, offset: number): { line: number; 
   const at = Math.max(0, Math.min(offset, text.length));
   let line = 0;
   for (let i = text.indexOf('\n'); i >= 0 && i < at; i = text.indexOf('\n', i + 1)) line++;
-  return { line, col: at - (text.lastIndexOf('\n', at - 1) + 1) };
+  return { line, col: at - (at === 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1) };
 }
 
 const LEVEL_NAMES: [Level, string, string][] = [['error', 'error', 'errors'], ['warning', 'warning', 'warnings'], ['info', 'info', 'infos'], ['hint', 'hint', 'hints']];

@@ -17,6 +17,7 @@ test('a rule missing from both maps keeps its own level', () => {
 test('offsetToPosition handles CRLF and the last line', () => {
   const t = 'ab\r\ncd\r\nef';
   assert.deepEqual(offsetToPosition(t, 0), { line: 0, col: 0 });
+  assert.deepEqual(offsetToPosition('\nx', 0), { line: 0, col: 0 }, 'a leading line break gives no negative column');
   assert.deepEqual(offsetToPosition(t, 4), { line: 1, col: 0 });
   assert.deepEqual(offsetToPosition(t, 5), { line: 1, col: 1 });
   assert.deepEqual(offsetToPosition(t, t.length), { line: 2, col: 2 });

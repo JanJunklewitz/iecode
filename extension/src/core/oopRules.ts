@@ -17,6 +17,8 @@ export const OOP_RULES: RuleInfo[] = [
 ];
 
 const U = (s: string) => s.toUpperCase();
+/** A POINTER or REFERENCE, also as the element type of an array: it holds no instance itself. */
+const isIndirect = (type: string) => /^(?:POINTER|REFERENCE)\b/i.test(type.trim().replace(/^(?:ARRAY\s*\[[^\]]*\]\s*OF\s+)+/i, ''));
 /** Methods TwinCAT calls itself: a derived FB_init may add parameters, so their signatures are free. */
 const LIFECYCLE = new Set(['FB_INIT', 'FB_REINIT', 'FB_EXIT']);
 const PARAM_SCOPES = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
@@ -74,7 +76,7 @@ export function checkOop(index: SymbolIndex, obj: IndexedObject): Finding[] {
         const impl = owner && members(owner).find(x => x.kind === im.kind && U(x.name) === U(im.name));
         if (!owner || !impl || sameSignature(impl, im)) continue;
         // a base that lists the same interface reports its own mismatch
-        if (owner !== obj && (owner.root?.implements ?? []).some(n => U(n) === U(itf.root!.name))) continue;
+        if (owner !== obj && interfaceClosure(index, owner.root?.implements ?? [], []).some(i => U(i.root!.name) === U(itf.root!.name))) continue;
         add('signature-mismatch', level('signature-mismatch'),
           `${describe(owner.root!.name, impl)} does not match ${describe(itf.root!.name, im)}`, owner === obj ? impl.range : root.range);
       }
@@ -84,7 +86,7 @@ export function checkOop(index: SymbolIndex, obj: IndexedObject): Finding[] {
   // an ABSTRACT block cannot be instantiated: variables of every object and member
   const visit = (s: PlcSymbol) => {
     for (const c of s.children) {
-      if (c.kind === 'VARIABLE' && c.scope !== 'VAR_IN_OUT' && c.type && !/^\s*(POINTER|REFERENCE)\b/i.test(c.type)) {
+      if (c.kind === 'VARIABLE' && c.scope !== 'VAR_IN_OUT' && c.type && !isIndirect(c.type)) {
         const t = baseTypeName(c.type);
         const target = t ? index.find(t) : undefined;
         if (target?.root?.kind === 'FUNCTION_BLOCK' && hasModifier(target.root, 'ABSTRACT'))

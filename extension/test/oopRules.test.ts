@@ -79,6 +79,8 @@ test('abstract-instantiation: a variable of an ABSTRACT block is an error, a poi
   assert.deepEqual(rules(mk('    x : ARRAY[0..1] OF FB_Abs;'), 'FB_User'), ['abstract-instantiation']);
   assert.deepEqual(rules(mk('    x : POINTER TO FB_Abs;'), 'FB_User'), []);
   assert.deepEqual(rules(mk('    x : REFERENCE TO FB_Abs;'), 'FB_User'), []);
+  assert.deepEqual(rules(mk('    x : ARRAY[1..4] OF POINTER TO FB_Abs;'), 'FB_User'), []);
+  assert.deepEqual(rules(mk('    x : ARRAY[1..4] OF REFERENCE TO FB_Abs;'), 'FB_User'), []);
   const inout = indexOf({ FB_Abs: abs, FB_User: `FUNCTION_BLOCK FB_User\nVAR_IN_OUT\n    x : FB_Abs;\nEND_VAR\n//---- IMPLEMENTATION ----\n` });
   assert.deepEqual(rules(inout, 'FB_User'), []);
 });

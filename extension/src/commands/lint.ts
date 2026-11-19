@@ -32,6 +32,8 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
   /** Hash of the text each published URI was analysed from, and the URIs each unit's OOP run published. */
   const versions = new Map<string, string>();
   const oopUris = new Map<string, Set<string>>();
+  /** Counter per unit: only the latest OOP run publishes, so overlapping runs cannot leave untracked diagnostics. */
+  const oopRun = new Map<string, number>();
   const timers = new Map<string, NodeJS.Timeout>();
   ctx.subscriptions.push(diags, { dispose: () => timers.forEach(t => clearTimeout(t)) });
 
@@ -55,8 +57,9 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
   const lintFile = async (file: string): Promise<Finding[]> => {
     const uri = vscode.Uri.file(file);
     if (!enabled()) { diags.delete(uri); return []; }
-    const text = await readXml(file);
-    if (text === undefined) { diags.delete(uri); return []; }
+    const raw = await readXml(file);
+    if (raw === undefined) { diags.delete(uri); versions.delete(uri.toString()); return []; }
+    const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;   // VS Code reports open documents without the BOM
     const found = levels(checkStructure(text, file, { namingPrefixes: cfg().get<Record<string, string>>('namingPrefixes', {}) }));
     found.length ? publish(uri, found) : (diags.delete(uri), versions.delete(uri.toString()));
     return found;
@@ -78,10 +81,13 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
 
   /** OOP rules for every object of the unit: an object that instantiates or depends on a changed one is found as well. */
   const lintUnitOop = async (unit: Unit): Promise<Finding[]> => {
-    for (const u of oopUris.get(unit.id) ?? []) diags.delete(vscode.Uri.parse(u));
+    const run = (oopRun.get(unit.id) ?? 0) + 1;
+    oopRun.set(unit.id, run);
+    for (const u of oopUris.get(unit.id) ?? []) { diags.delete(vscode.Uri.parse(u)); versions.delete(u); }
     oopUris.delete(unit.id);
     if (!enabled()) return [];
     const { index } = await buildUnitIndex(unit, state.current, unitIndexInput, []);
+    if (oopRun.get(unit.id) !== run) return [];   // a newer run started while the index was built: it publishes
     const all: Finding[] = [];
     const uris = new Set<string>();
     for (const o of unit.plc.objects) {
@@ -98,34 +104,47 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
     return all;
   };
 
+  /** The OOP rules of a unit, debounced per unit: many files opened or saved together cost one index build. */
+  const scheduleUnit = (unit: Unit, delay: number) => {
+    const k = `unit:${unit.id}`;
+    clearTimeout(timers.get(k));
+    timers.set(k, setTimeout(() => { timers.delete(k); void lintUnitOop(unit).catch(e => console.warn(`IECode: lint ${unit.id}: ${(e as Error).message}`)); }, delay));
+  };
   const schedule = (file: string, delay = 400) => {
-    clearTimeout(timers.get(file));
-    timers.set(file, setTimeout(() => {
-      timers.delete(file);
+    const k = `file:${file}`;
+    clearTimeout(timers.get(k));
+    timers.set(k, setTimeout(() => {
+      timers.delete(k);
       const unit = unitOfFile(state.current, file);
-      void lintFile(file).then(() => unit && lintUnitOop(unit)).catch(e => console.warn(`IECode: lint ${file}: ${(e as Error).message}`));
+      void lintFile(file).then(() => unit && scheduleUnit(unit, 400)).catch(e => console.warn(`IECode: lint ${file}: ${(e as Error).message}`));
     }, delay));
   };
-  /** After a model reload or a settings change: the OOP rules of every unit again (structure findings follow open and save). */
-  const scheduleAll = () => state.current.units.forEach(u => {
-    clearTimeout(timers.get(u.id));
-    timers.set(u.id, setTimeout(() => { timers.delete(u.id); void lintUnitOop(u).catch(e => console.warn(`IECode: lint ${u.id}: ${(e as Error).message}`)); }, 1500));
-  });
+  /** After a model reload: the OOP rules of every unit again (structure findings follow open and save). */
+  const scheduleAll = () => state.current.units.forEach(u => scheduleUnit(u, 1500));
+  /** The object file behind an open document: the XML itself, or the ST view of it. */
+  const objectFileOf = (d: vscode.TextDocument) => {
+    if (d.uri.scheme !== 'file' && d.uri.scheme !== SCHEME) return undefined;
+    const p = d.uri.with({ scheme: 'file' }).fsPath;
+    return isObjectFile(p) ? p : undefined;
+  };
+  const lintOpenDocuments = () => vscode.workspace.textDocuments.forEach(d => { const f = objectFileOf(d); if (f) schedule(f, 0); });
 
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(d => { if (isObjectFile(d.uri.fsPath)) schedule(d.uri.fsPath); }),
-    vscode.workspace.onDidOpenTextDocument(d => { if (d.uri.scheme === 'file' && isObjectFile(d.uri.fsPath)) schedule(d.uri.fsPath, 0); }),
+    vscode.workspace.onDidOpenTextDocument(d => { const f = objectFileOf(d); if (f) schedule(f, 0); }),
     // an edit makes the findings of that document stale until the next save
     vscode.workspace.onDidChangeTextDocument(e => {
       if (e.contentChanges.length && e.document.uri.scheme === SCHEME && diags.has(e.document.uri)) diags.delete(e.document.uri);
     }),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (!e.affectsConfiguration('iecode.lint')) return;
-      if (!enabled()) { diags.clear(); versions.clear(); oopUris.clear(); } else scheduleAll();
+      if (!enabled()) { diags.clear(); versions.clear(); oopUris.clear(); return; }
+      scheduleAll();
+      lintOpenDocuments();   // levels, prefixes and the switch also change the structure findings of open files
     }),
     state.onDidChange(scheduleAll),
   );
-  vscode.workspace.textDocuments.forEach(d => { if (d.uri.scheme === 'file' && isObjectFile(d.uri.fsPath)) schedule(d.uri.fsPath, 0); });
+  lintOpenDocuments();
 
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.lintObjects', async () => {
     if (!enabled()) { void vscode.window.showInformationMessage('IECode: object lint is off (iecode.lint.enabled).'); return; }
