@@ -117,7 +117,9 @@ export function activate(ctx: vscode.ExtensionContext) {
   const tree = new ProjectTree(state, libraries);
   const projectsView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
   tree.setUnused(registerUnused(ctx, analysis, state));
-  ctx.subscriptions.push(analysis.onDidChange(() => tree.refresh()), analysis.onDidInvalidate(() => tree.refresh()));
+  ctx.subscriptions.push(analysis.onDidChange(() => tree.refresh()), analysis.onDidInvalidate(() => tree.refresh()),
+    // the marks in the tree follow the setting at once, and a switched-on setting starts the analysis of expanded projects
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.analysis.markUnused')) tree.refresh(); }));
   ctx.subscriptions.push(
     state,
     projectsView,

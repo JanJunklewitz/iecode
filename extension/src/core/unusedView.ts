@@ -79,7 +79,7 @@ export class UnusedMarks implements UnusedLookup {
   /** Starts the computation for a unit when marks are on; debounced, and AnalysisState deduplicates running requests. */
   ensure(unitId: string): void {
     if (this.disposed || !this.enabled() || this.analysis.peek(unitId) || this.timers.has(unitId)) return;
-    this.timers.set(unitId, setTimeout(() => { this.timers.delete(unitId); void this.analysis.request(unitId).catch(() => undefined); }, this.delayMs));
+    this.timers.set(unitId, setTimeout(() => { this.timers.delete(unitId); void this.analysis.request(unitId).catch(e => console.warn(`IECode: analysis of ${unitId} failed: ${(e as Error).message}`)); }, this.delayMs));
   }
 
   marksByFileOf(unitId: string): Map<string, UnusedMark[]> {

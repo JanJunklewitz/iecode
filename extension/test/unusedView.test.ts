@@ -115,3 +115,17 @@ test('ensure does nothing after dispose', async () => {
   await new Promise(r => setTimeout(r, 30));
   assert.deepEqual(requests, []);
 });
+
+test('a failing automatic analysis is reported in the log, not swallowed', async () => {
+  const warned: string[] = [];
+  const orig = console.warn;
+  console.warn = (m: unknown) => { warned.push(String(m)); };
+  try {
+    const m = new UnusedMarks({ peek: () => undefined, request: async () => { throw new Error('boom'); } }, () => true, 5);
+    m.ensure('U');
+    await new Promise(r => setTimeout(r, 40));
+    m.dispose();
+  } finally { console.warn = orig; }
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /analysis of U failed: boom/);
+});

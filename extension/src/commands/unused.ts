@@ -65,7 +65,8 @@ export function registerUnused(ctx: vscode.ExtensionContext, analysis: AnalysisS
         if (apps.length === 1) unit = apps[0];
         else if (apps.length > 1) {
           const pick = await vscode.window.showQuickPick(apps.map(u => ({ label: u.id, unit: u })), { placeHolder: 'PLC project' });
-          unit = pick?.unit;
+          if (!pick) return;   // cancelled: not the same as no project
+          unit = pick.unit;
         }
       }
       if (!unit) { vscode.window.showInformationMessage('IECode: no PLC project found.'); return; }
@@ -79,8 +80,12 @@ export function registerUnused(ctx: vscode.ExtensionContext, analysis: AnalysisS
         label: m.name, description: m.text, detail: vscode.workspace.asRelativePath(m.file), mark: m,
       })), { placeHolder: `${list.length} unused in ${u.id}`, matchOnDetail: true });
       if (!pick) return;
+      const target = vscode.Uri.file(pick.mark.file).with({ scheme: SCHEME });
+      // the position belongs to the saved file: with unsaved edits it may point at other text
+      const unsaved = vscode.workspace.textDocuments.some(d => d.isDirty && d.uri.toString() === target.toString());
+      if (unsaved) { vscode.window.showInformationMessage(`IECode: ${pick.mark.name} was found in the saved file; the ST view has unsaved changes, so its line may be off.`); }
       const at = new vscode.Position(pick.mark.line, pick.mark.col);
-      await vscode.window.showTextDocument(vscode.Uri.file(pick.mark.file).with({ scheme: SCHEME }), { selection: new vscode.Range(at, at) });
+      await vscode.window.showTextDocument(target, unsaved ? undefined : { selection: new vscode.Range(at, at) });
     }),
   );
   return marks;
