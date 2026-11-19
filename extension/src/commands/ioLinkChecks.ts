@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { findTmc } from '../core/adsinterface';
 import { Finding, Level, applyLevels, summaryText } from '../core/findings';
-import { IO_RULES, checkIoLinks, ioFindingRows, withLines } from '../core/ioLinkChecks';
+import { IO_RULES, checkIoLinks, ioFindingRows, unreadableProjectFinding, withLines } from '../core/ioLinkChecks';
 import { readProject } from '../core/iotree';
 import { newerSources } from '../core/symbolOrigin';
 import { decodeTmc, parseTmc } from '../core/tmc';
@@ -27,6 +27,7 @@ const read = (f: string) => fs.readFile(f, 'utf8').catch(() => undefined);
 /** Findings of every PLC project of one system project; file paths are made absolute. */
 async function checkProject(project: TwinCatProject): Promise<{ findings: Finding[]; note?: string }> {
   const dir = path.dirname(project.file);
+  if (await read(project.file) === undefined) return { findings: [unreadableProjectFinding(path.basename(project.file))].map(f => ({ ...f, file: project.file })) };
   const snap = await readProject(project.file, read);
   const texts = new Map<string, string>();
   for (const f of new Set(snap.links.map(l => l.file))) { const t = await read(path.join(dir, f)); if (t !== undefined) texts.set(f, t); }
@@ -54,8 +55,9 @@ async function checkProject(project: TwinCatProject): Promise<{ findings: Findin
 export function registerIoLinkChecks(ctx: vscode.ExtensionContext, state: WorkspaceState): void {
   const diags = vscode.languages.createDiagnosticCollection('iecode-lint-iolinks');
   let timer: NodeJS.Timeout | undefined;
-  let running: Promise<Finding[]> | undefined;
-  let again = false;
+  /** The run that has not started yet (a request during a run waits for it, so a caller never gets a result older than its request), and the end of the last one. */
+  let pending: Promise<Finding[]> | undefined;
+  let tail: Promise<unknown> = Promise.resolve();
   let published = new Set<string>();
   ctx.subscriptions.push(diags, { dispose: () => clearTimeout(timer) });
 
@@ -90,11 +92,13 @@ export function registerIoLinkChecks(ctx: vscode.ExtensionContext, state: Worksp
     return all;
   };
 
-  /** One run at a time; a request that arrives during a run triggers one more when it ends. */
+  /** One run at a time; a request that arrives during a run gets the next run, which reads the files again. */
   const request = (): Promise<Finding[]> => {
-    if (running) { again = true; return running; }
-    running = run().finally(() => { running = undefined; if (again) { again = false; schedule(0); } });
-    return running;
+    if (pending) return pending;
+    const next = tail.then(() => { pending = undefined; return run(); });
+    pending = next;
+    tail = next.catch(() => undefined);
+    return next;
   };
   const schedule = (delay = 1000) => { clearTimeout(timer); timer = setTimeout(() => void request().catch(e => console.warn(`IECode: ${(e as Error).message}`)), delay); };
 

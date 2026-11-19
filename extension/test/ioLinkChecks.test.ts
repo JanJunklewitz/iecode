@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HwLink, linksOfFile } from '../src/core/iotree';
-import { LinkSource, checkIoLinks, ioFindingRows, withLines } from '../src/core/ioLinkChecks';
-import type { Finding } from '../src/core/findings';
+import { LinkSource, checkIoLinks, ioFindingRows, unreadableProjectFinding, withLines } from '../src/core/ioLinkChecks';
+import { Finding, offsetToPosition } from '../src/core/findings';
 import type { TmcFile, TmcVar } from '../src/core/tmc';
 
 const IN = 'PlcTask Inputs', OUT = 'PlcTask Outputs';
@@ -169,4 +169,33 @@ test('the type of an array element link is not compared with the type of the arr
   const tmc = tmcOf([sym('MAIN.a', 'ARRAY [0..3] OF BOOL')]);
   const found = run([link(IN, 'MAIN.a[3]', CH(1), { TypeA: 'BOOL', TypeB: 'BOOL' })], tmc);
   assert.ok(!found.some(f => f.rule === 'io-type-changed' || f.rule === 'io-dead-link'));
+});
+
+test('io-unlinked names the area as the build spells it', () => {
+  const f = run([link(IN, 'MAIN.bStart', CH(1))], tmcOf([sym('MAIN.bStart'), sym('MAIN.bFree')])).find(x => x.rule === 'io-unlinked')!;
+  assert.ok(f.message.includes('variable(s) of PlcTask Inputs have'), f.message);
+});
+
+test('a build with no data area gives io-not-built, not a dead link per link', () => {
+  const empty: TmcFile = { types: [], modules: [] };
+  const found = run([link(IN, 'MAIN.a', CH(1)), link(IN, 'MAIN.b', CH(2))], empty);
+  assert.deepEqual(found.map(f => f.rule), ['io-not-built']);
+  assert.match(found[0].message, /no data areas/);
+});
+
+test('withLines gives the same line as offsetToPosition for LF and CRLF text, and 0 for an unknown file or offset', () => {
+  for (const eol of ['\n', '\r\n']) {
+    const text = ['<a>', '  <Link A="1"/>', '  <Link A="2"/>', '', '  <Link A="3"/>', '</a>', ''].join(eol);
+    const at = (n: number) => text.indexOf(`A="${n}"`) - 7;
+    const mk = (n: number, file = 'f'): HwLink => ({ left: 'l', right: 'r', attrs: {}, sideA: 'l', file, at: at(n) });
+    const got = withLines([mk(1), mk(2), mk(3), mk(3, 'other'), { ...mk(1), at: undefined }], f => (f === 'f' ? text : undefined));
+    assert.deepEqual(got.map(g => g.line), [1, 2, 4, 0, 0], JSON.stringify(eol));
+    for (const n of [1, 2, 3]) assert.equal(got[n - 1].line, offsetToPosition(text, at(n)).line);
+  }
+});
+
+test('an unreadable project file gives one io-links-incomplete finding that names it', () => {
+  const f = unreadableProjectFinding('Sys.tsproj');
+  assert.deepEqual([f.rule, f.level, f.file], ['io-links-incomplete', 'info', 'Sys.tsproj']);
+  assert.match(f.message, /Sys\.tsproj.*could not be read/);
 });

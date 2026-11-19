@@ -1,7 +1,7 @@
 // Checks of the IO links of a system project against the symbols of the built PLC (.tmc), which is what XAE resolves
 // links against. Findings are anchored on the <Link> element of the file that stores the link.
 
-import { Finding, Level, RuleInfo, offsetToPosition } from './findings';
+import { Finding, Level, RuleInfo } from './findings';
 import { normalizeLinkPath, parsePlcLinkSide, resolveLinkSymbol } from './ioLinkSymbols';
 import { HwLink, shortName } from './iotree';
 import type { TmcFile, TmcVar } from './tmc';
@@ -20,10 +20,30 @@ export const IO_RULES: RuleInfo[] = [
 
 /** The line of each link's element, from `HwLink.at` and the text of the file that stores it (line 0 when unknown). */
 export function withLines(links: HwLink[], textOf: (file: string) => string | undefined): LinkSource[] {
+  // the offsets of the line breaks of each file, scanned once: a file can hold hundreds of links
+  const breaks = new Map<string, number[] | undefined>();
+  const breaksOf = (file: string) => {
+    if (!breaks.has(file)) {
+      const text = textOf(file);
+      const list: number[] | undefined = text === undefined ? undefined : [];
+      if (text !== undefined) for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) list!.push(i);
+      breaks.set(file, list);
+    }
+    return breaks.get(file);
+  };
   return links.map(link => {
-    const text = link.at === undefined ? undefined : textOf(link.file);
-    return { link, line: text === undefined ? 0 : offsetToPosition(text, link.at!).line };
+    const list = link.at === undefined ? undefined : breaksOf(link.file);
+    if (!list) return { link, line: 0 };
+    // the line is the number of line breaks before the offset (same result as offsetToPosition)
+    let lo = 0, hi = list.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] < link.at!) lo = mid + 1; else hi = mid; }
+    return { link, line: lo };
   });
+}
+
+/** The finding for a system project file that cannot be read: without it every link check would look like "all fine". */
+export function unreadableProjectFinding(file: string, level: Level = 'info'): Finding {
+  return { rule: 'io-links-incomplete', level, message: `${file}: the project file could not be read, IO links not checked`, file, space: 'xml', line: 0, col: 0, endLine: 0, endCol: 1 };
 }
 
 export interface IoCheckOptions {
@@ -38,10 +58,10 @@ const normType =(t: string) => t.replace(/\s+/g, '').toUpperCase();
 const areaKey = (name: string) => name.toLowerCase();
 
 /** Symbols of each data area of the .tmc by area name, keyed by normalized path. */
-function indexAreas(tmc: TmcFile): Map<string, { symbols: Map<string, TmcVar>; io: boolean }> {
-  const out = new Map<string, { symbols: Map<string, TmcVar>; io: boolean }>();
+function indexAreas(tmc: TmcFile): Map<string, { name: string; symbols: Map<string, TmcVar>; io: boolean }> {
+  const out = new Map<string, { name: string; symbols: Map<string, TmcVar>; io: boolean }>();
   for (const m of tmc.modules) for (const a of m.areas) {
-    const entry = out.get(areaKey(a.name)) ?? { symbols: new Map<string, TmcVar>(), io: /\s(Inputs|Outputs)$/i.test(a.name) };
+    const entry = out.get(areaKey(a.name)) ?? { name: a.name, symbols: new Map<string, TmcVar>(), io: /\s(Inputs|Outputs)$/i.test(a.name) };
     for (const s of a.symbols) entry.symbols.set(normalizeLinkPath(s.name), s);
     out.set(areaKey(a.name), entry);
   }
@@ -75,6 +95,10 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
   }
 
   const areas = indexAreas(tmc);
+  if (!areas.size) {   // a format this reader does not understand would turn every link into a dead link
+    at('io-not-built', level('io-not-built'), `${plc}: the build output has no data areas (an unknown format?): link checks skipped`, anchor.file, anchor.line);
+    return out;
+  }
   const linked = new Set<string>();
   for (const { s, side } of mine) {
     const area = areas.get(areaKey(side.area));
@@ -96,12 +120,12 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
     at('io-links-incomplete', level('io-links-incomplete'), `${plc}: unlinked variables are not reported: ${opts.incomplete}`, anchor.file, anchor.line);
   } else {
     // one finding per area: every one of them would sit on the same anchor line
-    for (const [name, a] of areas) {
+    for (const [areaId, a] of areas) {
       if (!a.io) continue;
-      const free = [...a.symbols].filter(([key]) => !linked.has(`${name}^${key}`)).map(([, s]) => s.name);
+      const free = [...a.symbols].filter(([key]) => !linked.has(`${areaId}^${key}`)).map(([, s]) => s.name);
       if (!free.length) continue;
       const shown = free.slice(0, UNLINKED_SHOWN).join(', ') + (free.length > UNLINKED_SHOWN ? `, … (${free.length - UNLINKED_SHOWN} more)` : '');
-      at('io-unlinked', level('io-unlinked'), `${plc}: ${free.length} variable(s) of ${name} have no IO link: ${shown}`, anchor.file, anchor.line);
+      at('io-unlinked', level('io-unlinked'), `${plc}: ${free.length} variable(s) of ${a.name} have no IO link: ${shown}`, anchor.file, anchor.line);
     }
   }
 
