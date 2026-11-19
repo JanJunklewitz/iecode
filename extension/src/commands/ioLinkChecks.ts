@@ -1,5 +1,5 @@
 // IO link checks in the Problems panel (on the .tsproj / .xti that stores each link) and as a "Checks" group in the IO links view.
-// Every run replaces all diagnostics of the collection, so a fresh source turns old dead-link findings into one io-not-built info.
+// Every run replaces the diagnostics of the collection, so a fresh source turns old dead-link findings into one io-not-built info.
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -37,16 +37,16 @@ async function checkProject(project: TwinCatProject): Promise<{ findings: Findin
 
   for (const plc of project.plcs) {
     const tmcFile = await findTmc(plc.file);
-    let tmc, stale = false;
+    let tmc, stale = false, unreadable: string | undefined;
     if (tmcFile) {
       try {
         tmc = parseTmc(decodeTmc(await fs.readFile(tmcFile)));
         const built = (await fs.stat(tmcFile)).mtimeMs;
         const sources = await Promise.all([plc.file, ...plc.objects.map(o => o.file)].map(async file => ({ file, mtimeMs: (await fs.stat(file).catch(() => undefined))?.mtimeMs ?? 0 })));
         stale = newerSources(built, sources).length > 0;
-      } catch { tmc = undefined; }
+      } catch (e) { tmc = undefined; unreadable = (e as Error).message; }   // a half-written or corrupt .tmc is not "not built"
     }
-    out.push(...checkIoLinks(links, tmc, { stale }, plc.itemName ?? plc.name, { anchor, incomplete }));
+    out.push(...checkIoLinks(links, tmc, { stale, unreadable }, plc.itemName ?? plc.name, { anchor, incomplete }));
   }
   return { findings: out.map(f => ({ ...f, file: path.resolve(dir, f.file) })) };
 }
@@ -56,24 +56,31 @@ export function registerIoLinkChecks(ctx: vscode.ExtensionContext, state: Worksp
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<Finding[]> | undefined;
   let again = false;
+  let published = new Set<string>();
   ctx.subscriptions.push(diags, { dispose: () => clearTimeout(timer) });
 
   const systemProjects = () => [...new Map(state.current.solutions.flatMap(s => s.projects).filter(p => !p.plcOnly && p.plcs.length).map(p => [p.file, p])).values()];
 
   const run = async (): Promise<Finding[]> => {
-    diags.clear();
-    if (!enabled()) { systemProjects().forEach(p => setIoChecks(p.file, [])); return []; }
+    if (!enabled()) { diags.clear(); systemProjects().forEach(p => setIoChecks(p.file, [])); return []; }
     const overrides = cfg().get<Record<string, Level | 'off'>>('rules', {});
     const all: Finding[] = [];
     for (const p of systemProjects()) {
-      let found: Finding[] = [];
+      let found: Finding[];
       try { found = applyLevels((await checkProject(p)).findings, overrides, DEFAULTS); }
-      catch (e) { console.warn(`IECode: IO link checks of ${p.file}: ${(e as Error).message}`); }
+      catch (e) {
+        // an empty result would look like "all links are fine": say that the check failed
+        console.warn(`IECode: IO link checks of ${p.file}: ${(e as Error).message}`);
+        found = [{ rule: 'io-links-incomplete', level: 'info', message: `IO link checks failed: ${(e as Error).message}`, file: p.file, space: 'xml', line: 0, col: 0, endLine: 0, endCol: 1 }];
+      }
       setIoChecks(p.file, ioFindingRows(found));
       all.push(...found);
     }
     const byFile = new Map<string, Finding[]>();
     for (const f of all) byFile.set(f.file, [...(byFile.get(f.file) ?? []), f]);
+    // replace in one go: no empty Problems panel while the run is in progress
+    for (const u of published) if (!byFile.has(u)) diags.delete(vscode.Uri.file(u));
+    published = new Set(byFile.keys());
     for (const [file, list] of byFile) diags.set(vscode.Uri.file(file), list.map(f => {
       const d = new vscode.Diagnostic(new vscode.Range(f.line, f.col, f.endLine, f.endCol), f.message, SEVERITY[f.level]);
       d.source = SOURCE;

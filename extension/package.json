@@ -1441,7 +1441,7 @@
           "type": "object",
           "default": {},
           "additionalProperties": { "enum": ["error", "warning", "info", "hint", "off"] },
-          "markdownDescription": "Severity per lint rule id (`error`, `warning`, `info`, `hint`) or `off`. Rules: `xml-parse`, `merge-conflict`, `guid-format`, `guid-unique`, `name-mismatch`, `file-name-mismatch`, `member-structure`, `lineids-orphan`, `naming-prefix`, `signature-mismatch`, `final-violation`, `abstract-instantiation`, `unresolved-base`, `io-dead-link`, `io-type-changed`, `io-unlinked`, `io-channel-twice`, `io-not-built`, `io-links-incomplete`."
+          "markdownDescription": "Severity per lint rule id (`error`, `warning`, `info`, `hint`) or `off`. Rules: `xml-parse`, `merge-conflict`, `guid-format`, `guid-unique`, `name-mismatch`, `file-name-mismatch`, `member-structure`, `lineids-orphan`, `naming-prefix`, `signature-mismatch`, `final-violation`, `abstract-instantiation`, `unresolved-base`, `io-dead-link`, `io-type-changed`, `io-unlinked`, `io-channel-twice`, `io-channel-twice-weak`, `io-not-built`, `io-links-incomplete`."
         },
         "iecode.lint.namingPrefixes": {
           "type": "object",

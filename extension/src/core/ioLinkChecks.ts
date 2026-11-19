@@ -11,9 +11,10 @@ export interface LinkSource { link: HwLink; line: number }
 export const IO_RULES: RuleInfo[] = [
   { id: 'io-dead-link', description: 'The PLC side of a link is not a symbol of the built PLC project', level: 'error' },
   { id: 'io-type-changed', description: 'The type stored in the link differs from the type of the PLC variable', level: 'warning' },
-  { id: 'io-unlinked', description: 'A variable of an input or output area has no IO link (a hint: 94 of 725 symbols of a real project had none, and it is not verified that they are all gaps)', level: 'hint' },
-  { id: 'io-channel-twice', description: 'Two PLC variables are linked to the same IO channel range', level: 'warning' },
-  { id: 'io-not-built', description: 'The PLC project is not built (or older than its sources): link checks skipped', level: 'info' },
+  { id: 'io-unlinked', description: 'Variables of an input or output area have no IO link (a hint: it is not verified that all of them are gaps); one finding per area', level: 'hint' },
+  { id: 'io-channel-twice', description: 'Two PLC outputs are linked to the same IO channel range', level: 'warning' },
+  { id: 'io-channel-twice-weak', description: 'Two PLC inputs, or outputs with unknown bit ranges, are linked to the same IO channel', level: 'info' },
+  { id: 'io-not-built', description: 'The PLC project has no usable build (missing, older than its sources or unreadable): link checks skipped', level: 'info' },
   { id: 'io-links-incomplete', description: 'A referenced file with links could not be read: unlinked variables are not reported', level: 'info' },
 ];
 
@@ -32,7 +33,8 @@ export interface IoCheckOptions {
   incomplete?: string;
 }
 
-const normType = (t: string) => t.replace(/\s+/g, '').toUpperCase();
+const UNLINKED_SHOWN = 5;
+const normType =(t: string) => t.replace(/\s+/g, '').toUpperCase();
 const areaKey = (name: string) => name.toLowerCase();
 
 /** Symbols of each data area of the .tmc by area name, keyed by normalized path. */
@@ -53,7 +55,7 @@ const range = (l: HwLink): { start: number; end: number } | undefined => {
   return { start, end: start + (Number.isFinite(size) && size > 0 ? size : 1) };
 };
 
-export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, built: { stale: boolean }, plc: string, opts: IoCheckOptions = {}): Finding[] {
+export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, built: { stale: boolean; unreadable?: string }, plc: string, opts: IoCheckOptions = {}): Finding[] {
   const out: Finding[] = [];
   const at = (rule: string, level: Level, message: string, file: string, line: number) =>
     out.push({ rule, level, message, file, space: 'xml', line, col: 0, endLine: line, endCol: 1 });
@@ -66,7 +68,9 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
   const anchor = opts.anchor ?? { file: mine[0].s.link.file, line: mine[0].s.line };
 
   if (!tmc || built.stale) {
-    at('io-not-built', level('io-not-built'), 'PLC project not built (or build is older than the sources): link checks skipped', anchor.file, anchor.line);
+    at('io-not-built', level('io-not-built'), built.unreadable
+      ? `${plc}: the build output could not be read (${built.unreadable}): link checks skipped`
+      : `${plc}: not built (or the build is older than the sources): link checks skipped`, anchor.file, anchor.line);
     return out;
   }
 
@@ -89,12 +93,15 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
 
   // an unlinked variable has no link line: it goes to the anchor
   if (opts.incomplete) {
-    at('io-links-incomplete', level('io-links-incomplete'), `Unlinked variables are not reported: ${opts.incomplete}`, anchor.file, anchor.line);
+    at('io-links-incomplete', level('io-links-incomplete'), `${plc}: unlinked variables are not reported: ${opts.incomplete}`, anchor.file, anchor.line);
   } else {
+    // one finding per area: every one of them would sit on the same anchor line
     for (const [name, a] of areas) {
       if (!a.io) continue;
-      for (const [key, s] of a.symbols)
-        if (!linked.has(`${name}^${key}`)) at('io-unlinked', level('io-unlinked'), `${s.name} has no IO link`, anchor.file, anchor.line);
+      const free = [...a.symbols].filter(([key]) => !linked.has(`${name}^${key}`)).map(([, s]) => s.name);
+      if (!free.length) continue;
+      const shown = free.slice(0, UNLINKED_SHOWN).join(', ') + (free.length > UNLINKED_SHOWN ? `, … (${free.length - UNLINKED_SHOWN} more)` : '');
+      at('io-unlinked', level('io-unlinked'), `${plc}: ${free.length} variable(s) of ${name} have no IO link: ${shown}`, anchor.file, anchor.line);
     }
   }
 
@@ -106,7 +113,8 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
     if (!clash.length) continue;
     const known = !!mineRange && clash.every(o => range(o.s.link));
     const output = /Outputs$/i.test(side.area);
-    at('io-channel-twice', output && known ? 'warning' : 'info',
+    const rule = output && known ? 'io-channel-twice' : 'io-channel-twice-weak';
+    at(rule, level(rule),
       `${shortName(s.link.right)} is also linked to ${clash.map(o => shortName(o.s.link.left)).join(', ')}${known ? '' : ' (bit ranges unknown)'}`, s.link.file, s.line);
   }
   return out;

@@ -85,6 +85,23 @@ test('io-unlinked: a symbol of an input or output area that no link resolves to'
   assert.ok(found.some(f => /MAIN\.bFree/.test(f.message)) && found.some(f => /MAIN\.bLamp/.test(f.message)));
 });
 
+test('io-unlinked gives one finding per area and names the first variables', () => {
+  const many = Array.from({ length: 8 }, (_, i) => sym(`MAIN.b${i}`));
+  const found = run([], tmcOf(many)).filter(f => f.rule === 'io-unlinked');
+  assert.equal(found.length, 0, 'without any link of the PLC nothing is reported');
+  const withOne = run([link(IN, 'MAIN.b0', CH(1))], tmcOf(many)).filter(f => f.rule === 'io-unlinked');
+  assert.equal(withOne.length, 1);
+  assert.match(withOne[0].message, /7 variable\(s\)/);
+  assert.match(withOne[0].message, /2 more/);
+});
+
+test('an unreadable build is named, not reported as not built', () => {
+  const f = checkIoLinks([link(IN, 'MAIN.a', CH(1))], undefined, { stale: false, unreadable: 'bad xml' }, 'PLC1');
+  assert.equal(f[0].rule, 'io-not-built');
+  assert.match(f[0].message, /could not be read \(bad xml\)/);
+  assert.match(f[0].message, /^PLC1:/);
+});
+
 test('io-unlinked is skipped and explained while the link set is incomplete', () => {
   const tmc = tmcOf([sym('MAIN.bStart'), sym('MAIN.bFree')]);
   const f = checkIoLinks([link(IN, 'MAIN.bStart', CH(1))], tmc, FRESH, 'PLC1', { incomplete: 'an .xti could not be read', anchor: { file: 'Sys.tsproj', line: 0 } });
@@ -97,7 +114,7 @@ test('two variables on an input channel give info, on an output channel a warnin
   const outputs = [link(OUT, 'MAIN.c', CH(2, 'Output'), {}, 'PLC1', '1', '0'), link(OUT, 'MAIN.d', CH(2, 'Output'), {}, 'PLC1', '1', '0')];
   const disjoint = [link(OUT, 'MAIN.c', CH(3, 'Output'), {}, 'PLC1', '1', '0'), link(OUT, 'MAIN.d', CH(3, 'Output'), {}, 'PLC1', '1', '8')];
   const unknown = [link(OUT, 'MAIN.c', CH(4, 'Output')), link(OUT, 'MAIN.d', CH(4, 'Output'))];
-  const twice = (l: LinkSource[]) => run(l, tmc).filter(f => f.rule === 'io-channel-twice').map(f => f.level);
+  const twice = (l: LinkSource[]) => run(l, tmc).filter(f => f.rule.startsWith('io-channel-twice')).map(f => f.level);
   assert.deepEqual(twice(inputs), ['info', 'info']);
   assert.deepEqual(twice(outputs), ['warning', 'warning']);
   assert.deepEqual(twice(disjoint), []);
@@ -107,7 +124,7 @@ test('two variables on an input channel give info, on an output channel a warnin
 test('the channel rule groups over all PLC projects but reports only the links of the checked one', () => {
   const tmc = tmcOf([], [sym('MAIN.c')]);
   const l = [link(OUT, 'MAIN.c', CH(1, 'Output'), {}, 'PLC1', '1', '0'), link(OUT, 'MAIN.x', CH(1, 'Output'), {}, 'PLC2', '1', '0')];
-  const f = run(l, tmc).filter(x => x.rule === 'io-channel-twice');
+  const f = run(l, tmc).filter(x => x.rule.startsWith('io-channel-twice'));
   assert.equal(f.length, 1);
   assert.equal(f[0].level, 'warning');
 });
