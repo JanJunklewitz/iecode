@@ -19,7 +19,7 @@ export function globToRegExp(pattern: string): RegExp {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): { roots: Root[]; notes: string[]; noTasks: boolean; missingTaskCalls: string[] } {
+export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): { roots: Root[]; notes: string[]; noTasks: boolean; missingTaskCalls: string[]; badTaskFiles: number } {
   const roots: Root[] = [];
   const notes: string[] = [];
   const seen = new Set<string>();
@@ -28,9 +28,10 @@ export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): {
   // 1. task calls
   let tasks = 0;
   const missingTaskCalls: string[] = [];
+  let badTaskFiles = 0;
   for (const xml of src.taskFiles) {
     let task;
-    try { task = parsePlcArchive(xml); } catch { notes.push('a task file could not be read'); continue; }
+    try { task = parsePlcArchive(xml); } catch { notes.push('a task file could not be read'); badTaskFiles++; continue; }
     if (task.kind !== 'task') continue;
     tasks++;
     for (const call of task.calls) {
@@ -76,5 +77,5 @@ export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): {
     if ((pragma && pragma.test(head)) || (n.kind === 'PROPERTY' && monitoringCall.test(head))) add({ id: n.id, why: 'pragma' });
     if (!n.owner && (n.kind === 'GVL' || n.kind === 'PROGRAM' || n.kind === 'FUNCTION_BLOCK') && /\bAT\s+%[IQ]/i.test(obj.view)) add({ id: n.id, why: 'io' });
   }
-  return { roots, notes, noTasks, missingTaskCalls };
+  return { roots, notes, noTasks, missingTaskCalls, badTaskFiles };
 }

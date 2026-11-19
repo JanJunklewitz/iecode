@@ -25,6 +25,8 @@ export interface UnitAnalysis {
   /** False when a file of the unit failed to decode, is encrypted, or a task call names no node: then no unused finding is produced. */
   complete: boolean;
   skipped?: 'library' | 'no-tasks';
+  /** Set when the computation was aborted: the graph is partial and must not be used. */
+  aborted?: true;
 }
 
 const stripBom = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
@@ -37,6 +39,9 @@ export class AnalysisState {
   private readonly parsed = new Map<string, IndexedObject>();
   private readonly listeners = new Set<(ids: string[]) => void>();
   private disposed = false;
+  /** Bumped by `invalidate`, so a computation that started before it is not cached. */
+  private epoch = 0;
+  private readonly unitEpoch = new Map<string, number>();
 
   constructor(private readonly deps: AnalysisDeps, private readonly sliceSize = 25) {}
 
@@ -50,8 +55,11 @@ export class AnalysisState {
 
   /** Forgets cached results (all, or one unit); the next request recomputes. Trigger on a file-watcher event or a save, never on a keystroke. */
   invalidate(unitId?: string) {
-    if (unitId) this.cache.delete(unitId); else this.cache.clear();
+    if (unitId) { this.cache.delete(unitId); this.running.delete(unitId); this.unitEpoch.set(unitId, (this.unitEpoch.get(unitId) ?? 0) + 1); }
+    else { this.cache.clear(); this.running.clear(); this.epoch++; }
   }
+
+  private stamp(unitId: string) { return `${this.epoch}:${this.unitEpoch.get(unitId) ?? 0}`; }
 
   dispose() { this.disposed = true; this.listeners.clear(); this.cache.clear(); }
 
@@ -61,13 +69,24 @@ export class AnalysisState {
     if (hit) return Promise.resolve(hit);
     let p = this.running.get(unitId);
     if (!p) {
-      p = this.compute(unitId, signal).then(r => {
-        if (!signal?.aborted && !this.disposed) { this.cache.set(unitId, r); this.listeners.forEach(l => l([unitId])); }
+      const at = this.stamp(unitId);
+      const started: Promise<UnitAnalysis> = this.compute(unitId, signal).then(r => {
+        // changed meanwhile or aborted: the result is not cached, and a caller that did not abort asks again
+        if (!signal?.aborted && !r.aborted && !this.disposed && this.stamp(unitId) === at) { this.cache.set(unitId, r); this.listeners.forEach(l => l([unitId])); }
         return r;
-      }).finally(() => { this.running.delete(unitId); });
-      this.running.set(unitId, p);
+      }).finally(() => { if (this.running.get(unitId) === started) this.running.delete(unitId); });
+      this.running.set(unitId, started);
+      p = started;
+      return started.then(r => this.useful(unitId, r, at, signal) ? r : this.request(unitId, signal));
     }
-    return p;
+    const joined = this.stamp(unitId);
+    return p.then(r => this.useful(unitId, r, joined, signal) ? r : this.request(unitId, signal));
+  }
+
+  /** False for a partial result of another caller's abort, or one computed from files that changed since. */
+  private useful(unitId: string, r: UnitAnalysis, at: string, signal?: AbortSignal): boolean {
+    if (signal?.aborted || this.disposed) return true;
+    return !r.aborted && this.stamp(unitId) === at;
   }
 
   /** Text of a file, from the cache when its stamp is unchanged. */
@@ -92,7 +111,7 @@ export class AnalysisState {
     const files = [];
     let n = 0;
     for (const obj of index.objects()) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) return { ...base, notes: ['aborted'], complete: false, aborted: true };
       let nonSt: Map<string, string> | undefined;
       if (!obj.library) {
         const text = await this.read(obj.file);
@@ -104,10 +123,12 @@ export class AnalysisState {
     const graph = assemble(files, index);
 
     const taskFiles: string[] = [], visuTexts: string[] = [];
+    let unreadable = 0;
     for (const o of unit.plc.objects) {
       const kind = o.type === 'TASK' ? taskFiles : /\.tcvis$/i.test(o.file) ? visuTexts : undefined;
       const text = kind ? await this.read(o.file) : undefined;
       if (kind && text !== undefined) kind.push(text);
+      else if (kind) unreadable++;
     }
     const s = this.deps.settings();
     const r = rootsOf(graph, index, { taskFiles, visuTexts, extra: s.rootObjects, rootPragmas: s.rootPragmas });
@@ -116,8 +137,10 @@ export class AnalysisState {
 
     // a task call into a library namespace without source is a note; any other missing call hides callees
     const hidden = r.missingTaskCalls.filter(c => !(c.includes('.') && index.namespace(c.slice(0, c.indexOf('.')))));
-    const complete = skipped.length === 0 && hidden.length === 0;
+    const unread = unreadable + r.badTaskFiles;
+    const complete = skipped.length === 0 && hidden.length === 0 && unread === 0;
     if (!complete && hidden.length) notes.push(`not complete: task call(s) ${hidden.join(', ')} name no object`);
+    if (unread) notes.push(`not complete: ${unread} task or visualization file(s) could not be read`);
     if (!complete && skipped.length) notes.push('not complete: unused objects are not reported while files cannot be analysed');
     if (r.noTasks) return { unit: unitId, graph, reach: rc, roots: r.roots, unused: [], notes, complete, skipped: 'no-tasks' };
     return { unit: unitId, graph, reach: rc, roots: r.roots, unused: complete ? findUnused(graph, rc) : [], notes, complete };

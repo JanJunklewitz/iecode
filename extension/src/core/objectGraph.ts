@@ -1,5 +1,5 @@
-// Object graph: which PLC object or member references which. Task 1 extracts the edges of one file;
-// graph assembly, implicit edges and reachability follow in the same module.
+// Object graph: which PLC object or member references which. Extracts the edges of one file, assembles the graph with
+// its implicit edges, and computes reachability and unused objects.
 
 import { ELEMENTARY_TYPES, KEYWORDS, tokenize } from '../lang/lexer';
 import { IndexedObject, SymbolIndex } from '../lang/index';

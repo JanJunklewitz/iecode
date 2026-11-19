@@ -166,3 +166,54 @@ test('a generated project of 500 objects with 200 lines each analyses in under 1
   assert.ok(r.graph.nodes.size >= 1000);
   assert.ok(ms < 10_000, `${ms} ms`);
 });
+
+const FB_GO = (extra: Record<string, string> = {}) => pou('FB_A', 'FUNCTION_BLOCK FB_A', '', { Go: ';', ...extra });
+const MAIN_FB = pou('MAIN', ['PROGRAM MAIN', 'VAR', '    fb : FB_A;', 'END_VAR'].join('\n'), 'fb.Go();');
+
+test('a result computed from files that changed meanwhile is not cached and the caller gets a fresh one', async () => {
+  const d = disk();
+  put(d, '/App/MAIN.TcPOU', MAIN_FB);
+  put(d, '/App/FB_A.TcPOU', FB_GO());
+  const u = app(d, 'App', [{ file: '/App/FB_A.TcPOU', name: 'FB_A', type: 'FUNCTION_BLOCK' }]);
+  let st!: AnalysisState, changed = false;
+  const base = deps(d, [u]);
+  st = new AnalysisState({ ...base, read: async f => {
+    const r = await base.read(f);
+    if (f === '/App/FB_A.TcPOU' && !changed) { changed = true; put(d, f, FB_GO({ Extra: ';' })); st.invalidate('App'); }   // a save during the computation
+    return r;
+  } });
+  const a = await st.request('App');
+  assert.ok(a.graph.nodes.has('FB_A.EXTRA'), 'the caller gets the analysis of the new file');
+  assert.ok(st.peek('App')!.graph.nodes.has('FB_A.EXTRA'), 'and so does the cache');
+});
+
+test('an aborted computation is not handed to a caller that joined it', async () => {
+  const d = disk();
+  put(d, '/App/MAIN.TcPOU', MAIN_FB);
+  put(d, '/App/FB_A.TcPOU', FB_GO());
+  const u = app(d, 'App', [{ file: '/App/FB_A.TcPOU', name: 'FB_A', type: 'FUNCTION_BLOCK' }]);
+  const st = new AnalysisState(deps(d, [u]));
+  const ac = new AbortController();
+  const first = st.request('App', ac.signal), second = st.request('App');
+  ac.abort();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.complete, false);
+  assert.deepEqual(a.unused, []);
+  assert.equal(b.complete, true);
+  assert.ok(b.graph.nodes.has('FB_A'), 'the second caller got a full analysis');
+  assert.ok(st.peek('App')?.graph.nodes.has('FB_A'));
+});
+
+test('a task or visualization file that cannot be read or parsed makes the analysis incomplete', async () => {
+  for (const [name, taskText] of [['missing', undefined], ['garbage', '<<< not xml']] as const) {
+    const d = disk();
+    put(d, '/App/MAIN.TcPOU', pou('MAIN', 'PROGRAM MAIN'));
+    put(d, '/App/FB_Lonely.TcPOU', pou('FB_Lonely', 'FUNCTION_BLOCK FB_Lonely'));
+    const u = unit('App', [{ file: '/App/PlcTask.TcTTO', name: 'PlcTask', type: 'TASK' }, { file: '/App/MAIN.TcPOU', name: 'MAIN', type: 'PROGRAM' },
+      { file: '/App/FB_Lonely.TcPOU', name: 'FB_Lonely', type: 'FUNCTION_BLOCK' }]);
+    if (taskText !== undefined) put(d, '/App/PlcTask.TcTTO', taskText);
+    const r = await new AnalysisState(deps(d, [u])).request('App');
+    assert.equal(r.complete, false, name);
+    assert.deepEqual(r.unused, [], name);
+  }
+});
