@@ -70,6 +70,9 @@ public sealed partial class XaeShell
         return full;
     }
 
+    private const int ProtectionFileLockAttempts = 6;
+    private static readonly TimeSpan ProtectionFileLockDelay = TimeSpan.FromSeconds(5);
+
     /// <summary>Applies object protection (encryption, signing, protection level) to one tree item and saves.</summary>
     public void SetProtection(ProtectionSpec spec)
     {
@@ -83,10 +86,24 @@ public sealed partial class XaeShell
             hits++;
             dynamic it = item;
             _log.Step($"Protecting {spec.ItemPath} in {Path.GetFileName(file)}");
-            if (spec.Level is not null) SetAndConfirm(() => (string)it.ObjectProtectionLevel, v => it.ObjectProtectionLevel = v, spec.Level, "protection level");
-            if (spec.Encrypted is bool enc) SetAndConfirm(() => (bool)it.EncryptFile, v => it.EncryptFile = v, enc, "encryption");
-            if (spec.Signed is bool sig) SetAndConfirm(() => (bool)it.SignFile, v => it.SignFile = v, sig, "signing");
-            ComCall.Retry(() => { project.Save(); });
+            // Setting a protection property rewrites every file below the item; one of them may be held by
+            // another process for a moment. SetAndConfirm only writes what differs, so repeating is safe.
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    if (spec.Level is not null) SetAndConfirm(() => (string)it.ObjectProtectionLevel, v => it.ObjectProtectionLevel = v, spec.Level, "protection level");
+                    if (spec.Encrypted is bool enc) SetAndConfirm(() => (bool)it.EncryptFile, v => it.EncryptFile = v, enc, "encryption");
+                    if (spec.Signed is bool sig) SetAndConfirm(() => (bool)it.SignFile, v => it.SignFile = v, sig, "signing");
+                    ComCall.Retry(() => { project.Save(); });
+                    break;
+                }
+                catch (Exception e) when (ComCall.IsFileLocked(e) && attempt < ProtectionFileLockAttempts)
+                {
+                    _log.Warn($"{e.Message} Retrying in {ProtectionFileLockDelay.TotalSeconds:0} s ({attempt}/{ProtectionFileLockAttempts - 1})…");
+                    Thread.Sleep(ProtectionFileLockDelay);
+                }
+            }
         }
         if (hits == 0)
             throw new IECodeException(ExitCodes.ProtectionFailed, $"Item '{spec.ItemPath}' not found in any TwinCAT project.",
@@ -101,7 +118,7 @@ public sealed partial class XaeShell
     {
         if (EqualityComparer<T>.Default.Equals(ComCall.Retry(get), value)) { _log.Detail($"{what} already {value}"); return; }
         try { ComCall.Retry(() => set(value), attempts: 40, delayMs: 1000); }
-        catch (COMException e) { throw new IECodeException(ExitCodes.ProtectionFailed, $"Setting {what} failed: {e.Message}", inner: e); }
+        catch (COMException e) when (!ComCall.IsFileLocked(e)) { throw new IECodeException(ExitCodes.ProtectionFailed, $"Setting {what} failed: {e.Message}", inner: e); }
 
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
         while (DateTime.UtcNow < deadline)

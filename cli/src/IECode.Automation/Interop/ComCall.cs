@@ -30,6 +30,18 @@ internal static class ComCall
     public static void Retry(Action call, int attempts = 20, int delayMs = 500) =>
         Retry<object?>(() => { call(); return null; }, attempts, delayMs);
 
+    private const int ERROR_SHARING_VIOLATION = unchecked((int)0x80070020);
+    private const int ERROR_LOCK_VIOLATION = unchecked((int)0x80070021);
+
+    /// <summary>
+    /// A file of the project is held by another process (XAE's own background save, a virus scanner, the
+    /// search indexer). XAE reports it as a managed IOException that crosses COM as such, or as a COMException
+    /// with the Win32 sharing/lock violation HRESULT. Transient: the same call succeeds a little later.
+    /// </summary>
+    public static bool IsFileLocked(Exception e) =>
+        e.HResult is ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION
+        || e is IOException and not FileNotFoundException and not DirectoryNotFoundException and not PathTooLongException;
+
     /// <summary>
     /// Enumerates a COM collection. DTE and TwinCAT collections are 1-based (Count + Item(i));
     /// SAFEARRAYs arrive as object[]; anything else is tried as IEnumerable.

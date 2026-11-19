@@ -55,6 +55,32 @@ public sealed class ProjectTests : IDisposable
     }
 
     [Fact]
+    public void ReadsSolutionWhosePlcProjectIsEncrypted()
+    {
+        // After object protection with "encrypted", TwinCAT stores the .plcproj binary; build must still find the solution's version.
+        var plcproj = _ws["Machine/Machine/PLC1/PLC1.plcproj"];
+        File.WriteAllBytes(plcproj, [0x54, 0x43, 0x45, 0x4E, 0x43, 0x00, 0x01, 0xFE, 0x9A, 0x3C, 0x00, 0x7F]);
+
+        var sln = SolutionFile.Load(_ws["Machine/Machine.sln"]);
+
+        Assert.Equal("3.1.4024.66", sln.TwinCatProjects[0].TcVersion);
+        var plc = Assert.Single(sln.TwinCatProjects[0].PlcProjects);
+        Assert.True(plc.IsEncrypted);
+        Assert.Equal("PLC1", plc.Name);
+        Assert.Empty(plc.References);
+        Assert.Throws<IECodeException>(() => plc.SetLibraryVersion("Tc3_MotorLib", "1.3.0"));
+    }
+
+    [Fact]
+    public void MalformedXmlPlcProjectStillFails()
+    {
+        var plcproj = _ws["Machine/Machine/PLC1/PLC1.plcproj"];
+        File.WriteAllText(plcproj, "﻿<?xml version=\"1.0\"?>\r\n<Project><PropertyGroup>");
+        var e = Assert.Throws<IECodeException>(() => PlcProjectFile.Load(plcproj));
+        Assert.Contains("Cannot read", e.Message);
+    }
+
+    [Fact]
     public void FindsSolutionInFolder() =>
         Assert.Equal(_ws["Machine/Machine.sln"], SolutionFile.Find(_ws["Machine"]));
 
