@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SymbolIndex } from '../src/lang/index';
 import { ObjectGraph, assemble, fileEdges, reach } from '../src/core/objectGraph';
-import { impactOf, ioVariablePath } from '../src/core/impact';
+import { impactOf, impactRows, ioVariablePath } from '../src/core/impact';
 import type { IoLink } from '../src/core/iolinks';
 
 const prg = (name: string, vars: string, body: string) => `PROGRAM ${name}\nVAR\n${vars}\nEND_VAR\n//---- IMPLEMENTATION ----\n${body}\n`;
@@ -95,4 +95,22 @@ test('no roots adds a note that no task was found', () => {
   const g = graphOf(views);
   const r = impactOf(g, reach(g, []), [], 'MAIN', [], 'PLC1');
   assert.ok(r.notes.some(n => /no tasks found/i.test(n)));
+});
+
+test('impactRows lists tasks, then callers, then IO links, then notes', () => {
+  const g = graphOf(views);
+  const links = [link('MAIN.bStart')];
+  const r = impactOf(g, reach(g, ['MAIN']), ['MAIN'], 'FB_MOTOR.RUN', undefined, 'PLC1');
+  const withIo = { ...r, ioLinks: links };
+  const rows = impactRows(g, withIo);
+  assert.deepEqual(rows.map(x => x.kind), ['task', 'caller', 'io', 'note']);
+  assert.equal(rows[0].label, 'MAIN');
+  assert.ok(rows[0].target?.file.endsWith('MAIN.TcPOU'));
+  const caller = rows.find(x => x.kind === 'caller')!;
+  assert.equal(caller.label, 'MAIN');
+  assert.equal(caller.target?.line, withIo.directCallers[0].line);
+  const io = rows.find(x => x.kind === 'io')!;
+  assert.equal(io.label, 'Device 1^Box 1^Channel 1^Input');
+  assert.equal(io.detail, 'PLC1^MAIN.bStart');
+  assert.equal(rows[rows.length - 1].kind, 'note');
 });

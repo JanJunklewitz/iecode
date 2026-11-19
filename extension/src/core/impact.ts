@@ -4,6 +4,7 @@
 import { NodeId, ObjectGraph, Reach, reachedFrom } from './objectGraph';
 import type { IoLink } from './iolinks';
 import { normalizeLinkPath, parsePlcLinkSide } from './ioLinkSymbols';
+import { shortName } from './iotree';
 
 export interface ImpactResult {
   target: NodeId;
@@ -58,4 +59,28 @@ export function impactOf(g: ObjectGraph, r: Reach, roots: NodeId[], target: Node
     }
   }
   return { target, tasks, directCallers, transitiveCallers: far.size, ioLinks, notes };
+}
+
+export interface ImpactRow { label: string; detail?: string; kind: 'task' | 'caller' | 'io' | 'note'; target?: { file: string; line: number } }
+
+/** Flat list for a QuickPick: tasks, then callers, then IO links (IO side as label, PLC variable as detail), then notes. */
+export function impactRows(g: ObjectGraph, r: ImpactResult): ImpactRow[] {
+  const name = (id: NodeId) => {
+    const n = g.nodes.get(id);
+    if (!n) return id;
+    const owner = n.owner ? g.nodes.get(n.owner) : undefined;
+    return owner ? `${owner.name}.${n.name}` : n.name;
+  };
+  const rows: ImpactRow[] = [];
+  for (const id of r.tasks) {
+    const n = g.nodes.get(id);
+    rows.push({ label: name(id), kind: 'task', target: n && { file: n.file, line: n.line } });
+  }
+  for (const c of r.directCallers) {
+    const n = g.nodes.get(c.id);
+    rows.push({ label: name(c.id), detail: `line ${c.line + 1}`, kind: 'caller', target: n && { file: n.file, line: c.line } });
+  }
+  for (const l of r.ioLinks) rows.push({ label: shortName(l.io), detail: shortName(l.variable), kind: 'io' });
+  for (const n of r.notes) rows.push({ label: n, kind: 'note' });
+  return rows;
 }
