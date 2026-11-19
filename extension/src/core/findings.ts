@@ -25,11 +25,15 @@ export const textVersion = (text: string) => createHash('sha1').update(text).dig
 
 export interface RuleInfo { id: string; description: string; level: Level | 'off' }
 
+const LEVELS = new Set<string>(['error', 'warning', 'info', 'hint', 'off']);
+
 /** Rewrites the level of each finding (override, else default, else its own level) and drops the rules that are off. */
 export function applyLevels(findings: Finding[], overrides: Record<string, Level | 'off'>, defaults: Record<string, Level | 'off'>): Finding[] {
   const out: Finding[] = [];
   for (const f of findings) {
-    const level = overrides[f.rule] ?? defaults[f.rule] ?? f.level;
+    // an override that is no level (a typo in the settings) is ignored, not turned into the default severity of the UI
+    const o = overrides[f.rule];
+    const level = (o !== undefined && LEVELS.has(o) ? o : undefined) ?? defaults[f.rule] ?? f.level;
     if (level !== 'off') out.push(level === f.level ? f : { ...f, level });
   }
   return out;

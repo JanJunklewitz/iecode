@@ -9,6 +9,7 @@ import { OOP_RULES, checkOop } from '../core/oopRules';
 import { STRUCTURE_RULES, checkStructure } from '../core/structureRules';
 import { buildUnitIndex } from '../core/unitIndex';
 import { Unit, unitOfFile } from '../core/workspace';
+import type { IndexedObject } from '../lang/index';
 import { LibrarySources } from '../lang/librarySources';
 import { WorkspaceState } from '../state';
 
@@ -35,6 +36,7 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
   /** Counter per unit: only the latest OOP run publishes, so overlapping runs cannot leave untracked diagnostics. */
   const oopRun = new Map<string, number>();
   const timers = new Map<string, NodeJS.Timeout>();
+  let queue: Promise<void> = Promise.resolve();
   ctx.subscriptions.push(diags, { dispose: () => timers.forEach(t => clearTimeout(t)) });
 
   const toDiagnostic = (f: Finding) => {
@@ -66,7 +68,10 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
     return found;
   };
 
+  /** Parsed library views, shared by all unit indexes: a library is parsed once, not once per unit and run. */
+  const parsed = new Map<string, IndexedObject>();
   const unitIndexInput = {
+    parsed,
     readFile: (f: string) => fs.readFile(f, 'utf8').catch(() => undefined),
     libraryObjects: (unit: Unit) => libraries.librariesOf(unit).flatMap(l => l.objects.flatMap(o => {
       const v = libraries.view(o.key);
@@ -84,11 +89,14 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
   const lintUnitOop = async (unit: Unit): Promise<Finding[]> => {
     const run = (oopRun.get(unit.id) ?? 0) + 1;
     oopRun.set(unit.id, run);
-    for (const u of oopUris.get(unit.id) ?? []) { diags.delete(vscode.Uri.parse(u)); versions.delete(u); }
-    oopUris.delete(unit.id);
-    if (!enabled()) return [];
+    const clear = () => {
+      for (const u of oopUris.get(unit.id) ?? []) { diags.delete(vscode.Uri.parse(u)); versions.delete(u); }
+      oopUris.delete(unit.id);
+    };
+    if (!enabled()) { clear(); return []; }
     const { index } = await buildUnitIndex(unit, state.current, unitIndexInput, []);
     if (oopRun.get(unit.id) !== run || !enabled()) return [];   // a newer run started while the index was built (it publishes), or lint was switched off meanwhile
+    clear();   // the old findings stay visible while the index is built, and when the build fails
     const all: Finding[] = [];
     const uris = new Set<string>();
     for (const o of unit.plc.objects) {
@@ -109,7 +117,11 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
   const scheduleUnit = (unit: Unit, delay: number) => {
     const k = `unit:${unit.id}`;
     clearTimeout(timers.get(k));
-    timers.set(k, setTimeout(() => { timers.delete(k); void lintUnitOop(unit).catch(e => console.warn(`IECode: lint ${unit.id}: ${(e as Error).message}`)); }, delay));
+    // one unit after the other: all units at once would parse every library view in parallel
+    timers.set(k, setTimeout(() => {
+      timers.delete(k);
+      queue = queue.then(() => lintUnitOop(unit)).then(() => undefined, e => console.warn(`IECode: lint ${unit.id}: ${(e as Error).message}`));
+    }, delay));
   };
   const schedule = (file: string, delay = 400) => {
     const k = `file:${file}`;
@@ -144,6 +156,8 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
       lintOpenDocuments();   // levels, prefixes and the switch also change the structure findings of open files
     }),
     state.onDidChange(scheduleAll),
+    // libraries load after the first lint run: bases and interfaces from them are unknown until then
+    libraries.onDidChange(scheduleAll),
   );
   lintOpenDocuments();
 

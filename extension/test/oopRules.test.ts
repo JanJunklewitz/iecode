@@ -122,3 +122,21 @@ test('FB_init may add parameters in a derived block', () => {
   });
   assert.deepEqual(rules(ix, 'FB_D'), []);
 });
+
+test('signature-mismatch: the same type with a namespace prefix or the other STRING bracket form is no mismatch', () => {
+  const m = (t: string) => ['METHOD Run : BOOL', 'VAR_INPUT', '    a : ' + t + ';', 'END_VAR'].join('\n');
+  const same = (a: string, b: string) => rules(indexOf({
+    FB_Base: fb('FUNCTION_BLOCK FB_Base', { Run: m(a) }),
+    FB_Derived: fb('FUNCTION_BLOCK FB_Derived EXTENDS FB_Base', { Run: m(b) }),
+  }), 'FB_Derived');
+  assert.deepEqual(same('Tc2_Standard.TON', 'TON'), []);
+  assert.deepEqual(same('STRING(80)', 'STRING[80]'), []);
+  assert.deepEqual(same('INT', 'DINT'), ['signature-mismatch']);
+});
+
+test('abstract-instantiation: a STRUCT field of an ABSTRACT block type is an error, a pointer field is not', () => {
+  const st = (field: string) => ['TYPE ST_X :', 'STRUCT', '    ' + field, 'END_STRUCT', 'END_TYPE', '//---- IMPLEMENTATION ----', ''].join('\n');
+  const mk = (field: string) => indexOf({ FB_Abs: fb('FUNCTION_BLOCK ABSTRACT FB_Abs'), ST_X: st(field) });
+  assert.deepEqual(rules(mk('fb : FB_Abs;'), 'ST_X'), ['abstract-instantiation']);
+  assert.deepEqual(rules(mk('fb : POINTER TO FB_Abs;'), 'ST_X'), []);
+});

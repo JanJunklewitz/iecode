@@ -30,3 +30,8 @@ test('summaryText names counts per level and the most frequent rule, and says No
   assert.equal(summaryText(list), '12 findings: 5 errors, 7 warnings; most frequent: guid (6)');
   assert.equal(summaryText([f('only')]), '1 finding: 1 error; most frequent: only (1)');
 });
+
+test('applyLevels ignores an override that is no level, so a typo does not change the severity', () => {
+  const out = applyLevels([f('a', 'hint')], { a: 'warn' as never }, { a: 'info' });
+  assert.equal(out[0].level, 'info');
+});

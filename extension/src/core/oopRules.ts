@@ -22,7 +22,9 @@ const isIndirect = (type: string) => /^(?:POINTER|REFERENCE)\b/i.test(type.trim(
 /** Methods TwinCAT calls itself: a derived FB_init may add parameters, so their signatures are free. */
 const LIFECYCLE = new Set(['FB_INIT', 'FB_REINIT', 'FB_EXIT']);
 const PARAM_SCOPES = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
-const norm = (t: string | undefined) => (t ?? '').replace(/\s+/g, '').toUpperCase();
+/** A type as written, for comparison: no namespace prefix (`Tc2_Standard.TON` is `TON`) and `STRING[80]` is `STRING(80)`. */
+const norm = (t: string | undefined) => (t ?? '').replace(/\s+/g, '').toUpperCase()
+  .replace(/\b[A-Z_]\w*\./g, '').replace(/^(W?STRING)\[(.*)\]$/, '$1($2)');
 const hasModifier = (s: PlcSymbol, m: string) => !!s.modifiers?.includes(m);
 
 /** Same return type and the same VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT list (name, type, order; case-insensitive). */
@@ -86,12 +88,12 @@ export function checkOop(index: SymbolIndex, obj: IndexedObject): Finding[] {
   // an ABSTRACT block cannot be instantiated: variables of every object and member
   const visit = (s: PlcSymbol) => {
     for (const c of s.children) {
-      if (c.kind === 'VARIABLE' && c.scope !== 'VAR_IN_OUT' && c.type && !isIndirect(c.type)) {
+      if ((c.kind === 'VARIABLE' || c.kind === 'FIELD') && c.scope !== 'VAR_IN_OUT' && c.type && !isIndirect(c.type)) {
         const t = baseTypeName(c.type);
         const target = t ? index.find(t) : undefined;
         if (target?.root?.kind === 'FUNCTION_BLOCK' && hasModifier(target.root, 'ABSTRACT'))
           add('abstract-instantiation', level('abstract-instantiation'), `${c.name} is an instance of ${target.root.name}, which is ABSTRACT`, c.range);
-      } else if (c.kind !== 'VARIABLE') visit(c);
+      } else if (c.kind !== 'VARIABLE' && c.kind !== 'FIELD') visit(c);
     }
   };
   visit(root);
