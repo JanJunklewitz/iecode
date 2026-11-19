@@ -1686,6 +1686,7 @@
         "iecode.logViewer.formats": {
           "type": "array",
           "default": [],
+          "scope": "application",
           "items": {
             "type": "object",
             "required": [

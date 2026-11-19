@@ -189,3 +189,10 @@ test('an upper time bound covers the whole second or minute it names', () => {
   assert.deepEqual(parseFilterTimeInput('', true), {});
   assert.deepEqual(parseFilterTimeInput('nope', true), { error: 'Invalid time, expected yyyy-MM-dd HH:mm:ss' });
 });
+
+test('the years 0000 to 0099 are years, not 1900 to 1999', () => {
+  const t = parseFilterTime('0099-01-01 00:00');
+  assert.ok(Number.isFinite(t));
+  assert.equal(new Date(t).getUTCFullYear(), 99);
+  assert.ok(Number.isNaN(parseFilterTime('0099-02-30 00:00')));
+});

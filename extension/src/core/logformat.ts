@@ -138,7 +138,11 @@ export function compileFormat(def: LogFormatDef): LogFormat {
 }
 
 function utc(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number): number {
-  const t = Date.UTC(y, mo - 1, d, h, mi, s, ms);
+  // Date.UTC reads the years 0 to 99 as 1900 to 1999: set the year itself
+  const stamp = new Date(0);
+  stamp.setUTCFullYear(y, mo - 1, d);
+  stamp.setUTCHours(h, mi, s, ms);
+  const t = stamp.getTime();
   if (Number.isNaN(t)) return NaN;
   const c = new Date(t);
   // Round trip: an overflowing component (Feb 30, hour 24) would be normalized silently otherwise.
