@@ -35,6 +35,7 @@ export const REDIRECT_NOTE = ' (the workspace settings set the ADS target or por
 
 /** Note appended to the confirmation text; the redirect note wins when the workspace redirects the target. */
 export function autoNote(s: AutoState, redirected: boolean): string {
+  if (s.kind === 'notAuto') return '';   // auto-approve was never asked for, so nothing is being refused
   if (redirected) return REDIRECT_NOTE;
   if (s.kind === 'expired') return ' (auto-approve expired; re-arm it with "IECode: Set AI Write Access…")';
   if (s.kind === 'notArmed') return ' (auto-approve is not armed; arm it with "IECode: Set AI Write Access…")';

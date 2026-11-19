@@ -108,7 +108,11 @@ export function noticeText(events: SamplingEvent[], dropped: boolean, clock: (ms
           used.add(j);
           lines.push(`Notice: the connection to the PLC was lost at ${clock(e.t)} and restored at ${clock(events[j].t)}; values in between are missing.`);
         } else {
-          lines.push(`Notice: the connection to the PLC was lost at ${clock(e.t)} (${e.error}); sampling resumes when it is back.`);
+          // a stop that follows the loss ends the sampling, so it does not resume by itself
+          const next = events.find((x, k) => k > i && !used.has(k) && (x.kind === 'restored' || x.kind === 'lost' || x.kind === 'stopped'));
+          lines.push(next?.kind === 'stopped'
+            ? `Notice: the connection to the PLC was lost at ${clock(e.t)} (${e.error}); sampling then stopped.`
+            : `Notice: the connection to the PLC was lost at ${clock(e.t)} (${e.error}); sampling resumes when it is back.`);
         }
         break;
       }

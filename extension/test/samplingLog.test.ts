@@ -215,3 +215,10 @@ test('a second stop without a start in between is not recorded', () => {
   log.record({ kind: 'stopped', t: 3, reason: 'b' });
   assert.deepEqual(log.since(0).events, [{ kind: 'stopped', t: 2, reason: 'a' }]);
 });
+
+test('a loss that a stop ended does not say that sampling resumes by itself', () => {
+  const text = noticeText([{ kind: 'lost', t: 3, error: 'ADS error 0x745' }, { kind: 'stopped', t: 5, reason: 'target changed' }], false, clock, names)!;
+  const lines = text.split('\n');
+  assert.equal(lines[0], 'Notice: the connection to the PLC was lost at T3 (ADS error 0x745); sampling then stopped.');
+  assert.match(lines[1], /sampling stopped at T5/);
+});

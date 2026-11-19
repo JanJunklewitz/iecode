@@ -86,3 +86,7 @@ test('the AI write settings are application-scoped and the arming time is not sy
   for (const k of ['iecode.ads.aiWrites', 'iecode.ads.aiWritePaths', 'iecode.ads.aiWritesAutoMinutes', 'iecode.ads.aiWritesArmedAt']) assert.equal(props[k]?.scope, 'application', k);
   assert.equal(props['iecode.ads.aiWritesArmedAt'].ignoreSync, true);
 });
+
+test('autoNote says nothing when auto-approve was never chosen, even if the workspace redirects the target', () => {
+  assert.equal(autoNote({ kind: 'notAuto' }, true), '');
+});
