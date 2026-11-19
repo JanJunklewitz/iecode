@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changedSections, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection } from '../src/core/objectStage';
+import { changedSections, decodeUtf8Strict, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection } from '../src/core/objectStage';
 import { tempRepo } from './helpers/gitRepo';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, runGit, writeIndexBlob } from '../src/core/git';
 import { join } from 'path';
@@ -288,4 +288,37 @@ test('stageGuard gives one message per refusal and offers the whole file for unt
   assert.match(bad({ mixedEol: true }).message, /mixed line endings/);
   assert.match(bad({ decodes: false }).message, /cannot be read/);
   assert.equal(bad({ dirty: true }).wholeFile, undefined);
+});
+
+test('decodeUtf8Strict keeps a BOM and refuses bytes that do not round-trip', () => {
+  const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('<a/>', 'utf8')]);
+  assert.equal(decodeUtf8Strict(bom), '﻿<a/>');
+  assert.equal(decodeUtf8Strict(Buffer.from([0x3c, 0xff, 0x3e])), undefined);
+});
+
+test('a unit that only the source has is an error, not a silent no-op', () => {
+  const work = pou({ impl: 'main2;' });
+  const lines = work.split('\n');
+  const at = lines.findIndex(l => l.includes('main2;'));
+  const base = [...lines.slice(0, at - 1), ...lines.slice(at + 2)].join('\n');   // drops the main <Implementation> block
+  assert.notEqual(base, work);
+  assert.deepEqual(changedSections(base, work).map(c => c.key), ['MAIN']);
+  assert.throws(() => stageSection(base, work, 'MAIN'), ViewError);
+});
+
+test('a renamed object does not leak its new name into the copied LineIds', () => {
+  const base = pou({ methods: [A('a1'), B('b1')] });
+  const work = pou({ methods: [A('a2'), B('b1')] }).replace(/FB_A/g, 'FB_New');
+  const out = stageSection(base, work, 'METHOD:A');
+  assert.ok(!out.includes('FB_New'), out);
+  assert.ok(out.includes('<LineIds Name="FB_A.A">'));
+  assert.ok(out.includes('a2') && out.includes('b1'));
+});
+
+test('a GET added to a property that has a SET lands before the SET', () => {
+  const base = pou({ prop: { type: 'INT', set: 's' } });
+  const work = pou({ prop: { type: 'INT', get: 'g', set: 's' } });
+  const out = stageSection(base, work, 'GET:Speed');
+  assert.ok(out.indexOf('<Get ') >= 0 && out.indexOf('<Get ') < out.indexOf('<Set '), out);
+  assert.deepEqual(changedSections(out, work), []);
 });

@@ -3,7 +3,7 @@
 
 import { createHash } from 'crypto';
 import * as vscode from 'vscode';
-import { changedSections, hasMixedEol, stageGuard, stageSection } from '../core/objectStage';
+import { changedSections, decodeUtf8Strict, hasMixedEol, stageGuard, stageSection } from '../core/objectStage';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, repoRoot, writeIndexBlob } from '../core/git';
 import { decode, outline } from '../model';
 
@@ -25,8 +25,9 @@ async function snapshot(file: vscode.Uri): Promise<{ ok: true; s: Snapshot } | {
   let index: string | undefined, utf8 = true;
   try { index = await readIndex(root, file.fsPath); } catch (e) { if (e instanceof NotUtf8Error) utf8 = false; else throw e; }
   const bytes = await vscode.workspace.fs.readFile(file);
-  const work = new TextDecoder('utf-8').decode(bytes);
-  if (!Buffer.from(work, 'utf8').equals(Buffer.from(bytes))) utf8 = false;
+  const decoded = decodeUtf8Strict(bytes);    // TextDecoder would drop a BOM and make every BOM file look invalid
+  if (decoded === undefined) utf8 = false;
+  const work = decoded ?? '';
   let decodes = true;
   try { decode(work.replace(/^﻿/, '')); if (index) decode(index.replace(/^﻿/, '')); } catch { decodes = false; }
   const g = stageGuard({
@@ -67,6 +68,7 @@ export function registerObjectStage(ctx: vscode.ExtensionContext): void {
     changed,
     vscode.languages.registerCodeLensProvider({ scheme: SCHEME }, lenses),
     vscode.commands.registerCommand('iecode.stageSection', async (uri: vscode.Uri, key: string, hash?: string) => {
+      if (!uri || !key) return;                  // not declared in package.json, so a keybinding or task may call it bare
       const file = uri.with({ scheme: 'file' });
       try {
         const r = await snapshot(file);

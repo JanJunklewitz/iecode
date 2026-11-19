@@ -18,6 +18,13 @@ export interface SectionRanges {
 const nl = (s: string) => s.replace(/\r\n/g, '\n');
 const stripBom = (s: string) => (s.charCodeAt(0) === 0xfeff ? { bom: '﻿', body: s.slice(1) } : { bom: '', body: s });
 
+/** Text of bytes that are valid UTF-8, with a BOM kept; undefined for bytes that would change when written back as text. */
+export function decodeUtf8Strict(bytes: Uint8Array): string | undefined {
+  const buf = Buffer.from(bytes);
+  const text = buf.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(buf) ? text : undefined;
+}
+
 /** True when the text has both CRLF and bare LF line endings. */
 export function hasMixedEol(xml: string): boolean {
   return xml.includes('\r\n') && /(^|[^\r])\n/.test(xml);
@@ -106,6 +113,13 @@ function takeSection(targetXml: string, sourceXml: string, key: string): string 
   if (!inT && !inS) throw new ViewError(`Section ${key} does not exist`);
   const conv = (x: string) => x.replace(/\r\n/g, '\n').replace(/\n/g, t.eol);
   const slice = (a: Analysis, r: Range) => a.body.slice(r.start, r.end);
+  // LineIds are named `<object>.<member>`: when the object was renamed, a copied entry takes the name of the target
+  const srcName = s.main.attrs.Name, tgtName = t.main.attrs.Name;
+  const idText = (r: Range) => {
+    const x = conv(slice(s, r));
+    return srcName === tgtName ? x : x.replace(/<LineIds Name="([^"]*)"/g, (m, n: string) =>
+      n === srcName || n.startsWith(srcName + '.') ? `<LineIds Name="${tgtName}${n.slice(srcName.length)}"` : m);
+  };
   const edits: Edit[] = [];
   const [kind, name] = [key.split(':')[0], key.slice(key.indexOf(':') + 1)];
 
@@ -136,8 +150,11 @@ function takeSection(targetXml: string, sourceXml: string, key: string): string 
       if (!su) throw new ViewError(`Section ${key} has no ${u.name} in the source`);
       edits.push({ start: u.start, end: u.end, text: conv(slice(s, su)) });
     }
+    // a unit that only the source has cannot be spliced in: failing is better than reporting a no-op as staged
+    for (const su of inS.units)
+      if (!inT.units.some(x => x.name === su.name)) throw new ViewError(`Section ${key} gains a ${su.name} that the other version lacks: stage the whole file`);
     const tIds = inT.lineIds, sIds = inS.lineIds;
-    const sText = sIds.map(r => conv(slice(s, r))).join('');
+    const sText = sIds.map(idText).join('');
     if (tIds.length) {
       tIds.forEach((r, i) => edits.push({ start: r.start, end: r.end, text: i === 0 ? sText : '' }));
     } else if (sText) {
@@ -151,8 +168,14 @@ function takeSection(targetXml: string, sourceXml: string, key: string): string 
       const prop = t.secs.get(`PROPERTY:${name}`);
       if (!prop) throw new ViewError(`${key} needs PROPERTY ${name} in the target`);
       text = conv(slice(s, inS.units[0]));
-      pos = t.body.lastIndexOf('\n', t.body.indexOf('</Property>', prop.node.start) - 1) + 1;
-      pos = Math.max(pos, prop.node.start);
+      // GET comes before SET, as TwinCAT writes them
+      const set = kind === 'GET' ? t.secs.get(`SET:${name}`) : undefined;
+      if (set) pos = set.node.start;
+      else {
+        pos = t.body.lastIndexOf('\n', t.body.indexOf('</Property>', prop.node.start) - 1) + 1;
+        pos = Math.max(pos, prop.node.start);
+      }
+      precedingKey = kind === 'SET' && t.secs.has(`GET:${name}`) ? `GET:${name}` : `PROPERTY:${name}`;
     } else {
       const r = wholeProperty ? inS.whole! : inS.units[0];
       text = conv(slice(s, r));
@@ -166,7 +189,7 @@ function takeSection(targetXml: string, sourceXml: string, key: string): string 
       precedingKey = preceding?.key;
     }
     edits.push({ start: pos, end: pos, text });
-    const sText = idsOf(s, inS).map(r => conv(slice(s, r))).join('');
+    const sText = idsOf(s, inS).map(idText).join('');
     if (sText) { const p = lineIdInsertPos(precedingKey); edits.push({ start: p, end: p, text: sText }); }
   } else if (inT) {
     // removed: the element and all its LineIds entries
