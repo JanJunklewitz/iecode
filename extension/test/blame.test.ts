@@ -204,3 +204,15 @@ test('lensText names author, relative time, subject and short hash; uncommitted 
   assert.match(lensText(mk(800 * day), now), /, 2 years ago: /);
   assert.equal(lensText(mk(0, { uncommitted: true }), now), 'Not committed yet');
 });
+
+test('blame keeps a file name with non-ASCII characters readable, so the line history can use it', async () => {
+  const r = tempRepo();
+  try {
+    const name = 'M\u00fcller.TcPOU';
+    r.write(name, pou(['a;', 'b;'])); r.commitAll('c1');
+    r.write(name, pou(['a;', 'b;', 'c;'])); r.commitAll('c2');
+    const raw = await blame(r.dir, join(r.dir, name));
+    assert.ok(raw.length > 0);
+    assert.ok(raw.every(l => l.origPath === name), raw.map(l => l.origPath).join(','));
+  } finally { r.cleanup(); }
+});

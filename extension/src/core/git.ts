@@ -162,7 +162,7 @@ export async function isCommit(root: string, ref: string): Promise<boolean> {
 /** `git blame --porcelain -w` of a file, parsed; empty for an untracked file or a path outside a repository. A timeout throws (error.timedOut). */
 export async function blame(root: string, file: string): Promise<LineBlame[]> {
   try {
-    return parseBlamePorcelain(await git(root, ['blame', '--porcelain', '-w', '--', rel(root, file)], { timeout: 15_000 }));
+    return parseBlamePorcelain(await git(root, ['-c', 'core.quotePath=false', 'blame', '--porcelain', '-w', '--', rel(root, file)], { timeout: 15_000 }));
   } catch (e) {
     if ((e as { timedOut?: boolean }).timedOut) throw e;
     return [];
@@ -179,7 +179,7 @@ export async function lineHistory(root: string, commit: string, origPath: string
   const sep = '\u001f';
   let out: string;
   try {
-    out = await git(root, ['log', `-L${origLine},${origLine}:${origPath}`, checkRef(commit), '-w', '-p', '-n', '3', '--no-color',
+    out = await git(root, ['-c', 'core.quotePath=false', 'log', `-L${origLine},${origLine}:${origPath}`, checkRef(commit), '-w', '-p', '-n', '3', '--no-color',
       `--format=@@@%H${sep}%an${sep}%at${sep}%s`], { timeout: 15_000 });
   } catch { return []; }
   const entries: LineHistoryEntry[] = [];
