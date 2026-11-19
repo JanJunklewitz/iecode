@@ -1,5 +1,7 @@
 // One result type for object checks (structure, OOP rules, IO links, unused objects) and the settings switch that sets their level.
 
+import { createHash } from 'crypto';
+
 export type Level = 'error' | 'warning' | 'info' | 'hint';
 
 export interface Finding {
@@ -10,9 +12,16 @@ export interface Finding {
   file: string;
   /** 0-based positions. */
   line: number; col: number; endLine: number; endCol: number;
+  /** Which text the positions and fix offsets address: the raw XML (`file:` document) or the decoded ST view (`iecode:` document). */
+  space?: 'xml' | 'view';
+  /** Hash of the analysed text (`textVersion`); a fix is refused when the document no longer has this hash. */
+  version?: string;
   /** Offsets are into the text of `file`. */
   fix?: { title: string; edit: { start: number; end: number; text: string } };
 }
+
+/** Short hash of a text, to tell whether a finding still matches the document. */
+export const textVersion = (text: string) => createHash('sha1').update(text).digest('hex').slice(0, 12);
 
 export interface RuleInfo { id: string; description: string; level: Level | 'off' }
 

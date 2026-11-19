@@ -6,7 +6,7 @@ import * as path from 'path';
 import { CONFLICT_RE, hasXmlConflict } from '../model';
 import { isEncrypted } from './projects';
 import { XNode, parseXml } from '../xml';
-import { Finding, Level, RuleInfo, offsetToPosition } from './findings';
+import { Finding, Level, RuleInfo, offsetToPosition, textVersion } from './findings';
 
 export const STRUCTURE_RULES: RuleInfo[] = [
   { id: 'xml-parse', description: 'The file is not well-formed XML', level: 'error' },
@@ -85,9 +85,10 @@ function* walkNodes(n: XNode): Generator<XNode> {
 
 export function checkStructure(xml: string, file: string, opts: { namingPrefixes?: Record<string, string> } = {}): Finding[] {
   const out: Finding[] = [];
+  const version = textVersion(xml);
   const add = (rule: string, level: Level, message: string, start: number, end: number, fix?: Finding['fix']) => {
     const a = offsetToPosition(xml, start), b = offsetToPosition(xml, end);
-    out.push({ rule, level, message, file, line: a.line, col: a.col, endLine: b.line, endCol: b.col, ...(fix ? { fix } : {}) });
+    out.push({ rule, level, message, file, space: 'xml', version, line: a.line, col: a.col, endLine: b.line, endCol: b.col, ...(fix ? { fix } : {}) });
   };
   const level = (id: string) => STRUCTURE_RULES.find(r => r.id === id)!.level as Level;
 
