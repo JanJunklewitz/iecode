@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { SymbolIndex } from '../src/lang/index';
 import { ObjectGraph, assemble, fileEdges, reach } from '../src/core/objectGraph';
 import { impactOf, impactRows, ioVariablePath } from '../src/core/impact';
@@ -126,4 +128,12 @@ test('a target reached only from a non-task root says so instead of listing no t
   const r = impactOf(g, reach(g, ['MAIN', 'OTHER']), ['MAIN'], 'OTHER', [], 'PLC1');
   assert.deepEqual(r.tasks, []);
   assert.ok(r.notes.some(n => /other roots/.test(n)));
+});
+
+test('the impact menu entry is offered on objects and members only, not on member folders or groups', () => {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
+  const item = pkg.contributes.menus['view/item/context'].find((m: { command: string }) => m.command === 'iecode.showImpact');
+  const re = new RegExp(/viewItem =~ \/(.*?)\/ /.exec(item.when)![1]);
+  for (const ok of ['object.FUNCTION_BLOCK', 'member.METHOD']) assert.ok(re.test(ok), ok);
+  for (const no of ['memberFolder.FUNCTION_BLOCK', 'memberGroup', 'libraryObject.PROGRAM']) assert.ok(!re.test(no), no);
 });

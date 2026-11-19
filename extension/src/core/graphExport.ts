@@ -17,9 +17,9 @@ export const MAX_NODES = 300;
 
 /**
  * `flowchart LR` of the object graph. Members are folded into their object unless `members`; library nodes are left out.
- * `only` keeps those nodes and their direct neighbours. Unused nodes get the class `unused`.
+ * `only` keeps those nodes and, unless `neighbours` is false, their direct neighbours. Unused nodes get the class `unused`.
  */
-export function objectGraphMermaid(g: ObjectGraph, opts: { unused?: UnusedFinding[]; only?: NodeId[]; members?: boolean } = {}): string {
+export function objectGraphMermaid(g: ObjectGraph, opts: { unused?: UnusedFinding[]; only?: NodeId[]; neighbours?: boolean; members?: boolean } = {}): string {
   const fold = (id: NodeId) => (opts.members ? id : g.nodes.get(id)?.owner ?? id);
   const visible = (id: NodeId) => { const n = g.nodes.get(id); return !!n && !n.library; };
   const edges = new Map<string, [NodeId, NodeId]>();
@@ -33,7 +33,7 @@ export function objectGraphMermaid(g: ObjectGraph, opts: { unused?: UnusedFindin
   if (opts.only) {
     const roots = new Set(opts.only.filter(visible).map(fold));
     keep = new Set(roots);
-    for (const [a, b] of edges.values()) { if (roots.has(a)) keep.add(b); if (roots.has(b)) keep.add(a); }
+    if (opts.neighbours !== false) for (const [a, b] of edges.values()) { if (roots.has(a)) keep.add(b); if (roots.has(b)) keep.add(a); }
   }
 
   const ids = mermaidIds([...keep]);

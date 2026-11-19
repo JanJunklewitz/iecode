@@ -70,6 +70,13 @@ test('only restricts to the nodes and their neighbours', () => {
   assert.ok(!/FB_Far/.test(out));
 });
 
+test('only without neighbours keeps exactly the given nodes', () => {
+  const out = objectGraphMermaid(graphOf(views), { only: ['FB_MOTOR', 'MAIN'], neighbours: false });
+  assert.match(out, /\["FB_Motor"\]/);
+  assert.match(out, /\["MAIN"\]/);
+  assert.ok(!/FB_Lonely|FB_Far/.test(out), out);
+});
+
 test('mermaidNodeCount counts the node lines', () => {
   assert.equal(mermaidNodeCount(objectGraphMermaid(graphOf(views), {})), 4);
 });

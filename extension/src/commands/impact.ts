@@ -1,6 +1,7 @@
 // Impact view: which tasks, callers and IO links a change to an object, member or variable touches.
 
 import { promises as fs } from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { AnalysisState } from '../core/analysisState';
 import { ImpactRow, impactOf, impactRows } from '../core/impact';
@@ -17,23 +18,25 @@ const SCHEME = 'iecode';
 const OBJECT_KINDS = new Set(['FUNCTION_BLOCK', 'PROGRAM', 'FUNCTION', 'INTERFACE', 'STRUCT', 'UNION', 'ENUM', 'ALIAS', 'GVL']);
 const MEMBER_KINDS = new Set(['METHOD', 'PROPERTY', 'ACTION', 'TRANSITION']);
 
-interface Target { unit: Unit; id: string; label: string; variable?: string }
+/** `message` is set when there is nothing to analyse for what the user pointed at, and says why. */
+interface Target { unit: Unit; id: string; label: string; variable?: string; message?: string }
 
 /** The links of the system project that contains the PLC, plus those of separate system-only projects that name this PLC; undefined when none could be read. */
-async function linksOf(state: WorkspaceState, unit: Unit): Promise<{ links?: IoLink[]; plcName: string; tsproj?: string }> {
+async function linksOf(state: WorkspaceState, unit: Unit): Promise<{ links?: IoLink[]; plcName: string; tsproj?: string; unreadable: string[] }> {
   const own = systemProjectOf(state.current, unit);
   const plcName = own?.plcName ?? unit.plc.itemName ?? unit.plc.name;
   const read = (f: string) => fs.readFile(f, 'utf8').catch(() => undefined);
   const files = [...(own ? [own.project.file] : []), ...systemProjects(state.current).filter(s => s.solution === unit.solution).map(s => s.project.file)];
   let links: IoLink[] | undefined;
+  const unreadable: string[] = [];
   for (const f of files) {
     try {
       const mine = (await readProject(f, read)).links.map(toIoLink)
         .filter(l => f === own?.project.file || parsePlcLinkSide(l.variable)?.plc.toLowerCase() === plcName.toLowerCase());
       links = [...(links ?? []), ...mine];
-    } catch { /* an unreadable project: the links stay as far as they were read */ }
+    } catch { unreadable.push(path.basename(f)); }   // the links stay as far as they were read, and the result says so
   }
-  return { links: own || links ? links : undefined, plcName, tsproj: own?.project.file };
+  return { links: own || links ? links : undefined, plcName, tsproj: own?.project.file, unreadable };
 }
 
 async function targetOf(arg: unknown, state: WorkspaceState, lang: LanguageApi): Promise<Target | undefined> {
@@ -52,8 +55,13 @@ async function targetOf(arg: unknown, state: WorkspaceState, lang: LanguageApi):
   const loc = lang.index.resolve(file, ed.selection.active.line, ed.selection.active.character);
   if (!loc) return undefined;
   const { symbol, owner } = loc;
+  // the graph of this project only knows its own files, not libraries or other projects
+  if (unitOfFile(state.current, loc.file)?.id !== unit.id)
+    return { unit, id: '', label: symbol.name, message: `${symbol.name} is defined outside ${unit.id} (a library or another project), so this project's analysis does not cover it.` };
   if (OBJECT_KINDS.has(symbol.kind)) return { unit, id: symbol.name.toUpperCase(), label: symbol.name };
   if (owner && MEMBER_KINDS.has(symbol.kind)) return { unit, id: `${owner.name}.${symbol.name}`.toUpperCase(), label: `${owner.name}.${symbol.name}` };
+  if (owner && MEMBER_KINDS.has(owner.kind))   // a local of a method, property or action: nothing outside it can use it
+    return { unit, id: '', label: symbol.name, message: `${symbol.name} is a local variable of ${owner.name}; select the member or the object to see its impact.` };
   if (owner) return { unit, id: owner.name.toUpperCase(), label: `${owner.name}.${symbol.name}`, variable: `${owner.name}.${symbol.name}` };
   return undefined;
 }
@@ -62,10 +70,12 @@ export function registerImpact(ctx: vscode.ExtensionContext, analysis: AnalysisS
   ctx.subscriptions.push(vscode.commands.registerCommand('iecode.showImpact', async (arg?: unknown) => {
     const t = await targetOf(arg, state, lang);
     if (!t) { vscode.window.showInformationMessage('IECode: select an object or member in the project tree, or put the cursor on a name in an ST view.'); return; }
+    if (t.message) { vscode.window.showInformationMessage(`IECode: ${t.message}`); return; }
     const a = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Analysing ${t.unit.id}` }, () => analysis.request(t.unit.id));
     if (!a.graph.nodes.has(t.id)) { vscode.window.showInformationMessage(`IECode: ${t.label} is not in the analysis of ${t.unit.id}.`); return; }
     const io = await linksOf(state, t.unit);
     const result = impactOf(a.graph, a.reach, [...new Set(a.roots.filter(r => r.why === 'task').map(r => r.id))], t.id, io.links, io.plcName, t.variable);
+    for (const f of io.unreadable) result.notes.push(`IO links of ${f} could not be read: links to this PLC may be missing`);
     const why = emptyReason(a);
     if (why && a.skipped !== 'no-tasks') result.notes.unshift(why);
 

@@ -51,7 +51,7 @@ export function registerGraphExport(ctx: vscode.ExtensionContext, analysis: Anal
     let text = whole;
     if (scope.task) {
       const only = [...reach(a.graph, a.roots.filter(r => r.task === scope.task).map(r => r.id)).reachable.keys()];
-      text = objectGraphMermaid(a.graph, { unused, only });
+      text = objectGraphMermaid(a.graph, { unused, only, neighbours: false });   // exactly what the task reaches, not the callers of other tasks
       if (mermaidNodeCount(text) > MAX_NODES) { vscode.window.showInformationMessage(`IECode: task ${scope.task} reaches more than ${MAX_NODES} objects; too large for one diagram.`); return; }
     }
     return deliver(text, `${unit.plc.name}${scope.task ? '-' + scope.task : ''}`);

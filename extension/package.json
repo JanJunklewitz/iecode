@@ -897,7 +897,7 @@
         },
         {
           "command": "iecode.showImpact",
-          "when": "view == iecode.projects && viewItem =~ /^(object|member)/ && viewItem != object.encrypted",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
           "group": "3_analysis@2"
         },
         {
