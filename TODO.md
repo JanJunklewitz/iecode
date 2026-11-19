@@ -5,16 +5,75 @@
 Ranked by value for the effort (checked 2026-11-17 against the items below and [docs/ads-mcp-wishlist.md](docs/ads-mcp-wishlist.md)). Each is a day or less; none needs a design decision first.
 
 1. **Live check of the ADS MCP features** (no code, about 1 hour on a simulation): the checklist under "ADS MCP: live check of the write and struct-read features". Everything from batch write to `ads_symbols --online` is unit-tested only, so a defect found here costs more than any new feature.
-2. **ARMED expiry for `auto` AI writes** (small): the path allowlist exists (`iecode.ads.aiWritePaths`, Plan C7a); only the expiry of `auto` is missing. See "ADS write allowlist and ARMED expiry". Built 2026-11-18 (Plan A, `feature/ads-state-and-tree-filter`); the F5 check is open.
-3. **Resume notice after a download or restart** (small): the watch view and the scope show a one-line notice when sampling resumed (wishlist section 2, "New"). `ads_wait` already reports the end reason; reuse it. Built 2026-11-18 (Plan B, same branch); the simulation check is open.
+2. **ARMED expiry for `auto` AI writes** (small): the path allowlist exists (`iecode.ads.aiWritePaths`, Plan C7a); only the expiry of `auto` is missing. See "ADS write allowlist and ARMED expiry". Built 2026-11-18 (Plan A, `feature/ads-state-and-tree-filter`). The simulation test of 2026-11-20 ran an older build; the arming decision is pinned by a test, the check has to be repeated with this build (open, see [docs/open-tests.md](docs/open-tests.md)).
+3. **Resume notice after a download or restart** (small): the watch view and the scope show a one-line notice when sampling resumed (wishlist section 2, "New"). `ads_wait` already reports the end reason; reuse it. Built 2026-11-18 (Plan B, same branch). Simulation check 2026-11-20: no notice appeared after a runtime restart, probably because a plain stop and start keeps the symbol version; open, see [docs/open-tests.md](docs/open-tests.md).
 4. **`ads_state`** (small): run / stop state, task cycle time and cycle counter in one read, so an AI sees that the PLC restarted (wishlist section 7, "New").
 5. **Dependency graph as Mermaid export** (small): text export of the graph `iecode.showGraph` already builds.
 6. **ADS Scope export as CSV** (small): export a recording; the AI summary can follow later.
-7. **Project view: search and filter in the tree** (small to medium): filter by name and kind. Built 2026-11-18 on `feature/tree-filter` (Plan D, own PR); the F5 check is open.
+7. **Project view: search and filter in the tree** (small to medium): filter by name and kind. Built 2026-11-18 on `feature/tree-filter` (Plan D). Hand-checked 2026-11-20: name and kind filter, Enter timing, Clear, same filter in another case or order. Two defects found there are fixed (the filter vanished when another command's dialog closed the box; projects hidden by the filter came back closed) and need one more look, see [docs/open-tests.md](docs/open-tests.md).
 
 Items 2, 3, 4 and 7 are planned in the [small items master plan](docs/superpowers/plans/2026-11-17-small-items-master-plan.md) (branch `feature/ads-state-and-tree-filter`): [A auto write expiry](docs/superpowers/plans/2026-11-17-small-items-a-auto-write-expiry.md), [B sampling notice](docs/superpowers/plans/2026-11-17-small-items-b-sampling-notice.md), [C `ads_state`](docs/superpowers/plans/2026-11-17-small-items-c-ads-state.md), [D tree filter](docs/superpowers/plans/2026-11-17-small-items-d-tree-filter.md).
 
 Not now: same-cycle batch write, event order across tasks (both deferred by decision 2026-11-09), the log file viewer, the formatter (both need a design first).
+
+## Branches in flight
+
+State of 2026-11-19. All branches below are rebased on `origin/main` at release 0.2.20 and pass their tests. Every one was reviewed (code review at level high) and then checked by a second model (Copilot); the confirmed findings are fixed with a regression test and the notes in each `CHANGELOG.md` name what users see. Nothing is pushed and no pull request exists yet. `combined/analysis-and-tree` (see below) holds chain A, chain C and the tree filter in one line; the single branches stay for stacked pull requests.
+
+**Chain A: object analysis** (base: `feature/object-analysis-and-history`, plans only, 3 commits)
+- [ ] `lane1a/object-spans-blame`: blame per method in the ST view (CodeLens and hover, setting `iecode.blame.enabled`).
+  - Open: a boundary line is only repaired when it sits next to the old first or last line of its commit, so an edit of the line after an appended one can hide the repair. Blame ignores whitespace (`-w`), so a change inside a string literal can keep its old author.
+- [ ] `lane1a/object-history`: history of one object or member that follows renames, and a diff of one commit.
+  - Open: the walk compares each commit with its first parent only (a rename on a merged branch is not followed, and merges rarely appear in `git log --follow`). A whole-object history does not show deletions. Opened diffs keep their text in memory only, so a restored tab after a restart is empty.
+- [ ] `lane1a/object-staging`: stage a single method from the ST view.
+  - Open: a deleted method has no Stage action (no anchor in the view). Index updates re-check the blob before `update-index` but are not one transaction with another Git client.
+- [ ] `lane2/object-graph`: symbol index, reference edges, reachability, entry points and the cached analysis state.
+  - Open: references in visualizations and non-ST bodies match words, not resolved variables (can only keep objects alive). Library versions are chosen by name, not by version. A namespace qualifier does not restrict the lookup to that library.
+- [ ] `lane2/unused-objects`: unused marks in the tree and faded hints in the ST view.
+  - Open: hints are hidden while the XML counterpart is dirty only on the next save.
+- [ ] `lane2/impact-view`: impact of an object, member or variable, and Mermaid export.
+  - Open: tasks are counted by entry program, not by task name. The result for a variable is the result of its owner object. The editor symbol is resolved against all projects, so a same-named GVL in two projects can be rejected. A link found in a separate system-only project cannot be opened from the list.
+  - Shares two commits with chain C (`Parse the PLC side of an IO link in one place`, `Build a symbol index per PLC project`) with identical patches: rebasing chain C on the merged chain A drops them; keep the version of chain A where `unitIndex.ts` conflicts (it has the later fixes).
+
+**Chain B: ADS tools** (base: `origin/main`)
+- [ ] `feature/ads-local-netid`: batch write with a persistent-data guard, restore, structures read whole, online symbol list.
+  - Open: the online symbol list is capped by the CLI before the prefix and type filters (a note says so, the real fix is a filter in the CLI). `ads symbols --online` ignores `--save`, `--csv`, `--members` and `--plc`. Duplicate names in one batch are compared as typed, not resolved. Restore does not compare the current value with the value the AI wrote.
+- [ ] `feature/ads-state-and-tree-filter`: auto-approve window for AI writes, log of connection and sampling events, notices in tool results.
+  - Open: changing the auto-approve duration changes the end of an already expired window (a re-arm is not required). An idle stop of the host is logged as a sampling stop. The scope gap warning covers the window up to the newest sample only (pinned by a test).
+- [ ] `feature/tree-filter` (own worktree): name and kind filter for the project tree.
+  - Open: a broad filter scans all objects per expanded folder; System projects and `References` nodes are not searched.
+
+**Singles**
+- [ ] `ph/fix-menu-regex`: the escaped dots in the explorer and editor menu conditions (also `.xti`), with a manifest test. Rebased on 0.2.20, 712 tests green; it also fixes seven more conditions that main added since. Merge first: every other branch that adds a menu entry depends on a working condition.
+  - Pull request: [#60](https://github.com/JanJunklewitz/iecode/pull/60) (open).
+  - [ ] Manual check before merging: in the Extension Development Host right-click a `.plcproj`, a `.TcPOU` and an `.xti` in the Explorer and confirm that the IECode entries appear.
+- [ ] `ph/log-viewer`: log file viewer, rebased on `origin/main` (backup of the old state: `backup/log-viewer-pre-rebase`).
+  - Open: regexes of user log formats run on the extension host (known limit, a workspace may supply them by decision). The text search worker and the scan read the file independently, so a rotation between them can pair an old index with new text. A failed live refresh is retried only when the file size changes. A scan has no fixed end offset while the file grows. A long first record (over 64 KiB) defeats format detection. Repeat grouping compares a hash. The copy of the menu fix was dropped from this branch (it comes with `ph/fix-menu-regex`).
+
+**Chain C: object checks** (base: `feature/object-analysis-and-history`)
+- [ ] `lane3/structure-checks`: lint rules for object files (XML structure and rules between function blocks).
+  - Open: a qualified type resolves by its last name, not into the selected library. `xml-parse` is not a strict well-formedness check. The `Lint Objects` summary can count a superseded run as empty.
+- [ ] `lane3/io-link-checks`: IO links against the symbols of the built PLC project.
+  - Open: a parent symbol counts as proof for a removed member (a deliberate rule, pinned by a test). `io-type-changed` relies on `TypeA` and `TypeB` in active mappings, which is unverified on a real project. The build is chosen by name, not by `TmcFilePath`. A PLC without any link is not checked at all.
+
+**Combined branch**: `combined/analysis-and-tree` = chain A + chain C + `feature/tree-filter` on `origin/main` 0.2.20, 74 commits in one line (964 extension tests, VSIX packages). The two shared commits of the chains are gone (identical patches); where `unitIndex.ts` conflicted the version of chain A was kept. Chain B (ADS) and `ph/log-viewer` are left out on purpose: they need checks against a real PLC or by hand first, and `ph/fix-menu-regex` is a small pull request of its own (prepared, not pushed). When the combined branch is split into pull requests again, cut it at the commits of the single branches.
+
+**Merge check (2026-11-19)**: all 13 branches were merged on top of `origin/main` 0.2.20 in a throwaway branch. The result compiles, passes 1107 extension tests and 329 CLI tests and packages as a VSIX. What it needed besides the changelog:
+- `extension/src/extension.ts` and `extension/src/views/tree.ts`: `feature/tree-filter` (own tree view variable and filter message), the unused marks (`tree.setUnused`) and the auto-reveal of main (`registerAutoReveal`) touch the same lines. Keep all three; the tree view variable of the filter is the one auto-reveal gets.
+- `extension/package.json`: adjacent additions (commands, menus, settings) of several branches; keep both sides.
+- `extension/src/core/unitIndex.ts`, `extension/test/model.test.ts`: chain A and chain C (see above).
+- Seven menu conditions of main were escaped twice again: `ph/fix-menu-regex` has the fix and a test that fails on any new one.
+
+**Where a pull request makes sense (and what to check first)**
+- `ph/fix-menu-regex`: pull request #60 is open. Smoke test in the Extension Development Host: right-click a `.plcproj`, a `.TcPOU` and an `.xti` in the Explorer.
+- `feature/tree-filter`: rebased on 0.2.20 (the auto-reveal of main and the unused marks touch the same lines; the tree view variable of the filter is the one auto-reveal gets). Check by hand: filter box, kinds such as `@fb`, Clear while the box is open, running the command twice.
+- Chain A in order (graph, unused, impact as separate pull requests, each on the one before): unit tests are green, but there is no run on a real project yet. Check blame, history and staging in a real repository with real `.TcPOU` files (renames, a BOM file, CRLF), and the unused marks and the impact on a project with tasks and libraries.
+- Chain C: the lint is safe to review now. The IO link checks need one real system project with a built `.tmc` (`io-type-changed` relies on `TypeA`/`TypeB` in active mappings, unverified).
+- Chain B (ADS): not before the manual checks against a real PLC target: batch write, pulse and its reset, restore, persistent guard, online symbol list, auto-approve window and the reload notice. The CLI tests are green but cover the fake backend only.
+- `ph/log-viewer`: not before the manual checks (open a log, live tail on a growing and a rotated file, merge of several files, 100 MB file, search while loading).
+- One pull request with everything is possible (it builds and tests), but about 130 commits and 20 000 lines cannot be reviewed; prefer the stacked pull requests above.
+
+**Not in this list (checked 2026-11-19)**: the earlier `ph/*` branches, `feature/merge-conflicts-and-xti-diff` and the ADS wishlist branches are merged (squashed pull requests #1, #14, #16, #17, #30, #35). `feature/raw-xml-compare` is a plan only. Branches of other authors were not touched.
 
 ## Open
 
