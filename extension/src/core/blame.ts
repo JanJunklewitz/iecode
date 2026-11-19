@@ -4,17 +4,9 @@
 
 import { SectionSpan, ViewMap } from './objectSpans';
 import { lineHistory } from './git';
+import { LineBlame, parseBlamePorcelain } from './blameParse';
 
-export interface LineBlame {
-  commit: string;
-  author: string;
-  time: number;
-  summary: string;
-  uncommitted: boolean;
-  /** Line number and path in `commit` itself (porcelain header and `filename` line), not in the working file. */
-  origLine: number;
-  origPath: string;
-}
+export { LineBlame, parseBlamePorcelain };
 
 export interface SectionBlame {
   key: string;
@@ -25,43 +17,6 @@ export interface SectionBlame {
 }
 
 export type RefineLine = (current: LineBlame) => Promise<LineBlame>;
-
-const ZERO = /^0+$/;
-
-/** Parses `git blame --porcelain`; the result is indexed by (final) XML line - 1. */
-export function parseBlamePorcelain(out: string): LineBlame[] {
-  const result: LineBlame[] = [];
-  const byCommit = new Map<string, { author: string; time: number; summary: string }>();
-  let head: { commit: string; orig: number; final: number } | undefined;
-  let filename = '';
-  for (const line of out.split('\n')) {
-    if (line.startsWith('\t')) {
-      if (head) {
-        const info = byCommit.get(head.commit) ?? { author: '', time: 0, summary: '' };
-        const uncommitted = ZERO.test(head.commit);
-        result[head.final - 1] = {
-          commit: head.commit, author: uncommitted ? 'Not committed yet' : info.author, time: info.time, summary: info.summary,
-          uncommitted, origLine: head.orig, origPath: filename,
-        };
-      }
-      head = undefined;
-      continue;
-    }
-    const h = /^([0-9a-f]{40}) (\d+) (\d+)(?: \d+)?$/.exec(line);
-    if (h) {
-      head = { commit: h[1], orig: Number(h[2]), final: Number(h[3]) };
-      if (!byCommit.has(h[1])) byCommit.set(h[1], { author: '', time: 0, summary: '' });
-      continue;
-    }
-    if (!head) continue;
-    const info = byCommit.get(head.commit)!;
-    if (line.startsWith('author ')) info.author = line.slice(7);
-    else if (line.startsWith('author-time ')) info.time = Number(line.slice(12));
-    else if (line.startsWith('summary ')) info.summary = line.slice(8);
-    else if (line.startsWith('filename ')) filename = line.slice(9);
-  }
-  return result;
-}
 
 /** A line that may have been stolen by a tag change, and the direction (into the body) its neighbours may share the theft. */
 interface Candidate { index: number; step: 1 | -1 }

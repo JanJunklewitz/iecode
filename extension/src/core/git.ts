@@ -4,7 +4,7 @@ import { execFile } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { promises as fs, realpathSync } from 'fs';
-import { LineBlame, parseBlamePorcelain } from './blame';
+import { LineBlame, parseBlamePorcelain } from './blameParse';
 
 export interface Commit { hash: string; short: string; date: string; author: string; subject: string }
 
@@ -20,7 +20,8 @@ function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string
     const p = execFile('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8', timeout: opts.timeout }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout);
       const e = new Error(stderr.trim() || err.message) as Error & { timedOut?: boolean };
-      if ((err as { killed?: boolean }).killed) e.timedOut = true;
+      // `killed` is also set when the output exceeds maxBuffer, which is no timeout
+      if (opts.timeout !== undefined && (err as { killed?: boolean }).killed && (err as { code?: unknown }).code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') e.timedOut = true;
       reject(e);
     });
     if (opts.input !== undefined) {

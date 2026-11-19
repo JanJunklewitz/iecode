@@ -26,6 +26,24 @@ test('parseBlamePorcelain reads author, time, summary and the not committed yet 
   assert.equal(r[0].uncommitted, false);
 });
 
+test('parseBlamePorcelain keeps the filename per commit, also for an abbreviated header after another commit', () => {
+  const out = [
+    `${H(1)} 1 1 2`, 'author Ada', 'author-time 100', 'summary First', 'filename new.xml', '\tone',
+    `${H(2)} 7 2 1`, 'author Bob', 'author-time 200', 'summary Second', 'filename old.xml', '\ttwo',
+    `${H(1)} 2 3`, '\tthree',                                  // no filename line: belongs to commit 1, not to the line above
+  ].join('\n') + '\n';
+  const r = parseBlamePorcelain(out);
+  assert.deepEqual(r.map(l => l.origPath), ['new.xml', 'old.xml', 'new.xml']);
+});
+
+test('runGit reports a child killed by its timeout as timed out', async () => {
+  const r = tempRepo();
+  try {
+    // `hash-object --stdin` waits for input that never comes
+    await assert.rejects(runGit(r.dir, ['hash-object', '--stdin'], { timeout: 300 }), (e: { timedOut?: boolean }) => e.timedOut === true);
+  } finally { r.cleanup(); }
+});
+
 const lb = (commit: number, time: number, over: Partial<LineBlame> = {}): LineBlame =>
   ({ commit: H(commit), author: `a${commit}`, time, summary: `s${commit}`, uncommitted: false, origLine: 1, origPath: 'f', ...over });
 
@@ -84,8 +102,6 @@ async function bodyBlame(r: ReturnType<typeof tempRepo>, commits: string[]): Pro
   const res = await blameSections(spans, raw, makeRefine(r.dir));
   const sb = res.find(s => s.key === 'METHOD:M') as SectionBlame;
   const m = spans.find(s => s.key === 'METHOD:M')!;
-  const viewLines = xml.replace(/\r\n/g, '\n').split('\n');
-  void viewLines;
   return m.impl!.xmlLines.map((xl, i) => {
     const l = sb.lines[m.impl!.viewFirst - m.viewFirst + i]!;
     const text = xml.replace(/\r\n/g, '\n').split('\n')[xl - 1].replace(/^.*<!\[CDATA\[/, '').replace(/\]\]><\/ST>$/, '');
