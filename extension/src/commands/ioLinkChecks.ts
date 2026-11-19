@@ -71,7 +71,7 @@ export function registerIoLinkChecks(ctx: vscode.ExtensionContext, state: Worksp
       catch (e) {
         // an empty result would look like "all links are fine": say that the check failed
         console.warn(`IECode: IO link checks of ${p.file}: ${(e as Error).message}`);
-        found = [{ rule: 'io-links-incomplete', level: 'info', message: `IO link checks failed: ${(e as Error).message}`, file: p.file, space: 'xml', line: 0, col: 0, endLine: 0, endCol: 1 }];
+        found = applyLevels([{ rule: 'io-links-incomplete', level: 'info', message: `IO link checks failed: ${(e as Error).message}`, file: p.file, space: 'xml', line: 0, col: 0, endLine: 0, endCol: 1 }], overrides, DEFAULTS);
       }
       setIoChecks(p.file, ioFindingRows(found));
       all.push(...found);

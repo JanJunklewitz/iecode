@@ -111,9 +111,13 @@ export function checkIoLinks(links: LinkSource[], tmc: TmcFile | undefined, buil
     const others = plcLinks.filter(o => o.s !== s && o.s.link.right === s.link.right && o.s.link.left !== s.link.left);
     const clash = others.filter(o => { const r = range(o.s.link); return !mineRange || !r || (mineRange.start < r.end && r.start < mineRange.end); });
     if (!clash.length) continue;
+    // strong only for a confirmed overlap of two outputs: a peer with an unknown range or an input does not hide it
     const known = !!mineRange && clash.every(o => range(o.s.link));
-    const output = /Outputs$/i.test(side.area);
-    const rule = output && known ? 'io-channel-twice' : 'io-channel-twice-weak';
+    const strong = /Outputs$/i.test(side.area) && !!mineRange && clash.some(o => {
+      const r = range(o.s.link);
+      return !!r && /Outputs$/i.test(o.side.area) && mineRange.start < r.end && r.start < mineRange.end;
+    });
+    const rule = strong ? 'io-channel-twice' : 'io-channel-twice-weak';
     at(rule, level(rule),
       `${shortName(s.link.right)} is also linked to ${clash.map(o => shortName(o.s.link.left)).join(', ')}${known ? '' : ' (bit ranges unknown)'}`, s.link.file, s.line);
   }

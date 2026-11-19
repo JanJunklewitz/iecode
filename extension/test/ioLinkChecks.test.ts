@@ -157,3 +157,16 @@ test('ioFindingRows sorts errors first, then by file and line', () => {
   assert.deepEqual(rows.map(r => r.label), ['m-c', 'm-b', 'm-d', 'm-a']);
   assert.deepEqual(rows[0], { label: 'm-c', description: 'error · c', file: 'y', line: 2, level: 'error' });
 });
+
+test('a confirmed output clash is not hidden by a third link with an unknown range', () => {
+  const tmc = tmcOf([], [sym('MAIN.c'), sym('MAIN.d'), sym('MAIN.e')]);
+  const l = [link(OUT, 'MAIN.c', CH(1, 'Output'), {}, 'PLC1', '1', '0'), link(OUT, 'MAIN.d', CH(1, 'Output'), {}, 'PLC1', '1', '0'), link(OUT, 'MAIN.e', CH(1, 'Output'))];
+  const f = run(l, tmc).filter(x => x.rule.startsWith('io-channel-twice'));
+  assert.ok(f.some(x => x.rule === 'io-channel-twice'));
+});
+
+test('the type of an array element link is not compared with the type of the array', () => {
+  const tmc = tmcOf([sym('MAIN.a', 'ARRAY [0..3] OF BOOL')]);
+  const found = run([link(IN, 'MAIN.a[3]', CH(1), { TypeA: 'BOOL', TypeB: 'BOOL' })], tmc);
+  assert.ok(!found.some(f => f.rule === 'io-type-changed' || f.rule === 'io-dead-link'));
+});

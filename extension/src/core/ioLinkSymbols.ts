@@ -21,7 +21,8 @@ export function resolveLinkSymbol(path: string, symbols: Map<string, TmcVar>): {
   const parts = normalizeLinkPath(path).split('.');
   for (let n = parts.length; n > 0; n--) {
     const symbol = symbols.get(parts.slice(0, n).join('.'));
-    if (symbol) return { symbol, viaParent: n < parts.length };
+    // an indexed path names an element: the symbol found is the array, so its type is not the link's type
+    if (symbol) return { symbol, viaParent: n < parts.length || /\[/.test(path) };
   }
   return { symbol: undefined, viaParent: false };
 }
