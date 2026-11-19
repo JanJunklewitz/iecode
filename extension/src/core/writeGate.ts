@@ -26,9 +26,9 @@ export interface WriteOp {
   prepared?: { decision: WriteDecision };
   /** A batch: all items in order; `symbol` and `value` mirror items[0]. */
   items?: WriteItem[];
-  /** A restore of the journal: the dialog says "Restore", the result lists what was left out, the journal marks the symbols undone. */
   /** Symbols of this op that lie in persistent data; the user asked for them with confirmPersistent. */
   persistent?: string[];
+  /** A restore of the journal: the dialog says "Restore", the result lists what was left out, the journal marks the symbols undone. */
   restore?: { skipped: { symbol: string; reason: string }[]; remaining: number };
 }
 

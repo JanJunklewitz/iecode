@@ -54,11 +54,12 @@ export function persistentIn(symbols: readonly string[], persistentPaths: readon
 }
 
 /** True when the symbol or one of its parents (`a.b.c` has `a.b` and `a`; `a[2].b` has `a[2]` and `a`) is marked persistent in the build output. */
+const LAST_STEP = /(\.[^.[]*|\[[^\]]*\])$/;
 function underBuilt(name: string, built: ReadonlySet<string>): boolean {
   if (!built.size) return false;
-  for (let n = name; n; n = n.replace(/(.[^.[]*|[[^]]*])$/, '')) {
+  for (let n = name; n; n = n.replace(LAST_STEP, '')) {
     if (built.has(n)) return true;
-    if (!/(.[^.[]*|[[^]]*])$/.test(n)) break;
+    if (!LAST_STEP.test(n)) break;
   }
   return false;
 }

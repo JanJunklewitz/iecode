@@ -44,3 +44,9 @@ test('persistentIn also counts symbols the build output marks, and their members
   assert.deepEqual(persistentIn(['GVL.stPair', 'GVL.stPair.nA', 'GVL.stCfg.nKept', 'GVL.stCfg.nLost', 'GVL.Arr[2].x', 'GVL.Arr[3].x', 'GVL.nPlain'], [], built),
     ['GVL.stPair', 'GVL.stPair.nA', 'GVL.stCfg.nKept', 'GVL.Arr[2].x']);
 });
+
+test('persistentIn walks up through multi-dimensional and nested index steps', () => {
+  const built = new Set(['gvl.m[1,2]', 'gvl.n[2][3]', 'gvl.o.p[4]']);
+  assert.deepEqual(persistentIn(['GVL.M[1,2].x', 'GVL.M[1,3].x', 'GVL.N[2][3].y', 'GVL.N[2][4].y', 'GVL.O.P[4]', 'GVL.O.P[5]', 'GVL.O.Q'], [], built),
+    ['GVL.M[1,2].x', 'GVL.N[2][3].y', 'GVL.O.P[4]']);
+});

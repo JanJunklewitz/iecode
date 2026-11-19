@@ -74,8 +74,8 @@ public static class PlcValueText
         "BOOL" or "BYTE" or "USINT" or "SINT" or "WORD" or "UINT" or "INT" or "DWORD" or "UDINT" or "DINT"
         or "LWORD" or "ULINT" or "LINT" or "REAL" or "LREAL" or "TIME" or "LTIME";
 
-    /// <summary>A member name (exact spelling first, then ignoring case like IEC identifiers) or a number.</summary>
     /// <summary>
+    /// A member name (exact spelling first, then ignoring case like IEC identifiers) or a number.
     /// <paramref name="all"/> lists every member name including aliases (two names for one value are legal in IEC 61131-3); without it
     /// only the first name of each value in <paramref name="members"/> can be written.
     /// </summary>
