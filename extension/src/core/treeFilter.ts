@@ -103,5 +103,9 @@ export class FilterTyping {
   }
 }
 
-/** True when applying b over a would not change what is shown (same trimmed text). */
-export const sameFilter = (a: TreeFilter | undefined, b: TreeFilter | undefined): boolean => a?.text === b?.text;
+/** Words (any order, any case) and kinds that decide what is shown; `undefined` is the empty key. */
+const filterKey = (f: TreeFilter | undefined) =>
+  f ? `${[...new Set(f.words.map(w => w.toLowerCase()))].sort().join(' ')}|${[...new Set(f.kinds)].sort().join(',')}` : '';
+
+/** True when applying b over a would not change what is shown: the same words and kinds, however they were typed. */
+export const sameFilter = (a: TreeFilter | undefined, b: TreeFilter | undefined): boolean => filterKey(a) === filterKey(b);

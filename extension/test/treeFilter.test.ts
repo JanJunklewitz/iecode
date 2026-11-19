@@ -80,3 +80,12 @@ test('sameFilter ignores surrounding whitespace and treats none as equal to none
   assert.equal(sameFilter(p('motor'), p('motor @fb')), false);
   assert.equal(sameFilter(undefined, p('motor')), false);
 });
+
+test('sameFilter compares words and kinds, not the typed text', () => {
+  const p = (t: string) => parseTreeFilter(t) as TreeFilter | undefined;
+  assert.equal(sameFilter(p('motor'), p('Motor')), true);
+  assert.equal(sameFilter(p('motor axis'), p('axis   motor')), true);
+  assert.equal(sameFilter(p('@fb @prg'), p('@prg @fb @fb')), true);
+  assert.equal(sameFilter(p('motor @fb'), p('motor')), false);
+  assert.equal(sameFilter(p('motor'), p('axis')), false);
+});

@@ -123,9 +123,13 @@ export function activate(ctx: vscode.ExtensionContext) {
     showFilterMessage();
     void vscode.commands.executeCommand('setContext', 'iecode.treeFiltered', !!f);
   };
+  let activeBox: vscode.InputBox | undefined;
   const filterTree = () => {
+    // a second box would hide the first, whose hide handler then restores the filter from before it was typed
+    if (activeBox) { activeBox.show(); return; }
     const before = tree.filter();
     const box = vscode.window.createInputBox();
+    activeBox = box;
     box.title = 'Filter the project tree';
     box.placeholder = 'Name words and kinds, e.g. motor @fb (kinds: @fb @prg @fun @itf @gvl …)';
     box.value = before?.text ?? '';
@@ -136,6 +140,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     box.onDidChangeValue(v => typing.change(v));
     box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) { accepted = true; box.hide(); } });
     box.onDidHide(() => {
+      activeBox = undefined;
       typing.abandon();
       if (!accepted) applyTreeFilter(before);
       box.dispose();

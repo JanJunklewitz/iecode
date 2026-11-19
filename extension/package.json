@@ -737,13 +737,13 @@
       "view/title": [
         {
           "command": "iecode.filterTree",
-          "when": "view == iecode.projects && !iecode.treeFiltered",
+          "when": "view == iecode.projects",
           "group": "navigation@0"
         },
         {
           "command": "iecode.clearTreeFilter",
           "when": "view == iecode.projects && iecode.treeFiltered",
-          "group": "navigation@0"
+          "group": "navigation@1"
         },
         {
           "command": "iecode.addObject",
