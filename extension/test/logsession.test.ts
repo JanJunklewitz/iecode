@@ -1387,3 +1387,19 @@ test('findRows names the group row of a later member; rowIndex gives a row its f
     await s.dispose();
   }
 });
+
+test('refresh does nothing while Live is off, also for a refresh that was queued before, and picks the change up when it is on again', async () => {
+  const p = tmpFile([PUMP(1), PUMP(2)].join('\n') + '\n');
+  const s = await opened([p]);
+  try {
+    s.setLive(false);
+    grow(p, PUMP(3) + '\n');
+    assert.equal(await s.refresh(), false);
+    assert.equal(s.state().total, 2);
+    s.setLive(true);
+    assert.equal(await s.refresh(), true);
+    assert.equal(s.state().total, 3);
+  } finally {
+    await s.dispose();
+  }
+});

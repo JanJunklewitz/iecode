@@ -209,6 +209,8 @@ export class LogSession {
   private lastTimeMs?: number;
   private scanning = 0;
   private live = false;
+  /** Live was switched off by the owner: refreshes, also queued ones, change nothing until it is on again. */
+  private frozen = false;
   private warning?: string;
   private error?: string;
   private loadAbort?: AbortController;
@@ -624,6 +626,7 @@ export class LogSession {
   /** Ingestion on/off, reported in the state; the owner watches the file and calls refresh() while it is on. */
   setLive(on: boolean): void {
     this.live = on;
+    this.frozen = !on;
     // Off: a running refresh (perhaps stuck in a search) ends without committing; the next one picks the change up.
     if (!on) this.refreshAbort?.abort();
   }
@@ -660,7 +663,8 @@ export class LogSession {
   }
 
   private async refreshOnce(): Promise<boolean> {
-    if (this.disposed || !this.loaded || this.paths.length !== 1 || !this.identity) return false;
+    // also a refresh that was queued before Live was switched off: a frozen view must not move
+    if (this.disposed || this.frozen || !this.loaded || this.paths.length !== 1 || !this.identity) return false;
     const ac = new AbortController();
     this.refreshAbort = ac;
     let now: FileIdentity | undefined;
