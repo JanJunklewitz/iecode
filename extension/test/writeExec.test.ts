@@ -203,3 +203,17 @@ test('a restore op journals its writes as restore and marks the written symbols 
   assert.deepEqual(all.filter(e => e.kind === 'restore').map(e => e.symbol), ['MAIN.a']);
   assert.deepEqual(all.filter(e => e.kind === 'write').map(e => [e.symbol, !!e.restored]), [['MAIN.a', true], ['MAIN.b', false]]);
 });
+
+test('the reset of a pulse is not sent to another target than the approved one', async () => {
+  let target = 'A:851';
+  const r = rig({ targetKey: () => target, async sleep(ms) { r.calls.push(`sleep ${ms}`); target = 'B:851'; } });
+  const res = await executeWrite(pulseOp(), () => undefined, r.deps);
+  assert.deepEqual(r.calls.filter(c => c.startsWith('writeOne')), ['writeOne MAIN.b=TRUE']);
+  assert.equal(res.kind, 'done');
+  if (res.kind !== 'done') return;
+  const item = res.items[0];
+  assert.equal(item.status, 'written');
+  const p = (item as { pulse?: { state: string; reason?: string } }).pulse!;
+  assert.equal(p.state, 'notSent');
+  assert.match(p.reason!, /target changed from A:851 to B:851.*may still be set on A:851/);
+});

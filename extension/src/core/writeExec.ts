@@ -11,6 +11,8 @@ export interface ExecDeps {
   writeOne(item: WriteItem, beforeSend: () => string | undefined): Promise<{ value: string | null; readBackError?: string }>;
   /** The batch write (host op "writeMany"): one request, one result per item. */
   writeMany(items: WriteItem[], beforeSend: () => string | undefined): Promise<{ items: WriteItemResult[] }>;
+  /** The target the extension talks to now; the reset of a pulse is not sent when it is no longer the approved one. */
+  targetKey?(): string;
   /** Waits; the extension keeps the time of a pulse. */
   sleep(ms: number): Promise<void>;
   /** A monotonic clock in ms. */
@@ -105,7 +107,7 @@ async function perform(op: WriteOp, items: readonly WriteItem[], pulse: WriteIte
 
   const wasSent = first.kind === 'unknown' ? true : first.kind === 'done' ? first.items.find(i => i.symbol === pulse.symbol)?.status !== 'notWritten' : true;
   if (!wasSent) return first;
-  const outcome = await reset(pulse, deps);
+  const outcome = await reset(pulse, deps, op.targetKey);
   if (first.kind === 'done') {
     const item = first.items.find(i => i.symbol === pulse.symbol);
     if (item && item.status !== 'notWritten') item.pulse = outcome;
@@ -128,14 +130,18 @@ function pulseTypeProblem(pulse: WriteItem, row: ReadRow | undefined): string | 
 
 /**
  * Waits and writes the opposite value. No approval, deadline or cancellation applies: the bit must return to idle, so the
- * reset gets a `beforeSend` that never refuses (only the host's own target guard still applies).
+ * reset gets a `beforeSend` that never refuses; only a change of the ADS target stops it.
  */
-async function reset(pulse: WriteItem, deps: ExecDeps): Promise<PulseOutcome> {
+async function reset(pulse: WriteItem, deps: ExecDeps, approvedTarget: string): Promise<PulseOutcome> {
   const ms = pulse.pulseMs as number;
   const back = oppositeBool(pulse.value) ?? 'FALSE';
   const sentAt = deps.now();
   await deps.sleep(ms);
   const heldMs = Math.round(deps.now() - sentAt);
+  // approval and deadline do not apply to the reset, but the target does: the same name on another PLC is another variable
+  const nowTarget = deps.targetKey?.();
+  if (nowTarget !== undefined && nowTarget !== approvedTarget)
+    return { ms, heldMs, reset: back, state: 'notSent', reason: `the ADS target changed from ${approvedTarget} to ${nowTarget}; ${pulse.symbol} may still be set on ${approvedTarget}` };
   try {
     await deps.writeOne({ symbol: pulse.symbol, value: back }, () => undefined);
     return { ms, heldMs, reset: back, state: 'done' };

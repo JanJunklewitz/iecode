@@ -175,11 +175,13 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const entries = host.journal.entries();
       const symbols = [...new Set(entries.filter(e => e.kind === 'write' && !e.restored).map(e => e.symbol))];
       const unreadable = new Map<string, string>();
-      if (symbols.length) {
+      // the host reads at most 200 symbols per request: a longer journal must not make every symbol unreadable
+      for (let i = 0; i < symbols.length; i += 200) {
+        const chunk = symbols.slice(i, i + 200);
         try {
-          for (const r of await host.read(symbols)) if (r.error) unreadable.set(r.symbol.trim().toLowerCase(), r.error);
+          for (const r of await host.read(chunk)) if (r.error) unreadable.set(r.symbol.trim().toLowerCase(), r.error);
         } catch (e) {
-          for (const s of symbols) unreadable.set(s.trim().toLowerCase(), (e as Error).message);
+          for (const s of chunk) unreadable.set(s.trim().toLowerCase(), (e as Error).message);
         }
       }
       return planRestore(entries, host.targetKey(), unreadable);
@@ -263,6 +265,8 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
         const online = await listOnline(target, port, query.prefix || query.filter);
         if (online.ok) {
           headers.push(onlineHeader(host.target()));
+          if (online.value.total > online.value.symbols.length)
+            headers.push(`The online list was cut at ${online.value.symbols.length} of ${online.value.total} names before the prefix and type filters: matches may be missing, narrow the prefix or filter.`);
           for (const s of online.value.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
           // the CLI capped its answer: the paging note must still count what it left out
           extraTotal = Math.max(0, online.value.total - online.value.symbols.length);

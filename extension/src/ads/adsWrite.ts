@@ -49,6 +49,7 @@ export function adsWriteGate(host: AdsHost, workspaceName: () => string, policy:
         journal: host.journal,
         sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
         now: () => performance.now(),
+        targetKey: () => host.targetKey(),
         readBefore: async symbols => {
           try {
             return await host.read(symbols);
