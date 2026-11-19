@@ -10,6 +10,7 @@ import type { Node } from './views/tree';
 import * as objects from './commands/objects';
 import * as projectFiles from './commands/projectFiles';
 import * as projectCheck from './commands/projectCheck';
+import { registerLint } from './commands/lint';
 import * as engineering from './commands/engineering';
 import * as language from './lang/providers';
 import * as commentColor from './lang/commentColor';
@@ -123,6 +124,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   objects.register(ctx, state, lang);
   projectFiles.register(ctx, state);
   projectCheck.register(ctx, state);
+  registerLint(ctx, state, libraries);
   engineering.register(ctx, state);
   registerUml(ctx, state, lang);
   commentColor.register(ctx);

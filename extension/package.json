@@ -153,6 +153,11 @@
     ],
     "commands": [
       {
+        "command": "iecode.lintObjects",
+        "title": "Lint Objects",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.openAsST",
         "title": "Open as Structured Text",
         "category": "IECode"
@@ -1421,6 +1426,23 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Keep the `.plcproj` in step with TwinCAT object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders created, deleted, renamed or moved in VS Code (explorer, paste, drag and drop). An empty new `.TcPOU`/`.TcDUT`/`.TcGVL`/`.TcIO` gets a template named after the file; a copied object takes the file's name and new ids. Changes made by other programs (git, TwinCAT) are not touched."
+        },
+        "iecode.lint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check PLC object files on open and save and show the findings in the Problems panel: structure of the XML (bad or duplicate GUIDs, a method name that differs from its declaration, orphaned LineIds, merge conflict markers) and object-oriented rules (override and interface signatures, FINAL, ABSTRACT instantiation). Run **IECode: Lint Objects** to check the whole workspace."
+        },
+        "iecode.lint.rules": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "enum": ["error", "warning", "info", "hint", "off"] },
+          "markdownDescription": "Severity per lint rule id (`error`, `warning`, `info`, `hint`) or `off`. Rules: `xml-parse`, `merge-conflict`, `guid-format`, `guid-unique`, `name-mismatch`, `file-name-mismatch`, `member-structure`, `lineids-orphan`, `naming-prefix`, `signature-mismatch`, `final-violation`, `abstract-instantiation`, `unresolved-base`."
+        },
+        "iecode.lint.namingPrefixes": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "markdownDescription": "Name prefix per object kind, for the hint rule `naming-prefix`, e.g. `{ \"FUNCTION_BLOCK\": \"FB_\", \"INTERFACE\": \"I_\", \"STRUCT\": \"ST_\", \"ENUM\": \"E_\" }`. Kinds: FUNCTION_BLOCK, PROGRAM, FUNCTION, INTERFACE, STRUCT, UNION, ENUM, ALIAS, GVL. Nothing is checked while this is empty."
         },
         "iecode.checkProjectFiles": {
           "type": "boolean",
