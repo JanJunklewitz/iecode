@@ -33,13 +33,24 @@ export function registerUnused(ctx: vscode.ExtensionContext, analysis: AnalysisS
     }));
   };
   const publishAll = () => vscode.workspace.textDocuments.forEach(publish);
+  const saveTimers = new Set<NodeJS.Timeout>();
 
   ctx.subscriptions.push(
     marks, hints,
+    { dispose: () => { saveTimers.forEach(clearTimeout); saveTimers.clear(); } },
     analysis.onDidChange(publishAll),
+    // the cached result is gone: drop the hints (their positions belong to the old files) and start a new computation
+    analysis.onDidInvalidate(publishAll),
     vscode.workspace.onDidOpenTextDocument(publish),
-    vscode.workspace.onDidSaveTextDocument(d => setTimeout(() => publish(d), 0)),
-    vscode.workspace.onDidChangeTextDocument(e => { if (e.document.uri.scheme === SCHEME && e.contentChanges.length) hints.delete(e.document.uri); }),
+    vscode.workspace.onDidSaveTextDocument(d => {
+      const t: NodeJS.Timeout = setTimeout(() => { saveTimers.delete(t); publish(d); }, 0);
+      saveTimers.add(t);
+    }),
+    vscode.workspace.onDidChangeTextDocument(e => {
+      if (e.document.uri.scheme !== SCHEME || !e.contentChanges.length) return;
+      hints.delete(e.document.uri);
+      if (!e.document.isDirty) publish(e.document);          // undone back to the saved text: the marks fit again
+    }),
     vscode.workspace.onDidCloseTextDocument(d => hints.delete(d.uri)),
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.analysis.markUnused')) publishAll(); }),
 

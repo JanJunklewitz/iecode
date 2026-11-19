@@ -117,7 +117,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   const tree = new ProjectTree(state, libraries);
   const projectsView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
   tree.setUnused(registerUnused(ctx, analysis, state));
-  ctx.subscriptions.push(analysis.onDidChange(() => tree.refresh()));
+  ctx.subscriptions.push(analysis.onDidChange(() => tree.refresh()), analysis.onDidInvalidate(() => tree.refresh()));
   ctx.subscriptions.push(
     state,
     projectsView,

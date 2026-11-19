@@ -227,3 +227,18 @@ test('a file that decodes but has no parsed object makes the analysis incomplete
   assert.equal(r.complete, false);
   assert.deepEqual(r.unused, []);
 });
+
+test('invalidate tells listeners that cached results are gone, until they are disposed', async () => {
+  const d = disk();
+  put(d, '/App/MAIN.TcPOU', pou('MAIN', 'PROGRAM MAIN'));
+  const st = new AnalysisState(deps(d, [app(d)]));
+  await st.request('App');
+  let n = 0;
+  const sub = st.onDidInvalidate(() => { n++; });
+  st.invalidate('App'); st.invalidate();
+  assert.equal(n, 2);
+  assert.equal(st.peek('App'), undefined);
+  sub.dispose();
+  st.invalidate();
+  assert.equal(n, 2);
+});

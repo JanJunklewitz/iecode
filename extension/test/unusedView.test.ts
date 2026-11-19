@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SymbolIndex } from '../src/lang/index';
 import { assemble, fileEdges, findUnused, reach, ObjectGraph } from '../src/core/objectGraph';
 import type { UnitAnalysis } from '../src/core/analysisState';
-import { emptyReason, marksByFile, treeDescription, unusedMarks } from '../src/core/unusedView';
+import { UnusedMarks, emptyReason, marksByFile, treeDescription, unusedMarks } from '../src/core/unusedView';
 
 const prg = (name: string, vars: string, body: string) => `PROGRAM ${name}\nVAR\n${vars}\nEND_VAR\n//---- IMPLEMENTATION ----\n${body}\n`;
 const fb = (head: string, methods: Record<string, string> = {}, vars = '') =>
@@ -73,9 +73,8 @@ test('a library node and a contract member never get a mark', () => {
   assert.deepEqual(unusedMarks(a).map(m => m.id), []);   // the interface is implemented by a used block; its member, the implementation and the library are not marked
 });
 
-import { UnusedMarks } from '../src/core/unusedView';
 
-test('Review 7: ensure starts the computation by itself, once, and only when marks are on', async () => {
+test('ensure starts the computation by itself, once, and only when marks are on', async () => {
   const requests: string[] = [];
   let cache: UnitAnalysis | undefined;
   const fake = { peek: () => cache, request: async (id: string) => { requests.push(id); return analysis({ MAIN: prg('MAIN', '', '') }); } };
@@ -96,4 +95,23 @@ test('Review 7: ensure starts the computation by itself, once, and only when mar
   on = false;
   assert.equal(m.markOf('U', 'FB_Dead'), undefined, 'switched off: no marks');
   m.dispose();
+});
+
+test('the marks of a file are grouped once per analysis and keep their order', () => {
+  const a = analysis({ MAIN: prg('MAIN', '', ''), FB_Dead: fb('FUNCTION_BLOCK FB_Dead', { A: ';', B: ';' }) });
+  const m = new UnusedMarks({ peek: () => a, request: async () => a }, () => true, 5);
+  const first = m.marksByFileOf('U');
+  assert.equal(m.marksByFileOf('U'), first, 'the same analysis gives the same map');
+  const all = [...first.values()].flat();
+  assert.deepEqual(all.map(x => x.id), unusedMarks(a).map(x => x.id));
+  m.dispose();
+});
+
+test('ensure does nothing after dispose', async () => {
+  const requests: string[] = [];
+  const m = new UnusedMarks({ peek: () => undefined, request: async (id: string) => { requests.push(id); return analysis({ MAIN: prg('MAIN', '', '') }); } }, () => true, 5);
+  m.dispose();
+  m.ensure('U');
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(requests, []);
 });

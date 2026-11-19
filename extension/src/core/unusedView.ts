@@ -29,7 +29,10 @@ export function unusedMarks(a: UnitAnalysis): UnusedMark[] {
 
 export function marksByFile(marks: UnusedMark[]): Map<string, UnusedMark[]> {
   const m = new Map<string, UnusedMark[]>();
-  for (const k of marks) m.set(k.file, [...(m.get(k.file) ?? []), k]);
+  for (const k of marks) {
+    const list = m.get(k.file);
+    if (list) list.push(k); else m.set(k.file, [k]);
+  }
   return m;
 }
 
@@ -55,6 +58,8 @@ export interface UnusedLookup {
 
 export class UnusedMarks implements UnusedLookup {
   private readonly memo = new WeakMap<UnitAnalysis, Map<string, UnusedMark>>();
+  private readonly byFileMemo = new WeakMap<UnitAnalysis, Map<string, UnusedMark[]>>();
+  private disposed = false;
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly analysis: Pick<AnalysisState, 'peek' | 'request'>, private readonly enabled: () => boolean, private readonly delayMs = 300) {}
@@ -73,15 +78,17 @@ export class UnusedMarks implements UnusedLookup {
 
   /** Starts the computation for a unit when marks are on; debounced, and AnalysisState deduplicates running requests. */
   ensure(unitId: string): void {
-    if (!this.enabled() || this.analysis.peek(unitId) || this.timers.has(unitId)) return;
+    if (this.disposed || !this.enabled() || this.analysis.peek(unitId) || this.timers.has(unitId)) return;
     this.timers.set(unitId, setTimeout(() => { this.timers.delete(unitId); void this.analysis.request(unitId).catch(() => undefined); }, this.delayMs));
   }
 
   marksByFileOf(unitId: string): Map<string, UnusedMark[]> {
     const a = this.analysis.peek(unitId);
-    return a && !emptyReason(a) ? marksByFile([...this.marksOf(a).values()]) : new Map();
+    if (!a || emptyReason(a)) return new Map();
+    let m = this.byFileMemo.get(a);
+    if (!m) { m = marksByFile([...this.marksOf(a).values()]); this.byFileMemo.set(a, m); }
+    return m;
   }
 
-  dispose() { this.timers.forEach(clearTimeout); this.timers.clear(); }
+  dispose() { this.disposed = true; this.timers.forEach(clearTimeout); this.timers.clear(); }
 }
-
