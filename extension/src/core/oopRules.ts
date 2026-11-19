@@ -23,8 +23,9 @@ const isIndirect = (type: string) => /^(?:POINTER|REFERENCE)\b/i.test(type.trim(
 const LIFECYCLE = new Set(['FB_INIT', 'FB_REINIT', 'FB_EXIT']);
 const PARAM_SCOPES = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
 /** A type as written, for comparison: no namespace prefix (`Tc2_Standard.TON` is `TON`) and `STRING[80]` is `STRING(80)`. */
-const norm = (t: string | undefined) => (t ?? '').replace(/\s+/g, '').toUpperCase()
-  .replace(/\b[A-Z_]\w*\./g, '').replace(/^(W?STRING)\[(.*)\]$/, '$1($2)');
+// the prefix goes first, while the words are still apart: without spaces `POINTER TO Lib.T` would lose its `POINTERTOLIB.` as a prefix
+const norm = (t: string | undefined) => (t ?? '').replace(/\b[A-Za-z_]\w*\s*\.\s*(?=[A-Za-z_])/g, '').replace(/\s+/g, '').toUpperCase()
+  .replace(/^(W?STRING)\[(.*)\]$/, '$1($2)');
 const hasModifier = (s: PlcSymbol, m: string) => !!s.modifiers?.includes(m);
 
 /** Same return type and the same VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT list (name, type, order; case-insensitive). */

@@ -140,3 +140,14 @@ test('abstract-instantiation: a STRUCT field of an ABSTRACT block type is an err
   assert.deepEqual(rules(mk('fb : FB_Abs;'), 'ST_X'), ['abstract-instantiation']);
   assert.deepEqual(rules(mk('fb : POINTER TO FB_Abs;'), 'ST_X'), []);
 });
+
+test('signature-mismatch: a namespace prefix on a pointer type does not hide the pointer', () => {
+  const m = (t: string) => ['METHOD Run : BOOL', 'VAR_INPUT', '    a : ' + t + ';', 'END_VAR'].join('\n');
+  const same = (a: string, b: string) => rules(indexOf({
+    FB_Base: fb('FUNCTION_BLOCK FB_Base', { Run: m(a) }),
+    FB_Derived: fb('FUNCTION_BLOCK FB_Derived EXTENDS FB_Base', { Run: m(b) }),
+  }), 'FB_Derived');
+  assert.deepEqual(same('POINTER TO Tc2_Standard.TON', 'TON'), ['signature-mismatch']);
+  assert.deepEqual(same('POINTER TO Tc2_Standard.TON', 'POINTER TO TON'), []);
+  assert.deepEqual(same('REFERENCE TO Lib.T', 'T'), ['signature-mismatch']);
+});

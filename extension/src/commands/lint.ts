@@ -133,7 +133,17 @@ export function registerLint(ctx: vscode.ExtensionContext, state: WorkspaceState
     }, delay));
   };
   /** After a model reload: the OOP rules of every unit again (structure findings follow open and save). */
-  const scheduleAll = () => state.current.units.forEach(u => scheduleUnit(u, 1500));
+  const scheduleAll = () => {
+    // a project that is gone keeps no findings, and a run still in flight for it must not publish them again
+    const live = new Set(state.current.units.map(u => u.id));
+    for (const id of [...oopUris.keys(), ...oopRun.keys()]) {
+      if (live.has(id)) continue;
+      oopRun.set(id, (oopRun.get(id) ?? 0) + 1);
+      for (const u of oopUris.get(id) ?? []) { diags.delete(vscode.Uri.parse(u)); versions.delete(u); }
+      oopUris.delete(id);
+    }
+    state.current.units.forEach(u => scheduleUnit(u, 1500));
+  };
   /** The object file behind an open document: the XML itself, or the ST view of it. */
   const objectFileOf = (d: vscode.TextDocument) => {
     if (d.uri.scheme !== 'file' && d.uri.scheme !== SCHEME) return undefined;
