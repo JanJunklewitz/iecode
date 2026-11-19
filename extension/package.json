@@ -163,6 +163,11 @@
         "category": "IECode"
       },
       {
+        "command": "iecode.exportGraphMermaid",
+        "title": "Export Project or Object Graph as Mermaid",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.objectHistory",
         "title": "Show History of Object or Member",
         "category": "IECode"

@@ -41,6 +41,7 @@ import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
 import { registerAnalysis } from './commands/analysis';
 import { registerUnused } from './commands/unused';
 import { registerImpact } from './commands/impact';
+import { registerGraphExport } from './commands/graphExport';
 import { registerBlame } from './commands/blame';
 import { registerObjectHistory } from './commands/objectHistory';
 import { registerObjectStage } from './commands/objectStage';
@@ -132,6 +133,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   );
   const lang = language.register(ctx, state, libraries);
   registerImpact(ctx, analysis, state, lang);
+  registerGraphExport(ctx, analysis, state);
   objects.register(ctx, state, lang);
   projectFiles.register(ctx, state);
   projectCheck.register(ctx, state);

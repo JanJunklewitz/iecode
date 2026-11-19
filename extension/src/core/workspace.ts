@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import { findFiles, loadPlcProject, loadSolution, LibraryRef, PlcProject, Solution, TwinCatProject } from './projects';
+import { escapeLabel, mermaidIds } from './graphExport';
 
 export type Group = 'library' | 'application' | 'standalone';
 
@@ -144,10 +145,11 @@ export function unitOfFile(model: Pick<WorkspaceModel, 'units'>, file: string): 
 
 /** Mermaid flowchart of the dependency graph (library → user). */
 export function toMermaid(model: Pick<WorkspaceModel, 'units' | 'edges'>): string {
-  const id = (s: string) => 'n' + s.replace(/[^A-Za-z0-9]/g, '_');
+  const ids = mermaidIds(model.units.map(u => u.id));
+  const id = (s: string) => ids.get(s) ?? mermaidIds([s]).get(s)!;
   const lines = ['flowchart TD'];
   for (const u of model.units) {
-    const label = u.plc.isLibrary ? `${u.plc.title} ${u.plc.version}` : u.id;
+    const label = escapeLabel(u.plc.isLibrary ? `${u.plc.title} ${u.plc.version}` : u.id);
     lines.push(`  ${id(u.id)}${u.plc.isLibrary ? `[("${label}")]` : `["${label}"]`}`);
   }
   for (const e of model.edges)
