@@ -47,6 +47,8 @@ export interface PlcProject {
   references: LibraryRef[];
   /** TwinCAT version the parent project was saved with, e.g. 3.1.4024.66. */
   tcVersion?: string;
+  /** Name of the PLC item in the .tsproj / .xti (the `PLC1` of `TIPC^PLC1^` link paths); may differ from `name`. */
+  itemName?: string;
 }
 
 export interface TwinCatProject {
@@ -84,10 +86,10 @@ export async function loadSolution(file: string): Promise<Solution> {
 }
 
 /** The .plcproj paths of the <Project PrjFilePath="..."> elements. PLC projects only: a TwinSAFE project (.splcproj) is also one. */
-function plcProjectPaths(root: XNode, baseDir: string): string[] {
+function plcProjectPaths(root: XNode, baseDir: string): { path: string; itemName?: string }[] {
   return [...walk(root)]
     .filter(n => n.name === 'Project' && /\.plcproj$/i.test(n.attrs.PrjFilePath ?? ''))
-    .map(n => path.resolve(baseDir, toPosix(n.attrs.PrjFilePath)));
+    .map(n => ({ path: path.resolve(baseDir, toPosix(n.attrs.PrjFilePath)), itemName: n.attrs.Name }));
 }
 
 export async function loadTwinCatProject(file: string): Promise<TwinCatProject> {
@@ -105,10 +107,10 @@ export async function loadTwinCatProject(file: string): Promise<TwinCatProject> 
     if (await exists(xti)) paths.push(...plcProjectPaths(parseXml(await read(xti)), path.dirname(xti)));
   }
   const seen = new Set<string>();
-  for (const p of paths) {
+  for (const { path: p, itemName } of paths) {
     if (seen.has(p.toLowerCase()) || !(await exists(p))) continue;
     seen.add(p.toLowerCase());
-    plcs.push({ ...(await loadPlcProject(p)), tcVersion });
+    plcs.push({ ...(await loadPlcProject(p)), tcVersion, itemName });
   }
   return { file, name: path.basename(file).replace(/\.tsp?proj$/i, ''), plcOnly: /\.tspproj$/i.test(file), tcVersion, plcs };
 }
