@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
 import { decode, encode, hasXmlConflict, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
-import { ProjectTree } from './views/tree';
+import { ProjectTree, registerAutoReveal } from './views/tree';
 import { showGraph } from './views/graph';
 import { registerUml } from './views/umlDiagram';
 import { showLibraryManager } from './views/libraryManager';
@@ -109,9 +109,11 @@ export function activate(ctx: vscode.ExtensionContext) {
   const state = new WorkspaceState();
   const libraries = registerLibrarySources(ctx, state);
   const tree = new ProjectTree(state, libraries);
+  const projectsView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
   ctx.subscriptions.push(
     state,
-    vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true }),
+    projectsView,
+    registerAutoReveal(projectsView, tree, state),
     vscode.commands.registerCommand('iecode.refresh', () => state.reload()),
     vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
     vscode.commands.registerCommand('iecode.libraries', (n?: Node) =>

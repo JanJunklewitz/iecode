@@ -1401,6 +1401,11 @@
           "default": "folders",
           "description": "How methods, properties and actions are shown below a function block, program or interface in the IECode project tree."
         },
+        "iecode.projects.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Select the object of the active editor in the IECode project tree (also for PLC projects and library objects)."
+        },
         "iecode.greenComments": {
           "type": "boolean",
           "default": true,
