@@ -2,10 +2,13 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.21
 
 ### Fixes
-- The context menu entries for `.plcproj`, `.xti` and the object files in the Explorer and the editor title showed up never because their file extension conditions were escaped twice.
+- The context menu entries for `.plcproj`, `.xti`, `.tsproj`, `.TcVIS` and the object files in the Explorer, the editor title and the diff editor appear again: their file extension conditions were escaped twice and never matched (#60).
+
+### CLI
+- Built on System.CommandLine 3.0.0 (#53). Commands, options, help and output are unchanged.
 
 ## 0.2.20
 
@@ -136,6 +139,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 
 ### Build output
 - **Module class viewer**: `.tmc` files (the build output of PLC projects and TcCOM modules) open in a read-only viewer (**Open as XML** or **Reopen Editor With…** for the text). **Overview**: tasks with cycle times, data areas with their sizes, parameters, interfaces, properties and licenses. **Symbols** and **Data types**: filter, expand members, enum values and methods, jump from a type name to its definition. Reloads after each build.
+
 ## 0.2.7
 
 Requires VS Code 1.95 or later (language model tools).
