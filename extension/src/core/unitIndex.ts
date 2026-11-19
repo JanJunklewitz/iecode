@@ -56,7 +56,10 @@ export async function buildUnitIndex(unit: Unit, model: Pick<WorkspaceModel, 'un
       if (o.encrypted) { skipped.push({ file: o.file, reason: 'encrypted' }); continue; }
       const text = await input.readFile(o.file);
       if (text === undefined) { skipped.push({ file: o.file, reason: 'unreadable' }); continue; }
-      try { index.update(o.file, decode(stripBom(text)), library); } catch { skipped.push({ file: o.file, reason: 'not-st' }); }
+      try {
+        // a file that decodes but has no parsed root (an empty declaration) would drop its calls from the graph unnoticed
+        if (!index.update(o.file, decode(stripBom(text)), library).root) skipped.push({ file: o.file, reason: 'not-st' });
+      } catch { skipped.push({ file: o.file, reason: 'not-st' }); }
     }
   };
   await addUnit(unit);
@@ -67,9 +70,12 @@ export async function buildUnitIndex(unit: Unit, model: Pick<WorkspaceModel, 'un
     const cached = input.parsed?.get(l.key);
     if (cached && cached.view === l.view) index.add(cached);
     else {
-      const obj = indexObject(l.key, l.view, l.library);
-      input.parsed?.set(l.key, obj);
-      index.add(obj);
+      // one malformed library view must not take the whole analysis down
+      try {
+        const obj = indexObject(l.key, l.view, l.library);
+        input.parsed?.set(l.key, obj);
+        index.add(obj);
+      } catch { skipped.push({ file: l.key, reason: 'not-st' }); }
     }
   }
   if (skipped.length) notes.push(`${skipped.length} file(s) could not be analysed (unreadable, encrypted or not a PLC object)`);

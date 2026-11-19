@@ -93,3 +93,11 @@ test('an object reached only through a pragma root is not unused, and a library 
   const reached = reach(g, r.roots.map(x => x.id)).reachable;
   assert.ok(reached.has('FB_RPC') && !reached.has('FB_RPC.GO'));
 });
+
+test('an exposure pragma on a variable of a GVL roots the GVL, a commented-out one does not', () => {
+  const gvl = (pragmaLine: string) => ['VAR_GLOBAL', pragmaLine, '    nVal : INT;', 'END_VAR', '//---- IMPLEMENTATION ----', ''].join('\n');
+  const { g, ix } = setup({ MAIN: PRG('MAIN'), GVL_Opc: gvl("{attribute 'OPC.UA.DA' := '1'}"), GVL_Off: gvl("// {attribute 'OPC.UA.DA' := '1'}") });
+  const got = ids(rootsOf(g, ix, { ...none, rootPragmas: DEFAULT_ROOT_PRAGMAS }));
+  assert.ok(got.includes('GVL_OPC:pragma'), got.join(','));
+  assert.ok(!got.includes('GVL_OFF:pragma'), got.join(','));
+});

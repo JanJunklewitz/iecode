@@ -75,6 +75,8 @@ export function rootsOf(g: ObjectGraph, index: SymbolIndex, src: RootSources): {
       head = m ? lines.slice(m.full.line, m.range.line + 1).join('\n') : '';
     } else head = lines.slice(0, obj.root.range.line + 1).join('\n');
     if ((pragma && pragma.test(head)) || (n.kind === 'PROPERTY' && monitoringCall.test(head))) add({ id: n.id, why: 'pragma' });
+    // a pragma on a variable of a GVL (OPC UA exposure) sits below the object header: look at its declaration lines
+    if (!n.owner && n.kind === 'GVL' && pragma && obj.view.split('\n').some(l => !/^\s*\/\//.test(l) && pragma.test(l))) add({ id: n.id, why: 'pragma' });
     if (!n.owner && (n.kind === 'GVL' || n.kind === 'PROGRAM' || n.kind === 'FUNCTION_BLOCK') && /\bAT\s+%[IQ]/i.test(obj.view)) add({ id: n.id, why: 'io' });
   }
   return { roots, notes, noTasks, missingTaskCalls, badTaskFiles };

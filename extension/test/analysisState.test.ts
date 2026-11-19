@@ -217,3 +217,13 @@ test('a task or visualization file that cannot be read or parsed makes the analy
     assert.deepEqual(r.unused, [], name);
   }
 });
+
+test('a file that decodes but has no parsed object makes the analysis incomplete', async () => {
+  const d = disk();
+  put(d, '/App/MAIN.TcPOU', pou('MAIN', 'PROGRAM MAIN'));
+  put(d, '/App/FB_Empty.TcPOU', pou('FB_Empty', ''));
+  const u = app(d, 'App', [{ file: '/App/FB_Empty.TcPOU', name: 'FB_Empty', type: 'FUNCTION_BLOCK' }]);
+  const r = await new AnalysisState(deps(d, [u])).request('App');
+  assert.equal(r.complete, false);
+  assert.deepEqual(r.unused, []);
+});
