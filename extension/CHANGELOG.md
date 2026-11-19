@@ -14,6 +14,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - `ads_write` takes `writes` (up to 20 symbol and value pairs) to set several values after one confirmation. They are sent in one ADS request (not guaranteed to land in the same PLC cycle) and the result lists every item: written, not written or outcome unknown. If any value is invalid nothing is sent. Needs the matching iecode CLI release (ADS host protocol 2); with an older CLI the single write keeps working and the batch says "needs a newer iecode CLI".
 - The reset of an `ads_write` pulse is no longer sent to another PLC when the ADS target changes during the hold, a restore with more than 200 journal entries reads them in several requests, and the online symbol list says when it was cut before the prefix and type filters.
 - `ads_watch`, `ads_read`, `ads_scope` and `ads_wait` start (wait: end) with a notice when the connection to the PLC was lost and restored, when the symbols were reloaded after a download, online change or PLC restart, or when sampling had stopped. `ads_scope` also warns on every call when its time window contains such a hole. The ADS Watch view and the ADS Scope show the notice for two minutes, also while the scope is paused. The reload notice needs the iecode CLI of this release.
+- A watched symbol that is in the symbol table but not in the running program no longer produces a "symbols were reloaded" notice every 5 seconds, and the confirmation does not claim that auto-approve does not apply when it was never chosen.
 
 ## 0.2.20
 
