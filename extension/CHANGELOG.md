@@ -11,6 +11,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - Writes to PERSISTENT data need `confirmPersistent: true`. The build output (`.tmc`) marks persistent variables (`TcPersistent`, also for the members of a persistent variable), so they are guarded without any setup; the new setting `iecode.ads.persistentPaths` adds path prefixes the build output does not mark. The confirmation names them `PERSISTENT`.
 - `ads_write` can pulse a command bit: `pulseMs` (10-5000) writes a BOOL, waits, then writes the opposite value after one confirmation, so a start does not depend on the PLC resetting the bit. The timing is kept by the extension and is not cycle-exact; the result says how long the bit was held and, if the reset failed, that it may still be set.
 - `ads_write` takes `writes` (up to 20 symbol and value pairs) to set several values after one confirmation. They are sent in one ADS request (not guaranteed to land in the same PLC cycle) and the result lists every item: written, not written or outcome unknown. If any value is invalid nothing is sent. Needs the matching iecode CLI release (ADS host protocol 2); with an older CLI the single write keeps working and the batch says "needs a newer iecode CLI".
+- The reset of an `ads_write` pulse is no longer sent to another PLC when the ADS target changes during the hold, a restore with more than 200 journal entries reads them in several requests, and the online symbol list says when it was cut before the prefix and type filters.
 
 ## 0.2.20
 
