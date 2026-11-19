@@ -31,7 +31,9 @@ async function linksOf(state: WorkspaceState, unit: Unit): Promise<{ links?: IoL
   const unreadable: string[] = [];
   for (const f of files) {
     try {
-      const mine = (await readProject(f, read)).links.map(toIoLink)
+      const snap = await readProject(f, read);
+      for (const w of snap.warnings) unreadable.push(w);   // a referenced file that could not be read hides links too
+      const mine = snap.links.map(toIoLink)
         .filter(l => f === own?.project.file || parsePlcLinkSide(l.variable)?.plc.toLowerCase() === plcName.toLowerCase());
       links = [...(links ?? []), ...mine];
     } catch { unreadable.push(path.basename(f)); }   // the links stay as far as they were read, and the result says so

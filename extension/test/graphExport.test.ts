@@ -80,3 +80,18 @@ test('only without neighbours keeps exactly the given nodes', () => {
 test('mermaidNodeCount counts the node lines', () => {
   assert.equal(mermaidNodeCount(objectGraphMermaid(graphOf(views), {})), 4);
 });
+
+test('an exact scope draws no edge that only an excluded member creates', () => {
+  const g = graphOf({
+    FB_A: ['FUNCTION_BLOCK FB_A', '//---- IMPLEMENTATION ----', '//==== METHOD Run ====', 'METHOD Run : BOOL', '//---- IMPLEMENTATION ----', ';',
+      '//==== METHOD Debug ====', 'METHOD Debug : BOOL', 'VAR', '    b : FB_B;', 'END_VAR', '//---- IMPLEMENTATION ----', 'b.Dump();', ''].join('\n'),
+    FB_B: fb('FUNCTION_BLOCK FB_B', { Run: ';', Dump: ';' }),
+  });
+  const only = ['FB_A', 'FB_A.RUN', 'FB_B', 'FB_B.RUN'];
+  const exact = objectGraphMermaid(g, { only, neighbours: false });
+  assert.match(exact, /\["FB_A"\]/);
+  assert.match(exact, /\["FB_B"\]/);
+  assert.ok(!exact.includes('-->'), exact);
+  // the whole project does draw it
+  assert.ok(objectGraphMermaid(g).includes('-->'));
+});

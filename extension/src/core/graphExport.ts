@@ -23,8 +23,11 @@ export function objectGraphMermaid(g: ObjectGraph, opts: { unused?: UnusedFindin
   const fold = (id: NodeId) => (opts.members ? id : g.nodes.get(id)?.owner ?? id);
   const visible = (id: NodeId) => { const n = g.nodes.get(id); return !!n && !n.library; };
   const edges = new Map<string, [NodeId, NodeId]>();
+  // an exact scope: an edge counts only when both of its own endpoints are in it, not when folding makes two owners meet
+  const exact = opts.only && opts.neighbours === false ? new Set(opts.only) : undefined;
   for (const list of g.out.values()) for (const e of list) {
     if (!visible(e.from) || !visible(e.to)) continue;
+    if (exact && (!exact.has(e.from) || !exact.has(e.to))) continue;
     const a = fold(e.from), b = fold(e.to);
     if (a !== b) edges.set(`${a}\n${b}`, [a, b]);
   }
