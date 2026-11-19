@@ -2,7 +2,7 @@
 // Both read the file on disk, so a dirty `iecode:` document (different line numbers) shows neither.
 
 import * as vscode from 'vscode';
-import { LineBlame, blameSections, lensText, makeRefine } from '../core/blame';
+import { LineBlame, SectionBlame, blameSections, lensText, makeRefine } from '../core/blame';
 import { blame, repoRoot, runGit } from '../core/git';
 import { SectionSpan, spansOf, xmlLineOfViewLine } from '../core/objectSpans';
 
@@ -10,12 +10,17 @@ const SCHEME = 'iecode';
 const MAX_VIEW_LINES = 20_000;
 const SETTING = 'blame.enabled';
 
-interface FileData { key: string; root: string; spans: SectionSpan[]; raw: LineBlame[] }
+interface FileData {
+  key: string; root: string; spans: SectionSpan[]; raw: LineBlame[];
+  /** Refined blame per section key, shared by all lenses and hovers of the file (refining runs `git log -L`). */
+  sections: Map<string, Promise<SectionBlame | undefined>>;
+}
 
 const enabled = () => vscode.workspace.getConfiguration('iecode').get<boolean>(SETTING, false);
 
 export function registerBlame(ctx: vscode.ExtensionContext): void {
-  const cache = new Map<string, FileData>();
+  // Promises, so parallel callers share one blame run; a failed or empty result is kept too and not retried until the key changes
+  const cache = new Map<string, { key: string; data: Promise<FileData | undefined> }>();
   const changed = new vscode.EventEmitter<void>();
   const lensSection = new WeakMap<vscode.CodeLens, { doc: vscode.TextDocument; key: string }>();
   let timeoutNoted = false;
@@ -34,15 +39,19 @@ export function registerBlame(ctx: vscode.ExtensionContext): void {
     try { head = (await runGit(root, ['rev-parse', 'HEAD'])).trim(); } catch { /* no commit yet: everything is uncommitted */ }
     const key = `${head}|${mtime}`;
     const hit = cache.get(file.fsPath);
-    if (hit?.key === key) return hit;
+    if (hit?.key === key) return hit.data;
+    const data = load(file, root, key);
+    cache.set(file.fsPath, { key, data });
+    return data;
+  }
+
+  async function load(file: vscode.Uri, root: string, key: string): Promise<FileData | undefined> {
     try {
       const xml = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(file));
       const spans = spansOf(xml);               // throws for a file in a merge conflict
       const raw = await blame(root, file.fsPath);
       if (!raw.length) return undefined;        // untracked
-      const data = { key, root, spans, raw };
-      cache.set(file.fsPath, data);
-      return data;
+      return { key, root, spans, raw, sections: new Map() };
     } catch (e) {
       if ((e as { timedOut?: boolean }).timedOut && !timeoutNoted) {
         timeoutNoted = true;
@@ -50,6 +59,15 @@ export function registerBlame(ctx: vscode.ExtensionContext): void {
       }
       return undefined;
     }
+  }
+
+  function sectionOf(data: FileData, span: SectionSpan): Promise<SectionBlame | undefined> {
+    let p = data.sections.get(span.key);
+    if (!p) {
+      p = blameSections([span], data.raw, makeRefine(data.root)).then(r => r[0]);
+      data.sections.set(span.key, p);
+    }
+    return p;
   }
 
   const lenses: vscode.CodeLensProvider = {
@@ -69,7 +87,7 @@ export function registerBlame(ctx: vscode.ExtensionContext): void {
       const data = ref && await dataOf(ref.doc);
       const span = data?.spans.find(s => s.key === ref!.key);
       if (!data || !span) return lens;
-      const [b] = await blameSections([span], data.raw, makeRefine(data.root));
+      const b = await sectionOf(data, span);
       if (!b) return lens;
       lens.command = b.last.uncommitted
         ? { title: lensText(b, Date.now() / 1000), command: '' }
@@ -84,7 +102,7 @@ export function registerBlame(ctx: vscode.ExtensionContext): void {
       if (!data) return undefined;
       const hit = xmlLineOfViewLine(data.spans, pos.line);
       if (!hit || hit.xmlLine === undefined) return undefined;
-      const [b] = await blameSections([hit.span], data.raw, makeRefine(data.root));
+      const b = await sectionOf(data, hit.span);
       const line = b?.lines[pos.line - hit.span.viewFirst];
       if (!line) return undefined;
       const md = new vscode.MarkdownString(undefined, true);
@@ -99,8 +117,16 @@ export function registerBlame(ctx: vscode.ExtensionContext): void {
     changed,
     vscode.languages.registerCodeLensProvider({ scheme: SCHEME }, lenses),
     vscode.languages.registerHoverProvider({ scheme: SCHEME }, hover),
-    vscode.commands.registerCommand('iecode.toggleBlame', () =>
-      vscode.workspace.getConfiguration('iecode').update(SETTING, !enabled(), vscode.ConfigurationTarget.Global)),
+    vscode.commands.registerCommand('iecode.toggleBlame', () => {
+      const cfg = vscode.workspace.getConfiguration('iecode');
+      // write where the effective value lives, otherwise a workspace override hides the change
+      const i = cfg.inspect<boolean>(SETTING);
+      const target = i?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+        : i?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      return cfg.update(SETTING, !enabled(), target);
+    }),
+    // a commit from a terminal or another tool changes HEAD without touching a file: look again when the window regains focus
+    vscode.window.onDidChangeWindowState(w => { if (w.focused) changed.fire(); }),
     vscode.commands.registerCommand('iecode.blame.copyHash', (hash: string) => vscode.env.clipboard.writeText(hash)),
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration(`iecode.${SETTING}`)) drop(); }),
     vscode.workspace.onDidSaveTextDocument(d => { if (d.uri.scheme === SCHEME) drop(); }),
