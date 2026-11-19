@@ -7,6 +7,14 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 ### CLI
 - `iecode build` (and `info`, `lib`, `ws`) works on a solution whose PLC project is encrypted with `iecode encrypt --protect "<plc project>,encrypted=true"`: the binary `.plcproj` no longer stops it with `Data at the root level is invalid`. `iecode info` shows such a project as encrypted.
 - `iecode encrypt` applies an item again (up to 5 times, 5 s apart) when TwinCAT reports a file of it as used by another process, instead of ending with an unexpected error (exit 99).
+## Unreleased
+
+### Log viewer
+- **Log Viewer** for `.log` files (right-click a file: **Open in Log Viewer**, or **Reopen Editor Withâ€¦**): a read-only table with time, level, source and message, colors per level, a detail pane for multi-line entries, gap marks between entries (`iecode.logViewer.gapSeconds`) and repeated entries grouped into one row with a count (`iecode.logViewer.groupRepeats`).
+- Filters for level, time range, source and free text or regex, each with the number of entries it hides; next / previous error, bookmarks and **Export** of the filtered view as the original lines.
+- Formats: the TwinCAT logger, tab-separated logs and plain text are built in and detected per file; add your own with a regular expression in `iecode.logViewer.formats`.
+- **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
+- Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
 
 ## 0.2.19
 
@@ -131,12 +139,6 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 ### Build output
 - **Module class viewer**: `.tmc` files (the build output of PLC projects and TcCOM modules) open in a read-only viewer (**Open as XML** or **Reopen Editor Withâ€¦** for the text). **Overview**: tasks with cycle times, data areas with their sizes, parameters, interfaces, properties and licenses. **Symbols** and **Data types**: filter, expand members, enum values and methods, jump from a type name to its definition. Reloads after each build.
-### Log viewer
-- **Log Viewer** for `.log` files (right-click a file: **Open in Log Viewer**, or **Reopen Editor Withâ€¦**): a read-only table with time, level, source and message, colors per level, a detail pane for multi-line entries, gap marks between entries (`iecode.logViewer.gapSeconds`) and repeated entries grouped into one row with a count (`iecode.logViewer.groupRepeats`).
-- Filters for level, time range, source and free text or regex, each with the number of entries it hides; next / previous error, bookmarks and **Export** of the filtered view as the original lines.
-- Formats: the TwinCAT logger, tab-separated logs and plain text are built in and detected per file; add your own with a regular expression in `iecode.logViewer.formats`.
-- **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
-- Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
 
 ## 0.2.7
 
