@@ -60,7 +60,7 @@ export function registerObjectHistory(ctx: vscode.ExtensionContext): void {
       const items: Item[] = [...(wc ? [wc] : []), ...entries].map(e => e.commit === 'WORKING'
         ? { label: 'Working copy', description: 'uncommitted changes', entry: e }
         : { ...historyItemLabel(e), entry: e });
-      if (!items.length) { vscode.window.showInformationMessage(`IECode: no commit changed ${t.label}.`); return; }
+      if (!items.length) { vscode.window.showInformationMessage(`IECode: no commit changed ${t.label}${result.cut ? ` among the newest ${MAX} commits of the file` : ''}.`); return; }
       const pick = await vscode.window.showQuickPick(items, {
         placeHolder: `${t.label}: ${items.length} change${items.length === 1 ? '' : 's'}${result.cut ? `, showing the newest ${MAX}` : ''}`,
       });

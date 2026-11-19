@@ -188,3 +188,28 @@ test('the history menu entry is offered on objects and members only, not on memb
   for (const ok of ['object.FUNCTION_BLOCK', 'object.PROGRAM', 'member.METHOD', 'member.GET']) assert.ok(re.test(ok), ok);
   for (const no of ['memberFolder.FUNCTION_BLOCK', 'memberGroup', 'libraryMember.METHOD', 'folder']) assert.ok(!re.test(no), no);
 });
+
+test('a similar newcomer does not take the history of a member that an exact replacement continues', async () => {
+  const r = tempRepo();
+  try {
+    const X = longBody('1');
+    const Y = [...X.slice(0, 5), 'other();'];                       // similar to X, but not equal
+    r.write(F, pou([{ name: 'A', id: 2, body: X }])); r.commitAll('c1');
+    r.write(F, pou([{ name: 'B', id: 7, body: X }, { name: 'C', id: 8, body: Y }])); r.commitAll('c2 replace');
+    const c = await objectHistory(r.dir, `${r.dir}/${F}`, 'METHOD:C');
+    assert.deepEqual(summary(c.entries, subjectsOf(r)), ['c2 replace:added']);
+    const b = await objectHistory(r.dir, `${r.dir}/${F}`, 'METHOD:B');
+    assert.deepEqual(summary(b.entries, subjectsOf(r)), ['c2 replace:renamed:METHOD:A', 'c1:added']);
+  } finally { r.cleanup(); }
+});
+
+test('blobsAt skips the payload of a directory at a requested path and still reads the next blob', async () => {
+  const r = tempRepo();
+  try {
+    r.write('dir/f.txt', 'inner\n'); r.write('g.txt', 'after\n'); r.commitAll('c1');
+    const got = await blobsAt(r.dir, [{ ref: 'HEAD', file: 'dir' }, { ref: 'HEAD', file: 'g.txt' }, { ref: 'HEAD', file: 'nope' }, { ref: 'HEAD', file: 'dir/f.txt' }]);
+    assert.equal(got.has('HEAD:dir'), false);
+    assert.equal(got.get('HEAD:g.txt'), 'after\n');
+    assert.equal(got.get('HEAD:dir/f.txt'), 'inner\n');
+  } finally { r.cleanup(); }
+});

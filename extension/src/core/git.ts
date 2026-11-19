@@ -80,11 +80,11 @@ export async function blobsAt(root: string, items: { ref: string; file: string }
     if (nl < 0) break;
     const header = data.subarray(pos, nl).toString('utf8');
     pos = nl + 1;
-    const m = / blob (\d+)$/.exec(header);
-    if (!m) continue;                           // "<object> missing" (or not a file)
-    const size = Number(m[1]);
-    out.set(k, data.subarray(pos, pos + size).toString('utf8'));
-    pos += size + 1;
+    const m = / (blob|tree|commit|tag) (\d+)$/.exec(header);
+    if (!m) continue;                           // "<object> missing": no payload follows
+    const size = Number(m[2]);
+    if (m[1] === 'blob') out.set(k, data.subarray(pos, pos + size).toString('utf8'));
+    pos += size + 1;                            // a tree (a directory at that path) has a payload too, which must not be read as the next header
   }
   return out;
 }

@@ -95,8 +95,10 @@ export async function objectHistory(root: string, file: string, key: string | 'F
       if (!pkey) {
         // unrelated Id: a rename the Id cannot show (member re-created) is recognised by text similarity
         const gone: string[] = parent.keys.filter(k => k.startsWith(kind + ':') && !child.keys.includes(k));
-        const pairs: { from: { k: string } }[] = pairRenames(gone.map(k => ({ k, t: textIn(parent, k) ?? '' })), [{ k: followed as string, t: after }], i => i.t);
-        if (pairs.length) pkey = pairs[0].from.k;
+        // every new member of the kind competes for the removed ones, so that an exact replacement is not taken from under it by a similar newcomer
+        const added = child.keys.filter(k => k.startsWith(kind + ':') && !parent.keys.includes(k)).map(k => ({ k, t: textIn(child, k) ?? '' }));
+        const pair = pairRenames(gone.map(k => ({ k, t: textIn(parent, k) ?? '' })), added, i => i.t).find(p => p.to.k === followed);
+        if (pair) pkey = pair.from.k;
       }
     } else if (parent && after === undefined && textIn(parent, followed) !== undefined) {
       pkey = followed;
