@@ -2,6 +2,11 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## 0.2.19
+
+### Project tree
+- The tree follows the editor: opening or switching to an object (ST view or XML, also visualizations, text lists and image pools), a `.plcproj` or a library object selects it in the IECode project tree and expands its folders. Keyboard focus stays in the editor. Turn it off with `iecode.projects.autoReveal`.
+
 ## 0.2.18
 
 ### CLI
