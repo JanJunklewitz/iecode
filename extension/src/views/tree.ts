@@ -4,7 +4,7 @@ import { promises as fs } from 'fs';
 import { MemberGrouping, listMemberFolders, listMembers, memberLevel, Member, ObjectType, PlcObject, LibraryRef, Solution, TwinCatProject } from '../core/projects';
 import { Group, Unit, librariesByTitle, systemProjects } from '../core/workspace';
 import { WorkspaceState } from '../state';
-import { LibrarySource, LibrarySources } from '../lang/librarySources';
+import { LIB_SCHEME, LibrarySource, LibrarySources } from '../lang/librarySources';
 import { LibraryObject } from '../core/libraryArchive';
 
 /** Tree nodes. `contextValue` drives the context menus in package.json. */
@@ -250,5 +250,101 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
     }
   }
 
-  getParent(): undefined { return undefined; }
+  /** Parent of a node, for TreeView.reveal (members and member folders are not revealed). */
+  getParent(n: Node): Node | undefined {
+    const m = this.state.current;
+    const unitNode = (unit: Unit): Node => ({ kind: 'unit', unit });
+    const folderOrUnit = (unit: Unit, rel: string): Node => {
+      const dir = path.posix.dirname(rel);
+      return dir === '.' || dir === '' ? unitNode(unit) : { kind: 'folder', unit, rel: dir };
+    };
+    switch (n.kind) {
+      case 'group':
+      case 'systems': return undefined;
+      case 'system': return { kind: 'systems', systems: systemProjects(m) };
+      case 'unit': return { kind: 'group', group: n.unit.group, units: m.units.filter(u => u.group === n.unit.group) };
+      case 'references': return unitNode(n.unit);
+      case 'reference': return { kind: 'references', unit: n.unit };
+      case 'folder':
+      case 'object': return folderOrUnit(n.unit, n.kind === 'folder' ? n.rel : n.obj.rel);
+      case 'libraryFolder':
+      case 'libraryObject': {
+        const rel = n.kind === 'libraryFolder' ? n.rel : n.obj.folder;
+        const dir = n.kind === 'libraryFolder' ? path.posix.dirname(rel) : rel;
+        if (dir && dir !== '.') return { kind: 'libraryFolder', lib: n.lib, rel: dir };
+        return this.referenceTo(n.lib);
+      }
+      default: return undefined;
+    }
+  }
+
+  /** The first reference in the tree that shows the sources of this library. */
+  private referenceTo(lib: LibrarySource): Node | undefined {
+    const name = lib.id.name.toLowerCase();
+    const inWorkspace = librariesByTitle(this.state.current.units);   // those references show no sources
+    for (const unit of this.state.current.units) {
+      const ref = unit.plc.references.find(r => r.effective.name.toLowerCase() === name);
+      if (ref && !inWorkspace.has(name) && this.libraries.get(ref.effective.name) === lib) return { kind: 'reference', unit, ref };
+    }
+    return undefined;
+  }
+
+  /** The tree node of an object, PLC project or library object shown in an editor. */
+  nodeFor(uri: vscode.Uri): Node | undefined {
+    if (uri.scheme === LIB_SCHEME) {
+      const key = uri.fsPath.toLowerCase();
+      for (const lib of this.libraries.all()) {
+        const o = lib.objects.find(x => x.key.toLowerCase() === key);
+        if (o) return { kind: 'libraryObject', lib, key: o.key, obj: o.obj };
+      }
+      return undefined;
+    }
+    if (uri.scheme !== 'file' && uri.scheme !== 'iecode') return undefined;
+    const file = samePath(uri.fsPath);
+    for (const unit of this.state.current.units) {
+      if (samePath(unit.plc.file) === file) return { kind: 'unit', unit };
+      const obj = unit.plc.objects.find(o => samePath(o.file) === file);
+      if (obj) return { kind: 'object', unit, obj };
+    }
+    return undefined;
+  }
+}
+
+const samePath = (p: string) => {
+  const n = path.normalize(p);
+  return process.platform === 'win32' ? n.toLowerCase() : n;
+};
+
+/** URI of the active editor tab: text, custom editor (visualizations …) or the modified side of a diff. */
+function activeUri(): vscode.Uri | undefined {
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  if (input instanceof vscode.TabInputText || input instanceof vscode.TabInputCustom) return input.uri;
+  if (input instanceof vscode.TabInputTextDiff) return input.modified;
+  return vscode.window.activeTextEditor?.document.uri;
+}
+
+/** Selects the object of the active editor in the project tree (setting `iecode.projects.autoReveal`). */
+export function registerAutoReveal(view: vscode.TreeView<Node>, tree: ProjectTree, state: WorkspaceState): vscode.Disposable {
+  const enabled = () => vscode.workspace.getConfiguration('iecode').get<boolean>('projects.autoReveal', true);
+  const idOf = (n: Node) => tree.getTreeItem(n).id;
+  const reveal = async () => {
+    if (!view.visible || !enabled()) return;
+    const uri = activeUri();
+    const node = uri && tree.nodeFor(uri);
+    if (!node) return;
+    const id = idOf(node);
+    if (id && view.selection.some(s => idOf(s) === id)) return;   // already selected: keep the user's expand/collapse state
+    try {
+      await view.reveal(node, { select: true, focus: false, expand: false });
+    } catch {
+      // the node is not in the tree (yet), e.g. while the workspace model reloads
+    }
+  };
+  return vscode.Disposable.from(
+    vscode.window.onDidChangeActiveTextEditor(() => void reveal()),
+    vscode.window.tabGroups.onDidChangeTabs(e => { if (e.changed.some(t => t.isActive)) void reveal(); }),
+    vscode.window.tabGroups.onDidChangeTabGroups(() => void reveal()),
+    view.onDidChangeVisibility(() => void reveal()),
+    state.onDidChange(() => void reveal()),
+  );
 }
