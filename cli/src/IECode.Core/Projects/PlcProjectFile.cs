@@ -20,10 +20,26 @@ public sealed partial class PlcProjectFile
     /// </summary>
     public bool IsLibrary => !string.IsNullOrEmpty(Title) && !string.IsNullOrEmpty(Company) && !string.IsNullOrEmpty(ProjectVersion);
 
+    /// <summary>
+    /// The file is protected with a user database (object protection "encrypted"): TwinCAT stores it binary,
+    /// so only the name is known. XAE still opens and builds it for a user with the right level.
+    /// </summary>
+    public bool IsEncrypted { get; init; }
+
     public static PlcProjectFile Load(string path)
     {
         XDocument doc;
         try { doc = XDocument.Load(path); }
+        catch (System.Xml.XmlException) when (!LooksLikeXml(path))
+        {
+            return new PlcProjectFile
+            {
+                Path = System.IO.Path.GetFullPath(path),
+                Name = System.IO.Path.GetFileNameWithoutExtension(path),
+                References = [],
+                IsEncrypted = true,
+            };
+        }
         catch (Exception e) { throw new IECodeException(ExitCodes.Failed, $"Cannot read '{path}': {e.Message}", inner: e); }
 
         string? Prop(string name) => doc.Descendants().FirstOrDefault(e => e.Name.LocalName == name && !e.HasElements)?.Value.Trim();
@@ -61,6 +77,17 @@ public sealed partial class PlcProjectFile
         };
     }
 
+    /// <summary>True when the file starts like XML (optional BOM and whitespace, then '&lt;'); encrypted files do not.</summary>
+    private static bool LooksLikeXml(string path)
+    {
+        var head = new byte[64];
+        int n;
+        using (var f = File.OpenRead(path)) n = f.Read(head, 0, head.Length);
+        var i = n >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF ? 3 : 0;
+        while (i < n && head[i] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') i++;
+        return i < n && head[i] == (byte)'<';
+    }
+
     // Matches a resolution string inside element text (>...<) or an Include attribute ("...").
     [GeneratedRegex(@"(?<pre>[>""]\s*)(?<name>[^,<>""]+?)(?<sep>\s*,\s*)(?<ver>[^\s(<>""]+)(?<post>\s*\((?<vendor>[^)<>""]+)\))")]
     private static partial Regex ResolutionInText();
@@ -77,6 +104,9 @@ public sealed partial class PlcProjectFile
     {
         if (!ValidVersion().IsMatch(version))
             throw new IECodeException(ExitCodes.Usage, $"Invalid library version '{version}'.", "Use * (always newest) or a version like 1.3.0 or 3.3.3.0.");
+        if (IsEncrypted)
+            throw new IECodeException(ExitCodes.Failed, $"'{Path}' is encrypted; its library references cannot be edited as text.",
+                "Change the reference in XAE as a user of the project's user database.");
 
         var bytes = File.ReadAllBytes(Path);
         var hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
