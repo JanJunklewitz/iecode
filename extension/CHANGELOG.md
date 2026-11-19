@@ -2,11 +2,6 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€¦) are pre-releases.
 
-## 0.2.20
-
-### CLI
-- `iecode build` (and `info`, `lib`, `ws`) works on a solution whose PLC project is encrypted with `iecode encrypt --protect "<plc project>,encrypted=true"`: the binary `.plcproj` no longer stops it with `Data at the root level is invalid`. `iecode info` shows such a project as encrypted.
-- `iecode encrypt` applies an item again (up to 5 times, 5 s apart) when TwinCAT reports a file of it as used by another process, instead of ending with an unexpected error (exit 99).
 ## Unreleased
 
 ### Log viewer
@@ -17,6 +12,11 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
 - **Live** off now also holds a refresh that was queued behind the running one, and the years 0000 to 0099 are read as years.
 
+## 0.2.20
+
+### CLI
+- `iecode build` (and `info`, `lib`, `ws`) works on a solution whose PLC project is encrypted with `iecode encrypt --protect "<plc project>,encrypted=true"`: the binary `.plcproj` no longer stops it with `Data at the root level is invalid`. `iecode info` shows such a project as encrypted.
+- `iecode encrypt` applies an item again (up to 5 times, 5 s apart) when TwinCAT reports a file of it as used by another process, instead of ending with an unexpected error (exit 99).
 ## 0.2.19
 
 ### Project tree
