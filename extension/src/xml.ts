@@ -33,6 +33,7 @@ export function parseXml(src: string): XNode {
       i = close + 3;
     } else if (src.startsWith('<?', lt) || src.startsWith('<!', lt)) {
       const close = src.indexOf('>', lt);
+      if (close < 0) throw new Error(`Unterminated declaration at ${lt}`);
       i = close + 1;
     } else if (src[lt + 1] === '/') {
       const close = src.indexOf('>', lt);
