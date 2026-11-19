@@ -124,6 +124,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     void vscode.commands.executeCommand('setContext', 'iecode.treeFiltered', !!f);
   };
   let activeBox: vscode.InputBox | undefined;
+  /** Closes the open box without restoring the filter from before it was typed (Clear must win over its rollback). */
+  let closeBox: (() => void) | undefined;
   const filterTree = () => {
     // a second box would hide the first, whose hide handler then restores the filter from before it was typed
     if (activeBox) { activeBox.show(); return; }
@@ -137,10 +139,12 @@ export function activate(ctx: vscode.ExtensionContext) {
       { set: (fn, ms) => setTimeout(fn, ms), clear: h => clearTimeout(h as ReturnType<typeof setTimeout>) },
       applyTreeFilter, msg => { box.validationMessage = msg; });
     let accepted = false;
+    closeBox = () => { accepted = true; typing.abandon(); box.hide(); };
     box.onDidChangeValue(v => typing.change(v));
     box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) { accepted = true; box.hide(); } });
     box.onDidHide(() => {
       activeBox = undefined;
+      closeBox = undefined;
       typing.abandon();
       if (!accepted) applyTreeFilter(before);
       box.dispose();
@@ -153,7 +157,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     treeView,
     registerAutoReveal(treeView, tree, state),
     vscode.commands.registerCommand('iecode.filterTree', () => filterTree()),
-    vscode.commands.registerCommand('iecode.clearTreeFilter', () => applyTreeFilter(undefined)),
+    vscode.commands.registerCommand('iecode.clearTreeFilter', () => { closeBox?.(); applyTreeFilter(undefined); }),
     state.onDidChange(showFilterMessage),
     vscode.commands.registerCommand('iecode.refresh', () => state.reload()),
     vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
