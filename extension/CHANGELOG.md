@@ -15,6 +15,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - Formats: the TwinCAT logger, tab-separated logs and plain text are built in and detected per file; add your own with a regular expression in `iecode.logViewer.formats`.
 - **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
 - Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
+- **Live** off now also holds a refresh that was queued behind the running one, the years 0000 to 0099 are read as years, and the log formats are a user setting (a workspace cannot supply regular expressions).
 
 ## 0.2.19
 
