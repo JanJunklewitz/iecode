@@ -31,7 +31,7 @@ export function objectGraphMermaid(g: ObjectGraph, opts: { unused?: UnusedFindin
 
   let keep = new Set<NodeId>([...g.nodes.keys()].filter(visible).map(fold));
   if (opts.only) {
-    const roots = new Set(opts.only.map(fold));
+    const roots = new Set(opts.only.filter(visible).map(fold));
     keep = new Set(roots);
     for (const [a, b] of edges.values()) { if (roots.has(a)) keep.add(b); if (roots.has(b)) keep.add(a); }
   }

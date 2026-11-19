@@ -98,7 +98,7 @@ export function fileEdges(index: SymbolIndex, obj: IndexedObject, nonSt?: Map<st
     else if (owner === obj) continue;                                                // own variable or local: no edge
     else { to = objectId(owner); reason = 'type'; }                                  // variable, field or enum value: its owning object
     if (t.line === root.range.line && headerReason.has(t.upper)) reason = headerReason.get(t.upper)!;
-    if (to === from || (to === self && from === self)) continue;
+    if (to === from) continue;
     add(from, to, t.line, reason);
   }
 

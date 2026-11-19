@@ -65,7 +65,7 @@ export function registerImpact(ctx: vscode.ExtensionContext, analysis: AnalysisS
     const a = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Analysing ${t.unit.id}` }, () => analysis.request(t.unit.id));
     if (!a.graph.nodes.has(t.id)) { vscode.window.showInformationMessage(`IECode: ${t.label} is not in the analysis of ${t.unit.id}.`); return; }
     const io = await linksOf(state, t.unit);
-    const result = impactOf(a.graph, a.reach, a.roots.map(r => r.id), t.id, io.links, io.plcName, t.variable);
+    const result = impactOf(a.graph, a.reach, [...new Set(a.roots.filter(r => r.why === 'task').map(r => r.id))], t.id, io.links, io.plcName, t.variable);
     const why = emptyReason(a);
     if (why && a.skipped !== 'no-tasks') result.notes.unshift(why);
 

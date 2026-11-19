@@ -114,3 +114,16 @@ test('impactRows lists tasks, then callers, then IO links, then notes', () => {
   assert.equal(io.detail, 'PLC1^MAIN.bStart');
   assert.equal(rows[rows.length - 1].kind, 'note');
 });
+
+test('impact of a function block object says that IO links are not checked for it', () => {
+  const g = graphOf(views);
+  const r = impactOf(g, reach(g, ['MAIN']), ['MAIN'], 'FB_MOTOR', [], 'PLC1');
+  assert.ok(r.notes.some(n => /only checked for variables/.test(n)));
+});
+
+test('a target reached only from a non-task root says so instead of listing no task silently', () => {
+  const g = graphOf(views);
+  const r = impactOf(g, reach(g, ['MAIN', 'OTHER']), ['MAIN'], 'OTHER', [], 'PLC1');
+  assert.deepEqual(r.tasks, []);
+  assert.ok(r.notes.some(n => /other roots/.test(n)));
+});
