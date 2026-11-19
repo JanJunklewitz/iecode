@@ -531,6 +531,21 @@ public sealed class WatchHostTests
     }
 
     [Fact]
+    public void A_phantom_symbol_announces_the_reload_once_not_at_every_retry()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => [Ok("1"), Err(0x710)];
+        r.Host.Start();
+        r.Watch("MAIN.a", "MAIN.phantom");
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+        // the retries after each 5 s back-off find the same table: nothing changed, nothing to announce
+        for (var ms = 10; ms < 16000; ms += 10) r.Host.Tick(T0.AddMilliseconds(ms));
+        Assert.True(r.Backend.ResolveCalls >= 4, "the retries still resolve");
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
     public void WatchHost_PhantomSymbol_ReadableAgain_ClearsItemError()
     {
         var r = new Rig();

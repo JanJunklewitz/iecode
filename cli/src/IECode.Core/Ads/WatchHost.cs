@@ -121,6 +121,8 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         var fresh = _freshResolve;
         _freshResolve = false;
         var guarded = fresh || _resolveBackoffUntil is { } until && now < until;
+        // a resolve after a back-off loads the same table again: it is a retry, not news for the extension
+        var retry = _resolveBackoffUntil is not null;
         IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> row;
         try
         {
@@ -130,7 +132,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         {
             if (f.AdsCode is { } c && AdsCodes.IsDeadHandle(c))
             {
-                if (!guarded) { ResolveAgain(HandlesReason); return; }
+                if (!guarded) { ResolveAgain(retry ? null : HandlesReason); return; }
                 if (fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
             }
             ReportOnce("read:" + f.Message, f.Message);
@@ -139,10 +141,12 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         var dead = new SortedDictionary<int, uint>();
         for (var i = 0; i < row.Count; i++)
             if (row[i].AdsCode is { } c && AdsCodes.IsDeadHandle(c)) dead[i] = c;
+        if (dead.Count == 0) _resolveBackoffUntil = null;
         string? reason = null;
-        if (dead.Count > 0 && !guarded) reason = HandlesReason;
-        else if (backend.SymbolVersionChanged()) reason = VersionReason;
-        if (reason is not null)
+        var resolve = false;
+        if (dead.Count > 0 && !guarded) { resolve = true; reason = retry ? null : HandlesReason; }
+        else if (backend.SymbolVersionChanged()) { resolve = true; reason = VersionReason; }
+        if (resolve)
         {
             // The row belongs to the old resolution: drop it.
             ResolveAgain(reason);
