@@ -2,8 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempRepo } from './helpers/gitRepo';
 import { blobsAt, historyCommits } from '../src/core/git';
-import { historyItemLabel, objectHistory, sectionTextOf } from '../src/core/objectHistory';
+import { fileTextOf, historyItemLabel, objectHistory, sectionTextOf } from '../src/core/objectHistory';
 import { decode } from '../src/model';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 interface M { name: string; id: number; body: string[]; cfc?: string }
 const guid = (n: number) => `{00000000-0000-0000-0000-${String(n).padStart(12, '0')}}`;
@@ -124,6 +126,12 @@ test('a merge does not create entries for the other branch', async () => {
   } finally { r.cleanup(); }
 });
 
+test('fileTextOf includes the raw XML of a non-ST body, so a CFC change shows in the whole-object text', () => {
+  const a = pou([{ name: 'A', id: 2, body: [], cfc: 'one' }]), b = pou([{ name: 'A', id: 2, body: [], cfc: 'two' }]);
+  assert.notEqual(fileTextOf(a), fileTextOf(b));
+  assert.equal(decode(a), decode(b));                              // the view alone cannot show it
+});
+
 test('a method deleted and re-created under an old name is a new identity', async () => {
   const r = tempRepo();
   try {
@@ -171,4 +179,12 @@ test('historyItemLabel shows the rename and marks an unreadable commit', () => {
   const e = { commit: 'a'.repeat(40), short: 'a1b2c3d', date: '2026-11-02', author: 'Ada Lovelace', subject: 'Fix cooling alarm', key: 'METHOD:Begin', change: 'renamed' as const, renamedFrom: 'METHOD:Start' };
   assert.deepEqual(historyItemLabel(e), { label: 'a1b2c3d  Fix cooling alarm', description: 'Ada Lovelace, 2026-11-02, renamed from Start' });
   assert.match(historyItemLabel({ ...e, change: 'unreadable' }).description, /not readable/);
+});
+
+test('the history menu entry is offered on objects and members only, not on member folders or groups', () => {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
+  const item = pkg.contributes.menus['view/item/context'].find((m: { command: string }) => m.command === 'iecode.objectHistory');
+  const re = new RegExp(/viewItem =~ \/(.*?)\/ /.exec(item.when)![1]);
+  for (const ok of ['object.FUNCTION_BLOCK', 'object.PROGRAM', 'member.METHOD', 'member.GET']) assert.ok(re.test(ok), ok);
+  for (const no of ['memberFolder.FUNCTION_BLOCK', 'memberGroup', 'libraryMember.METHOD', 'folder']) assert.ok(!re.test(no), no);
 });

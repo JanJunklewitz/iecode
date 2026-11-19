@@ -872,7 +872,7 @@
       "view/item/context": [
         {
           "command": "iecode.objectHistory",
-          "when": "view == iecode.projects && viewItem =~ /^(object|member)/ && viewItem != object.encrypted",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
           "group": "3_history@1"
         },
         {

@@ -2,7 +2,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { HistoryEntry, historyItemLabel, objectHistory, sectionTextOf } from '../core/objectHistory';
+import { HistoryEntry, fileTextOf, historyItemLabel, objectHistory, sectionTextOf } from '../core/objectHistory';
 import { blobsAt, repoRoot } from '../core/git';
 import { decode, outline } from '../model';
 import type { Node } from '../views/tree';
@@ -51,12 +51,8 @@ export function registerObjectHistory(ctx: vscode.ExtensionContext): void {
       const root = await repoRoot(t.file);
       if (!root) { vscode.window.showInformationMessage('IECode: the file is not in a git repository.'); return; }
 
-      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `History of ${t.label}`, cancellable: true },
-        async (_p, token) => {
-          const r = await objectHistory(root, t.file, t.key, MAX);
-          return token.isCancellationRequested ? undefined : r;
-        });
-      if (!result) return;
+      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `History of ${t.label}`, cancellable: false },
+        () => objectHistory(root, t.file, t.key, MAX));
 
       const entries: HistoryEntry[] = [...result.entries];
       const wc = await workingCopyEntry(root, t.file, t.key, result.entries[0]);
@@ -68,7 +64,8 @@ export function registerObjectHistory(ctx: vscode.ExtensionContext): void {
       const pick = await vscode.window.showQuickPick(items, {
         placeHolder: `${t.label}: ${items.length} change${items.length === 1 ? '' : 's'}${result.cut ? `, showing the newest ${MAX}` : ''}`,
       });
-      if (!pick || pick.entry.change === 'unreadable') return;
+      if (!pick) return;
+      if (pick.entry.change === 'unreadable') { vscode.window.showInformationMessage('IECode: the XML of this commit could not be read (for example merge conflict markers), so there is nothing to compare.'); return; }
       const e = pick.entry;
       const left = sideUri(t.file, e.key, e.short, 'before'), right = sideUri(t.file, e.key, e.short, 'after');
       texts.set(left.toString(), e.before ?? '');
@@ -87,7 +84,7 @@ async function workingCopyEntry(root: string, file: string, key: string, newest?
     const rel = path.relative(root, file).split(path.sep).join('/');
     const head = (await blobsAt(root, [{ ref: 'HEAD', file: rel }])).get(`HEAD:${rel}`);
     if (head === undefined) return undefined;
-    const text = (xml: string) => key === 'FILE' ? decode(xml) : sectionTextOf(xml, decode(xml), key);
+    const text = (xml: string) => key === 'FILE' ? fileTextOf(xml) : sectionTextOf(xml, decode(xml), key);
     const before = text(head.replace(/^﻿/, '')), after = text(work);
     if (before === after) return undefined;
     return { commit: 'WORKING', short: 'working', date: '', author: '', subject: 'Working copy', key: newest?.key ?? key, change: 'changed', before, after };

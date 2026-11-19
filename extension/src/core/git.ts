@@ -71,6 +71,7 @@ export async function blobsAt(root: string, items: { ref: string; file: string }
   const data = await new Promise<Buffer>((resolve, reject) => {
     const p = execFile('git', ['cat-file', '--batch'], { cwd: root, maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer' },
       (err, stdout, stderr) => (err ? reject(new Error(stderr.toString().trim() || err.message)) : resolve(stdout)));
+    p.stdin!.on('error', () => { /* the child exited early; its exit code reports it */ });
     p.stdin!.end(keys.map(k => k + '\n').join(''));
   });
   let pos = 0;

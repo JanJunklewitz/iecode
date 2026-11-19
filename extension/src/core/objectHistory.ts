@@ -49,7 +49,9 @@ function decodeFile(text: string | undefined): Decoded | 'unreadable' | undefine
   } catch { return 'unreadable'; }
 }
 
-const wholeText = (d: Decoded) => [d.view, ...[...nonStBodies(d.xml)].map(([k, v]) => `${k}\n${v}`)].join('\n');
+/** Text of a whole object: the ST view plus the raw XML of every non-ST body. */
+export const fileTextOf = (xml: string) => [decode(xml), ...[...nonStBodies(xml)].map(([k, v]) => `${k}\n${v}`)].join('\n');
+const wholeText = (d: Decoded) => fileTextOf(d.xml);
 
 export async function objectHistory(root: string, file: string, key: string | 'FILE', max = 200): Promise<{ entries: HistoryEntry[]; cut: boolean }> {
   const all = await historyCommits(root, file, max + 1);
