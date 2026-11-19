@@ -28,6 +28,8 @@ export interface HwLink {
   sideA: string;
   /** File the link is stored in, relative to the project folder. */
   file: string;
+  /** Offset of the <Link> element in that file (set when the link is read from XML). */
+  at?: number;
 }
 
 export interface LinkFile { path: string; category?: string; itemPath?: string; doc: Doc }
@@ -152,7 +154,7 @@ function linksOfDoc(doc: Doc, file: string, itemPath?: string): HwLink[] {
         out.push({
           left: swap ? sideB : sideA, right: swap ? sideA : sideB, size: attrs.Size,
           offsLeft: swap ? attrs.OffsB : attrs.OffsA, offsRight: swap ? attrs.OffsA : attrs.OffsB,
-          attrs, sideA, file,
+          attrs, sideA, file, at: l.start,
         });
       }
     }
