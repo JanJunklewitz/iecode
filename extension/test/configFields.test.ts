@@ -14,9 +14,9 @@ test('groups: ads settings under ADS Watch, io-link, the rest General', () => {
   assert.equal(groupOf('iecode.tcVersion'), 'General');
 });
 
-test('every iecode setting of package.json becomes a field, except the one with its own editor', () => {
+test('every iecode setting of package.json becomes a field, except the ones that cannot be edited in a form', () => {
   const keys = Object.keys(pkg.contributes.configuration.properties);
-  assert.deepEqual(keys.filter(k => !fields.some(x => x.key === k)), ['iecode.configDiff.hidden']);
+  assert.deepEqual(keys.filter(k => !fields.some(x => x.key === k)), ['iecode.configDiff.hidden', 'iecode.logViewer.formats']);   // own editor; array of objects
 });
 
 test('field metadata comes from the schema', () => {

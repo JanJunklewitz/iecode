@@ -1733,7 +1733,7 @@
           "markdownDescription": "Log formats of the **Log Viewer**, tried before the built-in ones. Only the first 8 KB of a line are matched. **Caution:** a regular expression with catastrophic backtracking (e.g. nested quantifiers like `(a+)+`) blocks VS Code while a file is scanned."
         },
         "iecode.logViewer.gapSeconds": {
-          "type": "number",
+          "type": "integer",
           "default": 5,
           "minimum": 0,
           "markdownDescription": "The **Log Viewer** marks a gap above an entry that comes more than this many seconds after the previous one. `0` turns the marks off."

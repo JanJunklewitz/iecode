@@ -35,7 +35,8 @@ export function groupOf(key: string): ConfigGroup {
 function typeOf(p: Record<string, unknown>): ConfigType | undefined {
   if (Array.isArray(p.enum)) return 'enum';
   if (p.type === 'boolean' || p.type === 'string' || p.type === 'integer') return p.type;
-  if (p.type === 'array') return 'list';
+  // a list field is one string per line: an array of objects (log formats) can only be edited as JSON in settings.json
+  if (p.type === 'array') return (p.items as { type?: string } | undefined)?.type === 'string' ? 'list' : undefined;
   if (p.type === 'object') return 'object';
   return undefined;
 }
