@@ -6,6 +6,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 ### Structured Text view
 - **Object lint:** PLC object files are checked when opened (also in the Structured Text view) or saved, and again when an `iecode.lint` setting changes; the findings appear in the Problems panel; **IECode: Lint Objects** checks the whole workspace. Structure rules read the raw XML: bad or duplicate GUIDs, a method or property name that differs from its declaration, an object name that differs from the file name, methods and properties without declaration, methods without implementation, orphaned LineIds and merge conflict markers. Object-oriented rules read the decoded code of each PLC project: an override or interface implementation with another return type or parameters, extending a FINAL block, instantiating an ABSTRACT block, and a note where a base or interface is not in the project. Quick fixes remove an orphaned LineIds entry or give a duplicate Id a new value; they are offered only while the file is unchanged since the check. Protected (encrypted) objects are skipped. Severities are set with `iecode.lint.rules`, the whole feature with `iecode.lint.enabled`, and `iecode.lint.namingPrefixes` turns on a naming hint.
+- The object lint runs again when the libraries have loaded, treats `Lib.T` and `T` and `STRING[80]` and `STRING(80)` as the same type, checks struct fields of an abstract block, ignores a mistyped level in `iecode.lint.rules` and removes the findings of a project that left the workspace.
 
 ## 0.2.20
 
