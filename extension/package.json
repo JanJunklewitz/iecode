@@ -158,6 +158,16 @@
         "category": "IECode"
       },
       {
+        "command": "iecode.showImpact",
+        "title": "Show Impact of Object, Member or Variable",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.exportGraphMermaid",
+        "title": "Export Project or Object Graph as Mermaid",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.objectHistory",
         "title": "Show History of Object or Member",
         "category": "IECode"
@@ -700,6 +710,11 @@
           "group": "3_iecodeHistory@1"
         },
         {
+          "command": "iecode.showImpact",
+          "when": "resourceScheme == iecode",
+          "group": "3_iecodeHistory@2"
+        },
+        {
           "command": "iecode.aiAdd",
           "when": "resourceScheme == iecode || editorLangId == twincat-st",
           "group": "1_iecodeAi@1"
@@ -879,6 +894,11 @@
           "command": "iecode.showUnused",
           "when": "view == iecode.projects && viewItem =~ /^unit\\.(application|standalone)/",
           "group": "3_analysis@1"
+        },
+        {
+          "command": "iecode.showImpact",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
+          "group": "3_analysis@2"
         },
         {
           "command": "iecode.objectHistory",
