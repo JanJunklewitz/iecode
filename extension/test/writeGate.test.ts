@@ -405,14 +405,14 @@ test('gate takes a prepared Copilot approval', async () => {
 
 test('a Copilot write prepared inside the auto window is refused once the window has lapsed', async () => {
   const NOW = 1_000_000_000_000;
-  const armedAt = new Date(NOW - 50 * 60_000).toISOString();
+  const armedAt = new Date(NOW - 58 * 60_000).toISOString();
   // the real rules decide: the same arming time, read at two moments
   const decisionAt = (nowMs: number): WriteDecision =>
     aiWriteDecision(effectiveSetting('auto', autoState({ setting: 'auto', armedAt, minutes: 60, nowMs })), false);
   assert.equal(decisionAt(NOW), 'allow', 'the window is open when the write is prepared');
-  assert.equal(decisionAt(NOW + 20 * 60_000), 'confirm', 'and has lapsed when the gate runs');
+  assert.equal(decisionAt(NOW + 5 * 60_000), 'confirm', 'and has lapsed a few minutes later, inside the 15 minutes a prepared record lives');
   const r = rig();
-  r.state.decision = decisionAt(NOW + 20 * 60_000);
+  r.state.decision = decisionAt(NOW + 5 * 60_000);
   const res = await r.gate.run(op('MAIN.x', { via: 'Copilot', prepared: { decision: decisionAt(NOW) } }), ac().signal);
   assert.match(refused(res), /changed after this write was prepared.*call adsWrite again/);
   assert.equal(r.sent.length, 0);
