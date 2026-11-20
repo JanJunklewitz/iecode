@@ -241,3 +241,36 @@ test('array initializers: element index on hover', () => {
   assert.equal(at('3, 4]'), 'm[2, 0] — element 3 of 4');
   assert.equal(at('// 5'), undefined);
 });
+
+test('resolveAt gives the same result as resolve for every identifier of a fixture', () => {
+  const ix = new SymbolIndex();
+  ix.update('/p/FB_Motor.TcPOU', FB);
+  ix.update('/p/FB_Base.TcPOU', BASE);
+  ix.update('/p/ST_Axis.TcDUT', AXIS);
+  ix.update('/p/E_State.TcDUT', ENUM);
+  ix.update('/p/GVL_Main.TcGVL', GVL);
+  ix.update('/p/MAIN.TcPOU', MAIN);
+  let checked = 0;
+  for (const obj of ix.objects()) {
+    for (const t of tokenize(obj.view)) {
+      if (t.type !== 'ident') continue;
+      const a = ix.resolve(obj.file, t.line, t.col), b = ix.resolveAt(obj, t.line, t.offset);
+      assert.equal(b?.file, a?.file, `${obj.file}:${t.line} ${t.text}`);
+      assert.deepEqual(b?.range, a?.range, `${obj.file}:${t.line} ${t.text}`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 30);
+});
+
+test('a GVL variable still resolves after its GVL was replaced or removed', () => {
+  const ix = new SymbolIndex();
+  ix.update('/p/GVL_Main.TcGVL', GVL);
+  ix.update('/p/MAIN.TcPOU', MAIN);
+  const at = (name: string) => { const o = ix.get('/p/MAIN.TcPOU')!; const t = tokenize(o.view).find(x => x.text === name)!; return ix.resolveAt(o, t.line, t.offset); };
+  assert.equal(at('nCount')?.file, '/p/GVL_Main.TcGVL');
+  ix.update('/p/GVL_Main.TcGVL', GVL);               // replaced: one entry, not two
+  assert.equal(at('nCount')?.file, '/p/GVL_Main.TcGVL');
+  ix.remove('/p/GVL_Main.TcGVL');
+  assert.equal(at('nCount'), undefined);
+});

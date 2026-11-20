@@ -1447,6 +1447,18 @@
           "default": true,
           "markdownDescription": "Show **Stage Method** above every changed method, property or action in the Structured Text view. It stages only that section of the object file; the index is written with git plumbing, so the rest of the file stays unstaged. Nothing is shown for a view or XML editor with unsaved edits, an untracked file or a file with merge conflicts."
         },
+        "iecode.analysis.rootObjects": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Objects or members that count as entry points for the object analysis in addition to the PLC tasks (names or globs with `*` and `?`, case-insensitive, e.g. `FB_Plugin_*` or `FB_Motor.Start`). Use it for code that is only reached from outside the PLC project."
+        },
+        "iecode.analysis.rootPragmas": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["TcRpcEnable", "call_after_init", "call_after_global_init_slot", "call_after_online_change_slot", "OPC.UA.DA"],
+          "markdownDescription": "Pragma attributes (`{attribute 'name'}`) that make an object or member an entry point for the object analysis, because the runtime or a client calls it without any code reference."
+        },
         "iecode.blame.enabled": {
           "type": "boolean",
           "default": false,

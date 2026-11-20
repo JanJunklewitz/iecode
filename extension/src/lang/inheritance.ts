@@ -42,7 +42,7 @@ export function classChain(index: SymbolIndex, obj: IndexedObject, unresolved: s
 }
 
 /** An interface and the interfaces it extends (each once). */
-function interfaceClosure(index: SymbolIndex, names: string[], unresolved: string[], seen = new Set<string>()): IndexedObject[] {
+export function interfaceClosure(index: SymbolIndex, names: string[], unresolved: string[], seen = new Set<string>()): IndexedObject[] {
   const out: IndexedObject[] = [];
   for (const n of names) {
     const o = index.find(n);
