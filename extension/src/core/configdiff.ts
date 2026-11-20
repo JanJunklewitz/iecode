@@ -23,6 +23,8 @@ function groupByBase(es: ConfigEntry[]): Map<string, ConfigEntry[]> {
 
 /** Parameters and types often have just a type and a default: two equal lines are no evidence of a rename there. */
 const MIN_LINES: Partial<Record<Category, number>> = { parameters: 3, types: 3 };
+/** Most (removed x added) candidate pairs per group that are compared for renames. */
+const MAX_PAIR_WORK = 250_000;
 const ENTITY_CATEGORIES = new Set<Category>(['tasks', 'symbols', 'parameters', 'types']);
 
 /**
@@ -51,7 +53,9 @@ function pairEntities(before: ConfigEntry[], after: ConfigEntry[]): { before: Co
       if (!o) continue;
       const item = m.get(o.entity) ?? { entity: o.entity, group: o.group, category: e.key.split('/')[0] as Category, lines: [] };
       m.set(o.entity, item);
-      if (!e.noise && e.category === item.category) item.lines.push(`${o.field}=${e.value}`);
+      // evidence: no noise, no layout, no empty value (an empty <Comment/> is shared by unrelated items), and no "#n" suffix
+      // (it numbers repeated fields by XML order, which the normal diff ignores)
+      if (!e.noise && e.category === item.category && e.value !== '') item.lines.push(`${o.field.replace(/#\d+$/, '')}=${e.value}`);
     }
     return m;
   };
@@ -61,7 +65,10 @@ function pairEntities(before: ConfigEntry[], after: ConfigEntry[]): { before: Co
   const renames = new Map<string, string>();
   const renamed: ConfigChange[] = [];
   for (const group of new Set(gone.map(x => x.group))) {
-    const pairs = pairRenames(gone.filter(x => x.group === group), fresh.filter(x => x.group === group), x => x.lines.join('\n'), { minLines: MIN_LINES[group.split('/')[0] as Category] ?? 2 });
+    const candidatesGone = gone.filter(x => x.group === group), candidatesFresh = fresh.filter(x => x.group === group);
+    // a bulk change (a prefix renamed over thousands of symbols) would cost millions of comparisons: leave it as removed and added
+    if (candidatesGone.length * candidatesFresh.length > MAX_PAIR_WORK) continue;
+    const pairs = pairRenames(candidatesGone, candidatesFresh, x => x.lines.join('\n'), { minLines: MIN_LINES[group.split('/')[0] as Category] ?? 2 });
     for (const p of pairs) {
       renames.set(p.from.entity, p.to.entity);
       renamed.push({ kind: 'renamed', key: p.to.entity, from: p.from.entity, category: p.to.category });

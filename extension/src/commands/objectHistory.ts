@@ -56,8 +56,9 @@ export function registerObjectHistory(ctx: vscode.ExtensionContext): void {
         result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `History of ${t.label}`, cancellable: true },
           (_progress, token) => {
             const abort = new AbortController();
-            token.onCancellationRequested(() => abort.abort());
-            return objectHistory(root, t.file, t.key, MAX, abort.signal);
+            const sub = token.onCancellationRequested(() => abort.abort());
+            if (token.isCancellationRequested) abort.abort();
+            return objectHistory(root, t.file, t.key, MAX, abort.signal).finally(() => sub.dispose());
           });
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;   // the user cancelled: nothing to report

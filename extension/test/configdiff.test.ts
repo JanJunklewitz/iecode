@@ -369,6 +369,26 @@ test('the changed fields of a renamed item follow its renamed entry in the list'
   assert.ok(keys.indexOf('tasks/New') + 1 === keys.indexOf('tasks/New/CycleTime'), keys.join(','));
 });
 
+test('a task whose repeated fields come in another XML order is still one rename', () => {
+  const withModes = (name: string, order: string[]): ConfigEntry[] => [
+    ...task(name).slice(0, 3), ...order.map((v, i) => entry(`tasks/${name}/Properties/Mode${i ? '#' + (i + 1) : ''}`, v, 'tasks'))];
+  const changes = diffConfig(withModes('Old', ['A', 'B']), withModes('New', ['B', 'A']));
+  assert.equal(changes.filter(c => c.kind === 'renamed').length, 1);
+});
+
+test('items that share only empty fields are not a rename', () => {
+  const sym = (name: string): ConfigEntry[] => [entry(`symbols/A/${name}/BaseType`, 'BOOL', 'symbols'), entry(`symbols/A/${name}/Comment`, '', 'symbols')];
+  assert.ok(diffConfig(sym('bStart'), sym('bReset')).every(c => c.kind !== 'renamed'));
+});
+
+test('a bulk change over the work budget is left as removed and added', () => {
+  const many = (prefix: string): ConfigEntry[] => Array.from({ length: 600 }, (_, i) =>
+    [entry(`symbols/A/${prefix}${i}/BaseType`, 'INT', 'symbols'), entry(`symbols/A/${prefix}${i}/Comment`, `signal ${i}`, 'symbols')]).flat();
+  const changes = diffConfig(many('o'), many('n'));
+  assert.ok(changes.every(c => c.kind !== 'renamed'));
+  assert.equal(changes.length, 2400);
+});
+
 test('an entity that exists on both sides is never paired', () => {
   const changes = diffConfig(task('A'), [...task('A', '20 ms'), ...task('B')]);
   assert.ok(changes.every(c => c.kind !== 'renamed'));
