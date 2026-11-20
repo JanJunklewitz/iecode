@@ -723,12 +723,12 @@
         },
         {
           "command": "iecode.logViewer.open",
-          "when": "resourceExtname =~ /\\\\.log$/i",
+          "when": "resourceExtname =~ /\\.log$/i",
           "group": "navigation"
         },
         {
           "command": "iecode.logViewer.openMerged",
-          "when": "explorerResourceIsFolder || resourceExtname =~ /\\\\.log$/i",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /\\.log$/i",
           "group": "navigation"
         }
       ],
@@ -1456,7 +1456,7 @@
         },
         {
           "command": "iecode.logViewer.open",
-          "when": "resourceExtname =~ /\\\\.log$/i && activeCustomEditorId != iecode.logViewer",
+          "when": "resourceExtname =~ /\\.log$/i && activeCustomEditorId != iecode.logViewer",
           "group": "1_open"
         }
       ],
