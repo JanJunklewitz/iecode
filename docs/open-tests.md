@@ -41,7 +41,7 @@ The 2026-11-20 simulation test ran an older build, which probably explains P1-6 
 - [ ] **P3-2** Tree filter, Enter speed: type `motor` and press Enter within 200 ms several times; always the full word.
 - [ ] **P3-3** Tree filter while the member grouping setting changes.
 - [ ] **P3-4** Tree filter with several PLC projects and a collapsed group: Clear restores the group state.
-- [ ] **P3-5** `ads_state` against a simulation: Run, after a stop, after a TwinCAT restart (restart finding), after an online change, after closing and reopening the MCP connection (baseline stays), with TwinCAT in config mode (config mode line and "PLC: not reachable"). Record the real names and the unit of `CycleTime` (plan C task 1 step 1).
+- [ ] **P3-5** `ads_state` against a simulation: Run, after a stop, after a TwinCAT restart (restart finding), after an online change, after closing and reopening the MCP connection (baseline stays), with TwinCAT in config mode (config mode line and "PLC: not reachable"). Done 2026-11-20 against a simulation: the Run line, the names and the unit of `CycleTime` (100 ns, 120000 = 12 ms), a second call without a restart finding, task 16 (note, no failure). Still to do by hand: the stop, restart, online change, reconnect and config mode cases.
 
 - [ ] **P4-1** Config Changes with a renamed task and a renamed symbol (compare an `.xti` before and after renaming one task and one symbol in XAE): one `renamed Old → New` row each, plus only the fields that really changed.
 - [ ] **P4-2** Show History of an object on a repository with many commits: the progress notification has a Cancel button; Cancel ends the walk without a message and without a picker.
@@ -103,7 +103,7 @@ Checked on 2026-11-20 by reading code and test names (no test run for this check
 | Object analysis C staging | done | F5 hand check: discard one of two edited methods (the other edit stays); the raw XML editor with unsaved edits refuses, also if the edit starts while the question is open; the question for a new method says delete; the main section question names the implementation |
 | Small items A auto-write expiry | done | hand check |
 | Small items B sampling notice | done | hand check, simulation session items 1 to 8; plot break deferred |
-| Small items C `ads_state` | done, names unverified | names of the system-info symbols and the unit of `CycleTime`, hand checks P3-5 (need a PLC) |
+| Small items C `ads_state` | done, names and unit checked live | hand checks P3-5 for restart, online change and config mode (need a PLC) |
 | Small items D tree filter | done | one more look at the two fixes (P1-1 to P1-5) |
 | ADS wishlist C writes | done | task C8 (pin test, CLI release) |
 | ADS wishlist D symbols | mostly | D6, D6b, D8 |
