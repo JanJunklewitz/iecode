@@ -24,5 +24,7 @@ export function tempRepo() {
   const commitAll = (msg: string) => { git('add', '-A'); git('commit', '-q', '-m', msg); };
   git('init', '-q', '-b', 'main');
   git('config', 'core.autocrlf', 'false');
-  return { dir, file, git, tryGit, commit, write, commitAll, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  // a git child killed by a timeout can hold the folder for a moment on Windows, so a failed delete is retried
+  const cleanup = () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  return { dir, file, git, tryGit, commit, write, commitAll, cleanup };
 }
