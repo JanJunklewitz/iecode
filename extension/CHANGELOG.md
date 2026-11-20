@@ -6,7 +6,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 ### Project tree
 - **Filter Project Treeâ€¦** (filter button of the IECode view) narrows the tree to the objects whose name contains the typed words, optionally limited to kinds such as `@fb` or `@gvl`; folders with hits open by themselves. Methods and library sources are not searched yet.
-- Filter Project Tree keeps its filter when the command is run again while the box is open, keeps the filter button while a filter is active, treats the same words and kinds in another case or order as the same filter, and **Clear** closes an open box without restoring the old filter.
+- Filter Project Tree keeps its filter when the command is run again while the box is open, keeps the filter button while a filter is active, treats the same words and kinds in another case or order as the same filter, and **Clear** closes an open box without restoring the old filter. Closing the box (Escape, or the dialog of another command such as New Object) keeps the filter you see; before, it went back to the filter from before typing, so the filter vanished when you created an object. Projects and folders you had open come back open after Clear, also when the filter had hidden them.
 
 ## 0.2.20
 

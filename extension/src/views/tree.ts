@@ -68,6 +68,25 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
 
   filter(): TreeFilter | undefined { return this.active; }
 
+  /** Ids (without filter suffix) of units and folders the user has open while no filter is active. */
+  private readonly userOpen = new Set<string>();
+
+  /**
+   * Remembers what the user opens or closes. VS Code forgets the state of a node that leaves the tree
+   * (a project without hits while filtering), so the open state is given back through the item.
+   */
+  noteExpanded(n: Node, open: boolean) {
+    if (this.active || (n.kind !== 'unit' && n.kind !== 'folder')) return;
+    const id = this.getTreeItem(n).id;
+    if (!id) return;
+    if (open) this.userOpen.add(id); else this.userOpen.delete(id);
+  }
+
+  private openState(id: string): vscode.TreeItemCollapsibleState {
+    const C = vscode.TreeItemCollapsibleState;
+    return this.active || this.userOpen.has(id) ? C.Expanded : C.Collapsed;
+  }
+
   /** Hits of the current filter in the current model. */
   hits(): { objects: number; projects: number } {
     let objects = 0, projects = 0;
@@ -195,13 +214,14 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       }
       case 'unit': {
         const p = n.unit.plc;
-        const it = new vscode.TreeItem(p.isLibrary ? (p.title ?? p.name) : n.unit.id, this.active ? C.Expanded : C.Collapsed);
+        const id = `unit:${p.file}${this.active ? filterIdSuffix(this.generation) : ''}`;
+        const it = new vscode.TreeItem(p.isLibrary ? (p.title ?? p.name) : n.unit.id, this.openState(id));
         it.description = p.isLibrary ? p.version : n.unit.solution ? path.basename(n.unit.solution.file) : path.basename(p.file);
         it.iconPath = new vscode.ThemeIcon(p.isLibrary ? 'library' : n.unit.group === 'standalone' ? 'beaker' : 'circuit-board');
         it.tooltip = new vscode.MarkdownString(`**${p.name}**  \n${p.file}${p.tcVersion ? `  \nTwinCAT ${p.tcVersion}` : ''}`);
         it.contextValue = `unit.${n.unit.group}${n.unit.solution ? '.sln' : ''}`;
         it.resourceUri = vscode.Uri.file(p.file);
-        it.id = `unit:${p.file}${this.active ? filterIdSuffix(this.generation) : ''}`;
+        it.id = id;
         return it;
       }
       case 'references': {
@@ -226,10 +246,11 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
         return it;
       }
       case 'folder': {
-        const it = new vscode.TreeItem(path.posix.basename(n.rel), this.active ? C.Expanded : C.Collapsed);
+        const id = `folder:${n.unit.plc.file}:${n.rel}${this.active ? filterIdSuffix(this.generation) : ''}`;
+        const it = new vscode.TreeItem(path.posix.basename(n.rel), this.openState(id));
         it.iconPath = vscode.ThemeIcon.Folder;
         it.contextValue = 'folder';
-        it.id = `folder:${n.unit.plc.file}:${n.rel}${this.active ? filterIdSuffix(this.generation) : ''}`;
+        it.id = id;
         return it;
       }
       case 'object': {

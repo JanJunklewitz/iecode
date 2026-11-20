@@ -138,23 +138,25 @@ export function activate(ctx: vscode.ExtensionContext) {
     const typing = new FilterTyping(
       { set: (fn, ms) => setTimeout(fn, ms), clear: h => clearTimeout(h as ReturnType<typeof setTimeout>) },
       applyTreeFilter, msg => { box.validationMessage = msg; });
-    let accepted = false;
-    closeBox = () => { accepted = true; typing.abandon(); box.hide(); };
+    closeBox = () => { typing.abandon(); box.hide(); };
     box.onDidChangeValue(v => typing.change(v));
-    box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) { accepted = true; box.hide(); } });
+    box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) box.hide(); });
+    // The filter is live while typing, so closing the box keeps what is shown. VS Code gives no reason for a hide, and
+    // another quick input (a command wizard) closes this box too: rolling back there made the filter vanish.
     box.onDidHide(() => {
       activeBox = undefined;
       closeBox = undefined;
       typing.abandon();
-      if (!accepted) applyTreeFilter(before);
       box.dispose();
     });
-    box.ignoreFocusOut = true; // clicking a hit in the tree must not close the box (a close without Enter restores the old filter)
+    box.ignoreFocusOut = true; // clicking a hit in the tree must not close the box
     box.show();
   };
   ctx.subscriptions.push(
     state,
     treeView,
+    treeView.onDidExpandElement(e => tree.noteExpanded(e.element, true)),
+    treeView.onDidCollapseElement(e => tree.noteExpanded(e.element, false)),
     registerAutoReveal(treeView, tree, state),
     vscode.commands.registerCommand('iecode.filterTree', () => filterTree()),
     vscode.commands.registerCommand('iecode.clearTreeFilter', () => { closeBox?.(); applyTreeFilter(undefined); }),
