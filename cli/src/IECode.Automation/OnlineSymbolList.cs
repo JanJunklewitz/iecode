@@ -32,11 +32,38 @@ public static class OnlineSymbolList
             // A running PLC always has symbols: an empty table means the connection is gone.
             if (SymbolTable.MeansUnreachable(1, set.Count))
                 throw new IECodeException(ExitCodes.TargetFailed, $"Cannot reach {where} over ADS: empty symbol table, the target does not answer");
-            return OnlineSymbols.Select(set.Enumerate(), filter);
+            return OnlineSymbols.Select(WithMembersBelow(set, filter), filter);
         }
         catch (Exception e) when (e is AdsException or IOException or System.Net.Sockets.SocketException)
         {
             throw new IECodeException(ExitCodes.TargetFailed, $"Cannot reach {where} over ADS: {e.Message}");
+        }
+    }
+
+    private const int MaxBelowDepth = 8;
+
+    /// <summary>
+    /// The enumerated table plus, for a filter that names a path ("MAIN.fbMT.stCmp.stSetMan." or "...stSetMan.eSel"), the members
+    /// below that path. The table walk does not reach every nested member, but a lookup by path does (it is what a read uses).
+    /// </summary>
+    private static IEnumerable<OnlineSymbol> WithMembersBelow(ISymbolSet set, string filter)
+    {
+        var all = set.Enumerate();
+        var dot = filter.LastIndexOf('.');
+        if (dot <= 0) return all;
+        var parent = set.Find(filter[..dot]);
+        if (parent is null || parent.Kind != Core.Ads.NodeKind.Struct) return all;
+        var below = new List<OnlineSymbol>();
+        Collect(parent, 1, below);
+        return all.Concat(below).DistinctBy(s => s.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void Collect(ILinkSymbol node, int depth, List<OnlineSymbol> into)
+    {
+        foreach (var child in node.Children)
+        {
+            into.Add(new OnlineSymbol(child.Path, child.TypeName, null));
+            if (depth < MaxBelowDepth && child.Kind == Core.Ads.NodeKind.Struct) Collect(child, depth + 1, into);
         }
     }
 }

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { aiWriteDecision } from '../src/core/adswatch';
 import { clampAutoMinutes, autoState, effectiveSetting, autoNote, autoLabel, armedAtNow, nextRefreshMs, REDIRECT_NOTE } from '../src/core/writeArming';
 
 const M = 60_000, NOW = Date.UTC(2026, 10, 17, 12, 0, 0);
@@ -89,4 +90,19 @@ test('the AI write settings are application-scoped and the arming time is not sy
 
 test('autoNote says nothing when auto-approve was never chosen, even if the workspace redirects the target', () => {
   assert.equal(autoNote({ kind: 'notAuto' }, true), '');
+});
+test('the write decision of an unarmed or expired auto is confirm, never allow (test log scenarios)', () => {
+  const decide = (armedAt: unknown, minutes: number, nowMs: number) => {
+    const s = autoState({ setting: 'auto', armedAt, minutes, nowMs });
+    return aiWriteDecision(effectiveSetting('auto', s), false);
+  };
+  // an auto left over from an old version: no arming time at all
+  assert.equal(decide(undefined, 60, NOW), 'confirm');
+  assert.equal(decide('', 60, NOW), 'confirm');
+  // armed, one minute window: allowed inside it, confirmed 73 s later
+  assert.equal(decide(iso(NOW), 1, NOW + 30_000), 'allow');
+  assert.equal(decide(iso(NOW), 1, NOW + 73_000), 'confirm');
+  // the end follows armedAt + minutes: raising the duration after the window ended revives it (documented behaviour)
+  assert.equal(decide(iso(NOW - 10 * M), 1, NOW), 'confirm');
+  assert.equal(decide(iso(NOW - 10 * M), 60, NOW), 'allow');
 });
