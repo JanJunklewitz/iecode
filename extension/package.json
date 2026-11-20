@@ -153,6 +153,11 @@
     ],
     "commands": [
       {
+        "command": "iecode.showUnused",
+        "title": "Show Unused Objects",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.objectHistory",
         "title": "Show History of Object or Member",
         "category": "IECode"
@@ -871,6 +876,11 @@
       ],
       "view/item/context": [
         {
+          "command": "iecode.showUnused",
+          "when": "view == iecode.projects && viewItem =~ /^unit\\.(application|standalone)/",
+          "group": "3_analysis@1"
+        },
+        {
           "command": "iecode.objectHistory",
           "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
           "group": "3_history@1"
@@ -1446,6 +1456,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Show **Stage Method** above every changed method, property or action in the Structured Text view. It stages only that section of the object file; the index is written with git plumbing, so the rest of the file stays unstaged. Nothing is shown for a view or XML editor with unsaved edits, an untracked file or a file with merge conflicts."
+        },
+        "iecode.analysis.markUnused": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Mark objects and members that no PLC task can reach: **unused** in the project tree and a faded hint in the Structured Text view. Findings are hints, never errors, and say how sure they are. Library projects, interface implementations and overrides are never marked. The analysis starts when a PLC project is expanded; turn this off to skip it."
         },
         "iecode.analysis.rootObjects": {
           "type": "array",

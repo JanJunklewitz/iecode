@@ -9,7 +9,7 @@ import { classChain, interfaceClosure } from '../lang/inheritance';
 /** Upper-cased for lookup: object `FB_X`, member `FB_X.START`; a library object gets the library as prefix: `LIB::FB_X`. */
 export type NodeId = string;
 
-export interface GraphNode { id: NodeId; name: string; kind: SymbolKind; file: string; line: number; library: boolean; owner?: NodeId }
+export interface GraphNode { id: NodeId; name: string; kind: SymbolKind; file: string; line: number; col: number; library: boolean; owner?: NodeId }
 
 export type EdgeReason = 'call' | 'type' | 'extends' | 'implements' | 'non-st';
 
@@ -38,10 +38,10 @@ export function fileEdges(index: SymbolIndex, obj: IndexedObject, nonSt?: Map<st
   const root = obj.root;
   if (!root) return out;
   const self = objectId(obj);
-  out.nodes.push({ id: self, name: root.name, kind: root.kind, file: obj.file, line: root.range.line, library: !!obj.library });
+  out.nodes.push({ id: self, name: root.name, kind: root.kind, file: obj.file, line: root.range.line, col: root.range.col, library: !!obj.library });
   const members = root.children.filter(c => MEMBER_KINDS.has(c.kind));
   for (const m of members)
-    out.nodes.push({ id: memberId(obj, m.name), name: m.name, kind: m.kind, file: obj.file, line: m.range.line, library: !!obj.library, owner: self });
+    out.nodes.push({ id: memberId(obj, m.name), name: m.name, kind: m.kind, file: obj.file, line: m.range.line, col: m.range.col, library: !!obj.library, owner: self });
 
   const fromOfLine = (line: number): NodeId => {
     const m = members.find(c => line >= c.full.line && line <= c.full.endLine);

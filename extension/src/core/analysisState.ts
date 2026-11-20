@@ -38,6 +38,7 @@ export class AnalysisState {
   private readonly files = new Map<string, { stamp: string; text: string }>();
   private readonly parsed = new Map<string, IndexedObject>();
   private readonly listeners = new Set<(ids: string[]) => void>();
+  private readonly invalidateListeners = new Set<() => void>();
   private disposed = false;
   /** Bumped by `invalidate`, so a computation that started before it is not cached. */
   private epoch = 0;
@@ -53,15 +54,22 @@ export class AnalysisState {
     return { dispose: () => { this.listeners.delete(listener); } };
   }
 
+  /** Fires when cached results were dropped, so that views showing them can clear or recompute. */
+  onDidInvalidate(listener: () => void): { dispose(): void } {
+    this.invalidateListeners.add(listener);
+    return { dispose: () => { this.invalidateListeners.delete(listener); } };
+  }
+
   /** Forgets cached results (all, or one unit); the next request recomputes. Trigger on a file-watcher event or a save, never on a keystroke. */
   invalidate(unitId?: string) {
     if (unitId) { this.cache.delete(unitId); this.running.delete(unitId); this.unitEpoch.set(unitId, (this.unitEpoch.get(unitId) ?? 0) + 1); }
     else { this.cache.clear(); this.running.clear(); this.epoch++; }
+    if (!this.disposed) this.invalidateListeners.forEach(l => l());
   }
 
   private stamp(unitId: string) { return `${this.epoch}:${this.unitEpoch.get(unitId) ?? 0}`; }
 
-  dispose() { this.disposed = true; this.listeners.clear(); this.cache.clear(); }
+  dispose() { this.disposed = true; this.listeners.clear(); this.invalidateListeners.clear(); this.cache.clear(); }
 
   /** Computes if needed, in slices that yield to the event loop; honours an abort signal (the result is then not cached). */
   request(unitId: string, signal?: AbortSignal): Promise<UnitAnalysis> {

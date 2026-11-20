@@ -6,6 +6,8 @@ import { Group, Unit, librariesByTitle, systemProjects } from '../core/workspace
 import { WorkspaceState } from '../state';
 import { LIB_SCHEME, LibrarySource, LibrarySources } from '../lang/librarySources';
 import { LibraryObject } from '../core/libraryArchive';
+import type { UnusedLookup } from '../core/unusedView';
+import { treeDescription } from '../core/unusedView';
 
 /** Tree nodes. `contextValue` drives the context menus in package.json. */
 export type Node =
@@ -55,6 +57,10 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
 
   refresh() { this.changed.fire(undefined); }
 
+  /** Marks of unused objects; the tree only peeks and asks for a computation when a unit is expanded. */
+  setUnused(lookup: UnusedLookup) { this.unused = lookup; }
+  private unused?: UnusedLookup;
+
   getChildren(n?: Node): vscode.ProviderResult<Node[]> {
     const m = this.state.current;
     if (!n) {
@@ -67,7 +73,7 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
     switch (n.kind) {
       case 'group': return n.units.map(unit => ({ kind: 'unit' as const, unit }));
       case 'systems': return n.systems.map(s => ({ kind: 'system' as const, ...s }));
-      case 'unit': return [{ kind: 'references', unit: n.unit }, ...this.folderChildren(n.unit, '')];
+      case 'unit': this.unused?.ensure(n.unit.id); return [{ kind: 'references', unit: n.unit }, ...this.folderChildren(n.unit, '')];
       case 'references': return n.unit.plc.references.map(ref => ({ kind: 'reference' as const, unit: n.unit, ref }));
       case 'folder': return this.folderChildren(n.unit, n.rel);
       case 'object': return this.members(n.unit, n.obj, '');
@@ -205,6 +211,8 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
         if (o.encrypted) it.description = 'encrypted';
         it.resourceUri = vscode.Uri.file(o.file);
         it.tooltip = o.file;
+        const mark = o.encrypted ? undefined : this.unused?.markOf(n.unit.id, o.name);
+        if (mark) { it.description = treeDescription(mark, String(it.description ?? '')); it.tooltip = `${o.file}\n${mark.text}`; }
         it.contextValue = o.encrypted ? 'object.encrypted' : `object.${o.type}`;
         it.id = `obj:${o.file}`;
         if (!o.encrypted) it.command = { command: 'iecode.openAsST', title: 'Open', arguments: [vscode.Uri.file(o.file)] };
@@ -243,6 +251,10 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
         const it = new vscode.TreeItem(m.name, C.None);
         it.description = m.kind === 'PROPERTY' ? `${m.signature.replace(/^PROPERTY\s+(\w+\s+)?\w+\s*/i, '')} ${[m.get && 'get', m.set && 'set'].filter(Boolean).join('/')}` : m.signature.replace(/^(METHOD|ACTION|TRANSITION)\s+(?:(PUBLIC|PRIVATE|PROTECTED|INTERNAL|ABSTRACT|FINAL)\s+)*\w+\s*/i, '');
         it.iconPath = new vscode.ThemeIcon(MEMBER_ICON[m.kind]);
+        if (n.kind === 'member') {
+          const mark = this.unused?.markOf(n.unit.id, `${n.obj.name}.${m.name}`);
+          if (mark) { it.description = treeDescription(mark, String(it.description ?? '')); it.tooltip = mark.text; }
+        }
         it.contextValue = n.kind === 'member' ? `member.${m.kind}` : `libraryMember.${m.kind}`;
         it.command = { command: 'iecode.revealMember', title: 'Open', arguments: [n] };
         return it;
