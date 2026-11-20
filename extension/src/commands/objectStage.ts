@@ -4,21 +4,25 @@
 import { createHash } from 'crypto';
 import { promises as fsp } from 'fs';
 import * as vscode from 'vscode';
-import { GuardInput, SafeWriteIo, changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, stageGuard, stageSection, writeFileSafe } from '../core/objectStage';
+import { GuardInput, SafeWriteIo, State, changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, stageGuard, stageSection, writeFileSafe } from '../core/objectStage';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, repoRoot, writeIndexBlob } from '../core/git';
 import { decode, outline } from '../model';
 
 const SCHEME = 'iecode';
 const sha = (s: string) => createHash('sha1').update(s).digest('hex');
 
-interface Snapshot { root: string; file: vscode.Uri; work: string; index: string; indexSha: string; hash: string; keys: Set<string> }
+interface Snapshot { root: string; file: vscode.Uri; work: string; index: string; indexSha: string; hash: string; keys: Set<string>; states: Map<string, State> }
 
 /** A file path is "dirty" when its iecode: view or its raw file: document has unsaved edits. */
 const isDirty = (fsPath: string) => vscode.workspace.textDocuments.some(d =>
   d.isDirty && (d.uri.scheme === SCHEME || d.uri.scheme === 'file') && d.uri.fsPath.toLowerCase() === fsPath.toLowerCase());
 
 const nodeIo: SafeWriteIo = {
-  write: (p, c) => fsp.writeFile(p, c),
+  // synced before the rename: after a crash the target must not be replaced by an empty file
+  write: async (p, c) => {
+    const h = await fsp.open(p, 'w');
+    try { await h.writeFile(c); await h.sync(); } finally { await h.close(); }
+  },
   rename: (a, b) => fsp.rename(a, b),
   remove: p => fsp.rm(p, { force: true }),
 };
@@ -26,7 +30,7 @@ const nodeIo: SafeWriteIo = {
 type Guard = (i: GuardInput) => { ok: true } | { ok: false; message: string; wholeFile?: boolean };
 
 /** Reads everything staging (or discarding) needs and applies the guard. A refusal carries its message. */
-async function snapshot(file: vscode.Uri, guard: Guard = stageGuard): Promise<{ ok: true; s: Snapshot } | { ok: false; message: string; wholeFile?: boolean }> {
+async function snapshot(file: vscode.Uri, guard: Guard = stageGuard, targetIsWork = false): Promise<{ ok: true; s: Snapshot } | { ok: false; message: string; wholeFile?: boolean }> {
   const root = await repoRoot(file.fsPath);
   if (!root) return { ok: false, message: 'The file is not in a git repository' };
   const entry = await indexEntry(root, file.fsPath);
@@ -41,11 +45,13 @@ async function snapshot(file: vscode.Uri, guard: Guard = stageGuard): Promise<{ 
   try { decode(work.replace(/^﻿/, '')); if (index) decode(index.replace(/^﻿/, '')); } catch { decodes = false; }
   const g = guard({
     tracked: !!entry && entry.stage === 0 || conflict, intentToAdd: index === '', conflict, decodes, dirty: isDirty(file.fsPath),
-    mixedEol: !!index && hasMixedEol(index), utf8,
+    // staging splices into the index text, discarding into the working file: the target's line endings must be uniform
+    mixedEol: targetIsWork ? hasMixedEol(work) || (!!index && hasMixedEol(index)) : !!index && hasMixedEol(index), utf8,
   });
   if (!g.ok) return g;
-  const keys = new Set(changedSections(index!, work).map(c => c.key));
-  return { ok: true, s: { root, file, work, index: index!, indexSha: entry!.sha, hash: sha(work), keys } };
+  const changes = changedSections(index!, work);
+  const keys = new Set(changes.map(c => c.key));
+  return { ok: true, s: { root, file, work, index: index!, indexSha: entry!.sha, hash: sha(work), keys, states: new Map(changes.map(c => [c.key, c.state])) } };
 }
 
 export function registerObjectStage(ctx: vscode.ExtensionContext): void {
@@ -72,7 +78,7 @@ export function registerObjectStage(ctx: vscode.ExtensionContext): void {
           const line = heads.get(k)!;
           return new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
             title: 'Discard Method', command: 'iecode.discardSection', arguments: [doc.uri, k, r.s.hash],
-            tooltip: `Restore ${k.replace(':', ' ')} from the index and drop your changes to it`,
+            tooltip: r.s.states.get(k) === 'added' ? `Delete ${k.replace(':', ' ')}: it exists only in the working file` : `Restore ${k.replace(':', ' ')} from the staged version (the index) and drop your changes to it`,
           });
         }));
       } catch { return []; }
@@ -106,17 +112,19 @@ export function registerObjectStage(ctx: vscode.ExtensionContext): void {
       if (!uri || !key) return;                  // not declared in package.json, so a keybinding or task may call it bare
       const file = uri.with({ scheme: 'file' });
       try {
-        const r = await snapshot(file, discardGuard);
+        const r = await snapshot(file, discardGuard, true);
         if (!r.ok) { vscode.window.showWarningMessage(`IECode: ${r.message}`); return; }
         if (hash && hash !== r.s.hash) { vscode.window.showWarningMessage('IECode: the file changed on disk, try again'); refresh(); return; }
         if (!r.s.keys.has(key)) { vscode.window.showInformationMessage('IECode: nothing to discard for this section'); refresh(); return; }
         const name = file.fsPath.split(/[\\/]/).pop() ?? file.fsPath;
-        const answer = await vscode.window.showWarningMessage(discardConfirmText(key, name), { modal: true }, 'Discard');
+        const answer = await vscode.window.showWarningMessage(discardConfirmText(key, name, r.s.states.get(key)), { modal: true }, 'Discard');
         if (answer !== 'Discard') return;
         // the modal can stay open for minutes: read everything again, with a fresh dirty state of both documents
-        const again = await snapshot(file, discardGuard);
+        const again = await snapshot(file, discardGuard, true);
         if (!again.ok) { vscode.window.showWarningMessage(`IECode: ${again.message}`); return; }
         if (again.s.hash !== r.s.hash) { vscode.window.showWarningMessage('IECode: the file changed on disk, try again'); refresh(); return; }
+        // what the user confirmed was a section against one index version: another stage or reset in between changes what comes back
+        if (again.s.indexSha !== r.s.indexSha || !again.s.keys.has(key)) { vscode.window.showWarningMessage('IECode: the index changed while the question was open, try again'); refresh(); return; }
         const next = discardSection(again.s.index, again.s.work, key);
         await writeFileSafe(file.fsPath, Buffer.from(next, 'utf8'), nodeIo);
         await vscode.commands.executeCommand('git.refresh').then(undefined, () => undefined);

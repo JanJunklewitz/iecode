@@ -400,7 +400,28 @@ test('discardGuard has no whole-file way out: an untracked file has nothing to r
 });
 
 test('discardConfirmText names the section and says it cannot be undone', () => {
-  assert.equal(discardConfirmText('METHOD:Start', 'FB_A.TcPOU'), 'Discard your changes to method Start in FB_A.TcPOU? This cannot be undone.');
+  assert.equal(discardConfirmText('METHOD:Start', 'FB_A.TcPOU'), 'Discard your changes to method Start in FB_A.TcPOU? It goes back to the staged version (the index, not HEAD). This cannot be undone.');
+  // a section that exists only in the working file is deleted, not restored: the text must say so
+  assert.equal(discardConfirmText('METHOD:Foo', 'FB_A.TcPOU', 'added'), 'Delete method Foo from FB_A.TcPOU? It exists only in the working file. This cannot be undone.');
+  assert.match(discardConfirmText('ACTION:Foo', 'FB_A.TcPOU', 'removed'), /^Restore action Foo in FB_A\.TcPOU\?.*index\.$/);
   assert.match(discardConfirmText('MAIN', 'FB_A.TcPOU'), /^Discard your changes to the declaration in FB_A\.TcPOU\?/);
   assert.match(discardConfirmText('GET:Speed', 'X.TcPOU'), /property getter Speed/);
+});
+
+test('writeFileSafe retries a rename that a lock holds for a moment, but not other errors', async () => {
+  let renames = 0;
+  const slept: number[] = [];
+  const io = (code: string, failures: number) => ({
+    write: async () => undefined, remove: async () => undefined,
+    rename: async () => { if (renames++ < failures) throw Object.assign(new Error(code), { code }); },
+  });
+  await writeFileSafe('C:/p/F.TcPOU', 'x', io('EBUSY', 2), { sleep: async ms => { slept.push(ms); } });
+  assert.equal(renames, 3);
+  assert.deepEqual(slept, [200, 200]);
+  renames = 0;
+  await assert.rejects(writeFileSafe('C:/p/F.TcPOU', 'x', io('EBUSY', 99), { sleep: async () => undefined }), /EBUSY/);
+  assert.equal(renames, 3, 'gives up after two retries');
+  renames = 0;
+  await assert.rejects(writeFileSafe('C:/p/F.TcPOU', 'x', io('ENOSPC', 99), { sleep: async () => undefined }), /ENOSPC/);
+  assert.equal(renames, 1, 'no retry for an error a wait does not fix');
 });
