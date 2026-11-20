@@ -2,7 +2,13 @@
 
 ## Branches in flight
 
-State of 2026-11-19. All branches below are rebased on `origin/main` at release 0.2.20 and pass their tests. Every one was reviewed (code review at level high) and then checked by a second model (Copilot); the confirmed findings are fixed with a regression test and the notes in each `CHANGELOG.md` name what users see. Nothing is pushed and no pull request exists yet. `combined/analysis-and-tree` (see below) holds chain A, chain C and the tree filter in one line; the single branches stay for stacked pull requests.
+State of 2026-11-20. Every branch below was reviewed (code review at level high) and then checked by a second model (Copilot); the confirmed findings are fixed with a regression test and the notes in each `CHANGELOG.md` name what users see.
+
+Open pull requests:
+- [#63](https://github.com/JanJunklewitz/iecode/pull/63) `combined/all-in-one`: chain A, chain C, chain B (ADS), `feature/tree-filter` and `ph/log-viewer` in one line, with `ads_state` and the renamed config items. It replaces `combined/analysis-and-tree`, which was deleted (`all-in-one` holds everything of it, plus later fixes of the tree filter such as remembering open folders).
+- [#64](https://github.com/JanJunklewitz/iecode/pull/64) `ph/st-comment-color-pr`: keeps ST comments green regardless of the theme (not yet looked at in a theme that renders comments grey).
+
+The single branches below are still the stacked pull requests of the same content; their open points are the known limits of #63.
 
 **Chain A: object analysis** (base: `feature/object-analysis-and-history`, plans only, 3 commits)
 - [ ] `lane1a/object-spans-blame`: blame per method in the ST view (CodeLens and hover, setting `iecode.blame.enabled`).
@@ -28,11 +34,9 @@ State of 2026-11-19. All branches below are rebased on `origin/main` at release 
   - Open: a broad filter scans all objects per expanded folder; System projects and `References` nodes are not searched.
 
 **Singles**
-- [ ] `ph/fix-menu-regex`: the escaped dots in the explorer and editor menu conditions (also `.xti`), with a manifest test. Rebased on 0.2.20, 712 tests green; it also fixes seven more conditions that main added since. Merge first: every other branch that adds a menu entry depends on a working condition.
-  - Pull request: [#60](https://github.com/JanJunklewitz/iecode/pull/60) (open).
-  - [ ] Manual check before merging: in the Extension Development Host right-click a `.plcproj`, a `.TcPOU` and an `.xti` in the Explorer and confirm that the IECode entries appear.
+- [x] `ph/fix-menu-regex`: the escaped dots in the explorer and editor menu conditions (also `.xti`), with a manifest test. Merged in [#60](https://github.com/JanJunklewitz/iecode/pull/60) and released in 0.2.21; the local branch and its backup are deleted.
 - [ ] `ph/log-viewer`: log file viewer, rebased on `origin/main` (backup of the old state: `backup/log-viewer-pre-rebase`).
-  - Open: regexes of user log formats run on the extension host (known limit, a workspace may supply them by decision). The text search worker and the scan read the file independently, so a rotation between them can pair an old index with new text. A failed live refresh is retried only when the file size changes. A scan has no fixed end offset while the file grows. A long first record (over 64 KiB) defeats format detection. Repeat grouping compares a hash. The copy of the menu fix was dropped from this branch (it comes with `ph/fix-menu-regex`).
+  - Open: regexes of user log formats run on the extension host (known limit, a workspace may supply them by decision). The text search worker and the scan read the file independently, so a rotation between them can pair an old index with new text. A failed live refresh is retried only when the file size changes. A scan has no fixed end offset while the file grows. A long first record (over 64 KiB) defeats format detection. Repeat grouping compares a hash. The copy of the menu fix was dropped from this branch (it is in main with #60).
 
 **Chain C: object checks** (base: `feature/object-analysis-and-history`)
 - [ ] `lane3/structure-checks`: lint rules for object files (XML structure and rules between function blocks).
@@ -40,7 +44,7 @@ State of 2026-11-19. All branches below are rebased on `origin/main` at release 
 - [ ] `lane3/io-link-checks`: IO links against the symbols of the built PLC project.
   - Open: a parent symbol counts as proof for a removed member (a deliberate rule, pinned by a test). `io-type-changed` relies on `TypeA` and `TypeB` in active mappings, which is unverified on a real project. The build is chosen by name, not by `TmcFilePath`. A PLC without any link is not checked at all.
 
-**Combined branch**: `combined/analysis-and-tree` = chain A + chain C + `feature/tree-filter` on `origin/main` 0.2.20, 74 commits in one line (964 extension tests, VSIX packages). The two shared commits of the chains are gone (identical patches); where `unitIndex.ts` conflicted the version of chain A was kept. Chain B (ADS) and `ph/log-viewer` are left out on purpose: they need checks against a real PLC or by hand first, and `ph/fix-menu-regex` is a small pull request of its own (prepared, not pushed). When the combined branch is split into pull requests again, cut it at the commits of the single branches.
+**Combined branch**: `combined/all-in-one` (pull request #63) = chain A + chain C + chain B + `feature/tree-filter` + `ph/log-viewer` in one line (1371 of 1377 extension tests pass, 6 skipped; 357 CLI tests pass). The two shared commits of chain A and chain C are gone (identical patches); where `unitIndex.ts` conflicted the version of chain A was kept. Chain B and `ph/log-viewer` are in it although they still need checks against a real PLC or by hand (see the list below); `ads_state` restart, online change and config mode need a PLC (open test P3-5 in `docs/open-tests.md`), and the CLI release that freezes protocol entry 2 should wait for that check. When the combined branch is split into pull requests again, cut it at the commits of the single branches.
 
 **Merge check (2026-11-19)**: all 13 branches were merged on top of `origin/main` 0.2.20 in a throwaway branch. The result compiles, passes 1107 extension tests and 329 CLI tests and packages as a VSIX. What it needed besides the changelog:
 - `extension/src/extension.ts` and `extension/src/views/tree.ts`: `feature/tree-filter` (own tree view variable and filter message), the unused marks (`tree.setUnused`) and the auto-reveal of main (`registerAutoReveal`) touch the same lines. Keep all three; the tree view variable of the filter is the one auto-reveal gets.
@@ -49,7 +53,7 @@ State of 2026-11-19. All branches below are rebased on `origin/main` at release 
 - Seven menu conditions of main were escaped twice again: `ph/fix-menu-regex` has the fix and a test that fails on any new one.
 
 **Where a pull request makes sense (and what to check first)**
-- `ph/fix-menu-regex`: pull request #60 is open. Smoke test in the Extension Development Host: right-click a `.plcproj`, a `.TcPOU` and an `.xti` in the Explorer.
+- `ph/fix-menu-regex`: done, merged with #60.
 - `feature/tree-filter`: rebased on 0.2.20 (the auto-reveal of main and the unused marks touch the same lines; the tree view variable of the filter is the one auto-reveal gets). Check by hand: filter box, kinds such as `@fb`, Clear while the box is open, running the command twice.
 - Chain A in order (graph, unused, impact as separate pull requests, each on the one before): unit tests are green, but there is no run on a real project yet. Check blame, history and staging in a real repository with real `.TcPOU` files (renames, a BOM file, CRLF), and the unused marks and the impact on a project with tasks and libraries.
 - Chain C: the lint is safe to review now. The IO link checks need one real system project with a built `.tmc` (`io-type-changed` relies on `TypeA`/`TypeB` in active mappings, unverified).
@@ -57,7 +61,7 @@ State of 2026-11-19. All branches below are rebased on `origin/main` at release 
 - `ph/log-viewer`: not before the manual checks (open a log, live tail on a growing and a rotated file, merge of several files, 100 MB file, search while loading).
 - One pull request with everything is possible (it builds and tests), but about 130 commits and 20 000 lines cannot be reviewed; prefer the stacked pull requests above.
 
-**Not in this list (checked 2026-11-19)**: the earlier `ph/*` branches, `feature/merge-conflicts-and-xti-diff` and the ADS wishlist branches are merged (squashed pull requests #1, #14, #16, #17, #30, #35). `feature/raw-xml-compare` is a plan only. Branches of other authors were not touched.
+**Not in this list (checked 2026-11-20)**: the earlier `ph/*` branches, `feature/merge-conflicts-and-xti-diff` and the ADS wishlist branches are merged (squashed pull requests #1, #14, #16, #17, #30, #35) and deleted locally; so are `docs/feature-research`, `docs/todo-branches-in-flight`, the four merged `fix/*` branches and four pre-rebase backups. `ph/st-in-scm-diff` was already in main. Remote copies, where they exist, are unchanged. `backup/log-viewer-pre-rebase` stays until `ph/log-viewer` or #63 is merged. `feature/raw-xml-compare` is a plan only (not in `combined/all-in-one`). Branches of other authors were not touched.
 
 ## Open
 
