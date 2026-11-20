@@ -95,7 +95,7 @@
 - [ ] **Merge by identity in the merge editor**: use the semantic model instead of lines to resolve GUID and LineIds conflicts automatically.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: Beckhoff TcProjectCompare ([manual](https://download.beckhoff.com/download/document/automation/twincat3/TC3_Project_Compare_Tool_EN.pdf): merge direction, accept single / block / all).
   - Idea: builds on the config diff, which already compares by identity.
-- [ ] **Project view: search and filter in the tree**: filter the tree by name and kind.
+- [x] **Project view: search and filter in the tree**: filter the tree by name and kind. Done (unreleased): names of objects only; member names (methods, properties) and library sources are not searched.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#k-smaller-improvements-to-existing-features). Prior art: [Explorer for TwinCAT](https://marketplace.visualstudio.com/items?itemName=thanhdang.explorer-for-twincat) (Go to Object, Find in Folder / Project).
 - [ ] **Mark unused objects**: flag objects that no task can reach (not called from any program, not referenced).
   - Research: same section as above. Builds on the dependency graph.
