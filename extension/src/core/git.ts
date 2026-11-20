@@ -21,6 +21,8 @@ function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string
   return new Promise((resolve, reject) => {
     const p = execFile('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8', timeout: opts.timeout, signal: opts.signal }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout);
+      // a killed child on abort: hand the caller the signal's own AbortError, not a git message
+      if (opts.signal?.aborted) return reject(opts.signal.reason ?? err);
       const e = new Error(stderr.trim() || err.message) as Error & { timedOut?: boolean };
       // `killed` is also set when the output exceeds maxBuffer, which is no timeout
       if (opts.timeout !== undefined && (err as { killed?: boolean }).killed && (err as { code?: unknown }).code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') e.timedOut = true;

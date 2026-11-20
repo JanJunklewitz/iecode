@@ -21,6 +21,8 @@ function groupByBase(es: ConfigEntry[]): Map<string, ConfigEntry[]> {
   return m;
 }
 
+/** Parameters and types often have just a type and a default: two equal lines are no evidence of a rename there. */
+const MIN_LINES: Partial<Record<Category, number>> = { parameters: 3, types: 3 };
 const ENTITY_CATEGORIES = new Set<Category>(['tasks', 'symbols', 'parameters', 'types']);
 
 /**
@@ -59,7 +61,7 @@ function pairEntities(before: ConfigEntry[], after: ConfigEntry[]): { before: Co
   const renames = new Map<string, string>();
   const renamed: ConfigChange[] = [];
   for (const group of new Set(gone.map(x => x.group))) {
-    const pairs = pairRenames(gone.filter(x => x.group === group), fresh.filter(x => x.group === group), x => x.lines.join('\n'), { minLines: 2 });
+    const pairs = pairRenames(gone.filter(x => x.group === group), fresh.filter(x => x.group === group), x => x.lines.join('\n'), { minLines: MIN_LINES[group.split('/')[0] as Category] ?? 2 });
     for (const p of pairs) {
       renames.set(p.from.entity, p.to.entity);
       renamed.push({ kind: 'renamed', key: p.to.entity, from: p.from.entity, category: p.to.category });
@@ -97,7 +99,13 @@ export function diffConfig(beforeEntries: ConfigEntry[], after: ConfigEntry[]): 
     for (const x of bs.slice(pairs)) changes.push({ kind: 'removed', key: x.key, category: x.category, noise: x.noise, before: x.value });
     for (const y of as.slice(pairs)) changes.push({ kind: 'added', key: y.key, category: y.category, noise: y.noise, after: y.value });
   }
-  return changes.sort((x, y) => order(x.category) - order(y.category) || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  // by segment, so the changed fields of a renamed item follow its renamed entry ("tasks/New-x" sorts between "tasks/New" and "tasks/New/Field" as plain text)
+  const seg = (k: string) => k.split('/');
+  const cmp = (a: string[], b: string[]): number => {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+    return a.length - b.length;
+  };
+  return changes.sort((x, y) => order(x.category) - order(y.category) || cmp(seg(x.key), seg(y.key)));
 }
 
 /** 'links' are never listed, only counted. */

@@ -356,6 +356,19 @@ test('a rename inside a hidden category stays hidden', () => {
   assert.equal(hiddenBy.tasks, 1);
 });
 
+test('two small parameters with equal fields are not taken for a rename', () => {
+  const param = (name: string): ConfigEntry[] => [entry(`parameters/${name}/Type`, 'BOOL', 'parameters'), entry(`parameters/${name}/Default`, 'false', 'parameters')];
+  assert.ok(diffConfig(param('A'), param('B')).every(c => c.kind !== 'renamed'));
+  // tasks keep the lower limit: they have several fields
+  assert.equal(diffConfig(task('A'), task('B')).filter(c => c.kind === 'renamed').length, 1);
+});
+
+test('the changed fields of a renamed item follow its renamed entry in the list', () => {
+  const after = [...task('New', '20 ms'), ...task('New-x', '1 ms', '9')];
+  const keys = diffConfig(task('Old'), after).map(c => c.key);
+  assert.ok(keys.indexOf('tasks/New') + 1 === keys.indexOf('tasks/New/CycleTime'), keys.join(','));
+});
+
 test('an entity that exists on both sides is never paired', () => {
   const changes = diffConfig(task('A'), [...task('A', '20 ms'), ...task('B')]);
   assert.ok(changes.every(c => c.kind !== 'renamed'));
