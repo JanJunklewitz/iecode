@@ -91,7 +91,7 @@ State of 2026-11-19. All branches below are rebased on `origin/main` at release 
 - [x] **Object analysis plan C, task 4**: built on `feat/discard-method` (`iecode.discardSection`, lens, `discardGuard`, `writeFileSafe`, modal confirm, tests of the pure parts). Open: the F5 hand check (see open tests); the command wiring itself has no automated test.
 - [ ] **ADS wishlist plan C, task C8**: no pin test for protocol entry 2 and no CLI release; deliberately after the live checks. Plan D tasks D6 and D6b (which build runs on the target, loaded build against the workspace build), D8 and plan E task E9 (releases) are not started.
 - [ ] **ADS wishlist plan E**: E2 (sample rate per symbol), E6 (alarms) and E7 (PLC cycle timestamps) are not started; their spikes need a PLC. E3 (connection and sampling notices) is covered by small items plan B except the resume notice after a download.
-- [ ] Small: a Copilot `prepared`-decision test for a lapsed auto-approve window is missing in `writeGate.test.ts` (the MCP case and the pure rules are tested).
+- [x] Small: the Copilot `prepared`-decision test for a lapsed auto-approve window is in `writeGate.test.ts` (added on `test/copilot-gate-lapsed-window`).
 - Deferred by their plans, not gaps: the plot break in the ADS Scope, keep-alive after the last AI call, a CLI `iecode lint`, unused variables, object moves in the history, the log viewer's AI question, source tree filter, custom format editor and Restricted Mode.
 - Manual checks of all of these: see [docs/open-tests.md](docs/open-tests.md).
 
