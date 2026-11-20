@@ -82,6 +82,17 @@ State of 2026-11-19. All branches below are rebased on `origin/main` at release 
 - `feature/object-analysis-and-history` (pushed to `origin` on 2026-11-20; plans only, 3 commits): the plans A to H and the master plan of the object analysis. Decision 2026-11-20: they stay in the pull request on purpose, as the base of chains A and C, which implement them; the items above link to them. They are not "left out"; the branch is only listed here because it holds no code.
 - Everything else checked on 2026-11-20 (the earlier `ph/*` branches, `feature/merge-conflicts-and-xti-diff`, the ADS wishlist and `fix/*` branches): every file they added exists in `origin/main`; only `.vscode/launch.json` and `.vscode/tasks.json` of `feature/merge-conflicts-and-xti-diff` do not (editor settings; I did not check why they are not in main). `ph/st-in-scm-diff` and `ph/setup-this-pc` have about 70 percent of their added lines in `main` (the rest was changed later), so nothing is lost there either, by a spot check.
 
+**Plans in this pull request and what is not built yet (checked 2026-11-20 by reading code and test names; no test was run for this check, and the checkboxes in the plan files are not ticked, so they say nothing)**
+- Fully built: the log viewer plan (11 of 11 tasks); the object analysis master plan and plans A (blame), D (object graph), E (unused), F (impact and Mermaid), G (IO link checks), H (structure checks); the small items plans A (auto-write expiry), B (sampling notice) and D (tree filter); the wishlist plans A, B, and C except its release task.
+- [ ] **`ads_state`** (small items plan C, wishlist E4): not built. No CLI `state` op, no tool, no tests, no protocol entry. Also open from it: the loss text of the sampling notice should point at `ads_state`.
+- [ ] **Object analysis plan B, task 4**: renamed items in the config diff (`kind: 'renamed'`, `entityOf`, the three consumers, tests). The master plan ships it as a separate pull request. Also from plan B: the object history walk has no cancel button although the plan asks for one (small).
+- [ ] **Object analysis plan C, task 4**: Discard Method (`iecode.discardSection`, lens, guard, confirm). Only the pure `discardSection` function exists. The master plan ships it as its own pull request.
+- [ ] **ADS wishlist plan C, task C8**: no pin test for protocol entry 2 and no CLI release; deliberately after the live checks. Plan D tasks D6 and D6b (which build runs on the target, loaded build against the workspace build), D8 and plan E task E9 (releases) are not started.
+- [ ] **ADS wishlist plan E**: E2 (sample rate per symbol), E6 (alarms) and E7 (PLC cycle timestamps) are not started; their spikes need a PLC. E3 (connection and sampling notices) is covered by small items plan B except the resume notice after a download.
+- [ ] Small: a Copilot `prepared`-decision test for a lapsed auto-approve window is missing in `writeGate.test.ts` (the MCP case and the pure rules are tested).
+- Deferred by their plans, not gaps: the plot break in the ADS Scope, keep-alive after the last AI call, a CLI `iecode lint`, unused variables, object moves in the history, the log viewer's AI question, source tree filter, custom format editor and Restricted Mode.
+- Manual checks of all of these: see [docs/open-tests.md](docs/open-tests.md).
+
 ## Open
 
 - [x] **MCP server for the ADS watch**: Claude Code reaches the five ADS tools through a user-scope stdio bridge (`iecode mcp`) to the window that serves its folder.

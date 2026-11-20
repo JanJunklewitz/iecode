@@ -82,6 +82,26 @@ Taken from the section "Branches in flight" of `TODO.md` on `docs/todo-branches-
 - [ ] Chain B (ADS) only after the hand checks above.
 - [ ] Plan-only branches: `feature/raw-xml-compare` (nothing built) stays out and is listed in `TODO.md` ("Plan-only branches"). `feature/object-analysis-and-history` (plans only) stays in on purpose, as the base of chains A and C, which implement its plans.
 
+## Implementation state of the plans in this branch
+
+Checked on 2026-11-20 by reading code and test names (no test run for this check). The checkboxes in the plan files are not ticked even for finished work and are not evidence.
+
+| Plan | State | Not built |
+|---|---|---|
+| Log viewer | done, 11 of 11 tasks | manual checks, Windows run of the perf test |
+| Object analysis: master, A blame, D graph, E unused, F impact, G IO checks, H structure checks | done | manual checks on real projects |
+| Object analysis B history | partly | task 4 renamed items in the config diff (own pull request by the master plan); history cannot be cancelled |
+| Object analysis C staging | partly | task 4 Discard (own pull request by the master plan) |
+| Small items A auto-write expiry | done | Copilot gate test for a lapsed window; hand check |
+| Small items B sampling notice | done | hand check, simulation session items 1 to 8; plot break deferred |
+| Small items C `ads_state` | **not built** | everything |
+| Small items D tree filter | done | one more look at the two fixes (P1-1 to P1-5) |
+| ADS wishlist C writes | done | task C8 (pin test, CLI release) |
+| ADS wishlist D symbols | mostly | D6, D6b, D8 |
+| ADS wishlist E runtime | partly | E4 `ads_state`, E2, E6, E7, E9 |
+
+- [ ] Decide for each "not built" row: build before the pull request, ship as a separate pull request, or leave in the TODO. The TODO section "Plans in this pull request" lists them with the details.
+
 ## Seen so far (before the fixes)
 
 | Item | Result |
