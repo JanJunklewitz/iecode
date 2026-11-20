@@ -113,6 +113,15 @@ test('a reply without counters keeps the earlier baseline', () => {
   assert.deepEqual(t.observe('k#1', run(7), 3000, 2000).findings.map(f => f.kind), ['restart']);
 });
 
+test('a family that failed in one call keeps its earlier baseline, with the time it was read', () => {
+  const t = new StateTracker();
+  t.observe('k#1', run(1_000_000), 1000, 0);
+  // the cycle count item failed this time, the online change count came back
+  assert.deepEqual(t.observe('k#1', { adsState: 'Run', onlineChangeCount: 3 }, 2000, 1000).findings, []);
+  // the restart is still seen, compared with the call at T1000
+  assert.deepEqual(t.observe('k#1', run(7), 3000, 2000).findings, [{ kind: 'restart', was: 1_000_000, now: 7, sinceMs: 1000 }]);
+});
+
 test('stateText for a running PLC', () => {
   assert.equal(text({ state: { adsState: 'Run', deviceState: 0, cycleCount: 1234567, cycleTimeUs: 10000, onlineChangeCount: 3 } }),
     'PLC state on local: Run (device state 0).\nTask 1: cycle time 10.000 ms, cycle count 1234567, online changes 3.');

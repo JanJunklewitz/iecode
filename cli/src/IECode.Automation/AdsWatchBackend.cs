@@ -57,12 +57,15 @@ public sealed class AdsWatchBackend : IWatchBackend
 
     private readonly IReadOnlySet<uint> _noEffect, _notSentAggregate;
     private readonly Func<IAdsLink>? _newRouterLink;
+    /// <summary>Why the last <see cref="Connect"/> failed (with its ADS code); the state op reports it instead of a code-less "Not connected".</summary>
+    private AdsFault? _lastConnectFault;
     private readonly PlcStateNames _stateNames;
 
     /// <summary>Opens the ADS port and proves the target is there: connecting alone only opens the local router port.</summary>
     public void Connect()
     {
         Drop();
+        _lastConnectFault = null;
         IAdsLink? link = null;
         try
         {
@@ -75,7 +78,7 @@ public sealed class AdsWatchBackend : IWatchBackend
         {
             link?.Dispose();
             var fault = Map(e, $"Cannot reach {_where} over ADS");
-            throw fault.ConnectionLost ? fault : new AdsFault(fault.Message, fault.AdsCode, true);
+            throw _lastConnectFault = fault.ConnectionLost ? fault : new AdsFault(fault.Message, fault.AdsCode, true);
         }
         _link = link;
     }
@@ -379,7 +382,7 @@ public sealed class AdsWatchBackend : IWatchBackend
         var system = ReadSystemState();
         try
         {
-            var link = Link();
+            var link = _link ?? throw (_lastConnectFault ?? new AdsFault($"Not connected to {_where}", null, true));
             var (code, adsState, deviceState) = Call($"State read from {_where}", link.ReadStateInfo);
             if (code != AdsErrorCode.NoError)
                 throw new AdsFault(Text($"State read from {_where}", (uint)code), (uint)code, AdsCodes.IsConnectionLost((uint)code));
@@ -462,7 +465,11 @@ public sealed class AdsWatchBackend : IWatchBackend
             for (var k = 0; k < resolved.Count; k++)
             {
                 var item = read.Items[k];
-                if (item.Code == AdsErrorCode.NoError) values[resolved[k].Slot] = ToInt64(item.Value);
+                if (item.Code == AdsErrorCode.NoError)
+                {
+                    values[resolved[k].Slot] = ToInt64(item.Value);
+                    if (values[resolved[k].Slot] is null) missing.Add($"{wanted[resolved[k].Slot]} (unexpected value type)");
+                }
                 else missing.Add($"{wanted[resolved[k].Slot]} ({Text("read", (uint)item.Code)})");
             }
         }

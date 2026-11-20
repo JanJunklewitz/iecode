@@ -99,6 +99,18 @@ public class AdsPlcStateTests
     }
 
     [Fact]
+    public void ReadPlcState_after_a_failed_connect_keeps_the_ADS_code_and_text_of_that_failure()
+    {
+        // TwinCAT runs but no PLC port exists: Connect fails with 0x6, the state op must show that, not a code-less "Not connected"
+        var (b, _, _) = Make(l => l.State = AdsErrorCode.TargetPortNotFound, router: r => r.StateInfo = (AdsErrorCode.NoError, "Run", 0), connect: false);
+        Assert.ThrowsAny<AdsFault>(b.Connect);
+        var s = b.ReadPlcState(1);
+        Assert.Equal(0x6u, s.PlcAdsCode);
+        Assert.Contains("Cannot reach", s.PlcError);
+        Assert.Equal("Run", s.SystemState);
+    }
+
+    [Fact]
     public void ReadPlcState_with_nothing_reachable_throws_the_PLC_fault()
     {
         var (b, _, _) = Make(router: r => r.StateInfo = (AdsErrorCode.TargetMachineNotFound, "", 0), connect: false);

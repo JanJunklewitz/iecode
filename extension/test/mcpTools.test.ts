@@ -77,7 +77,7 @@ const result = async (p: Promise<string | undefined>) => JSON.parse((await p) ??
 
 // ---- tests ----
 
-test('tools/list names the ten ads_ tools with their schemas', async () => {
+test('tools/list names the eleven ads_ tools with their schemas', async () => {
   const r = rig();
   const list = JSON.parse((await r.session.handle(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })))!).result.tools;
   assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log', 'ads_state']);
@@ -229,7 +229,7 @@ test('policy is undefined when the timeout leaves no room for a dialog', () => {
   assert.deepEqual(gatePolicyFor(21_000), { dialogMs: 6_000, operationMs: 11_000, maxQueued: 10 });
 });
 
-test('the manifest declares the ten tools in client-neutral words', () => {
+test('the manifest declares the eleven tools in client-neutral words', () => {
   // out/test/*.js -> the extension's package.json is two levels up
   const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
   const found = descriptorsFromManifest(manifest);

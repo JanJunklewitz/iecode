@@ -46,7 +46,8 @@ export type StateFinding =
 
 const WRAP = 2 ** 32;
 
-interface Baseline { state: PlcStateReply; wallMs: number; monoMs: number }
+/** The *WallMs / *MonoMs overrides mark a family whose values are older than the call itself (its item failed in a later call). */
+interface Baseline { state: PlcStateReply; wallMs: number; monoMs: number; cycleWallMs?: number; cycleMonoMs?: number; onlineWallMs?: number }
 
 const hasCounters = (s: PlcStateReply): boolean => s.cycleCount !== undefined || s.onlineChangeCount !== undefined;
 
@@ -60,28 +61,45 @@ export class StateTracker {
   /** `wallMs` is for the texts, `monoMs` (a monotonic clock) for the elapsed time. */
   observe(key: string, s: PlcStateReply, wallMs: number, monoMs: number): { first: boolean; findings: StateFinding[] } {
     const prev = this.baselines.get(key);
-    // a reply without counters (config mode, PLC unreachable) says nothing: the older baseline stays for the next call
-    if (hasCounters(s)) this.baselines.set(key, { state: s, wallMs, monoMs });
+    // a reply without counters (config mode, PLC unreachable) says nothing: the older baseline stays for the next call;
+    // a counter family that is missing in this reply (one item failed) keeps its earlier value and time
+    if (hasCounters(s)) {
+      const cycle = s.cycleCount !== undefined && s.cycleTimeUs !== undefined;
+      const online = s.onlineChangeCount !== undefined;
+      const keepCycle = !cycle && prev && prev.state.cycleCount !== undefined;
+      const keepOnline = !online && prev && prev.state.onlineChangeCount !== undefined;
+      this.baselines.set(key, {
+        state: {
+          ...s,
+          ...(keepCycle ? { cycleCount: prev.state.cycleCount, cycleTimeUs: prev.state.cycleTimeUs } : {}),
+          ...(keepOnline ? { onlineChangeCount: prev.state.onlineChangeCount } : {}),
+        },
+        wallMs, monoMs,
+        ...(keepCycle ? { cycleWallMs: prev.cycleWallMs ?? prev.wallMs, cycleMonoMs: prev.cycleMonoMs ?? prev.monoMs } : {}),
+        ...(keepOnline ? { onlineWallMs: prev.onlineWallMs ?? prev.wallMs } : {}),
+      });
+    }
     if (!prev) return { first: true, findings: [] };
     const findings: StateFinding[] = [];
-    const sinceMs = prev.wallMs;
+    const cycleSince = prev.cycleWallMs ?? prev.wallMs, onlineSince = prev.onlineWallMs ?? prev.wallMs;
+    const cycleMono = prev.cycleMonoMs ?? prev.monoMs;
     const p = prev.state;
     let restarted = false;
     if (p.cycleCount !== undefined && s.cycleCount !== undefined && p.cycleTimeUs !== undefined && s.cycleTimeUs !== undefined && s.cycleTimeUs > 0 && p.cycleTimeUs > 0) {
       if (s.cycleTimeUs !== p.cycleTimeUs) {
-        findings.push({ kind: 'cycleTimeChanged', was: p.cycleTimeUs, now: s.cycleTimeUs, sinceMs });
+        findings.push({ kind: 'cycleTimeChanged', was: p.cycleTimeUs, now: s.cycleTimeUs, sinceMs: cycleSince });
       } else {
-        const expected = ((monoMs - prev.monoMs) * 1000) / s.cycleTimeUs;
+        const expected = ((monoMs - cycleMono) * 1000) / s.cycleTimeUs;
         if (s.cycleCount < p.cycleCount) {
           restarted = true;
-          findings.push({ kind: p.cycleCount >= WRAP - 1.5 * expected ? 'restartOrWrap' : 'restart', was: p.cycleCount, now: s.cycleCount, sinceMs });
+          findings.push({ kind: p.cycleCount >= WRAP - 1.5 * expected ? 'restartOrWrap' : 'restart', was: p.cycleCount, now: s.cycleCount, sinceMs: cycleSince });
         } else if (expected >= 100 && s.cycleCount - p.cycleCount < expected / 2) {
-          findings.push({ kind: 'slow', was: p.cycleCount, now: s.cycleCount, sinceMs });
+          findings.push({ kind: 'slow', was: p.cycleCount, now: s.cycleCount, sinceMs: cycleSince });
         }
       }
     }
     if (!restarted && p.onlineChangeCount !== undefined && s.onlineChangeCount !== undefined && s.onlineChangeCount !== p.onlineChangeCount) {
-      findings.push({ kind: 'onlineChange', was: p.onlineChangeCount, now: s.onlineChangeCount, sinceMs });
+      findings.push({ kind: 'onlineChange', was: p.onlineChangeCount, now: s.onlineChangeCount, sinceMs: onlineSince });
     }
     return { first: false, findings };
   }
