@@ -153,6 +153,11 @@
     ],
     "commands": [
       {
+        "command": "iecode.objectHistory",
+        "title": "Show History of Object or Member",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.toggleBlame",
         "title": "Toggle Blame per Method",
         "category": "IECode"
@@ -685,6 +690,11 @@
       ],
       "editor/context": [
         {
+          "command": "iecode.objectHistory",
+          "when": "resourceScheme == iecode",
+          "group": "3_iecodeHistory@1"
+        },
+        {
           "command": "iecode.aiAdd",
           "when": "resourceScheme == iecode || editorLangId == twincat-st",
           "group": "1_iecodeAi@1"
@@ -860,6 +870,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "iecode.objectHistory",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
+          "group": "3_history@1"
+        },
         {
           "command": "iecode.addObject",
           "when": "view == iecode.projects && viewItem =~ /^(unit|folder)/",
