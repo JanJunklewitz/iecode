@@ -54,6 +54,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
                 "write" => DoWrite(Str(root, "symbol"), Str(root, "value")),
                 "writeMany" => DoWriteMany(root),
                 "interval" => DoInterval(root),
+                "state" => DoState(root),
                 _ => throw new IECodeException(ExitCodes.Usage, $"Unknown op '{op}'."),
             };
             emit(WatchJson.Serialize(new WatchReply(id, true, data, null, null)));
@@ -397,6 +398,20 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
             throw new IECodeException(ExitCodes.Usage, "interval needs an integer 'ms'.");
         _intervalMs = Math.Clamp(n, MinIntervalMs, MaxIntervalMs);
         return new WatchIntervalData(_intervalMs);
+    }
+
+    /// <summary>
+    /// Works in every host state: the system state does not need the PLC connection. A PLC part lost while the host counts itself
+    /// connected marks it lost, otherwise an empty watch list would never notice the loss and never reconnect.
+    /// </summary>
+    private object DoState(JsonElement root)
+    {
+        var task = 1;
+        if (root.TryGetProperty("task", out var t) && !(t.ValueKind == JsonValueKind.Number && t.TryGetInt32(out task) && task is >= 1 and <= 16))
+            throw new IECodeException(ExitCodes.Usage, "task must be an integer from 1 to 16.");
+        var s = backend.ReadPlcState(task);
+        if (s.PlcConnectionLost) MarkLost(s.PlcError ?? "PLC connection lost", null);
+        return new WatchStateData(s.AdsState, s.DeviceState, s.PlcError, s.PlcAdsCode, s.CycleCount, s.CycleTimeUs, s.OnlineChangeCount, s.TaskNote, s.SystemState);
     }
 
     private static string Str(JsonElement root, string name) =>

@@ -48,7 +48,30 @@ public interface IWatchBackend : IDisposable
     /// Null when the symbol is a single value or this backend cannot expand (the host then falls back to <see cref="ReadOnce"/>).
     /// </summary>
     StructRead? ReadMembers(string symbol, int depth) => null;
+    /// <summary>
+    /// The run state of the PLC and of the TwinCAT system plus the counters of one task. Never throws for an unreadable PLC part
+    /// when the system state was read (the part becomes <see cref="PlcState.PlcError"/>); throws the PLC fault when neither part answered.
+    /// </summary>
+    PlcState ReadPlcState(int task) => throw new NotSupportedException("This backend cannot read the PLC state.");
 }
+
+/// <summary>
+/// PLC run state, task counters and TwinCAT system state. <c>PlcAdsCode</c> and <c>PlcConnectionLost</c> describe the PLC fault when
+/// <c>PlcError</c> is set; the loss flag is not on the wire, it makes the host reconnect.
+/// </summary>
+public sealed record PlcState(string? AdsState, int? DeviceState, long? CycleCount, long? CycleTimeUs, long? OnlineChangeCount,
+    string? TaskNote, string? SystemState, string? PlcError, uint? PlcAdsCode = null, bool PlcConnectionLost = false);
+
+internal sealed record WatchStateData(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AdsState,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DeviceState,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PlcError,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] uint? PlcAdsCode,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? CycleCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? CycleTimeUs,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? OnlineChangeCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TaskNote,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SystemState);
 
 /// <summary>One leaf of a structure read; <c>Name</c> is the full instance path.</summary>
 public sealed record MemberValue(string Name, string Type, string? Value, string? Error);

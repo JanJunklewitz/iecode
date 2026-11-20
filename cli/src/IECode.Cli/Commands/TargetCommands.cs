@@ -196,6 +196,7 @@ internal static class TargetCommands
         public (string Type, string Value) ReadOnce(string symbol) => throw new AdsFault(error, null, true);
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => throw new AdsFault(error, null, true);
         public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes) => throw new AdsFault(error, null, true);
+        public PlcState ReadPlcState(int task) => throw new AdsFault(error, null, true);
         public void Dispose() { }
     }
 
