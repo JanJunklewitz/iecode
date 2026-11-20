@@ -8,6 +8,7 @@ import { LIB_SCHEME, LibrarySource, LibrarySources } from '../lang/librarySource
 import { LibraryObject } from '../core/libraryArchive';
 import type { UnusedLookup } from '../core/unusedView';
 import { treeDescription } from '../core/unusedView';
+import { TYPE_SHORT, TreeFilter, filterIdSuffix, visibleIn } from '../core/treeFilter';
 
 /** Tree nodes. `contextValue` drives the context menus in package.json. */
 export type Node =
@@ -35,8 +36,6 @@ const TYPE_ICON: Record<ObjectType, string> = {
   STRUCT: 'symbol-structure', ENUM: 'symbol-enum', UNION: 'symbol-structure', ALIAS: 'symbol-type-parameter',
   GVL: 'symbol-variable', TASK: 'watch', TEXTLIST: 'symbol-text', IMAGEPOOL: 'file-media', VISUMANAGER: 'settings', OTHER: 'file',
 };
-const TYPE_SHORT: Partial<Record<ObjectType, string>> = { FUNCTION_BLOCK: 'FB', PROGRAM: 'PRG', FUNCTION: 'FUN', INTERFACE: 'ITF', ENUM: 'ENUM', STRUCT: 'STRUCT', UNION: 'UNION', ALIAS: 'ALIAS', GVL: 'GVL',
-  TASK: 'task', TEXTLIST: 'texts', IMAGEPOOL: 'images', VISUMANAGER: 'visu settings' };
 const MEMBER_ICON: Record<Member['kind'], string> = { METHOD: 'symbol-method', PROPERTY: 'symbol-property', ACTION: 'symbol-event', TRANSITION: 'arrow-right' };
 
 const KIND_GROUP: Record<Member['kind'], string> = { METHOD: 'Methods', PROPERTY: 'Properties', ACTION: 'Actions', TRANSITION: 'Transitions' };
@@ -48,9 +47,13 @@ const hasMembers = (t: ObjectType) => t === 'FUNCTION_BLOCK' || t === 'PROGRAM' 
 export class ProjectTree implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
+  private active: TreeFilter | undefined;
+  private generation = 0;
+  /** Hits per unit for the active filter; keyed by the Unit object so a reloaded model starts empty. */
+  private visible = new WeakMap<Unit, ReturnType<typeof visibleIn>>();
 
   constructor(private readonly state: WorkspaceState, private readonly libraries: LibrarySources) {
-    state.onDidChange(() => this.changed.fire(undefined));
+    state.onDidChange(() => { this.visible = new WeakMap(); this.changed.fire(undefined); });
     libraries.onDidChange(() => this.changed.fire(undefined));
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.memberGrouping')) this.changed.fire(undefined); });
   }
@@ -61,19 +64,67 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
   setUnused(lookup: UnusedLookup) { this.unused = lookup; }
   private unused?: UnusedLookup;
 
+  /** Sets (or clears) the name/kind filter; a new generation gives the nodes new ids so VS Code expands them. */
+  setFilter(f: TreeFilter | undefined) {
+    this.active = f;
+    this.generation++;
+    this.visible = new WeakMap();
+    this.changed.fire(undefined);
+  }
+
+  filter(): TreeFilter | undefined { return this.active; }
+
+  /** Ids (without filter suffix) of units and folders the user has open while no filter is active. */
+  private readonly userOpen = new Set<string>();
+
+  /**
+   * Remembers what the user opens or closes. VS Code forgets the state of a node that leaves the tree
+   * (a project without hits while filtering), so the open state is given back through the item.
+   */
+  noteExpanded(n: Node, open: boolean) {
+    if (this.active || (n.kind !== 'unit' && n.kind !== 'folder')) return;
+    const id = this.getTreeItem(n).id;
+    if (!id) return;
+    if (open) this.userOpen.add(id); else this.userOpen.delete(id);
+  }
+
+  private openState(id: string): vscode.TreeItemCollapsibleState {
+    const C = vscode.TreeItemCollapsibleState;
+    return this.active || this.userOpen.has(id) ? C.Expanded : C.Collapsed;
+  }
+
+  /** Hits of the current filter in the current model. */
+  hits(): { objects: number; projects: number } {
+    let objects = 0, projects = 0;
+    if (this.active) for (const u of this.state.current.units) {
+      const n = this.hitsIn(u)!.objects.size;
+      objects += n;
+      if (n) projects++;
+    }
+    return { objects, projects };
+  }
+
+  private hitsIn(unit: Unit) {
+    if (!this.active) return undefined;
+    let v = this.visible.get(unit);
+    if (!v) this.visible.set(unit, v = visibleIn(this.active, unit.plc.objects));
+    return v;
+  }
+
   getChildren(n?: Node): vscode.ProviderResult<Node[]> {
     const m = this.state.current;
     if (!n) {
       const groups = (['library', 'application', 'standalone'] as Group[])
-        .map(g => ({ kind: 'group' as const, group: g, units: m.units.filter(u => u.group === g) }))
+        .map(g => ({ kind: 'group' as const, group: g, units: m.units.filter(u => u.group === g && (!this.active || this.hitsIn(u)!.objects.size)) }))
         .filter(g => g.units.length);
+      if (this.active) return groups;
       const systems = systemProjects(m);
       return systems.length ? [...groups, { kind: 'systems', systems }] : groups;
     }
     switch (n.kind) {
       case 'group': return n.units.map(unit => ({ kind: 'unit' as const, unit }));
       case 'systems': return n.systems.map(s => ({ kind: 'system' as const, ...s }));
-      case 'unit': this.unused?.ensure(n.unit.id); return [{ kind: 'references', unit: n.unit }, ...this.folderChildren(n.unit, '')];
+      case 'unit': this.unused?.ensure(n.unit.id); return this.active ? this.folderChildren(n.unit, '') : [{ kind: 'references', unit: n.unit }, ...this.folderChildren(n.unit, '')];
       case 'references': return n.unit.plc.references.map(ref => ({ kind: 'reference' as const, unit: n.unit, ref }));
       case 'folder': return this.folderChildren(n.unit, n.rel);
       case 'object': return this.members(n.unit, n.obj, '');
@@ -92,11 +143,13 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
   private folderChildren(unit: Unit, rel: string): Node[] {
     const prefix = rel ? rel + '/' : '';
     const direct = (p: string) => p.startsWith(prefix) && !p.slice(prefix.length).includes('/');
+    const vis = this.hitsIn(unit);
+    const objs = vis ? unit.plc.objects.filter(o => vis.objects.has(o)) : unit.plc.objects;
     const sub = new Set<string>();
-    for (const f of unit.plc.folders) if (f.startsWith(prefix) && f !== rel) sub.add(prefix + f.slice(prefix.length).split('/')[0]);
-    for (const o of unit.plc.objects) if (o.rel.startsWith(prefix) && o.rel.slice(prefix.length).includes('/')) sub.add(prefix + o.rel.slice(prefix.length).split('/')[0]);
+    if (!vis) for (const f of unit.plc.folders) if (f.startsWith(prefix) && f !== rel) sub.add(prefix + f.slice(prefix.length).split('/')[0]);
+    for (const o of objs) if (o.rel.startsWith(prefix) && o.rel.slice(prefix.length).includes('/')) sub.add(prefix + o.rel.slice(prefix.length).split('/')[0]);
     const folders = [...sub].sort((a, b) => a.localeCompare(b)).map(f => ({ kind: 'folder' as const, unit, rel: f }));
-    const objects = unit.plc.objects.filter(o => direct(o.rel)).sort((a, b) => a.name.localeCompare(b.name)).map(obj => ({ kind: 'object' as const, unit, obj }));
+    const objects = objs.filter(o => direct(o.rel)).sort((a, b) => a.name.localeCompare(b.name)).map(obj => ({ kind: 'object' as const, unit, obj }));
     return [...folders, ...objects];
   }
 
@@ -145,6 +198,7 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       case 'group': {
         const it = new vscode.TreeItem(GROUP_LABEL[n.group], C.Expanded);
         it.contextValue = 'group';
+        if (this.active) it.id = `group:${n.group}${filterIdSuffix(this.generation)}`;
         return it;
       }
       case 'systems': {
@@ -166,13 +220,14 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
       }
       case 'unit': {
         const p = n.unit.plc;
-        const it = new vscode.TreeItem(p.isLibrary ? (p.title ?? p.name) : n.unit.id, C.Collapsed);
+        const id = `unit:${p.file}${this.active ? filterIdSuffix(this.generation) : ''}`;
+        const it = new vscode.TreeItem(p.isLibrary ? (p.title ?? p.name) : n.unit.id, this.openState(id));
         it.description = p.isLibrary ? p.version : n.unit.solution ? path.basename(n.unit.solution.file) : path.basename(p.file);
         it.iconPath = new vscode.ThemeIcon(p.isLibrary ? 'library' : n.unit.group === 'standalone' ? 'beaker' : 'circuit-board');
         it.tooltip = new vscode.MarkdownString(`**${p.name}**  \n${p.file}${p.tcVersion ? `  \nTwinCAT ${p.tcVersion}` : ''}`);
         it.contextValue = `unit.${n.unit.group}${n.unit.solution ? '.sln' : ''}`;
         it.resourceUri = vscode.Uri.file(p.file);
-        it.id = `unit:${p.file}`;
+        it.id = id;
         return it;
       }
       case 'references': {
@@ -197,10 +252,11 @@ export class ProjectTree implements vscode.TreeDataProvider<Node> {
         return it;
       }
       case 'folder': {
-        const it = new vscode.TreeItem(path.posix.basename(n.rel), C.Collapsed);
+        const id = `folder:${n.unit.plc.file}:${n.rel}${this.active ? filterIdSuffix(this.generation) : ''}`;
+        const it = new vscode.TreeItem(path.posix.basename(n.rel), this.openState(id));
         it.iconPath = vscode.ThemeIcon.Folder;
         it.contextValue = 'folder';
-        it.id = `folder:${n.unit.plc.file}:${n.rel}`;
+        it.id = id;
         return it;
       }
       case 'object': {

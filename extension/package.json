@@ -234,6 +234,18 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "iecode.filterTree",
+        "title": "Filter Project Tree…",
+        "category": "IECode",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "iecode.clearTreeFilter",
+        "title": "Clear Project Tree Filter",
+        "category": "IECode",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "iecode.addObject",
         "title": "Add Object…",
         "category": "IECode",
@@ -769,6 +781,16 @@
       ],
       "view/title": [
         {
+          "command": "iecode.filterTree",
+          "when": "view == iecode.projects",
+          "group": "navigation@0"
+        },
+        {
+          "command": "iecode.clearTreeFilter",
+          "when": "view == iecode.projects && iecode.treeFiltered",
+          "group": "navigation@1"
+        },
+        {
           "command": "iecode.addObject",
           "when": "view == iecode.projects",
           "group": "navigation@1"
@@ -1137,6 +1159,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "iecode.clearTreeFilter",
+          "when": "iecode.treeFiltered"
+        },
         {
           "command": "iecode.showRawDiff",
           "when": "isInDiffEditor && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^iecode(-rev|-src)?$/"

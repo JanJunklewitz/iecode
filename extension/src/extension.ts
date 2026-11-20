@@ -3,6 +3,8 @@ import { promises as fs } from 'fs';
 import { decode, encode, hasXmlConflict, outline, HEADER_RE, IMPL_RE, ViewError, ConflictError } from './model';
 import { WorkspaceState } from './state';
 import { ProjectTree, registerAutoReveal } from './views/tree';
+import { FilterTyping, filterMessage, sameFilter } from './core/treeFilter';
+import type { TreeFilter } from './core/treeFilter';
 import { showGraph } from './views/graph';
 import { registerUml } from './views/umlDiagram';
 import { showLibraryManager } from './views/libraryManager';
@@ -119,15 +121,60 @@ export function activate(ctx: vscode.ExtensionContext) {
   const libraries = registerLibrarySources(ctx, state);
   const analysis = registerAnalysis(ctx, state, libraries);
   const tree = new ProjectTree(state, libraries);
-  const projectsView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
+  const treeView = vscode.window.createTreeView('iecode.projects', { treeDataProvider: tree, showCollapseAll: true });
+  const showFilterMessage = () => {
+    const f = tree.filter();
+    const h = f && tree.hits();
+    treeView.message = f && h ? filterMessage(f, h.objects, h.projects) : undefined;
+  };
+  const applyTreeFilter = (f: TreeFilter | undefined) => {
+    if (sameFilter(tree.filter(), f)) return; // a new generation would re-expand what the user collapsed
+    tree.setFilter(f);
+    showFilterMessage();
+    void vscode.commands.executeCommand('setContext', 'iecode.treeFiltered', !!f);
+  };
+  let activeBox: vscode.InputBox | undefined;
+  /** Closes the open box without restoring the filter from before it was typed (Clear must win over its rollback). */
+  let closeBox: (() => void) | undefined;
+  const filterTree = () => {
+    // a second box would hide the first, whose hide handler then restores the filter from before it was typed
+    if (activeBox) { activeBox.show(); return; }
+    const before = tree.filter();
+    const box = vscode.window.createInputBox();
+    activeBox = box;
+    box.title = 'Filter the project tree';
+    box.placeholder = 'Name words and kinds, e.g. motor @fb (kinds: @fb @prg @fun @itf @gvl …)';
+    box.value = before?.text ?? '';
+    const typing = new FilterTyping(
+      { set: (fn, ms) => setTimeout(fn, ms), clear: h => clearTimeout(h as ReturnType<typeof setTimeout>) },
+      applyTreeFilter, msg => { box.validationMessage = msg; });
+    closeBox = () => { typing.abandon(); box.hide(); };
+    box.onDidChangeValue(v => typing.change(v));
+    box.onDidAccept(() => { typing.change(box.value); if (typing.accept()) box.hide(); });
+    // The filter is live while typing, so closing the box keeps what is shown. VS Code gives no reason for a hide, and
+    // another quick input (a command wizard) closes this box too: rolling back there made the filter vanish.
+    box.onDidHide(() => {
+      activeBox = undefined;
+      closeBox = undefined;
+      typing.abandon();
+      box.dispose();
+    });
+    box.ignoreFocusOut = true; // clicking a hit in the tree must not close the box
+    box.show();
+  };
   tree.setUnused(registerUnused(ctx, analysis, state));
   ctx.subscriptions.push(analysis.onDidChange(() => tree.refresh()), analysis.onDidInvalidate(() => tree.refresh()),
     // the marks in the tree follow the setting at once, and a switched-on setting starts the analysis of expanded projects
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.analysis.markUnused')) tree.refresh(); }));
   ctx.subscriptions.push(
     state,
-    projectsView,
-    registerAutoReveal(projectsView, tree, state),
+    treeView,
+    treeView.onDidExpandElement(e => tree.noteExpanded(e.element, true)),
+    treeView.onDidCollapseElement(e => tree.noteExpanded(e.element, false)),
+    registerAutoReveal(treeView, tree, state),
+    vscode.commands.registerCommand('iecode.filterTree', () => filterTree()),
+    vscode.commands.registerCommand('iecode.clearTreeFilter', () => { closeBox?.(); applyTreeFilter(undefined); }),
+    state.onDidChange(showFilterMessage),
     vscode.commands.registerCommand('iecode.refresh', () => state.reload()),
     vscode.commands.registerCommand('iecode.showGraph', () => showGraph(state)),
     vscode.commands.registerCommand('iecode.libraries', (n?: Node) =>
