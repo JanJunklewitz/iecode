@@ -300,3 +300,105 @@ test('configDiff html has a checkbox per filter', () => {
   for (const id of [...CATEGORIES, ...NOISE]) assert.ok(page.includes(`data-filter="${id}"`), id);
   assert.ok(page.includes('nonce-n'));
 });
+
+// ---- renamed items (object analysis plan B, task 4) ----
+
+const entry = (key: string, value: string, category: ConfigEntry['category'], noise?: ConfigEntry['noise']): ConfigEntry => ({ key, value, raw: value, category, noise });
+const task = (name: string, cycle = '10 ms', prio = '1'): ConfigEntry[] => [
+  entry(`tasks/${name}/CycleTime`, cycle, 'tasks'), entry(`tasks/${name}/Priority`, prio, 'tasks'), entry(`tasks/${name}/AmsPort`, '350', 'tasks'),
+  entry(`tasks/${name}/AutoStart`, 'true', 'tasks'), entry(`tasks/${name}/Stack`, '16384', 'tasks')];
+const symbol = (name: string, type: string, area = 'PlcTask Inputs'): ConfigEntry[] => [
+  entry(`symbols/${area}/${name}/BaseType`, type, 'symbols'), entry(`symbols/${area}/${name}/Comment`, `the ${type} signal of the plant`, 'symbols'),
+  entry(`symbols/${area}/${name}/BitOffs`, '0', 'layout')];
+
+test('a renamed task is one renamed change and not N removed plus N added entries', () => {
+  const changes = diffConfig(task('Old'), task('New'));
+  assert.deepEqual(changes, [{ kind: 'renamed', key: 'tasks/New', from: 'tasks/Old', category: 'tasks' }]);
+});
+
+test('a renamed task with a changed cycle time shows renamed plus one changed entry', () => {
+  const changes = diffConfig(task('Old'), task('New', '20 ms'));
+  assert.deepEqual(changes.map(c => [c.kind, c.key]), [['renamed', 'tasks/New'], ['changed', 'tasks/New/CycleTime']]);
+  assert.equal(changes[1].before, '10 ms');
+  assert.equal(changes[1].after, '20 ms');
+});
+
+test('two removed and two added tasks with different values give no rename', () => {
+  const other = (name: string): ConfigEntry[] => [entry(`tasks/${name}/CycleTime`, '1 ms', 'tasks'), entry(`tasks/${name}/Priority`, '9', 'tasks'), entry(`tasks/${name}/AmsPort`, '999', 'tasks')];
+  const changes = diffConfig([...task('A'), ...task('B', '5 ms', '2')], [...other('C'), ...other('D')]);
+  assert.ok(changes.every(c => c.kind !== 'renamed'));
+  assert.equal(changes.length, 16);
+});
+
+test('two symbols renamed in one data area give two renames, not one area-wide pairing', () => {
+  const before = [...symbol('bStart', 'BOOL'), ...symbol('nSpeed', 'INT')];
+  const after = [...symbol('bBegin', 'BOOL'), ...symbol('nRate', 'INT')];
+  const renamed = diffConfig(before, after).filter(c => c.kind === 'renamed');
+  assert.deepEqual(renamed.map(c => [c.from, c.key]).sort(), [
+    ['symbols/PlcTask Inputs/bStart', 'symbols/PlcTask Inputs/bBegin'], ['symbols/PlcTask Inputs/nSpeed', 'symbols/PlcTask Inputs/nRate']].sort());
+});
+
+test('a symbol that moves to another data area is not a rename', () => {
+  assert.ok(diffConfig(symbol('bStart', 'BOOL'), symbol('bBegin', 'BOOL', 'PlcTask Outputs')).every(c => c.kind !== 'renamed'));
+});
+
+test('a candidate that matches only in hidden / noise fields (layout, GUIDs) is not a rename', () => {
+  const noisy = (name: string, v: string): ConfigEntry[] => [
+    entry(`types/${name}/@GUID`, '{1}', 'types', 'guid'), entry(`types/${name}/BitSize`, '32', 'layout'),
+    entry(`types/${name}/Kind`, v, 'types'), entry(`types/${name}/Extra`, `${v}-x`, 'types')];
+  assert.ok(diffConfig(noisy('A', 'one'), noisy('B', 'two')).every(c => c.kind !== 'renamed'));
+});
+
+test('a rename inside a hidden category stays hidden', () => {
+  const changes = diffConfig(task('Old'), task('New'));
+  const { groups, hiddenBy } = groupChanges(changes, new Set(['tasks']));
+  assert.equal(groups[0].total, 0);
+  assert.equal(hiddenBy.tasks, 1);
+});
+
+test('two small parameters with equal fields are not taken for a rename', () => {
+  const param = (name: string): ConfigEntry[] => [entry(`parameters/${name}/Type`, 'BOOL', 'parameters'), entry(`parameters/${name}/Default`, 'false', 'parameters')];
+  assert.ok(diffConfig(param('A'), param('B')).every(c => c.kind !== 'renamed'));
+  // tasks keep the lower limit: they have several fields
+  assert.equal(diffConfig(task('A'), task('B')).filter(c => c.kind === 'renamed').length, 1);
+});
+
+test('the changed fields of a renamed item follow its renamed entry in the list', () => {
+  const after = [...task('New', '20 ms'), ...task('New-x', '1 ms', '9')];
+  const keys = diffConfig(task('Old'), after).map(c => c.key);
+  assert.ok(keys.indexOf('tasks/New') + 1 === keys.indexOf('tasks/New/CycleTime'), keys.join(','));
+});
+
+test('a task whose repeated fields come in another XML order is still one rename', () => {
+  const withModes = (name: string, order: string[]): ConfigEntry[] => [
+    ...task(name).slice(0, 3), ...order.map((v, i) => entry(`tasks/${name}/Properties/Mode${i ? '#' + (i + 1) : ''}`, v, 'tasks'))];
+  const changes = diffConfig(withModes('Old', ['A', 'B']), withModes('New', ['B', 'A']));
+  assert.equal(changes.filter(c => c.kind === 'renamed').length, 1);
+});
+
+test('items that share only empty fields are not a rename', () => {
+  const sym = (name: string): ConfigEntry[] => [entry(`symbols/A/${name}/BaseType`, 'BOOL', 'symbols'), entry(`symbols/A/${name}/Comment`, '', 'symbols')];
+  assert.ok(diffConfig(sym('bStart'), sym('bReset')).every(c => c.kind !== 'renamed'));
+});
+
+test('a bulk change over the work budget is left as removed and added', () => {
+  const many = (prefix: string): ConfigEntry[] => Array.from({ length: 600 }, (_, i) =>
+    [entry(`symbols/A/${prefix}${i}/BaseType`, 'INT', 'symbols'), entry(`symbols/A/${prefix}${i}/Comment`, `signal ${i}`, 'symbols')]).flat();
+  const changes = diffConfig(many('o'), many('n'));
+  assert.ok(changes.every(c => c.kind !== 'renamed'));
+  assert.equal(changes.length, 2400);
+});
+
+test('an entity that exists on both sides is never paired', () => {
+  const changes = diffConfig(task('A'), [...task('A', '20 ms'), ...task('B')]);
+  assert.ok(changes.every(c => c.kind !== 'renamed'));
+});
+
+test('changesToText prints "renamed A -> B"', () => {
+  const text = changesToText(diffConfig(task('Old'), task('New')), new Set());
+  assert.ok(text.split('\n').includes('renamed  tasks/Old -> tasks/New'), text);
+});
+
+test('the html lists a renamed change with its kind', () => {
+  assert.ok(html('n', 'csp').includes('renamed'));
+});

@@ -13,12 +13,16 @@ export interface GitOptions {
   input?: string | Buffer;
   /** Kill the child after this many ms; the error then has timedOut = true. */
   timeout?: number;
+  /** Kills the child when it aborts; the promise then rejects (callers that care check the signal). */
+  signal?: AbortSignal;
 }
 
 function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = execFile('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8', timeout: opts.timeout }, (err, stdout, stderr) => {
+    const p = execFile('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8', timeout: opts.timeout, signal: opts.signal }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout);
+      // a killed child on abort: hand the caller the signal's own AbortError, not a git message
+      if (opts.signal?.aborted) return reject(opts.signal.reason ?? err);
       const e = new Error(stderr.trim() || err.message) as Error & { timedOut?: boolean };
       // `killed` is also set when the output exceeds maxBuffer, which is no timeout
       if (opts.timeout !== undefined && (err as { killed?: boolean }).killed && (err as { code?: unknown }).code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') e.timedOut = true;
@@ -64,12 +68,12 @@ export async function show(root: string, ref: string, file: string): Promise<str
  * Contents of many blobs with one `git cat-file --batch`. `file` is a repo-relative path used as given, `ref` may be `<sha>^`.
  * The key is `${ref}:${file}`; missing blobs are left out.
  */
-export async function blobsAt(root: string, items: { ref: string; file: string }[]): Promise<Map<string, string>> {
+export async function blobsAt(root: string, items: { ref: string; file: string }[], signal?: AbortSignal): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!items.length) return out;
   const keys = items.map(i => `${checkRef(i.ref)}:${i.file}`);
   const data = await new Promise<Buffer>((resolve, reject) => {
-    const p = execFile('git', ['cat-file', '--batch'], { cwd: root, maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer' },
+    const p = execFile('git', ['cat-file', '--batch'], { cwd: root, maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer', signal },
       (err, stdout, stderr) => (err ? reject(new Error(stderr.toString().trim() || err.message)) : resolve(stdout)));
     p.stdin!.on('error', () => { /* the child exited early; its exit code reports it */ });
     p.stdin!.end(keys.map(k => k + '\n').join(''));
@@ -226,10 +230,10 @@ export interface HistoryCommit { commit: Commit; path: string; parentPath?: stri
  * Commits that touched a file, following renames, newest first. `path` is the repo-relative path of the file in that
  * commit, `parentPath` its path in the first parent (differs only for a rename). A merge prints no name line and reuses the known path.
  */
-export async function historyCommits(root: string, file: string, max: number): Promise<HistoryCommit[]> {
+export async function historyCommits(root: string, file: string, max: number, signal?: AbortSignal): Promise<HistoryCommit[]> {
   const sep = '\u001f';
   const out = await git(root, ['log', '--follow', '-z', '--name-status', '--date=short', `-n${max}`,
-    `--format=%x01%H${sep}%h${sep}%ad${sep}%an${sep}%s${sep}%P`, '--', rel(root, file)]);
+    `--format=%x01%H${sep}%h${sep}%ad${sep}%an${sep}%s${sep}%P`, '--', rel(root, file)], { signal });
   const res: HistoryCommit[] = [];
   let cur = rel(root, file);
   for (const chunk of out.split('\u0001').slice(1)) {

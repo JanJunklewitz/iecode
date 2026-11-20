@@ -213,3 +213,22 @@ test('blobsAt skips the payload of a directory at a requested path and still rea
     assert.equal(got.get('HEAD:dir/f.txt'), 'inner\n');
   } finally { r.cleanup(); }
 });
+
+test('a cancelled history walk rejects with an AbortError instead of returning entries', async () => {
+  const r = tempRepo();
+  try {
+    r.write(F, pou([{ name: 'A', id: 2, body: longBody('1') }])); r.commitAll('c1');
+    r.write(F, pou([{ name: 'A', id: 2, body: longBody('2') }])); r.commitAll('c2');
+    const done = new AbortController();
+    done.abort();
+    await assert.rejects(objectHistory(r.dir, `${r.dir}/${F}`, 'METHOD:A', 200, done.signal), { name: 'AbortError' });
+    // cancelled while git runs: the walk still ends with the AbortError
+    const during = new AbortController();
+    const pending = objectHistory(r.dir, `${r.dir}/${F}`, 'METHOD:A', 200, during.signal);
+    during.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+    // an unused signal changes nothing
+    const ok = await objectHistory(r.dir, `${r.dir}/${F}`, 'METHOD:A', 200, new AbortController().signal);
+    assert.equal(ok.entries.length, 2);
+  } finally { r.cleanup(); }
+});

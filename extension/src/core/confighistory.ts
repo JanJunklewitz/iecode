@@ -28,7 +28,10 @@ export function changesToText(changes: ConfigChange[], hidden: ReadonlySet<Filte
   const out = [`${visible} visible change(s), ${groups.reduce((n, g) => n + g.hidden, 0)} hidden`];
   for (const g of groups.filter(x => x.total)) {
     out.push(`## ${g.category} (${g.total})`);
-    for (const c of g.shown) out.push(`${c.kind.padEnd(7)}  ${c.key}  ${c.before ?? ''}${c.before !== undefined && c.after !== undefined ? ' -> ' : ''}${c.after ?? ''}`.trimEnd());
+    for (const c of g.shown) {
+      if (c.kind === 'renamed') { out.push(`${c.kind.padEnd(7)}  ${c.from} -> ${c.key}`); continue; }
+      out.push(`${c.kind.padEnd(7)}  ${c.key}  ${c.before ?? ''}${c.before !== undefined && c.after !== undefined ? ' -> ' : ''}${c.after ?? ''}`.trimEnd());
+    }
   }
   if (links) out.push(`${links} IO link change(s): see links-diff`);
   return out.join('\n') + '\n';

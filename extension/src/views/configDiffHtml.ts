@@ -24,6 +24,7 @@ summary{cursor:pointer;padding:2px 0;white-space:nowrap}
 .added .kind{color:var(--vscode-gitDecoration-addedResourceForeground)}
 .removed .kind{color:var(--vscode-gitDecoration-deletedResourceForeground)}
 .changed .kind{color:var(--vscode-gitDecoration-modifiedResourceForeground)}
+.renamed .kind{color:var(--vscode-gitDecoration-renamedResourceForeground)}
 .k{word-break:break-all}.v{opacity:.85;word-break:break-word}
 .old{color:var(--vscode-gitDecoration-deletedResourceForeground);text-decoration:line-through}
 .new{color:var(--vscode-gitDecoration-addedResourceForeground)}
@@ -72,7 +73,7 @@ function render(m) {
   $('out').innerHTML = groups.length ? groups.map(g => '<details open><summary>' + e(g.category) + ' · ' + g.total + ' change' + (g.total === 1 ? '' : 's')
     + (g.hidden ? ' (' + g.hidden + ' hidden)' : '') + '</summary>'
     + g.shown.map(c => '<div class="r ' + c.kind + '"><span class="kind">' + c.kind + '</span><span class="k">' + e(c.key) + '</span><span class="v">'
-      + (c.kind === 'changed' ? '<span class="old">' + e(c.before) + '</span> → <span class="new">' + e(c.after) + '</span>' : c.kind === 'added' ? '<span class="new">' + e(c.after) + '</span>' : '<span class="old">' + e(c.before) + '</span>') + '</span></div>').join('')
+      + (c.kind === 'renamed' ? '<span class="old">' + e(c.from) + '</span> → <span class="new">' + e(c.key) + '</span>' : c.kind === 'changed' ? '<span class="old">' + e(c.before) + '</span> → <span class="new">' + e(c.after) + '</span>' : c.kind === 'added' ? '<span class="new">' + e(c.after) + '</span>' : '<span class="old">' + e(c.before) + '</span>') + '</span></div>').join('')
     + (g.total > g.shown.length ? '<div class="more">… and ' + (g.total - g.shown.length) + ' more (open as YAML to see all)</div>' : '')
     + '</details>').join('') : '<div class="empty">No visible differences.</div>';
 }

@@ -51,8 +51,19 @@ export function registerObjectHistory(ctx: vscode.ExtensionContext): void {
       const root = await repoRoot(t.file);
       if (!root) { vscode.window.showInformationMessage('IECode: the file is not in a git repository.'); return; }
 
-      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `History of ${t.label}`, cancellable: false },
-        () => objectHistory(root, t.file, t.key, MAX));
+      let result: Awaited<ReturnType<typeof objectHistory>>;
+      try {
+        result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `History of ${t.label}`, cancellable: true },
+          (_progress, token) => {
+            const abort = new AbortController();
+            const sub = token.onCancellationRequested(() => abort.abort());
+            if (token.isCancellationRequested) abort.abort();
+            return objectHistory(root, t.file, t.key, MAX, abort.signal).finally(() => sub.dispose());
+          });
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return;   // the user cancelled: nothing to report
+        throw e;
+      }
 
       const entries: HistoryEntry[] = [...result.entries];
       const wc = await workingCopyEntry(root, t.file, t.key, result.entries[0]);

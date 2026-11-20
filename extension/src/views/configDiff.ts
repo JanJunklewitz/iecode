@@ -53,7 +53,10 @@ async function openYamlDiff(file: string, left: string, right: string, leftLabel
 }
 
 const cut = (s: string | undefined) => (s !== undefined && s.length > MAX_VALUE ? s.slice(0, MAX_VALUE) + '…' : s);
-const pick = (c: ConfigChange) => ({ kind: c.kind, key: unescapeKey(c.key.startsWith(c.category + '/') ? c.key.slice(c.category.length + 1) : c.key), before: cut(c.before), after: cut(c.after) });
+const pick = (c: ConfigChange) => {
+  const shown = (k: string) => unescapeKey(k.startsWith(c.category + '/') ? k.slice(c.category.length + 1) : k);
+  return { kind: c.kind, key: shown(c.key), ...(c.from !== undefined ? { from: shown(c.from) } : {}), before: cut(c.before), after: cut(c.after) };
+};
 
 async function versions(file: string) {
   const root = await repoRoot(file);
