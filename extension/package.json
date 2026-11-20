@@ -143,6 +143,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "iecode.logViewer",
+        "displayName": "IECode Log Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.log"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "snippets": [
@@ -621,6 +631,42 @@
         "command": "iecode.mcpDisconnect",
         "title": "Disconnect Claude Code",
         "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.open",
+        "title": "Open in Log Viewer",
+        "category": "IECode",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "iecode.logViewer.openMerged",
+        "title": "Open Logs Merged on One Timeline",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.nextError",
+        "title": "Log Viewer: Next Error",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.previousError",
+        "title": "Log Viewer: Previous Error",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.toggleBookmark",
+        "title": "Log Viewer: Toggle Bookmark",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.nextBookmark",
+        "title": "Log Viewer: Next Bookmark",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.previousBookmark",
+        "title": "Log Viewer: Previous Bookmark",
+        "category": "IECode"
       }
     ],
     "menus": {
@@ -674,6 +720,16 @@
           "command": "iecode.configDiff",
           "when": "resourceExtname =~ /\\.xti$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.logViewer.open",
+          "when": "resourceExtname =~ /\\\\.log$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.logViewer.openMerged",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /\\\\.log$/i",
+          "group": "navigation"
         }
       ],
       "editor/title": [
@@ -1172,6 +1228,26 @@
           "when": "isInDiffEditor && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^(?!iecode(-rev|-src)?$)/"
         },
         {
+          "command": "iecode.logViewer.nextError",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.previousError",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.toggleBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.nextBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.previousBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
           "command": "iecode.aiAdd",
           "when": "resourceScheme == iecode || editorLangId == twincat-st"
         },
@@ -1377,6 +1453,11 @@
           "command": "iecode.configDiff",
           "when": "resourceExtname =~ /\\.xti$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.logViewer.open",
+          "when": "resourceExtname =~ /\\\\.log$/i && activeCustomEditorId != iecode.logViewer",
+          "group": "1_open"
         }
       ],
       "scm/resourceState/context": [
@@ -1430,6 +1511,32 @@
         "command": "iecode.build",
         "key": "ctrl+shift+b",
         "when": "resourceScheme == iecode"
+      },
+      {
+        "command": "iecode.logViewer.nextError",
+        "key": "f8",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.previousError",
+        "key": "shift+f8",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.toggleBookmark",
+        "key": "ctrl+f2",
+        "mac": "cmd+f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.nextBookmark",
+        "key": "f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.previousBookmark",
+        "key": "shift+f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
       }
     ],
     "configuration": {
@@ -1729,6 +1836,66 @@
           "default": "",
           "scope": "application",
           "markdownDescription": "Folder with the TwinCAT log files, read by the AI tool **ADS Log**. User settings only; a workspace value is ignored. The log of the machine this editor runs on, not necessarily of the ADS target. Must be a full path."
+        },
+        "iecode.logViewer.formats": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "entry"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id; a user format with the id of a built-in format replaces it."
+              },
+              "name": {
+                "type": "string",
+                "description": "Name shown in the viewer."
+              },
+              "entry": {
+                "type": "string",
+                "markdownDescription": "Regular expression for the first line of an entry, with the optional named groups `seq`, `time`, `level`, `source` and `message` (lines that don't match continue the previous entry)."
+              },
+              "timeFormat": {
+                "type": "string",
+                "markdownDescription": "Format of the `time` group with the tokens `yyyy`, `MM`, `dd`, `HH`, `mm`, `ss` and `SSS`, e.g. `yyyy-MM-dd HH:mm:ss.SSS`."
+              },
+              "levels": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info",
+                    "debug",
+                    "other"
+                  ]
+                },
+                "markdownDescription": "Maps the text of the `level` group to a level."
+              },
+              "ignore": {
+                "type": "string",
+                "description": "Regular expression for lines to skip."
+              }
+            }
+          },
+          "markdownDescription": "Log formats of the **Log Viewer**, tried before the built-in ones. Only the first 8 KB of a line are matched. **Caution:** a regular expression with catastrophic backtracking (e.g. nested quantifiers like `(a+)+`) blocks VS Code while a file is scanned."
+        },
+        "iecode.logViewer.gapSeconds": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 0,
+          "markdownDescription": "The **Log Viewer** marks a gap above an entry that comes more than this many seconds after the previous one. `0` turns the marks off."
+        },
+        "iecode.logViewer.groupRepeats": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "The **Log Viewer** shows consecutive repeats of the same entry (same source, level, message and continuation lines) as one row with a count."
         }
       }
     },

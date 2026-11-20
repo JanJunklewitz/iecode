@@ -40,13 +40,19 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - `ads_watch`, `ads_read`, `ads_scope` and `ads_wait` start (wait: end) with a notice when the connection to the PLC was lost and restored, when the symbols were reloaded after a download, online change or PLC restart, or when sampling had stopped. `ads_scope` also warns on every call when its time window contains such a hole. The ADS Watch view and the ADS Scope show the notice for two minutes, also while the scope is paused. The reload notice needs the iecode CLI of this release.
 - A watched symbol that is in the symbol table but not in the running program no longer produces a "symbols were reloaded" notice every 5 seconds, and the confirmation does not claim that auto-approve does not apply when it was never chosen.
 - `ads_symbols` with the online list finds the members below a path (filter `MAIN.fb.stSet.`) that the table walk did not list. Needs the iecode CLI of this release.
+### Log viewer
+- **Log Viewer** for `.log` files (right-click a file: **Open in Log Viewer**, or **Reopen Editor Withâ€¦**): a read-only table with time, level, source and message, colors per level, a detail pane for multi-line entries, gap marks between entries (`iecode.logViewer.gapSeconds`) and repeated entries grouped into one row with a count (`iecode.logViewer.groupRepeats`).
+- Filters for level, time range, source and free text or regex, each with the number of entries it hides; next / previous error, bookmarks and **Export** of the filtered view as the original lines.
+- Formats: the TwinCAT logger, tab-separated logs and plain text are built in and detected per file; add your own with a regular expression in `iecode.logViewer.formats`.
+- **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
+- Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
+- **Live** off now also holds a refresh that was queued behind the running one, and the years 0000 to 0099 are read as years.
 
 ## 0.2.20
 
 ### CLI
 - `iecode build` (and `info`, `lib`, `ws`) works on a solution whose PLC project is encrypted with `iecode encrypt --protect "<plc project>,encrypted=true"`: the binary `.plcproj` no longer stops it with `Data at the root level is invalid`. `iecode info` shows such a project as encrypted.
 - `iecode encrypt` applies an item again (up to 5 times, 5 s apart) when TwinCAT reports a file of it as used by another process, instead of ending with an unexpected error (exit 99).
-
 ## 0.2.19
 
 ### Project tree
