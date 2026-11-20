@@ -6,6 +6,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 ### Fixes
 - The context menu entries for `.plcproj`, `.xti` and the object files in the Explorer and the editor title showed up never because their file extension conditions were escaped twice.
+### Structured Text view
+- **Blame per method:** the new setting `iecode.blame.enabled` (off by default, toggle with **IECode: Toggle Blame per Method**) shows above every method, property, action and accessor who last changed it, and the author, date and commit of a line on hover. It counts on the lines of the view, so an appended line does not take over the line before it, and whitespace and line-ending changes are ignored. A view with unsaved edits shows nothing until it is saved.
+- Blame and the line history also work for object files with non-ASCII characters in their name.
 
 ## 0.2.20
 

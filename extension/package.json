@@ -153,6 +153,11 @@
     ],
     "commands": [
       {
+        "command": "iecode.toggleBlame",
+        "title": "Toggle Blame per Method",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.openAsST",
         "title": "Open as Structured Text",
         "category": "IECode"
@@ -1421,6 +1426,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Keep the `.plcproj` in step with TwinCAT object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders created, deleted, renamed or moved in VS Code (explorer, paste, drag and drop). An empty new `.TcPOU`/`.TcDUT`/`.TcGVL`/`.TcIO` gets a template named after the file; a copied object takes the file's name and new ids. Changes made by other programs (git, TwinCAT) are not touched."
+        },
+        "iecode.blame.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show who last changed each method, property, action or accessor above it in the Structured Text view, and the author of a line on hover. Counted on the lines of the view, not on the XML. Off by default because every opened view costs a `git blame` of the object file. A view with unsaved edits shows nothing until it is saved."
         },
         "iecode.checkProjectFiles": {
           "type": "boolean",
