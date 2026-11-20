@@ -2,7 +2,9 @@
 
 State of 2026-11-20 for the project tree filter (branch `feature/tree-filter`) and the ADS state work (branch `feature/ads-state-and-tree-filter`). Tick an item only after seeing it in the installed extension, and note what was seen when it fails.
 
-Prerequisite: a VSIX built from the fixed branches. Legend: `[ ]` to do, `[x]` done, `[!]` failed.
+Prerequisite: the VSIX built from `combined/all-in-one` (it holds the tree filter and the ADS work together). Legend: `[ ]` to do, `[x]` done, `[!]` failed.
+
+Build state of `combined/all-in-one` (2026-11-20): extension compiles, 1313 of 1319 tests pass (6 skipped, none failed), CLI builds without warnings and its 331 tests pass, VSIX packaged. These are automated checks only; every item below is a hand check that has not been done on this build.
 
 ## Priority 1: must pass before the branches are merged
 
@@ -16,12 +18,12 @@ Prerequisite: a VSIX built from the fixed branches. Legend: `[ ]` to do, `[x]` d
 
 ### ADS
 
-Needs a VSIX built from `feature/ads-state-and-tree-filter`, not from the tree filter branch. First check the installed `ads_write` description: it must say auto writes "only while it is armed", and the user settings must not hold a stray `iecode.ads.aiWritesArmedAt`.
+The 2026-11-20 simulation test ran an older build, which probably explains P1-6 and P1-7 (not confirmed; the code asks for a confirmation and a test pins it); repeat both with the combined VSIX. First check the installed `ads_write` description: it must say auto writes "only while it is armed", and the user settings must not hold a stray `iecode.ads.aiWritesArmedAt`.
 
 - [ ] **P1-6** `iecode.ads.aiWrites = "auto"` left over from an old version and never re-chosen: a write asks for confirmation.
 - [ ] **P1-7** Auto-approve armed with `iecode.ads.aiWritesAutoMinutes = 1`: after 60 s the next write asks again, also after changing the duration while armed.
 - [ ] **P1-8** After a PLC runtime restart exactly one "symbols were reloaded" notice appears in the next tool result. Not fixed: a plain stop and start probably keeps the symbol version, so the CLI host reports no reload. Check with the watch host in JSON mode against a restart.
-- [ ] **P1-9** `ads_symbols` with `source=online` and a prefix that names a struct member (`MAIN.fb.st.`) lists the members of the struct.
+- [ ] **P1-9** `ads_symbols` with `source=online` and a prefix that names a struct member (`MAIN.fb.st.`) lists the members of the struct. A fix that resolves the members below the filter path is in; its cause was not confirmed without a live PLC.
 
 ## Priority 2: should be checked, behaviour is specified but not yet seen
 
