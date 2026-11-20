@@ -94,7 +94,7 @@ Checked on 2026-11-20 by reading code and test names (no test run for this check
 | Object analysis: master, A blame, D graph, E unused, F impact, G IO checks, H structure checks | done | manual checks on real projects |
 | Object analysis B history | partly | task 4 renamed items in the config diff (own pull request by the master plan); history cannot be cancelled |
 | Object analysis C staging | partly | task 4 Discard (own pull request by the master plan) |
-| Small items A auto-write expiry | done | Copilot gate test for a lapsed window; hand check |
+| Small items A auto-write expiry | done | hand check (Copilot gate test for a lapsed window added on `test/copilot-gate-lapsed-window`) |
 | Small items B sampling notice | done | hand check, simulation session items 1 to 8; plot break deferred |
 | Small items C `ads_state` | **not built** | everything |
 | Small items D tree filter | done | one more look at the two fixes (P1-1 to P1-5) |
