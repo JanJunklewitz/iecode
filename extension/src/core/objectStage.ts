@@ -1,6 +1,7 @@
 // Stage (or discard) one section of a PLC object file by splicing XML node ranges between two versions of the text.
 // Nothing is decoded and re-encoded: encode() would give an added member a new random Id and drop its LineIds.
 
+import { randomBytes } from 'crypto';
 import { ViewError, sectionsOfXml } from '../model';
 import { XNode, cdataText } from '../xml';
 
@@ -247,12 +248,15 @@ const SECTION_WORDS: Record<string, string> = { METHOD: 'method', ACTION: 'actio
 /** The modal question of the discard command: names the section and the file, and says there is no undo. */
 export function discardConfirmText(key: string, fileName: string, state: State = 'changed'): string {
   const [kind, name] = key.split(':');
-  const what = key === 'MAIN' ? 'the declaration' : `${SECTION_WORDS[kind] ?? kind.toLowerCase()} ${name}`;
+  const what = key === 'MAIN' ? 'the main declaration and implementation' : `${SECTION_WORDS[kind] ?? kind.toLowerCase()} ${name}`;
   // an added section is not in the index: discarding deletes it, there is nothing to go back to
   if (state === 'added') return `Delete ${what} from ${fileName}? It exists only in the working file. This cannot be undone.`;
   if (state === 'removed') return `Restore ${what} in ${fileName}? It was deleted in the working file and comes back from the index.`;
   return `Discard your changes to ${what} in ${fileName}? It goes back to the staged version (the index, not HEAD). This cannot be undone.`;
 }
+
+/** Leftover merge conflict markers in a text, which `decode()` does not notice inside CDATA. */
+export const hasConflictMarkers = (text: string): boolean => /^(<{7}|>{7})( |$)/m.test(text);
 
 /** The file operations of `writeFileSafe`, injectable so a failing write can be tested without a read-only folder. */
 export interface SafeWriteIo {
@@ -266,14 +270,17 @@ export interface SafeWriteIo {
  * The temporary file is removed on every failure. (Remaining limit: an external writer between the caller's hash check and the rename.)
  */
 export async function writeFileSafe(target: string, content: Uint8Array | string, io: SafeWriteIo,
-  opts: { retries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<void> {
-  const tmp = `${target}.iecode-${process.pid}-${Date.now().toString(36)}.tmp`;
+  opts: { retries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void>; beforeRename?: () => Promise<void> } = {}): Promise<void> {
+  // random, so two writes to one target in the same millisecond never share a temporary file
+  const tmp = `${target}.iecode-${randomBytes(6).toString('hex')}.tmp`;
   const retries = opts.retries ?? 2, delayMs = opts.delayMs ?? 200;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   try {
     await io.write(tmp, content);
     // XAE, a virus scanner or a read-only flag can hold the target for a moment on Windows
     for (let attempt = 0; ; attempt++) {
+      // the caller re-checks that nothing else changed the target while the temporary file was written or the rename waited
+      await opts.beforeRename?.();
       try { await io.rename(tmp, target); break; } catch (e) {
         if (attempt >= retries || !['EBUSY', 'EPERM', 'EACCES'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e;
         await sleep(delayMs);

@@ -4,7 +4,7 @@
 import { createHash } from 'crypto';
 import { promises as fsp } from 'fs';
 import * as vscode from 'vscode';
-import { GuardInput, SafeWriteIo, State, changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, stageGuard, stageSection, writeFileSafe } from '../core/objectStage';
+import { GuardInput, SafeWriteIo, State, hasConflictMarkers, changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, stageGuard, stageSection, writeFileSafe } from '../core/objectStage';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, repoRoot, writeIndexBlob } from '../core/git';
 import { decode, outline } from '../model';
 
@@ -20,7 +20,7 @@ const isDirty = (fsPath: string) => vscode.workspace.textDocuments.some(d =>
 const nodeIo: SafeWriteIo = {
   // synced before the rename: after a crash the target must not be replaced by an empty file
   write: async (p, c) => {
-    const h = await fsp.open(p, 'w');
+    const h = await fsp.open(p, 'wx');
     try { await h.writeFile(c); await h.sync(); } finally { await h.close(); }
   },
   rename: (a, b) => fsp.rename(a, b),
@@ -44,7 +44,7 @@ async function snapshot(file: vscode.Uri, guard: Guard = stageGuard, targetIsWor
   let decodes = true;
   try { decode(work.replace(/^﻿/, '')); if (index) decode(index.replace(/^﻿/, '')); } catch { decodes = false; }
   const g = guard({
-    tracked: !!entry && entry.stage === 0 || conflict, intentToAdd: index === '', conflict, decodes, dirty: isDirty(file.fsPath),
+    tracked: !!entry && entry.stage === 0 || conflict, intentToAdd: index === '', conflict: conflict || hasConflictMarkers(work) || (!!index && hasConflictMarkers(index)), decodes, dirty: isDirty(file.fsPath),
     // staging splices into the index text, discarding into the working file: the target's line endings must be uniform
     mixedEol: targetIsWork ? hasMixedEol(work) || (!!index && hasMixedEol(index)) : !!index && hasMixedEol(index), utf8,
   });
@@ -126,7 +126,13 @@ export function registerObjectStage(ctx: vscode.ExtensionContext): void {
         // what the user confirmed was a section against one index version: another stage or reset in between changes what comes back
         if (again.s.indexSha !== r.s.indexSha || !again.s.keys.has(key)) { vscode.window.showWarningMessage('IECode: the index changed while the question was open, try again'); refresh(); return; }
         const next = discardSection(again.s.index, again.s.work, key);
-        await writeFileSafe(file.fsPath, Buffer.from(next, 'utf8'), nodeIo);
+        await writeFileSafe(file.fsPath, Buffer.from(next, 'utf8'), nodeIo, {
+          // right before every rename: an XAE save or an edit that arrived since the snapshot must not be overwritten
+          beforeRename: async () => {
+            const now = decodeUtf8Strict(await fsp.readFile(file.fsPath));
+            if (now === undefined || sha(now) !== again.s.hash || isDirty(file.fsPath)) throw new Error('the file changed while it was being written, nothing was replaced; try again');
+          },
+        });
         await vscode.commands.executeCommand('git.refresh').then(undefined, () => undefined);
         refresh();
       } catch (e) {

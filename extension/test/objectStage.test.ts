@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection, writeFileSafe } from '../src/core/objectStage';
+import { hasConflictMarkers, changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection, writeFileSafe } from '../src/core/objectStage';
 import { tempRepo } from './helpers/gitRepo';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, runGit, writeIndexBlob } from '../src/core/git';
 import { join } from 'path';
@@ -404,7 +404,8 @@ test('discardConfirmText names the section and says it cannot be undone', () => 
   // a section that exists only in the working file is deleted, not restored: the text must say so
   assert.equal(discardConfirmText('METHOD:Foo', 'FB_A.TcPOU', 'added'), 'Delete method Foo from FB_A.TcPOU? It exists only in the working file. This cannot be undone.');
   assert.match(discardConfirmText('ACTION:Foo', 'FB_A.TcPOU', 'removed'), /^Restore action Foo in FB_A\.TcPOU\?.*index\.$/);
-  assert.match(discardConfirmText('MAIN', 'FB_A.TcPOU'), /^Discard your changes to the declaration in FB_A\.TcPOU\?/);
+  // the main section is the declaration and the implementation: the question must name both
+  assert.match(discardConfirmText('MAIN', 'FB_A.TcPOU'), /^Discard your changes to the main declaration and implementation in FB_A\.TcPOU\?/);
   assert.match(discardConfirmText('GET:Speed', 'X.TcPOU'), /property getter Speed/);
 });
 
@@ -424,4 +425,28 @@ test('writeFileSafe retries a rename that a lock holds for a moment, but not oth
   renames = 0;
   await assert.rejects(writeFileSafe('C:/p/F.TcPOU', 'x', io('ENOSPC', 99), { sleep: async () => undefined }), /ENOSPC/);
   assert.equal(renames, 1, 'no retry for an error a wait does not fix');
+});
+
+test('writeFileSafe checks before every rename attempt and replaces nothing when the check fails', async () => {
+  const calls: string[] = [];
+  let checks = 0;
+  await assert.rejects(writeFileSafe('C:/p/F.TcPOU', 'x', {
+    write: async () => undefined,
+    rename: async () => { calls.push('rename'); throw Object.assign(new Error('busy'), { code: 'EBUSY' }); },
+    remove: async () => { calls.push('remove'); },
+  }, { sleep: async () => undefined, beforeRename: async () => { if (++checks === 2) throw new Error('changed'); } }), /changed/);
+  assert.deepEqual(calls, ['rename', 'remove'], 'the second attempt was stopped by the check, the temporary file removed');
+});
+
+test('writeFileSafe uses a different temporary name every time', async () => {
+  const names = new Set<string>();
+  for (let i = 0; i < 20; i++) await writeFileSafe('C:/p/F.TcPOU', 'x', { write: async p => { names.add(p); }, rename: async () => undefined, remove: async () => undefined });
+  assert.equal(names.size, 20);
+});
+
+test('hasConflictMarkers finds leftover markers at a line start only', () => {
+  assert.equal(hasConflictMarkers('a\n<<<<<<< HEAD\nb'), true);
+  assert.equal(hasConflictMarkers('a\n>>>>>>> branch\n'), true);
+  assert.equal(hasConflictMarkers('x := a <<<<<<< 1;'), false);
+  assert.equal(hasConflictMarkers('plain'), false);
 });
