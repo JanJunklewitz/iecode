@@ -9,6 +9,7 @@ namespace IECode.Core.Ads;
 public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null, string? target = null)
 {
     public const int Protocol = 2, MaxSymbols = 200, MaxWrites = 20;
+    private const string VersionReason = "symbol version changed", HandlesReason = "symbol handles no longer valid";
     private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000, ResolveBackoffMs = 5000;
 
     private readonly Action<string> _log = log ?? Console.Error.WriteLine;
@@ -24,6 +25,8 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     private bool _connected, _needResolve, _freshResolve;
     private DateTimeOffset? _lastFlush, _retryAt, _resolveBackoffUntil;
     private bool _retryPending;
+    /// <summary>Why the last resolve that did not finish was started; the retry (or the reconnect) reports it, a finished resolve clears it.</summary>
+    private string? _pendingReason;
     private int _intervalMs = 100;
 
     public int IntervalMs => _intervalMs;
@@ -118,6 +121,8 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         var fresh = _freshResolve;
         _freshResolve = false;
         var guarded = fresh || _resolveBackoffUntil is { } until && now < until;
+        // a resolve after a back-off loads the same table again: it is a retry, not news for the extension
+        var retry = _resolveBackoffUntil is not null;
         IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> row;
         try
         {
@@ -127,7 +132,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         {
             if (f.AdsCode is { } c && AdsCodes.IsDeadHandle(c))
             {
-                if (!guarded) { ResolveAgain(); return; }
+                if (!guarded) { ResolveAgain(retry ? null : HandlesReason); return; }
                 if (fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
             }
             ReportOnce("read:" + f.Message, f.Message);
@@ -136,10 +141,15 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         var dead = new SortedDictionary<int, uint>();
         for (var i = 0; i < row.Count; i++)
             if (row[i].AdsCode is { } c && AdsCodes.IsDeadHandle(c)) dead[i] = c;
-        if ((dead.Count > 0 && !guarded) || backend.SymbolVersionChanged())
+        if (dead.Count == 0) _resolveBackoffUntil = null;
+        string? reason = null;
+        var resolve = false;
+        if (dead.Count > 0 && !guarded) { resolve = true; reason = retry ? null : HandlesReason; }
+        else if (backend.SymbolVersionChanged()) { resolve = true; reason = VersionReason; }
+        if (resolve)
         {
             // The row belongs to the old resolution: drop it.
-            ResolveAgain();
+            ResolveAgain(reason);
             return;
         }
         if (dead.Count > 0 && fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
@@ -185,12 +195,14 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     /// Resolves the watched symbols again; a changed result starts a new gen (rows of the old gen are flushed first).
     /// A failed resolve stays pending, so the next Tick tries again.
     /// </summary>
-    private void ResolveAgain()
+    private void ResolveAgain(string? reason = null)
     {
         FlushPending();
         _needResolve = true;
+        _pendingReason = reason ?? _pendingReason;
         var items = backend.Resolve(_symbols);
         _needResolve = false;
+        EmitReloaded();
         _freshResolve = true;
         if (!items.SequenceEqual(_resolvedItems))
         {
@@ -199,6 +211,18 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         }
         // Unreadable items keep their error until the next poll shows whether they read now.
         Publish();
+    }
+
+    /// <summary>
+    /// After a successful resolve: tells the extension that the symbols were loaded again, also when the items did not change.
+    /// The reason is the pending one of an unfinished resolve, else the version change the backend saw at this resolve
+    /// (a watch request or a reconnect can be the first resolve after a download).
+    /// </summary>
+    private void EmitReloaded()
+    {
+        var reason = _pendingReason ?? (backend.ResolveChangedVersion ? VersionReason : null);
+        _pendingReason = null;
+        if (reason is not null) emit(WatchJson.Serialize(new WatchReloadedEvent("reloaded", reason)));
     }
 
     /// <summary>Announces a new gen with an items event if the published items changed.</summary>
@@ -289,6 +313,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
                 throw;
             }
             _needResolve = false;
+            EmitReloaded();
         }
         else
         {

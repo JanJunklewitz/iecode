@@ -24,7 +24,8 @@ import { RestorePlan, journalText, planRestore } from '../core/writeJournal';
 import { persistentIn } from '../core/writePolicy';
 import { nodeLogFs } from './logFs';
 import { LogRequest, ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readStructRows, structNeedsNewerCli, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { NoticeReader, scopeGapWarning } from '../core/samplingLog';
+import { ToolNames, ToolText, capText, withNotice, withTrailingNotice, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readStructRows, structNeedsNewerCli, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { expandAdds } from '../core/watchExpand';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
@@ -46,7 +47,7 @@ export const SCOPE_SECONDS = 60;
 /** AI-supplied symbol or value, safe for one log line or prompt. */
 const show = (s: unknown) => oneLine(String(s));
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString();
+export const clock = (ms: number) => new Date(ms).toLocaleTimeString();
 
 /** Errors of a failed host start were already shown to the user; the model gets the reason as text. */
 export const errorText = (e: unknown) => `Error: ${(e as Error).message}${e instanceof StartError || (e instanceof WriteNotSent && e.alreadyShown) ? ' (already shown to the user)' : ''}`;
@@ -157,8 +158,11 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
     apply: next => host.applySampling(next),
     setTimer: (ms, fn) => { const t = setTimeout(fn, ms); return { dispose: () => clearTimeout(t) }; },
   });
+  // the notices this session has not seen yet (R15); every watch, read, scope and wait result takes them, errors too
+  const reader = new NoticeReader(host.log, clock, names);
+  const noticed = (r: ToolText): ToolText => ({ ...r, text: capText(withNotice(r.text, reader.take())) });
 
-  return {
+  const tools = {
     host,
 
     /** The "needs a newer iecode CLI" text when the host lacks the protocol feature, else undefined. */
@@ -435,7 +439,9 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const parkedEntries = host.entries().filter(e => e.groups?.length && unwatched.some(u => u.trim().toLowerCase() === e.symbol.toLowerCase()));
       const parkedNames = new Set(parkedEntries.map(e => e.symbol.toLowerCase()));
       const parked = parkedEntries.map(e => `${e.symbol} [group ${e.groups?.join(', ')}]`);
-      return ok(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly, edges: input.edges }) : undefined, unwatched.filter(u => !parkedNames.has(u.trim().toLowerCase())), names, parked));
+      // a hole in the shown window is named on every call, not only once like the notice (R16)
+      const holes = watched.length ? scopeGapWarning(host.log.since(0).events, seconds, newest(host, watched), Date.now(), clock) : undefined;
+      return ok(withNotice(scopeToolText(watched.length ? scopeSummary(host, watched, seconds, { maxRows: input.maxRows, decimals: input.decimals, changesOnly: input.changesOnly, edges: input.edges }) : undefined, unwatched.filter(u => !parkedNames.has(u.trim().toLowerCase())), names, parked), holes));
     },
 
     async wait(input: WaitInput, signal: AbortSignal): Promise<ToolText> {
@@ -455,6 +461,18 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const outcome = await leased(host, () => runWait(deps, input, signal));
       const r = waitResultText({ symbol: input.symbol.trim(), condition: input.condition, outcome, intervalMs: host.sampling().intervalMs, clock, target });
       return { ...r, text: capText(r.text) };
+    },
+  };
+
+  return {
+    ...tools,
+    watch: async (request: WatchInput, signal: AbortSignal): Promise<ToolText> => noticed(await tools.watch(request, signal)),
+    read: async (input: ReadInput): Promise<ToolText> => noticed(await tools.read(input)),
+    scope: (input: ScopeInput): ToolText => noticed(tools.scope(input)),
+    // the verdict stays first
+    wait: async (input: WaitInput, signal: AbortSignal): Promise<ToolText> => {
+      const r = await tools.wait(input, signal);
+      return { ...r, text: capText(withTrailingNotice(r.text, reader.take())) };
     },
   };
 }

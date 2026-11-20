@@ -31,6 +31,7 @@ public sealed class WatchHostTests
         }
         public IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> ReadWatched() => ReadFn();
         public bool SymbolVersionChanged() => VersionFn();
+        public bool ResolveChangedVersion { get; set; }
         public (string Type, string Value) ReadOnce(string symbol) => ("INT", "1");
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => WriteFn(symbol, text);
         public int WriteManyCalls;
@@ -530,6 +531,21 @@ public sealed class WatchHostTests
     }
 
     [Fact]
+    public void A_phantom_symbol_announces_the_reload_once_not_at_every_retry()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => [Ok("1"), Err(0x710)];
+        r.Host.Start();
+        r.Watch("MAIN.a", "MAIN.phantom");
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+        // the retries after each 5 s back-off find the same table: nothing changed, nothing to announce
+        for (var ms = 10; ms < 16000; ms += 10) r.Host.Tick(T0.AddMilliseconds(ms));
+        Assert.True(r.Backend.ResolveCalls >= 4, "the retries still resolve");
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
     public void WatchHost_PhantomSymbol_ReadableAgain_ClearsItemError()
     {
         var r = new Rig();
@@ -698,5 +714,157 @@ public sealed class WatchHostTests
         var reply = r.Last();
         Assert.False(reply.GetProperty("ok").GetBoolean());
         Assert.Equal("read needs an integer 'depth'.", reply.GetProperty("error").GetString());
+    }
+
+    private static List<string> Reasons(Rig r) => r.Events("reloaded").Select(e => e.GetProperty("reason").GetString()!).ToList();
+
+    [Fact]
+    public void Symbol_version_change_with_unchanged_items_emits_reloaded()
+    {
+        var r = new Rig();
+        var changed = true;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Lines.Clear();
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol version changed"], Reasons(r));
+        Assert.Empty(r.Events("items"));
+        Assert.Equal("""{"event":"reloaded","reason":"symbol version changed"}""", r.Lines.Single(l => l.Contains("reloaded")));
+    }
+
+    [Fact]
+    public void Dead_handle_resolve_emits_reloaded_with_the_handle_reason()
+    {
+        var r = new Rig();
+        var dead = true;
+        r.Backend.ReadFn = () => { var d = dead; dead = false; return d ? [Err(0x710)] : [Ok("1")]; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Watch_op_does_not_emit_reloaded()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Watch("MAIN.nCount", "MAIN.nOther");
+        Assert.Empty(r.Events("reloaded"));
+    }
+
+    [Fact]
+    public void Watch_op_as_the_first_resolve_after_a_download_emits_reloaded()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.ResolveChangedVersion = true;
+        r.Watch("MAIN.nCount");
+        Assert.Equal(["symbol version changed"], Reasons(r));
+        // The event comes before the reply of the watch request.
+        Assert.Contains("reloaded", r.Lines[^2]);
+        Assert.True(r.Last().GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public void Reconnect_resolve_does_not_emit_reloaded()
+    {
+        var r = new Rig();
+        var lost = true;
+        r.Backend.ReadFn = () => lost ? throw new AdsFault("gone", 0x745, true) : [Ok("1")];
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        lost = false;
+        r.Host.Tick(T0.AddMilliseconds(2000));
+        Assert.Equal(3, r.Events("state").Count);
+        Assert.Empty(r.Events("reloaded"));
+    }
+
+    [Fact]
+    public void A_failed_resolve_emits_reloaded_once_when_the_retry_succeeds()
+    {
+        var r = new Rig();
+        var changed = true;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        var ok = r.Backend.ResolveFn;
+        r.Backend.ResolveFn = _ => throw new AdsFault("Symbol upload failed", null, false);
+        r.Host.Tick(T0);
+        Assert.Empty(r.Events("reloaded"));
+        r.Backend.ResolveFn = ok;
+        r.Host.Tick(T0.AddMilliseconds(100));
+        r.Host.Tick(T0.AddMilliseconds(200));
+        Assert.Equal(["symbol version changed"], Reasons(r));
+    }
+
+    [Fact]
+    public void Reconnect_after_a_symbol_version_change_emits_reloaded()
+    {
+        var r = new Rig();
+        var lost = true;
+        r.Backend.ReadFn = () => lost ? throw new AdsFault("gone", 0x745, true) : [Ok("1")];
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        lost = false;
+        r.Backend.ResolveChangedVersion = true;
+        r.Host.Tick(T0.AddMilliseconds(2000));
+        Assert.Equal(["symbol version changed"], Reasons(r));
+    }
+
+    [Fact]
+    public void A_dead_handle_reason_survives_a_connection_loss()
+    {
+        var r = new Rig();
+        var dead = true;
+        r.Backend.ReadFn = () => { var d = dead; dead = false; return d ? [Err(0x710)] : [Ok("1")]; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        var ok = r.Backend.ResolveFn;
+        r.Backend.ResolveFn = _ => throw new AdsFault("gone", 0x745, true);
+        r.Host.Tick(T0);
+        Assert.Empty(r.Events("reloaded"));
+        r.Backend.ResolveFn = ok;
+        r.Backend.ResolveChangedVersion = true;
+        r.Host.Tick(T0.AddMilliseconds(2000));
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Dead_handles_with_a_changed_version_keep_the_handle_reason()
+    {
+        var r = new Rig();
+        var versionCalls = 0;
+        var dead = true;
+        r.Backend.ReadFn = () => { var d = dead; dead = false; return d ? [Err(0x710)] : [Ok("1")]; };
+        r.Backend.VersionFn = () => { versionCalls++; return true; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        var before = versionCalls;
+        r.Host.Tick(T0);
+        Assert.Equal(before, versionCalls);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Samples_buffered_before_the_reload_poll_come_before_the_reloaded_event()
+    {
+        var r = new Rig();
+        var changed = false;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        changed = true;
+        r.Host.Tick(T0.AddMilliseconds(10));
+        var kinds = r.Lines.Select(Parse).Where(e => e.TryGetProperty("event", out _)).Select(e => e.GetProperty("event").GetString()).ToList();
+        Assert.True(kinds.IndexOf("samples") >= 0 && kinds.IndexOf("samples") < kinds.IndexOf("reloaded"));
     }
 }

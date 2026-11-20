@@ -1674,11 +1674,26 @@
           "enumDescriptions": [
             "AI tools cannot write PLC variables.",
             "You confirm each AI write. Claude Code writes always show IECode's own dialog. In Copilot Chat this relies on you not choosing \"Always Allow\" for the ADS Write tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
-            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\"."
+            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto (N min left)\" while armed, or \"auto expired\" / \"auto not armed\" when each write is confirmed. Lasts iecode.ads.aiWritesAutoMinutes (default 60) from arming, then each write is confirmed again."
           ],
           "default": "off",
           "scope": "application",
           "markdownDescription": "Whether AI tools (GitHub Copilot Chat in agent mode, Claude Code) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
+        },
+        "iecode.ads.aiWritesAutoMinutes": {
+          "type": "integer",
+          "default": 60,
+          "minimum": 1,
+          "maximum": 1440,
+          "scope": "application",
+          "markdownDescription": "How long **Auto-approve** of `iecode.ads.aiWrites` lasts after you arm it with **IECode: Set AI Write Access…**. Afterwards every AI write is confirmed again until you arm it again. Changing it changes the current arming too: a lower value can end it at once, a higher one extends it."
+        },
+        "iecode.ads.aiWritesArmedAt": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "ignoreSync": true,
+          "markdownDescription": "Set by **IECode: Set AI Write Access…**: when you last chose Auto-approve (cleared when you choose Off or Confirm). It is cleared only by choosing Off or Confirm in **IECode: Set AI Write Access…**, so editing `aiWrites` by hand does not clear it. Not meant to be edited; a time in the future is ignored. Not synced with Settings Sync, so each PC is armed on its own."
         },
         "iecode.ads.presets": {
           "type": "object",
@@ -2011,7 +2026,7 @@
         "toolReferenceName": "adsWrite",
         "displayName": "ADS Write",
         "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
-        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). To set several values together, pass writes (1-20 items) instead of symbol and value: after one confirmation they are sent in one ADS request (not guaranteed to land in the same PLC cycle) and every item gets its own result. If any value is invalid nothing is sent. Every symbol must be named once. pulseMs (10-5000) pulses a BOOL command bit: it writes the value, waits, then writes the opposite value, so a start does not depend on the PLC resetting the bit; the result says how long it was held. journal: true lists this session's writes; restore: true writes their old values back after one confirmation. Writes to PERSISTENT data (marked in the build output or listed in iecode.ads.persistentPaths) are refused unless confirmPersistent: true. Every write is logged.",
+        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt only while it is armed (time-limited; after it lapses or when it is not armed each write is confirmed), and asks while the workspace settings change the ADS target or port. To set several values together, pass writes (1-20 items) instead of symbol and value: after one confirmation they are sent in one ADS request (not guaranteed to land in the same PLC cycle) and every item gets its own result. If any value is invalid nothing is sent. Every symbol must be named once. pulseMs (10-5000) pulses a BOOL command bit: it writes the value, waits, then writes the opposite value, so a start does not depend on the PLC resetting the bit; the result says how long it was held. journal: true lists this session's writes; restore: true writes their old values back after one confirmation. Writes to PERSISTENT data (marked in the build output or listed in iecode.ads.persistentPaths) are refused unless confirmPersistent: true. Every write is logged.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",

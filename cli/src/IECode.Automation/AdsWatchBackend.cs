@@ -25,6 +25,8 @@ public sealed class AdsWatchBackend : IWatchBackend
     private bool _stale = true, _versionUnreadable, _versionWarned, _resolved;
     /// <summary>A watched item read 0x710/0x711: the next Resolve uploads a new symbol table, one-off reads and writes do not.</summary>
     private bool _itemsDead;
+    /// <summary>The version of the last successful Resolve; unlike <see cref="_watchVersion"/> it survives <see cref="Drop"/>, so a download during a connection loss is still noticed.</summary>
+    private byte? _lastResolvedVersion;
     private Watched[] _watched = [];
     private int[] _sumIndex = [];
     private ISymbolRead? _sum;
@@ -69,6 +71,9 @@ public sealed class AdsWatchBackend : IWatchBackend
         _link = link;
     }
 
+    /// <summary>True when the last successful <see cref="Resolve"/> saw another symbol version than the one before it, also across a reconnect.</summary>
+    public bool ResolveChangedVersion { get; private set; }
+
     /// <summary>Builds a new symbol loader after a fault or a symbol version change, otherwise looks the names up in the old one (O2).</summary>
     public IReadOnlyList<WatchItem> Resolve(IReadOnlyList<string> symbols)
     {
@@ -112,6 +117,9 @@ public sealed class AdsWatchBackend : IWatchBackend
         _sumIndex = index;
         _watched = watched;
         _watchVersion = version;
+        ResolveChangedVersion = _lastResolvedVersion is { } old && version is { } v && old != v;
+        // An unreadable version keeps the last known one as the baseline, so a download behind it is still reported later.
+        if (version is not null) _lastResolvedVersion = version;
         _resolved = true;
         return items;
     }

@@ -9,7 +9,8 @@ import { executeWrite } from '../core/writeExec';
 import { writePolicyReason } from '../core/writePolicy';
 import { confirmMessage } from '../core/writeText';
 import { output } from '../cli/iecode';
-import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
+import { autoNote } from '../core/writeArming';
+import { aiWritePathsSetting, aiWriteState } from './aiSettings';
 import { AdsHost } from './host';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -17,15 +18,15 @@ const show = (s: unknown) => oneLine(String(s));
 
 export function adsWriteGate(host: AdsHost, workspaceName: () => string, policy: GatePolicy): WriteGate {
   return new WriteGate({
-    decision: () => aiWriteDecision(aiWritesSetting(), workspaceTarget()),
+    decision: () => { const w = aiWriteState(); return aiWriteDecision(w.effective, w.redirected); },
     targetKey: () => host.targetKey(),
     policy: op => writePolicyReason(itemsOf(op).map(i => i.symbol), { allowedPaths: aiWritePathsSetting() }),
 
     // The raw choice: a modal cannot be closed from outside, so an answer after a cancellation still arrives here and
     // the gate decides what it means.
     async confirm(op: WriteOp): Promise<boolean> {
-      const note = aiWritesSetting() === 'auto' && workspaceTarget()
-        ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
+      const w = aiWriteState();
+      const note = autoNote(w.auto, w.redirected);
       const pick = await vscode.window.showWarningMessage(
         confirmMessage(itemsOf(op), `${op.targetKey} (${workspaceName()})`, note, { restore: op.restore !== undefined, persistent: op.persistent }), { modal: true }, 'Write');
       return pick === 'Write';

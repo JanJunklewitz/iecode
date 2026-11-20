@@ -97,7 +97,7 @@ Shared files that force sequential merges: `adsToolText.ts`, `toolInput.ts`, `pa
 
 ## Status (2026-11-17)
 
-Plans A and B are done, as are the extension-only tasks of C, D and E (C0, C3a-b, C5, C7a, D1-D4, E1, E5, E8). The CLI part of Plan C is done (C2, C3c, C4, C6a, C6b, C7b, with C1 measured on 2026-11-12), and of Plan D the tasks D2b, D5, D5b, D7 and D7b. They share ADS host protocol 2, which is not frozen until a CLI with it is released (C8). Open: D6, D6b (loaded build, spike), D8, Plan E3 to E4 and E6 to E7 (spikes and PLC-side work), the live checks listed in `TODO.md`, and C8 (freeze protocol 2, release notes).
+Plans A and B are done, as are the extension-only tasks of C, D and E (C0, C3a-b, C5, C7a, D1-D4, E1, E5, E8). The CLI part of Plan C is done (C2, C3c, C4, C6a, C6b, C7b, with C1 measured on 2026-11-12), and of Plan D the tasks D2b, D5, D5b, D7 and D7b. They share ADS host protocol 2, which is not frozen until a CLI with it is released (C8). Open: D6, D6b (loaded build, spike), D8, Plan E3 to E4 (now planned as Plans B and C of the [small items master plan](2026-11-17-small-items-master-plan.md)) and E6 to E7 (spikes and PLC-side work), the live checks listed in `TODO.md`, and C8 (freeze protocol 2, release notes).
 
 ## First action
 

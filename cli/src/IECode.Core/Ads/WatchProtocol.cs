@@ -28,6 +28,8 @@ public interface IWatchBackend : IDisposable
     IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> ReadWatched();
     /// <summary>Cheap read of the symbol version, called every tick before rows are published.</summary>
     bool SymbolVersionChanged();
+    /// <summary>True when the last successful <see cref="Resolve"/> saw another symbol version than the one before it, also across a reconnect.</summary>
+    bool ResolveChangedVersion => false;
     (string Type, string Value) ReadOnce(string symbol);
     /// <summary>
     /// Writes and reads back. Value is the value read back; when only the read-back failed (the write went through),
@@ -77,6 +79,7 @@ internal sealed record WatchHelloEvent(string Event, int Protocol,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Target = null);
 internal sealed record WatchStateEvent(string Event, bool Connected,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Error);
+internal sealed record WatchReloadedEvent(string Event, string Reason);
 internal sealed record WatchItemsEvent(string Event, int Gen, IReadOnlyList<WatchItem> Items);
 internal sealed record WatchSamplesEvent(string Event, int Gen, IReadOnlyList<WatchRow> Rows);
 internal sealed record WatchRow(long T, IReadOnlyList<string?> V,

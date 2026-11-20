@@ -12,6 +12,7 @@ export type HostMessage =
   | { event: 'samples'; gen: number; rows: Row[] }
   | { event: 'state'; connected: boolean; error?: string }
   | { event: 'items'; gen: number; items: WatchItem[] }
+  | { event: 'reloaded'; reason: string }
   | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number; written?: string };
 
 // The CLI may print other text (build output, warnings) on stdout; those lines are not messages, and neither is JSON
