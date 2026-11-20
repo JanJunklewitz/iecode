@@ -53,14 +53,31 @@ function decodeFile(text: string | undefined): Decoded | 'unreadable' | undefine
 export const fileTextOf = (xml: string) => [decode(xml), ...[...nonStBodies(xml)].map(([k, v]) => `${k}\n${v}`)].join('\n');
 const wholeText = (d: Decoded) => fileTextOf(d.xml);
 
-export async function objectHistory(root: string, file: string, key: string | 'FILE', max = 200): Promise<{ entries: HistoryEntry[]; cut: boolean }> {
-  const all = await historyCommits(root, file, max + 1);
+/**
+ * `signal` cancels the walk: the git processes are killed and the promise rejects with the signal's AbortError (never partial entries).
+ */
+export async function objectHistory(root: string, file: string, key: string | 'FILE', max = 200, signal?: AbortSignal): Promise<{ entries: HistoryEntry[]; cut: boolean }> {
+  signal?.throwIfAborted();
+  try {
+    const result = await walk(root, file, key, max, signal);
+    signal?.throwIfAborted();
+    return result;
+  } catch (e) {
+    // a killed git process reports a plain error; the caller must see the cancellation
+    signal?.throwIfAborted();
+    throw e;
+  }
+}
+
+async function walk(root: string, file: string, key: string | 'FILE', max: number, signal?: AbortSignal): Promise<{ entries: HistoryEntry[]; cut: boolean }> {
+  const all = await historyCommits(root, file, max + 1, signal);
   const cut = all.length > max;
   const commits = all.slice(0, max);
   const blobs = await blobsAt(root, commits.flatMap(c => [
     { ref: c.commit.hash, file: c.path },
     { ref: `${c.commit.hash}^`, file: c.parentPath ?? c.path },
-  ]));
+  ]), signal);
+  signal?.throwIfAborted();
   const entries: HistoryEntry[] = [];
   let followed: string | undefined = key === 'FILE' ? key : group(key)[0];
   for (const c of commits) {
