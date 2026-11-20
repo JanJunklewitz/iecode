@@ -18,6 +18,12 @@ export function aiWritePathsSetting(): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
+/** `iecode.ads.persistentPaths` from the user settings only: prefixes of persistent or configuration data (empty: none guarded). */
+export function persistentPathsSetting(): string[] {
+  const v = vscode.workspace.getConfiguration('iecode.ads').inspect<unknown>('persistentPaths')?.globalValue;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
 /**
  * True if the workspace settings, or the settings of any workspace folder (multi-root), point iecode.ads.target or
  * .port somewhere else than the user settings.

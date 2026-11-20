@@ -1,6 +1,6 @@
 # ADS MCP tools: wishlist and status
 
-What an AI agent would like from the `iecode` ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_write`, `ads_scope`, `ads_wait`), collected during simulation tests against a running PLC. Items are ordered by how much context or time they save. Status as of 2026-11-09, branch `feature/ads-mcp-wishlist`.
+What an AI agent would like from the `iecode` ADS tools (`ads_symbols`, `ads_watch`, `ads_read`, `ads_write`, `ads_scope`, `ads_wait`), collected during simulation tests against a running PLC. Items are ordered by how much context or time they save. Status as of 2026-11-17, branch `feature/ads-local-netid`. Built since the first version: `ads_config`, `ads_preset`, `ads_capture`, `ads_log`, the symbol listing options, batch write, pulse, journal and restore, the PERSISTENT guard and struct read. Still open: the build loaded on the target (D6), `ads_state`, alarms, PLC-cycle timestamps, per-symbol sample rates, the resume notice after a download, reading a property by its `P_` name and the "Implemented" table above, which keeps its 2026-11-09 wording. Done rows say "live check open" when only unit tests ran.
 
 - Roadmap with design and review: [plans/2026-11-06-ads-mcp-wishlist.md](superpowers/plans/2026-11-06-ads-mcp-wishlist.md) (phase numbers below refer to it).
 - Master plan and sub-plans for the open items: [plans/2026-11-09-ads-wishlist-master-plan.md](superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
@@ -35,7 +35,7 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 |---|---|---|
 | `ads_wait(symbol, condition, timeoutSeconds)` | Done (see above) | Replaces the sleep plus `ads_read` polling loop. |
 | `edges: true` on `ads_scope`: rising and falling edges of BOOLs with timestamps | Done (Plan A7; live check 2026-11-11 ok) | Only the exact type BOOL; an alias is named, not guessed. An edge across a read error is dated as unknown between two times. Tests: `edgesText lists rising and falling edges of a BOOL`, `edgesText cannot date an edge across a read error`, `toolInput scope edges`. |
-| Trigger and capture: arm a condition, return the scope window around it (pre and post seconds) | New | Needed for pulses and for reading a text at the moment a sequencer errors. Builds on the Phase 2 change log. |
+| Trigger and capture: arm a condition, return the scope window around it (pre and post seconds) | Done (`ads_capture`, Plan E5) | Built on the change log of the scope buffer; tests in `captureRun.test.ts`. |
 | Resume watch sampling after a PLC download or restart and show a one-line notice | New | Sampling was stale for 974 s once. `ads_wait` already reports the end reason; the watch view and scope do not. |
 | PLC-cycle timestamps via ADS notifications | Planned (Phase 8, spike first) | Task-cycle resolution, not the order inside one cycle. |
 
@@ -44,8 +44,8 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 | Item | Status | Notes |
 |---|---|---|
 | Show the sample age in watch and scope summaries; warn when sampling of the whole list stopped | Done (scope: Plan A6; watch list: `ads_read`) | `ads_read` shows the age of a stale entry; the scope result starts with `No samples since ...` and names the last host message and why the host last ended. Tests: `hostNote names the last host message, the last end and a missing connection`, `scope with a stale newest sample names the host state`, `scope without any sample names the host message`. |
-| Read structs and arrays as a whole (members as JSON or a list, optional `depth`) | Planned (Phase 5b) | Today: "not a single value". |
-| Read hidden members behind an opt-in flag, or list them as hidden in `ads_symbols` | New | The hint (PR #27) says why a hidden member is missing; reading it needs a decision about a flag. |
+| Read structs and arrays as a whole (members as a list, optional `depth`) | Done in code (Plan D7, D7b; live check open) | `ads_read` with `depth` 1-5 (default 3) lists the value leaves from one sum read, at most 200 members and 20 array elements per array, with notes for everything left out; `ads_watch { expand: true }` watches the members. Needs the CLI with ADS host protocol 2 (feature `structRead`); an older CLI says what to update. Tests: `StructExpandTests`, `ReadMembers_*` in `AdsWatchBackendTests.cs`, `Read_with_depth_*` in `WatchHostTests.cs`, `watchExpand.test.ts`. Open: not tried against a real target, in particular that the elements of an array are the sub symbols of the array symbol. |
+| Read hidden members behind an opt-in flag, or list them as hidden in `ads_symbols` | Done as a listing (Plan D2) | `ads_symbols { hidden: true }` also lists variables marked `{attribute 'hide'}` (source only, they have no ADS symbol, so they cannot be read). |
 | Read a property with monitoring `call` by its `P_` name; say clearly when no symbol exists | Planned (Phase 7) | |
 
 ## 4. Watch list management
@@ -56,28 +56,28 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 | Done (Plan B) | `watchList.test.ts`, `watchGroups.test.ts`, `watchRequest.test.ts`. Groups are labels on the AI's entries; switching one off parks its symbols (not sampled, kept in the list). A running wait keeps its symbol sampled. Live check 2026-11-11 ok. |
 | Done (Plan B) | `watchRequest.test.ts`, `watchList.test.ts`. `force` asks the user once in a dialog (cancel and the 120 s timeout both keep the entries); `clearAi` removes only the AI's entries. Live check 2026-11-11 ok. |
 | Per-symbol sample rate (10 ms for pulses, 500 ms for texts) | New | Needs a host change. |
-| Poll interval and buffer length settable through MCP, with a read-only call for the current values | New | The scope panel has time span, poll and buffer, but the tools only take `seconds` and `symbols`; the poll rate is the user setting `iecode.ads.sampleIntervalMs`. A 90 s module init needs a bigger buffer. Optional confirmation when memory use rises. |
+| Poll interval and buffer length settable through MCP, with a read-only call for the current values | Done (`ads_config`, Plan E1) | One call both reads and sets; changes that raise the memory use ask the user. |
 | Done (Plan B) | `unresolved.test.ts`, `adswatch.test.ts`. The list and the switched-off groups survive a window reload; entries that stop resolving are reported once. `npm test`: 521 tests, 520 passed, 0 failed, 1 skipped. Live check 2026-11-11 ok. |
 
 ## 5. Writes and sequences
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_write` with several symbols in one call, one confirmation | Planned (Phase 4) | One ADS sum write; first an SDK contract check. |
+| `ads_write` with several symbols in one call, one confirmation | Done (Plan C2, C3a-c; needs the CLI with ADS host protocol 2) | `writes` (1-20 items): all values are parsed first, then one ADS sum write without a fallback to single writes, one read-back, one result per item (written, not written, outcome unknown). Tests: `WriteMany_*` in `AdsWatchBackendTests.cs` and `WatchHostTests.cs`; `writeManyStage maps a reply, a proof of not sent and everything else to unknown`, `a batch on a protocol-1 host is refused before the gate`, `confirmMessage: one item is byte-identical to the old dialog, several list every write`. Item codes follow the SDK contract check of 2026-11-12 (plan C, "C1 findings"): only 0x703 and 0x704 count as "not written", every other code is "unknown". |
 | Same-cycle write of several symbols | Out of scope | One ADS request does not guarantee the same PLC cycle; that needs a PLC-side handshake (roadmap, open question 2). |
-| Pulse mode (`pulseMs`) for command bits | New | So a command start does not depend on the PLC resetting the bit. |
-| Read-back text that tells "the PLC reset the bit" from "write rejected" | New | Both read "reads back as FALSE (the PLC may change it again)" today. |
-| List what a session wrote (old and new value) and restore it in one call (`ads_snapshot` / `ads_restore`) | New | |
+| Pulse mode (`pulseMs`) for command bits | Done (Plan C4) | BOOL only (type read first), timing kept by the extension, the reset is always attempted and a failed reset names the bit that may still be set. Tests in `writeExec.test.ts` (`a pulse writes the value, waits, then writes the opposite`, `a failing reset says the bit may still be set`, `an unknown first write still tries the reset`), `pulseMs is refused when out of range, fractional, on a non-BOOL value or twice`. |
+| Read-back text that tells "the PLC reset the bit" from "write rejected" | Done (Plan C5) | `writeResultText tells a bit the PLC reset from a plain read-back`, `readBackChanged compares BOOL literals only`. |
+| List what a session wrote (old and new value) and restore it in one call (`ads_snapshot` / `ads_restore`) | Done (Plan C6a, C6b) as `ads_write` with `journal: true` and `restore: true`, not as separate tools | The old value is read just before each AI write (best effort, a failed read never blocks the write); the journal is per window and in memory. A restore is one confirmed batch of at most 20 values, lists what it had to skip (value never read, symbol not readable now, other target) and never plans its own writes again. Tests: `writeJournal.test.ts`, `a restore op journals its writes as restore and marks the written symbols restored`, `ads_write restore goes through the gate as one op with the restore flag`. |
 
 ## 6. Symbols and build state
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_symbols` shows the build time of the `.tmc` and warns when sources are newer | New | A retest once ran code built before the fix and was only found invalid by comparing file times by hand. |
+| `ads_symbols` shows the build time of the `.tmc` and warns when sources are newer | Done (Plan D1) | Header line with the build time and a stale warning (more than 2 s). |
 | Report the PLC project build that is loaded on the target next to the workspace `.tmc` time | New | Makes a stale download visible in one call. |
-| Symbols without a `.tmc` from the online symbol table, naming the source | Planned (Phase 5a) | Separate short-lived process, filter required, 500 matches at most. |
-| `ads_symbols` filter by type or path prefix, paging beyond 100 hits, members of an FB instance with types | New | The online list of Phase 5a covers part of it. |
-| Member list of an enum type | New | So valid write values are known. A timed-out `ads_wait` already lists the names it saw. |
+| Symbols without a `.tmc` from the online symbol table, naming the source | Done in code (Plan D5, D5b; live check open) | `iecode ads symbols --online --filter` (a short-lived command, at most 500 matches) and the chain build output, running PLC, source code in `ads_symbols` with the input `source`; every answer names its source. Tests: `OnlineSymbolsTests`, `OnlineSymbolListTests`, `symbolSource.test.ts`. Open: not tried against a real target, in particular the time of the symbol upload on a large project. |
+| `ads_symbols` filter by type or path prefix, paging beyond 100 hits, members of an FB instance with types | Done (Plan D3) | `type`, `prefix`, `offset` and `limit`; the members of one array element are listed when the prefix names the element. |
+| Member list of an enum type | Done (Plan D2, D2b) | `ads_symbols { enumType }` lists the members and values; a write by any name of a value works, aliases included. |
 
 ## 7. PLC helpers
 
@@ -85,16 +85,16 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 |---|---|---|
 | `ads_state`: run or stop state, task cycle time, cycle counter | New | Detects a restart (everything reset). |
 | Active alarms or the last N logger messages | Planned (Phase 9, spike first) | |
-| A one-call overview of a state-machine function block (step, description, elapsed time, error text, busy, release and interlock texts) | New | Today 6 to 8 symbols per sequencer. Needs a convention for the member names, so it may be better as a user-defined preset than a built-in view. |
+| A one-call overview of a state-machine function block (step, description, elapsed time, error text, busy, release and interlock texts) | Done as user-defined presets (`ads_preset`, Plan E8) | A preset is a named list of member names you define, so no naming convention is built in. |
 | Component mode (manual or automatic) of a path | New | Same convention problem as the line above. |
 
 ## 8. Safety and ergonomics
 
 | Item | Status | Notes |
 |---|---|---|
-| Allow-list of path prefixes for AI writes (`iecode.ads.aiWrites`) | New | So `auto` can be used on a simulation without risk on a real target. Also listed in `TODO.md`. |
+| Allow-list of path prefixes for AI writes (`iecode.ads.aiWritePaths`) | Done (Plan C7a) | The list limits symbol names, not machines: the same names exist on a real target. Tests in `writePolicy.test.ts`. |
 | Done (Plan B) | `adsToolText.test.ts`, `writeGate.test.ts`. Watch, write and wait results end with `ADS target: <target>`. Live check 2026-11-11 ok. |
-| Refuse PERSISTENT or configuration writes unless confirmed; list the persistent symbols changed in a session | New | |
+| Refuse PERSISTENT or configuration writes unless confirmed; list the persistent symbols changed in a session | Done (Plan C7b, variant A plus B) | The build output marks persistent symbols and the members of persistent ones (`TcPersistent`, checked 2026-11-17 against a built module with about 2400 persistent member symbols), so they are guarded without setup; `iecode.ads.persistentPaths` adds prefixes the build does not mark. A write below a guarded name is refused unless `confirmPersistent: true`, the dialog marks it and the journal tags it `[PERSISTENT]`. Tests: `fromTmc marks PERSISTENT symbols and the members of persistent types and symbols`, `persistentIn also counts symbols the build output marks, and their members`, `a write to persistent data is refused without confirmPersistent`. A variable not in the build output (an unbuilt project) is not guarded unless listed. |
 | Aliases for long paths | Planned, deferred (Phase 6) | Small saving, hidden state in every input. Revisit after the output-volume items are in. |
 
 ## Suggested order for the open items

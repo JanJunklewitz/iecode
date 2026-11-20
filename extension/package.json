@@ -1700,6 +1700,15 @@
           "scope": "application",
           "markdownDescription": "Path prefixes AI tools may write, e.g. `MAIN.Sim` or `GVL.Test`. A prefix matches the symbol itself and everything below it, not other names that merely start with the same letters. Empty (default): every symbol is allowed. User settings only, so a workspace cannot widen it. The list limits symbol names, not machines: it does not say which PLC a name is written on."
         },
+        "iecode.ads.persistentPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "Extra path prefixes of persistent or configuration data, e.g. `GVL.Persistent`. Variables the build output (`.tmc`) marks as PERSISTENT are guarded without being listed; this list adds names the build output does not mark. AI writes to guarded data are refused unless the call sets `confirmPersistent: true`, and the confirmation marks them. Same matching as `iecode.ads.aiWritePaths`. User settings only."
+        },
         "iecode.ads.logDirectory": {
           "type": "string",
           "default": "",
@@ -1758,7 +1767,7 @@
         "toolReferenceName": "adsSymbols",
         "displayName": "ADS Symbols",
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
-        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol. A project without a build output is listed from the running PLC when a filter or prefix is given, else from the source code (see source); the first lines of the answer name the source.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1802,6 +1811,16 @@
               "minimum": 1,
               "maximum": 100,
               "description": "Rows per page, 1 to 100 (default 100). A small limit keeps a narrow look-up cheap; continue with offset."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "online",
+                "build",
+                "source"
+              ],
+              "description": "Where the list comes from. auto (default) uses the build output of each PLC project and falls back to the running PLC (a filter or prefix is needed, at most 500 matches) and then to the source code; the result always says which source it used."
             }
           }
         }
@@ -1811,7 +1830,7 @@
         "toolReferenceName": "adsWatch",
         "displayName": "ADS Watch",
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
-        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history.",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history. With expand: true, a structure in add is replaced by its members (at most 200).",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1863,6 +1882,10 @@
             "removeGroup": {
               "type": "boolean",
               "description": "With group: remove the group and the entries that belong to no other group."
+            },
+            "expand": {
+              "type": "boolean",
+              "description": "Add the members of a structure instead of failing; at most 200 members."
             }
           }
         }
@@ -1872,7 +1895,7 @@
         "toolReferenceName": "adsRead",
         "displayName": "ADS Read",
         "userDescription": "Read current values of PLC variables over ADS.",
-        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned.",
+        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned. A structure, function block instance or array is returned as the list of its members (see depth); the result says what was left out.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1890,6 +1913,12 @@
               },
               "maxItems": 200,
               "description": "ADS names to read; default all watched symbols."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "How many levels of nested structures to read, default 3; a structure or array is returned as a list of its members, at most 200 members and 20 array elements."
             }
           }
         }
@@ -1982,7 +2011,7 @@
         "toolReferenceName": "adsWrite",
         "displayName": "ADS Write",
         "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
-        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
+        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). To set several values together, pass writes (1-20 items) instead of symbol and value: after one confirmation they are sent in one ADS request (not guaranteed to land in the same PLC cycle) and every item gets its own result. If any value is invalid nothing is sent. Every symbol must be named once. pulseMs (10-5000) pulses a BOOL command bit: it writes the value, waits, then writes the opposite value, so a start does not depend on the PLC resetting the bit; the result says how long it was held. journal: true lists this session's writes; restore: true writes their old values back after one confirmation. Writes to PERSISTENT data (marked in the build output or listed in iecode.ads.persistentPaths) are refused unless confirmPersistent: true. Every write is logged.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -2001,12 +2030,56 @@
               "type": "string",
               "maxLength": 4096,
               "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
+            },
+            "writes": {
+              "type": "array",
+              "maxItems": 20,
+              "description": "Several writes in one call, instead of symbol and value: 1 to 20 items, each symbol at most once.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "description": "ADS name, e.g. MAIN.bStart."
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "New value as plain text."
+                  },
+                  "pulseMs": {
+                    "type": "number",
+                    "minimum": 10,
+                    "maximum": 5000,
+                    "description": "BOOL only: write the value, wait pulseMs, then write the opposite value, all after the one confirmation; the timing is kept by the extension and is not cycle-exact. At most one write per call."
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "value"
+                ]
+              }
+            },
+            "pulseMs": {
+              "type": "number",
+              "minimum": 10,
+              "maximum": 5000,
+              "description": "BOOL only: write the value, wait pulseMs, then write the opposite value, all after the one confirmation; the timing is kept by the extension and is not cycle-exact. At most one write per call."
+            },
+            "journal": {
+              "type": "boolean",
+              "description": "true lists what was written through the ADS tools in this session (time, symbol, old and new value, pulses, unknown outcomes). Read-only, no confirmation. Use it alone."
+            },
+            "restore": {
+              "type": "boolean",
+              "description": "true writes the old values of this session's writes back after one confirmation, newest write first, at most 20 per call, and lists what cannot be restored. Use it alone."
+            },
+            "confirmPersistent": {
+              "type": "boolean",
+              "description": "Set true only when the user asked to write PERSISTENT data (marked in the build output or listed in iecode.ads.persistentPaths); without it such a write is refused."
             }
-          },
-          "required": [
-            "symbol",
-            "value"
-          ]
+          }
         }
       },
       {

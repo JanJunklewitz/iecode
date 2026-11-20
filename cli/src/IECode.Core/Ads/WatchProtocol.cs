@@ -35,7 +35,35 @@ public interface IWatchBackend : IDisposable
     /// happen before the write request leaves.
     /// </summary>
     (string? Value, string? ReadBackError) Write(string symbol, string text);
+    /// <summary>
+    /// Prepares every value first (any failure: <see cref="WriteNotSentException"/> naming "writes[i] symbol: ...", nothing sent), then
+    /// sends one sum write and reads the written items back with one sum read. A failure of the whole request after sending is an
+    /// <see cref="AdsFault"/>: the outcome is unknown for every item.
+    /// </summary>
+    IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes);
+    /// <summary>
+    /// The value leaves of a structure, function block instance or array in one sum read, to <paramref name="depth"/> levels.
+    /// Null when the symbol is a single value or this backend cannot expand (the host then falls back to <see cref="ReadOnce"/>).
+    /// </summary>
+    StructRead? ReadMembers(string symbol, int depth) => null;
 }
+
+/// <summary>One leaf of a structure read; <c>Name</c> is the full instance path.</summary>
+public sealed record MemberValue(string Name, string Type, string? Value, string? Error);
+
+public sealed record StructRead(string Type, IReadOnlyList<MemberValue> Members, int OmittedMembers, int OmittedElements, IReadOnlyList<string> NotExpanded);
+
+public static class WriteStatus
+{
+    public const string Written = "written", NotWritten = "notWritten", Unknown = "unknown";
+}
+
+/// <summary>One item of a batch write. <c>Value</c> is the value read back; only the read-back may be missing on a written item.</summary>
+public sealed record WriteManyItem(string Symbol, string Status,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Value = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReadBackError = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Error = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] uint? AdsCode = null);
 
 internal sealed record WatchReply(
     JsonElement? Id,
@@ -54,10 +82,14 @@ internal sealed record WatchSamplesEvent(string Event, int Gen, IReadOnlyList<Wa
 internal sealed record WatchRow(long T, IReadOnlyList<string?> V,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<long?>? E);
 internal sealed record WatchItemsData(int Gen, IReadOnlyList<WatchItem> Items);
-internal sealed record WatchReadItem(string Symbol, string? Type, string? Value, string? Error);
+internal sealed record WatchReadNotes(int OmittedMembers, int OmittedElements, IReadOnlyList<string> NotExpanded);
+internal sealed record WatchReadItem(string Symbol, string? Type, string? Value, string? Error,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<MemberValue>? Members = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] WatchReadNotes? Notes = null);
 internal sealed record WatchWriteData(string Symbol, string? Value,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReadBackError = null);
 internal sealed record WatchIntervalData(int Ms);
+internal sealed record WatchWriteManyData(IReadOnlyList<WriteManyItem> Items);
 
 internal static class WatchJson
 {

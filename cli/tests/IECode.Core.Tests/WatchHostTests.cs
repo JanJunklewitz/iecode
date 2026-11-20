@@ -33,6 +33,21 @@ public sealed class WatchHostTests
         public bool SymbolVersionChanged() => VersionFn();
         public (string Type, string Value) ReadOnce(string symbol) => ("INT", "1");
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => WriteFn(symbol, text);
+        public int WriteManyCalls;
+        public List<int> MembersDepths = [];
+        public Func<string, int, StructRead?> MembersFn = (_, _) => null;
+        public StructRead? ReadMembers(string symbol, int depth)
+        {
+            MembersDepths.Add(depth);
+            return MembersFn(symbol, depth);
+        }
+        public Func<IReadOnlyList<(string Symbol, string Value)>, IReadOnlyList<WriteManyItem>> WriteManyFn =
+            w => w.Select(x => new WriteManyItem(x.Symbol, WriteStatus.Written, x.Value)).ToList();
+        public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes)
+        {
+            WriteManyCalls++;
+            return WriteManyFn(writes);
+        }
         public void Dispose() { }
     }
 
@@ -63,7 +78,7 @@ public sealed class WatchHostTests
         r.Host.Start();
         var e = Parse(r.Lines[0]);
         Assert.Equal("hello", e.GetProperty("event").GetString());
-        Assert.Equal(1, e.GetProperty("protocol").GetInt32());
+        Assert.Equal(2, e.GetProperty("protocol").GetInt32());
     }
 
     [Fact]
@@ -551,5 +566,137 @@ public sealed class WatchHostTests
         Assert.Equal(2, r.Backend.ResolveCalls);
         r.Host.Tick(T0.AddMilliseconds(5010));
         Assert.Equal(3, r.Backend.ResolveCalls);
+    }
+
+    [Fact]
+    public void WriteMany_reply_has_one_entry_per_item()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = w => [new WriteManyItem("MAIN.a", "written", "1"), new WriteManyItem("MAIN.b", "notWritten", Error: "rejected", AdsCode: 1808)];
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        var items = reply.GetProperty("data").GetProperty("items");
+        Assert.Equal(2, items.GetArrayLength());
+        Assert.Equal("written", items[0].GetProperty("status").GetString());
+        Assert.Equal("1", items[0].GetProperty("value").GetString());
+        Assert.False(items[0].TryGetProperty("readBackError", out _));
+        Assert.Equal("notWritten", items[1].GetProperty("status").GetString());
+        Assert.Equal(1808u, items[1].GetProperty("adsCode").GetUInt32());
+    }
+
+    [Theory]
+    [InlineData("""{"id":5,"op":"writeMany"}""", "Missing array 'writes'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":"x"}""", "Missing array 'writes'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[]}""", "writes must not be empty.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[{"symbol":"A","value":"1"},{"symbol":"B"}]}""", "writes[1] needs string 'symbol' and 'value'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.A","value":"1"},{"symbol":"main.a","value":"2"}]}""", "Duplicate symbol: main.a")]
+    public void WriteMany_validation_failures_say_written_no_and_call_no_backend(string request, string error)
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle(request);
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+        Assert.Equal(error, reply.GetProperty("error").GetString());
+        Assert.Equal(0, r.Backend.WriteManyCalls);
+    }
+
+    [Fact]
+    public void WriteMany_more_than_the_limit_is_refused_before_the_backend()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        var writes = string.Join(",", Enumerable.Range(0, WatchHost.MaxWrites + 1).Select(i => $$"""{"symbol":"S{{i}}","value":"1"}"""));
+        r.Host.Handle($$"""{"id":5,"op":"writeMany","writes":[{{writes}}]}""");
+        var reply = r.Last();
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+        Assert.Equal("At most 20 writes are allowed.", reply.GetProperty("error").GetString());
+        Assert.Equal(0, r.Backend.WriteManyCalls);
+    }
+
+    [Fact]
+    public void WriteMany_not_sent_exception_says_written_no()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = _ => throw new WriteNotSentException("writes[1] MAIN.b: bad");
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+    }
+
+    [Fact]
+    public void WriteMany_ads_fault_has_no_written_field_and_keeps_the_code()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = _ => throw new AdsFault("no reply", 0x745, false);
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.False(reply.TryGetProperty("written", out _));
+        Assert.Equal(0x745u, reply.GetProperty("adsCode").GetUInt32());
+    }
+
+    private static StructRead OneMember() => new("ST_Axis", [new MemberValue("MAIN.st.a", "DINT", "5", null)], 0, 0, []);
+
+    [Fact]
+    public void Read_with_depth_asks_the_backend_for_members()
+    {
+        var r = new Rig();
+        r.Backend.MembersFn = (_, _) => OneMember();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.st"],"depth":3}""");
+        var item = r.Last().GetProperty("data")[0];
+        Assert.Equal("ST_Axis", item.GetProperty("type").GetString());
+        Assert.Equal("MAIN.st.a", item.GetProperty("members")[0].GetProperty("name").GetString());
+        Assert.Equal(0, item.GetProperty("notes").GetProperty("omittedMembers").GetInt32());
+    }
+
+    [Fact]
+    public void Read_without_depth_has_no_members_property()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"]}""");
+        var item = r.Last().GetProperty("data")[0];
+        Assert.False(item.TryGetProperty("members", out _));
+        Assert.False(item.TryGetProperty("notes", out _));
+        Assert.Equal(4, item.EnumerateObject().Count());
+        Assert.Empty(r.Backend.MembersDepths);
+    }
+
+    [Fact]
+    public void Read_with_depth_of_a_single_value_falls_back_to_the_scalar_read()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":2}""");
+        Assert.Equal("1", r.Last().GetProperty("data")[0].GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Depth_is_clamped_to_the_allowed_range()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":9}""");
+        r.Host.Handle("""{"id":8,"op":"read","symbols":["MAIN.n"],"depth":0}""");
+        Assert.Equal([5, 1], r.Backend.MembersDepths);
+    }
+
+    [Fact]
+    public void A_non_integer_depth_fails_the_request()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":"x"}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("read needs an integer 'depth'.", reply.GetProperty("error").GetString());
     }
 }

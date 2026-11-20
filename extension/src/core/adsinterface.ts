@@ -33,6 +33,8 @@ export interface AdsSymbol {
   comment?: string;
   /** Build output: data area ("PlcTask Inputs" …); source: declaration block ("VAR_GLOBAL" …). */
   area?: string;
+  /** Build output: declared PERSISTENT (the .tmc marks the symbol or a member of its type with TcPersistent); absent otherwise. */
+  persistent?: true;
 }
 
 export interface AdsInterface {
@@ -97,7 +99,11 @@ export function typeOf(n: XNode, typeElement: string, src: string): string {
 }
 
 /** `key`: data type to expand (namespace-qualified), undefined for arrays and pointers. */
-interface TmcMember { name: string; type: string; bitSize?: number; comment?: string; key?: string; elementKey?: string }
+interface TmcMember { name: string; type: string; bitSize?: number; comment?: string; key?: string; elementKey?: string; persistent?: boolean }
+
+/** `<Properties><Property><Name>TcPersistent</Name>`: the build output's mark of a PERSISTENT declaration. */
+const isPersistent = (n: XNode, src: string): boolean =>
+  kids(kid(n, 'Properties') ?? { children: [] } as unknown as XNode, 'Property').some(p => textOf(kid(p, 'Name'), src) === 'TcPersistent');
 interface TmcType { name: string; members: TmcMember[]; extends?: string; alias?: string }
 
 /** An array whose elements are not pointers: the element type decides what members an element has. */
@@ -125,7 +131,7 @@ export function fromTmc(xml: string, members = false, elements: string[] = []): 
     if (!name) continue;
     const items = dt.children.filter(s => (s.name === 'SubItem' || s.name === 'PropertyItem') && textOf(kid(s, 'Name'), src)).map(s => {
       const type = typeOf(s, 'Type', src);
-      return { name: textOf(kid(s, 'Name'), src)!, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src),
+      return { name: textOf(kid(s, 'Name'), src)!, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src), persistent: isPersistent(s, src),
         key: type === (textOf(kid(s, 'Type'), src) ?? '') ? keyOf(kid(s, 'Type'), src) : undefined,
         elementKey: ARRAY_OF.test(type) ? keyOf(kid(s, 'Type'), src) : undefined };
     });
@@ -148,13 +154,15 @@ export function fromTmc(xml: string, members = false, elements: string[] = []): 
   const seen = new Set<string>();
   const arrays = new Map<string, { name: string; type: string; key: string; area: string | undefined }>();
   const add = (s: AdsSymbol) => { if (seen.has(U(s.name))) return false; seen.add(U(s.name)); out.push(s); return true; };
-  const expand = (parent: string, typeKey: string, area: string | undefined, depth: number) => {
+  // a member of a PERSISTENT symbol or of a PERSISTENT member is persistent too
+  const expand = (parent: string, typeKey: string, area: string | undefined, depth: number, inPersistent = false) => {
     if (depth > MAX_DEPTH) return;
     for (const m of membersOf(typeKey, new Set())) {
       const name = `${parent}.${m.name}`;
-      const added = add({ name, type: m.type, bitSize: m.bitSize, comment: m.comment, area });
+      const persistent = inPersistent || m.persistent;
+      const added = add({ name, type: m.type, bitSize: m.bitSize, comment: m.comment, area, ...(persistent ? { persistent: true as const } : {}) });
       if (added && m.elementKey) arrays.set(U(name), { name, type: m.type, key: m.elementKey, area });
-      if (added && m.key && find(m.key)) expand(name, m.key, area, depth + 1);
+      if (added && m.key && find(m.key)) expand(name, m.key, area, depth + 1, persistent);
     }
   };
 
@@ -164,9 +172,10 @@ export function fromTmc(xml: string, members = false, elements: string[] = []): 
     if (!name) continue;
     const area = textOf(kid(s.parent, 'Name'), src);
     const type = typeOf(s, 'BaseType', src);
-    if (!add({ name, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src), area })) continue;
+    const persistent = isPersistent(s, src);
+    if (!add({ name, type, bitSize: intOf(kid(s, 'BitSize'), src), comment: textOf(kid(s, 'Comment'), src), area, ...(persistent ? { persistent: true as const } : {}) })) continue;
     if (ARRAY_OF.test(type)) arrays.set(U(name), { name, type, key: keyOf(kid(s, 'BaseType'), src), area });
-    if (members && type === (textOf(kid(s, 'BaseType'), src) ?? '')) expand(name, keyOf(kid(s, 'BaseType'), src), area, 1);
+    if (members && type === (textOf(kid(s, 'BaseType'), src) ?? '')) expand(name, keyOf(kid(s, 'BaseType'), src), area, 1, persistent);
   }
   // in the order given, so that an array inside an element can be named after the element
   if (members) for (const el of elements) {

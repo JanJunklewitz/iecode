@@ -240,7 +240,7 @@ test('the manifest declares the ten tools in client-neutral words', () => {
   const props = watch.inputSchema.properties as unknown as Record<string, { type: string }>;
   assert.equal(props.clearAi.type, 'boolean');
   assert.equal(props.force.type, 'boolean');
-  assert.deepEqual(Object.keys(props).sort(), ['add', 'clearAi', 'enable', 'force', 'group', 'list', 'remove', 'removeGroup']);
+  assert.deepEqual(Object.keys(props).sort(), ['add', 'clearAi', 'enable', 'expand', 'force', 'group', 'list', 'remove', 'removeGroup']);
   assert.equal((props.group as unknown as { maxLength: number }).maxLength, 64);
   for (const d of found) {
     assert.ok(d.description.length > 20);
@@ -302,4 +302,102 @@ test('ads_log passes validated arguments and refuses a marker that names a path'
   assert.deepEqual(seen, [{ since: { file: 'Log_1.log', offset: 12 }, filter: ['err'], exclude: [], maxLines: 100 }]);
   const bad = await result(r.session.handle(call(51, 'ads_log', { since: '../x.log@1' })));
   assert.match(bad.content[0].text, /^Invalid arguments: since is not a marker from ads_log/);
+});
+
+const OLD_CLI = 'this needs a newer iecode CLI: batch write (installed: ADS host protocol 1, needed: 2). Update it with "IECode: Install CLI…"';
+
+test('ads_write with writes reaches the gate once with the item list and the first item mirrored', async () => {
+  const r = rig();
+  r.send.impl = async () => ({ kind: 'done', items: [{ symbol: 'MAIN.a', status: 'written', readBack: '1' }, { symbol: 'MAIN.b', status: 'written', readBack: '2' }] });
+  const res = await result(r.session.handle(call(7, 'ads_write', { writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] })));
+  assert.equal(res.isError, false);
+  assert.match(res.content[0].text, /^Sent in one ADS request \(2 writes\): 2 written\./);
+  assert.equal(r.sent.length, 1);
+  assert.deepEqual(r.sent[0].op, { symbol: 'MAIN.a', value: '1', items: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }], targetKey: 'A:851', via: 'MCP' });
+});
+
+test('a batch on a protocol-1 host is refused before the gate, a single write still goes through', async () => {
+  const r = rig({ requires: async f => (f === 'writeMany' ? OLD_CLI : undefined) });
+  const b = await result(r.session.handle(call(8, 'ads_write', { writes: [{ symbol: 'A', value: '1' }, { symbol: 'B', value: '2' }] })));
+  assert.equal(b.isError, true);
+  assert.equal(b.content[0].text, `Not written: ${OLD_CLI}.`);
+  assert.equal(r.sent.length, 0);
+  assert.equal(r.confirms.length, 0);
+  const s = await result(r.session.handle(call(9, 'ads_write', { symbol: 'MAIN.x', value: '5' })));
+  assert.equal(s.isError, false);
+  assert.equal(r.sent.length, 1);
+});
+
+test('a batch with a bad item never reaches the gate', async () => {
+  const r = rig();
+  const res = await result(r.session.handle(call(10, 'ads_write', { writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: ' main.A ', value: '2' }] })));
+  assert.equal(res.isError, true);
+  assert.equal(res.content[0].text, 'Invalid arguments: writes[1] repeats writes[0]: MAIN.a');
+  assert.equal(r.sent.length, 0);
+});
+
+test('a done result with an unknown item is an error', async () => {
+  const r = rig();
+  r.send.impl = async () => ({ kind: 'done', items: [{ symbol: 'MAIN.a', status: 'written', readBack: '1' }, { symbol: 'MAIN.b', status: 'unknown', reason: 'ADS error 0x7' }] });
+  const res = await result(r.session.handle(call(11, 'ads_write', { writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] })));
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /^Sent in one ADS request \(2 writes\): 1 written, 1 outcome unknown\./);
+});
+
+test('a batch that ends unknown says so for all items and never "written"', async () => {
+  const r = rig();
+  r.send.impl = async () => ({ kind: 'unknown', reason: 'Write of 2 values timed out; the values may or may not have been written' });
+  const res = await result(r.session.handle(call(12, 'ads_write', { writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '2' }] })));
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /^Outcome unknown for all 2 writes: /);
+  assert.doesNotMatch(res.content[0].text, /^Written/);
+});
+
+test('ads_write journal reaches no gate and answers with the journal text, also when AI writes are off', async () => {
+  const r = rig({ journal: () => ({ text: 'Writes through the ADS tools in this session on A:851 (1):' }) }, 'refuse');
+  const res = await result(r.session.handle(call(13, 'ads_write', { journal: true })));
+  assert.match(res.content[0].text, /^Writes through the ADS tools/);
+  assert.equal(r.sent.length, 0);
+});
+
+test('ads_write restore goes through the gate as one op with the restore flag', async () => {
+  const skipped = [{ symbol: 'MAIN.c', reason: 'old value was not read (x)' }];
+  const r = rig({ restorePlan: async () => ({ writes: [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '5' }], skipped, remaining: 0 }) });
+  r.send.impl = async () => ({ kind: 'done', items: [{ symbol: 'MAIN.a', status: 'written', readBack: '1' }, { symbol: 'MAIN.b', status: 'written', readBack: '5' }] });
+  const res = await result(r.session.handle(call(14, 'ads_write', { restore: true })));
+  assert.equal(r.sent.length, 1);
+  assert.deepEqual(r.sent[0].op.restore, { skipped, remaining: 0 });
+  assert.match(res.content[0].text, /Skipped \(not restored\): MAIN\.c \(old value was not read \(x\)\)/);
+});
+
+test('ads_write restore with nothing to do never reaches the gate', async () => {
+  const r = rig({ restorePlan: async () => ({ writes: [], skipped: [], remaining: 0 }) });
+  const res = await result(r.session.handle(call(15, 'ads_write', { restore: true })));
+  assert.match(res.content[0].text, /^Nothing to restore/);
+  assert.equal(r.sent.length, 0);
+});
+
+test('ads_write to persistent data is refused before the gate unless confirmPersistent is set', async () => {
+  const r = rig({ persistentOf: async s => s.filter(x => x.startsWith('GVL.P')) });
+  const refused = await result(r.session.handle(call(16, 'ads_write', { symbol: 'GVL.P.n', value: '1' })));
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /^Not written: GVL\.P\.n is PERSISTENT data/);
+  assert.equal(r.sent.length, 0);
+  await result(r.session.handle(call(17, 'ads_write', { symbol: 'GVL.P.n', value: '1', confirmPersistent: true })));
+  assert.equal(r.sent.length, 1);
+  assert.deepEqual(r.sent[0].op.persistent, ['GVL.P.n']);
+});
+
+test('ads_read passes depth and ads_watch passes expand to the tool functions', async () => {
+  const seen: unknown[] = [];
+  const r = rig({
+    read: async input => { seen.push(['read', input]); return { text: 'ok' }; },
+    watch: async input => { seen.push(['watch', input]); return { text: 'ok' }; },
+  });
+  await result(r.session.handle(call(20, 'ads_read', { symbols: ['MAIN.st'], depth: 2 })));
+  await result(r.session.handle(call(21, 'ads_watch', { add: ['MAIN.st'], expand: true })));
+  assert.deepEqual(seen[0], ['read', { symbols: ['MAIN.st'], depth: 2 }]);
+  assert.equal((seen[1] as [string, { expand?: boolean }])[1].expand, true);
+  const bad = await result(r.session.handle(call(22, 'ads_read', { symbols: ['MAIN.st'], depth: 9 })));
+  assert.equal(bad.content[0].text, 'Invalid arguments: depth must be a whole number from 1 to 5');
 });

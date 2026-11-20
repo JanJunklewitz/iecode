@@ -1,5 +1,19 @@
 # TODO
 
+## Priorities: small items worth doing next
+
+Ranked by value for the effort (checked 2026-11-17 against the items below and [docs/ads-mcp-wishlist.md](docs/ads-mcp-wishlist.md)). Each is a day or less; none needs a design decision first.
+
+1. **Live check of the ADS MCP features** (no code, about 1 hour on a simulation): the checklist under "ADS MCP: live check of the write and struct-read features". Everything from batch write to `ads_symbols --online` is unit-tested only, so a defect found here costs more than any new feature.
+2. **ARMED expiry for `auto` AI writes** (small): the path allowlist exists (`iecode.ads.aiWritePaths`, Plan C7a); only the expiry of `auto` is missing. See "ADS write allowlist and ARMED expiry".
+3. **Resume notice after a download or restart** (small): the watch view and the scope show a one-line notice when sampling resumed (wishlist section 2, "New"). `ads_wait` already reports the end reason; reuse it.
+4. **`ads_state`** (small): run / stop state, task cycle time and cycle counter in one read, so an AI sees that the PLC restarted (wishlist section 7, "New").
+5. **Dependency graph as Mermaid export** (small): text export of the graph `iecode.showGraph` already builds.
+6. **ADS Scope export as CSV** (small): export a recording; the AI summary can follow later.
+7. **Project view: search and filter in the tree** (small to medium): filter by name and kind.
+
+Not now: same-cycle batch write, event order across tasks (both deferred by decision 2026-11-09), the log file viewer, the formatter (both need a design first).
+
 ## Open
 
 - [x] **MCP server for the ADS watch**: Claude Code reaches the five ADS tools through a user-scope stdio bridge (`iecode mcp`) to the window that serves its folder.
@@ -27,6 +41,13 @@
     - [ ] TIME / LTIME / TOD / WSTRING values (the original application has none at the top levels).
     - [x] F5 checks of the view, the scope and the connection lease: the watch value and the scope line run live, the host process ends about 30 s after the last variable is removed and the scope is closed.
     - [x] Copilot agent mode: `iecode.ads.aiWrites` off (write refused, the message names "IECode: Set AI Write Access…"), confirm (dialog) and auto (writes) behave as intended.
+- [ ] **ADS MCP: live check of the write and struct-read features**: batch write (`writes`), `pulseMs`, `journal`, `restore`, `confirmPersistent` and the struct read (`ads_read` with `depth`, `ads_watch { expand: true }`) are covered by unit tests only; none was tried against a real target with the installed extension and the iecode CLI of ADS host protocol 2.
+  - [ ] Batch write of 2 to 3 values on a simulation, including one value that fails to parse (nothing may be sent) and the read-back text.
+  - [ ] Pulse of a BOOL command bit: the bit returns to its idle value; cancel the call during the hold and check the reset still runs.
+  - [ ] Journal and restore after a PLC download that renamed a symbol: the restore lists the symbol as skipped and restores the rest.
+  - [ ] Struct read: that the elements of an array are the sub symbols of the array symbol (`SubSymbols`), the 200 member and 20 element caps, a struct that holds a pointer.
+  - [ ] `ads_symbols` from the running PLC (`source: "online"` with a filter) on a large project: how long the upload takes and that the 500 match cap and the total are right.
+  - [ ] PERSISTENT guard against a built project: a write to a `TcPersistent` variable is refused without `confirmPersistent`.
 - [ ] **ADS MCP: batch write in the same PLC cycle**: Plan C sends several values as one ADS request, which does not guarantee that the PLC sees them in the same cycle. A same-cycle write needs a PLC-side handshake (e.g. a library block that takes the values and applies them in one cycle). Deferred by user decision 2026-11-09; see [docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md](docs/superpowers/plans/2026-11-09-ads-wishlist-master-plan.md).
 - [ ] **ADS MCP: event order across several PLC tasks**: the PLC-cycle timestamp work (Plan E7) only promises an order for symbols of one task. Comparing task timestamps across tasks is deferred by user decision 2026-11-09.
 - [ ] **ADS MCP: manual checks of the `ads_symbols` changes**: three changes are covered by unit tests but were not tried in the installed extension against a built PLC project.
@@ -60,6 +81,7 @@
 - [ ] **ADS write allowlist and ARMED expiry**: restrict which variables an AI may write and let `auto` write access lapse.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#b-ads-write-allowlist-and-armed-mode). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (per-symbol `writeAllowlist` as third gate), [idomp/twincat-mcp-public](https://github.com/idomp/twincat-mcp-public) (SAFE / ARMED mode, armed expires after 5 minutes), [eponce00/twincat-mcp](https://github.com/eponce00/twincat-mcp) (expiring, scoped grants).
   - Idea: extend `iecode.ads.aiWrites` (off / confirm / auto) with glob patterns for allowed symbols and an expiry for `auto`. Replaces the "AI write allowlist" line under the ADS item above.
+  - Status 2026-11-17: the path allowlist is done (`iecode.ads.aiWritePaths`, wishlist Plan C7a). Left: the expiry of `auto`.
 - [ ] **Read-only diagnostics tools for AI**: TwinCAT state, event / runtime error list, log tail, NC axis and IO state as read-only tools, plus a "what is wrong right now" bundle.
   - Research: [docs/research/feature-ideas.md](docs/research/feature-ideas.md#c-read-only-diagnostics-for-ai). Prior art: [Auda29/twincat-mcp-mono](https://github.com/Auda29/twincat-mcp-mono) (`tc_state`, `tc_event_list`, `tc_runtime_error_list`, `tc_log_read`, `tc_diagnose_*`, `nc_read_axis`, `io_read_group`).
   - Open: the logger source is the same question as in the log file viewer item; decide it once for both.

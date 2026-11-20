@@ -11,16 +11,22 @@ import { CaptureDeps, runCapture } from '../core/captureRun';
 import { parsePresets, presetListText, presetSymbols, presetText, unknownPresetText } from '../core/presets';
 import { PAGE_SIZE, SymbolQuery, elementPrefixes, matchesQuery, queryText } from '../core/symbolQuery';
 import { promises as fsp } from 'fs';
-import { buildHeader } from '../core/symbolOrigin';
+import { buildHeader, onlineHeader, sourceHeader } from '../core/symbolOrigin';
+import { SourceChoice, UnitState, planSources } from '../core/symbolSource';
+import { onlineFailureText } from '../core/onlineSymbols';
+import { listOnline } from './onlineSymbols';
 import { ScopeOptions, formatValueText, oneLine, sampleAge, shownText } from '../core/adswatch';
 import type { CaptureInput } from '../core/mcpTools';
 
 import { encodeMarker, logText, markNow, readLog } from '../core/logRead';
-import { logDirectorySetting } from './aiSettings';
+import { logDirectorySetting, persistentPathsSetting } from './aiSettings';
+import { RestorePlan, journalText, planRestore } from '../core/writeJournal';
+import { persistentIn } from '../core/writePolicy';
 import { nodeLogFs } from './logFs';
 import { LogRequest, ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
-import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
+import { ToolNames, ToolText, capText, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readStructRows, structNeedsNewerCli, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
+import { expandAdds } from '../core/watchExpand';
 import { ConfirmUserRemoval, WatchRunResult, runWatchRequest } from '../core/watchRequest';
 import { output } from '../cli/iecode';
 import { WaitDeps, runWait } from '../core/waitRun';
@@ -28,9 +34,9 @@ import { AdsHost, StartError, WriteNotSent } from './host';
 
 export type { ToolNames, ToolText };
 
-export interface SymbolsInput { filter?: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
+export interface SymbolsInput { filter?: string; source?: SourceChoice; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 export type WatchInput = WatchRequest;
-export interface ReadInput { symbols?: string[] }
+export interface ReadInput { symbols?: string[]; depth?: number }
 export type ScopeInput = Partial<ScopeArgs>;
 export interface WaitInput { symbol: string; condition: WaitCondition; timeoutSeconds: number }
 
@@ -47,6 +53,9 @@ export const errorText = (e: unknown) => `Error: ${(e as Error).message}${e inst
 
 const ok = (text: string): ToolText => ({ text: capText(text) });
 const failure = (e: unknown): ToolText => ({ text: capText(errorText(e)), isError: true });
+
+/** Persistent marks of a build output by file and requested array elements, valid while the file's time is unchanged. */
+const persistentCache = new Map<string, { mtime: number; names: Set<string> }>();
 
 /** Keeps the host alive for the duration of a tool call. */
 async function leased<T>(host: AdsHost, fn: () => Promise<T>): Promise<T> {
@@ -152,6 +161,56 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
   return {
     host,
 
+    /** The "needs a newer iecode CLI" text when the host lacks the protocol feature, else undefined. */
+    requires: (feature: string): Promise<string | undefined> => host.requires(feature),
+
+    /** The journal of AI writes on the current target, as text (read-only). */
+    journal(): ToolText {
+      const text = journalText(host.journal.entries(host.targetKey()), { target: host.targetKey(), dropped: host.journal.dropped(), clock });
+      return ok(text);
+    },
+
+    /** What a restore would write back: the journal against the values the symbols have now. */
+    async restorePlan(): Promise<RestorePlan> {
+      const entries = host.journal.entries();
+      const symbols = [...new Set(entries.filter(e => e.kind === 'write' && !e.restored).map(e => e.symbol))];
+      const unreadable = new Map<string, string>();
+      // the host reads at most 200 symbols per request: a longer journal must not make every symbol unreadable
+      for (let i = 0; i < symbols.length; i += 200) {
+        const chunk = symbols.slice(i, i + 200);
+        try {
+          for (const r of await host.read(chunk)) if (r.error) unreadable.set(r.symbol.trim().toLowerCase(), r.error);
+        } catch (e) {
+          for (const s of chunk) unreadable.set(s.trim().toLowerCase(), (e as Error).message);
+        }
+      }
+      return planRestore(entries, host.targetKey(), unreadable);
+    },
+
+    /** The symbols of those given that lie below the user's persistent paths. */
+    async persistentOf(symbols: string[]): Promise<string[]> {
+      // the build output marks persistent symbols (TcPersistent); an unbuilt or unreadable unit just adds no marks
+      const built = new Set<string>();
+      const elements = [...new Set(symbols.flatMap(s => elementPrefixes(`${s}.`)))];
+      for (const u of state.current.units) {
+        try {
+          const file = await findTmc(u.plc.file);
+          if (!file) continue;
+          // parsing the members of a large build output takes seconds: keep the marks until the file changes
+          const key = `${file}|${elements.join('|')}`;
+          const mtime = (await fsp.stat(file)).mtimeMs;
+          let hit = persistentCache.get(key);
+          if (!hit || hit.mtime !== mtime) {
+            const names = new Set<string>();
+            for (const s of (await fromBuild(u.plc, true, elements)).symbols) if (s.persistent) names.add(s.name.toLowerCase());
+            persistentCache.set(key, hit = { mtime, names });
+          }
+          for (const n of hit.names) built.add(n);
+        } catch { /* no build output: the path list still applies */ }
+      }
+      return persistentIn(symbols, persistentPathsSetting(), built);
+    },
+
     async symbols(input: SymbolsInput): Promise<ToolText> {
       // Copilot hands the input over unparsed
       const enumName = typeof input.enumType === 'string' ? input.enumType.trim() : '';
@@ -168,9 +227,30 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       const unreadable: string[] = [];
       const libraries: string[] = [];
       const headers: string[] = [];
+      let extraTotal = 0;
       // a library project can run too (a module with its own MAIN): it counts once it was built
       const units = state.current.units;
-      for (const u of units) {
+      const choice: SourceChoice = input.source === 'online' || input.source === 'build' || input.source === 'source' ? input.source : 'auto';
+      const hasFilter = !!(query.filter || query.prefix);
+      const unitStates: UnitState[] = [];
+      for (const u of units) unitStates.push({ name: u.plc.name, hasBuild: !!(await findTmc(u.plc.file)), isLibrary: u.plc.isLibrary });
+      // the host starts only when the running PLC could answer, so a plain build-output call never touches it
+      let onlineSupported = false;
+      if (choice === 'online' || (choice === 'auto' && hasFilter && unitStates.some(s => !s.hasBuild && !s.isLibrary))) {
+        try {
+          await host.ready();
+          onlineSupported = host.hostCaps()?.supports('onlineSymbols') === true;
+        } catch (e) {
+          if (choice === 'online') return failure(e);
+        }
+      }
+      const plan = planSources({ choice, units: unitStates, onlineSupported, hasFilter });
+      if (plan.error) return { text: `Error: ${plan.error}`, isError: true };
+      const fromSource: Unit[] = [];
+      for (const step of plan.perUnit) {
+        const u = units.find(x => x.plc.name === step.unit)!;
+        if (step.source === 'source') { fromSource.push(u); continue; }
+        if (step.source === 'skip') { (u.plc.isLibrary ? libraries : missing).push(u.plc.name); continue; }
         try {
           const built = await fromBuild(u.plc, true, elementPrefixes(query.prefix));
           headers.push(...buildHeader({ unit: u.plc.name, builtAt: built.builtAt!, newer: built.newerSources ?? [] }));
@@ -180,10 +260,34 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
           else unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
         }
       }
+      if (plan.online) {
+        const { target, port } = host.endpoint();
+        const online = await listOnline(target, port, query.prefix || query.filter);
+        if (online.ok) {
+          headers.push(onlineHeader(host.target()));
+          if (online.value.total > online.value.symbols.length)
+            headers.push(`The online list was cut at ${online.value.symbols.length} of ${online.value.total} names before the prefix and type filters: matches may be missing, narrow the prefix or filter.`);
+          for (const s of online.value.symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
+          // the CLI capped its answer: the paging note must still count what it left out
+          extraTotal = Math.max(0, online.value.total - online.value.symbols.length);
+        } else {
+          headers.push(onlineFailureText(show(online.error)));
+          for (const s of unitStates) if (!s.hasBuild && !s.isLibrary) fromSource.push(units.find(x => x.plc.name === s.name)!);
+        }
+      }
+      for (const u of fromSource) {
+        try {
+          headers.push(sourceHeader(u.plc.name));
+          for (const s of (await fromSourceAt(u.plc, undefined, true)).symbols) if (matchesQuery(s, query)) all.push(`${s.name} : ${s.type}`);
+        } catch (e) {
+          unreadable.push(`${u.plc.name} (${show((e as Error).message)})`);
+        }
+      }
+      headers.push(...plan.notes);
       // a smaller page than the default keeps a narrow look-up cheap
       const page = typeof input.limit === 'number' && Number.isInteger(input.limit) && input.limit >= 1 && input.limit <= PAGE_SIZE ? input.limit : PAGE_SIZE;
       const matches = all.slice(query.offset, query.offset + page);
-      const listing = symbolsText({ headers, matches, total: all.length, max: page, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
+      const listing = symbolsText({ headers, matches, total: all.length + extraTotal, max: page, offset: query.offset, typed, missing, unreadable, units: units.length, libraries });
       return ok(input.hidden === true ? `${listing}\n${await hiddenAnswer(units, filter)}` : listing);
     },
 
@@ -253,8 +357,21 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       return { ...r, text: capText(head + r.text) };
     },
 
-    async watch(input: WatchInput, signal: AbortSignal): Promise<ToolText> {
+    async watch(request: WatchInput, signal: AbortSignal): Promise<ToolText> {
       let result: WatchRunResult;
+      let input = request;
+      const expandLines: string[] = [];
+      if (request.expand && request.add.length) {
+        try {
+          await host.ready();
+          if (host.hostCaps()?.supports('structRead') !== true) return { text: 'Error: expand needs a newer iecode CLI: structRead', isError: true };
+          const expanded = expandAdds(request.add, await host.read(request.add, 3));
+          input = { ...request, add: expanded.names };
+          expandLines.push(...expanded.lines);
+        } catch (e) {
+          return failure(e);
+        }
+      }
       const owned = new Set(input.force ? host.list.userOwned(input.remove).map(x => x.toLowerCase()) : []);
       try {
         result = await leased(host, () => runWatchRequest(host.list, input, confirmRemove, signal));
@@ -270,7 +387,8 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
         const h = await propertyHint(state.current.units, i.symbol);
         if (h) hints.push(`Hint for ${i.symbol}: ${h}`);
       }
-      return ok(watchResultText({ hints, full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() }));
+      const answer = watchResultText({ hints, full: wantsFullList(input), list: list(host), result, addErrors: addErrorLines(host.items(), result.added), count: host.watched().length, parked: Math.max(0, host.entries().length - host.watched().length), group: input.group, unresolved: host.unresolved.take(host.items(), result.added), intervalMs: host.sampling().intervalMs, names, target: host.target() });
+      return ok(expandLines.length ? `${expandLines.join('\n')}\n${answer}` : answer);
     },
 
     async read(input: ReadInput): Promise<ToolText> {
@@ -291,7 +409,14 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
             }
           }
           if (others.length) {
-            for (const r of await host.read(others)) rows.push(readOnceRow(/not found/i.test(r.error ?? '') ? { ...r, hint: await propertyHint(state.current.units, r.symbol) } : r));
+            // a host that can expand structures is asked for the members (default depth 3); an older one is sent the plain read
+            await host.ready();
+            const expands = host.hostCaps()?.supports('structRead') === true;
+            for (const r of await host.read(others, expands ? input.depth ?? 3 : undefined)) {
+              if (r.members) rows.push(readStructRows({ symbol: r.symbol, type: r.type, members: r.members, notes: r.notes }));
+              else if (!expands && /is not a single value/.test(r.error ?? '')) rows.push(structNeedsNewerCli(r.symbol));
+              else rows.push(readOnceRow(/not found/i.test(r.error ?? '') ? { ...r, hint: await propertyHint(state.current.units, r.symbol) } : r));
+            }
           }
           return ok(readText(host.target(), rows));
         });

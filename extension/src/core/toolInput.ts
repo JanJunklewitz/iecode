@@ -2,7 +2,8 @@
 
 import { MAX_WATCHED } from './adswatch';
 import { groupNameError } from './watchGroups';
-import { WriteItem } from './writeText';
+import type { SourceChoice } from './symbolSource';
+import { MAX_PULSE_MS, MIN_PULSE_MS, WriteItem, oppositeBool } from './writeText';
 import { CAPTURE_DEFAULT_POST, CAPTURE_DEFAULT_PRE, CAPTURE_MAX_POST, CAPTURE_MAX_PRE, CaptureRequest } from './captureRun';
 import { DEFAULT_LOG_LINES, LogMarker, MAX_LOG_LINES, decodeMarker } from './logRead';
 import { MAX_CONDITION_LENGTH, WaitCondition, parseCondition } from './waitCondition';
@@ -41,7 +42,7 @@ function str(o: Record<string, unknown>, field: string, max: number, required: b
 
 const isErr = (x: unknown): x is { error: string } => typeof x === 'object' && x !== null;
 
-export interface SymbolsRequest { filter: string; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
+export interface SymbolsRequest { filter: string; source?: SourceChoice; enumType?: string; hidden?: boolean; prefix?: string; type?: string; offset?: number; limit?: number }
 
 export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   const o = asObject(raw);
@@ -60,7 +61,11 @@ export function parseSymbolsInput(raw: unknown): Parsed<SymbolsRequest> {
   if (offset !== undefined && offset !== null && (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)) return fail('offset must be a whole number of 0 or more');
   const limit = o.limit;
   if (limit !== undefined && limit !== null && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 100)) return fail('limit must be a whole number from 1 to 100');
+  const source = str(o, 'source', 16, false);
+  if (isErr(source)) return fail(source.error);
+  if (source !== undefined && !['auto', 'online', 'build', 'source'].includes(source)) return fail('source must be one of auto, online, build, source');
   const value: SymbolsRequest = { filter: filter ?? '' };
+  if (source && source !== 'auto') value.source = source as SourceChoice;
   if (prefix?.trim()) value.prefix = prefix.trim();
   if (type?.trim()) value.type = type.trim();
   if (typeof offset === 'number') value.offset = offset;
@@ -77,7 +82,7 @@ function bool(o: Record<string, unknown>, field: string): boolean | undefined | 
   return typeof v === 'boolean' ? v : { error: `${field} must be a boolean` };
 }
 
-export interface WatchRequest { add: string[]; remove: string[]; list?: boolean; clearAi?: boolean; force?: boolean; group?: string; enable?: boolean; removeGroup?: boolean }
+export interface WatchRequest { add: string[]; remove: string[]; list?: boolean; clearAi?: boolean; force?: boolean; group?: string; enable?: boolean; removeGroup?: boolean; expand?: boolean }
 
 /** The full list is returned for an empty call and for `list: true`. */
 export const wantsFullList = (r: WatchRequest): boolean => r.list === true || (!r.add.length && !r.remove.length && !r.clearAi && r.group === undefined);
@@ -97,7 +102,7 @@ export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
     if (bad) return fail(bad);
     flags.group = group.trim();
   }
-  for (const field of ['list', 'force', 'clearAi', 'enable', 'removeGroup'] as const) {
+  for (const field of ['list', 'force', 'clearAi', 'enable', 'removeGroup', 'expand'] as const) {
     const v = bool(o, field);
     if (isErr(v)) return fail(v.error);
     if (v !== undefined) flags[field] = v;
@@ -116,12 +121,15 @@ export function parseWatchInput(raw: unknown): Parsed<WatchRequest> {
   return { ok: true, value: { add, remove, ...flags } };
 }
 
-export function parseReadInput(raw: unknown): Parsed<{ symbols: string[] }> {
+export function parseReadInput(raw: unknown): Parsed<{ symbols: string[]; depth?: number }> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
   const symbols = stringArray(o, 'symbols');
   if (typeof symbols === 'string') return fail(symbols);
-  return { ok: true, value: { symbols } };
+  const depth = o.depth;
+  if (depth === undefined || depth === null) return { ok: true, value: { symbols } };
+  if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1 || depth > 5) return fail('depth must be a whole number from 1 to 5');
+  return { ok: true, value: { symbols, depth } };
 }
 
 export const SCOPE_MAX_ROWS = 200;
@@ -170,10 +178,26 @@ export function parseScopeInput(raw: unknown): Parsed<ScopeArgs> {
 export const MAX_WRITES = 20;
 /** The key a prepared Copilot confirmation is stored under: the single write as before, a batch as a whole. */
 export function writeKey(input: WriteInput): string {
-  return 'writes' in input ? JSON.stringify(['batch', input.writes.map(w => [w.symbol, w.value])]) : JSON.stringify([input.symbol, input.value]);
+  const persistent = 'confirmPersistent' in input && input.confirmPersistent ? [true] : [];
+  if ('journal' in input) return JSON.stringify(['journal']);
+  if ('restore' in input) return JSON.stringify(['restore', ...persistent]);
+  return 'writes' in input
+    ? JSON.stringify(['batch', input.writes.map(w => (w.pulseMs === undefined ? [w.symbol, w.value] : [w.symbol, w.value, w.pulseMs])), ...persistent])
+    : JSON.stringify([input.symbol, input.value, ...(input.pulseMs === undefined ? [] : [input.pulseMs]), ...persistent]);
 }
 
-export type WriteInput = { symbol: string; value: string } | { writes: WriteItem[] };
+/** A write call: one symbol, or a batch. `confirmPersistent` says the user asked for a write to PERSISTENT data. */
+export type WriteCall = { symbol: string; value: string; pulseMs?: number; confirmPersistent?: true } | { writes: WriteItem[]; confirmPersistent?: true };
+export type WriteInput = WriteCall | { journal: true } | { restore: true; confirmPersistent?: true };
+
+/** `pulseMs` of one write: undefined when absent, an error text when it is not a whole number in range or the value is no BOOL. */
+function parsePulse(o: Record<string, unknown>, value: string, where: string): number | undefined | { error: string } {
+  const v = o.pulseMs;
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < MIN_PULSE_MS || v > MAX_PULSE_MS) return { error: `${where}pulseMs must be a whole number from ${MIN_PULSE_MS} to ${MAX_PULSE_MS}` };
+  if (oppositeBool(value) === undefined) return { error: `${where}pulseMs needs a BOOL value (TRUE, FALSE, 1 or 0), not ${JSON.stringify(value)}` };
+  return v;
+}
 
 /** One { symbol, value } pair; `where` prefixes the error ("" for the single form, "writes[1]." in a batch). */
 function parseWriteItem(raw: unknown, where: string, shape: string): Parsed<WriteItem> {
@@ -184,14 +208,37 @@ function parseWriteItem(raw: unknown, where: string, shape: string): Parsed<Writ
   if (!symbol || !symbol.trim()) return fail(where + 'symbol must not be blank');
   const value = str(o, 'value', MAX_VALUE_LENGTH, true);
   if (isErr(value)) return fail(where + value.error);
-  return { ok: true, value: { symbol, value: value ?? '' } };
+  const pulseMs = parsePulse(o, value ?? '', where);
+  if (isErr(pulseMs)) return fail(pulseMs.error);
+  return { ok: true, value: pulseMs === undefined ? { symbol, value: value ?? '' } : { symbol, value: value ?? '', pulseMs } };
+}
+
+/** `journal` and `restore` are flags that make a call of their own: true, or absent (false counts as absent). */
+function flag(o: Record<string, unknown>, field: string): boolean | { error: string } {
+  const v = o[field];
+  if (v === undefined || v === null || v === false) return false;
+  return v === true ? true : { error: `${field} must be true or false` };
 }
 
 export function parseWriteInput(raw: unknown): Parsed<WriteInput> {
   const o = asObject(raw);
   if (typeof o === 'string') return fail(o);
-  if (o.writes !== undefined && o.writes !== null) {
-    if (o.symbol !== undefined || o.value !== undefined) return fail('use either symbol and value or writes, not both');
+  const journal = flag(o, 'journal');
+  if (isErr(journal)) return fail(journal.error);
+  const restore = flag(o, 'restore');
+  if (isErr(restore)) return fail(restore.error);
+  const confirm = flag(o, 'confirmPersistent');
+  if (isErr(confirm)) return fail(confirm.error);
+  const persistent = confirm ? { confirmPersistent: true as const } : {};
+  const hasWrites = o.writes !== undefined && o.writes !== null;
+  const hasPair = o.symbol !== undefined || o.value !== undefined;
+  if (journal || restore) {
+    if (hasWrites || hasPair || (journal && restore)) return fail('use either symbol and value, writes, journal or restore');
+    if (journal) return confirm ? fail('journal does not take confirmPersistent') : { ok: true, value: { journal: true } };
+    return { ok: true, value: { restore: true, ...persistent } };
+  }
+  if (hasWrites) {
+    if (hasPair) return fail('use either symbol and value or writes, not both');
     const list = o.writes;
     const shape = 'writes must be an array of { symbol, value } objects';
     if (!Array.isArray(list)) return fail(shape);
@@ -208,14 +255,17 @@ export function parseWriteInput(raw: unknown): Parsed<WriteInput> {
       seen.set(key, i);
       writes.push(p.value);
     }
-    return { ok: true, value: { writes } };
+    if (writes.filter(w => w.pulseMs !== undefined).length > 1) return fail('only one write per call can set pulseMs');
+    return { ok: true, value: { writes, ...persistent } };
   }
   const symbol = str(o, 'symbol', MAX_SYMBOL_LENGTH, true);
   if (isErr(symbol)) return fail(symbol.error);
   if (!symbol || !symbol.trim()) return fail('symbol must not be blank');
   const value = str(o, 'value', MAX_VALUE_LENGTH, true);
   if (isErr(value)) return fail(value.error);
-  return { ok: true, value: { symbol, value: value ?? '' } };
+  const pulseMs = parsePulse(o, value ?? '', '');
+  if (isErr(pulseMs)) return fail(pulseMs.error);
+  return { ok: true, value: { symbol, value: value ?? '', ...(pulseMs === undefined ? {} : { pulseMs }), ...persistent } };
 }
 
 /** A finite number rounded to a whole number; clamping and its note belong to planConfig. */

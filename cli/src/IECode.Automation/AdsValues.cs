@@ -61,7 +61,7 @@ public static class AdsValues
     public static object ParseForWrite(IDataType? type, string text)
     {
         var (baseType, members) = Resolve(type);
-        var value = PlcValueText.Parse(baseType, text, members);
+        var value = PlcValueText.Parse(baseType, text, members, AllMembers(type));
         if (members is not null && type is not null) value = PlcValueText.Parse(EnumBaseType(type), System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!);
         return value;
     }
@@ -72,6 +72,15 @@ public static class AdsValues
         return Underlying(type)?.Category is DataTypeCategory.Primitive or DataTypeCategory.Enum or DataTypeCategory.String or DataTypeCategory.SubRange;
     }
 
+    /// <summary>How a read treats a symbol of this type: values are leaves, structures and function blocks and arrays are entered, everything else is not.</summary>
+    public static IECode.Core.Ads.NodeKind KindOf(IDataType? type) => Underlying(type)?.Category switch
+    {
+        DataTypeCategory.Primitive or DataTypeCategory.Enum or DataTypeCategory.String or DataTypeCategory.SubRange => IECode.Core.Ads.NodeKind.Leaf,
+        DataTypeCategory.Struct or DataTypeCategory.FunctionBlock or DataTypeCategory.Program or DataTypeCategory.Union => IECode.Core.Ads.NodeKind.Struct,
+        DataTypeCategory.Array => IECode.Core.Ads.NodeKind.Array,
+        _ => IECode.Core.Ads.NodeKind.Opaque,
+    };
+
     /// <summary>Name of the integer type underlying an enum (INT if unknown), so a parsed enum number can be written.</summary>
     private static string EnumBaseType(IDataType type) =>
         Underlying(type) is IEnumType { BaseType: { } b } ? b.Name : "INT";
@@ -79,6 +88,12 @@ public static class AdsValues
     /// <summary>The alias chain's end; an enum ends it, because Beckhoff's EnumType is also an alias of its base integer.</summary>
     private static IDataType? Underlying(IDataType? type) =>
         TypeChain.Underlying(type, t => t is IEnumType, t => (t as IAliasType)?.BaseType);
+
+    /// <summary>Every member name of an enum with its value, aliases included; null for a type that is not an enum.</summary>
+    public static IReadOnlyList<(string Name, long Value)>? AllMembers(IDataType? type) =>
+        Underlying(type) is IEnumType en
+            ? en.EnumValues.Where(m => m.Value is not null).Select(m => (m.Name, System.Convert.ToInt64(m.Value, System.Globalization.CultureInfo.InvariantCulture))).ToList()
+            : null;
 
     private static IReadOnlyDictionary<long, string> Members(IEnumType en)
     {

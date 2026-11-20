@@ -8,7 +8,7 @@ namespace IECode.Core.Ads;
 /// </summary>
 public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null, string? target = null)
 {
-    public const int Protocol = 1, MaxSymbols = 200;
+    public const int Protocol = 2, MaxSymbols = 200, MaxWrites = 20;
     private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000, ResolveBackoffMs = 5000;
 
     private readonly Action<string> _log = log ?? Console.Error.WriteLine;
@@ -47,8 +47,9 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
             object data = op switch
             {
                 "watch" => DoWatch(Symbols(root)),
-                "read" => DoRead(Symbols(root)),
+                "read" => DoRead(Symbols(root), Depth(root)),
                 "write" => DoWrite(Str(root, "symbol"), Str(root, "value")),
+                "writeMany" => DoWriteMany(root),
                 "interval" => DoInterval(root),
                 _ => throw new IECodeException(ExitCodes.Usage, $"Unknown op '{op}'."),
             };
@@ -299,13 +300,26 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         return new WatchItemsData(_gen, _items);
     }
 
-    private object DoRead(IReadOnlyList<string> symbols)
+    /// <summary>The optional `depth` of a read: absent is null (scalar read as before), else clamped to 1..MaxDepth.</summary>
+    private static int? Depth(JsonElement root)
+    {
+        if (!root.TryGetProperty("depth", out var d) || d.ValueKind == JsonValueKind.Null) return null;
+        if (d.ValueKind != JsonValueKind.Number || !d.TryGetInt32(out var n)) throw new IECodeException(ExitCodes.Usage, "read needs an integer 'depth'.");
+        return Math.Clamp(n, 1, StructExpand.MaxDepth);
+    }
+
+    private object DoRead(IReadOnlyList<string> symbols, int? depth)
     {
         var result = new List<WatchReadItem>();
         foreach (var s in symbols)
         {
             try
             {
+                if (depth is { } levels && backend.ReadMembers(s, levels) is { } sr)
+                {
+                    result.Add(new WatchReadItem(s, sr.Type, null, null, sr.Members, new WatchReadNotes(sr.OmittedMembers, sr.OmittedElements, sr.NotExpanded)));
+                    continue;
+                }
                 var (type, value) = backend.ReadOnce(s);
                 result.Add(new WatchReadItem(s, type, value, null));
             }
@@ -325,6 +339,31 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     {
         var (back, readBackError) = backend.Write(symbol, value);
         return new WatchWriteData(symbol, back, readBackError);
+    }
+
+    /// <summary>Every validation failure is a <see cref="WriteNotSentException"/>, so the client reads it as "nothing was sent".</summary>
+    private object DoWriteMany(JsonElement root)
+    {
+        if (!root.TryGetProperty("writes", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            throw new WriteNotSentException("Missing array 'writes'.");
+        var n = arr.GetArrayLength();
+        if (n == 0) throw new WriteNotSentException("writes must not be empty.");
+        if (n > MaxWrites) throw new WriteNotSentException($"At most {MaxWrites} writes are allowed.");
+        var writes = new List<(string Symbol, string Value)>(n);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var i = 0;
+        foreach (var e in arr.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.Object
+                || !e.TryGetProperty("symbol", out var s) || s.ValueKind != JsonValueKind.String
+                || !e.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.String)
+                throw new WriteNotSentException($"writes[{i}] needs string 'symbol' and 'value'.");
+            var symbol = s.GetString()!;
+            if (!seen.Add(symbol.Trim())) throw new WriteNotSentException($"Duplicate symbol: {symbol}");
+            writes.Add((symbol, v.GetString()!));
+            i++;
+        }
+        return new WatchWriteManyData(backend.WriteMany(writes));
     }
 
     private object DoInterval(JsonElement root)
