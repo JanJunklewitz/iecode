@@ -244,3 +244,64 @@ export async function historyCommits(root: string, file: string, max: number): P
   }
   return res;
 }
+
+// ---------------------------------------------------------------- index (per-section staging)
+
+/** The blob or file is not valid UTF-8: writing it back as text would change bytes. */
+export class NotUtf8Error extends Error {
+  constructor() { super('The file is not valid UTF-8; staging single sections would change other bytes'); }
+}
+
+function gitBytes(cwd: string, args: string[]): Promise<Buffer> {
+  return new Promise((resolve, reject) =>
+    execFile('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'buffer' }, (err, stdout, stderr) =>
+      err ? reject(new Error(stderr.toString().trim() || err.message)) : resolve(stdout)));
+}
+
+/** Text of a file's index entry (stage 0), undefined when it is not in the index. Throws NotUtf8Error for bytes that do not round-trip. */
+export async function readIndex(root: string, file: string): Promise<string | undefined> {
+  let bytes: Buffer;
+  try { bytes = await gitBytes(root, ['cat-file', 'blob', `:0:${rel(root, file)}`]); } catch { return undefined; }
+  const text = bytes.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(bytes)) throw new NotUtf8Error();
+  return text;
+}
+
+/** Mode, blob sha and stage of the first index entry of a file, undefined when it has none. */
+export async function indexEntry(root: string, file: string): Promise<{ mode: string; sha: string; stage: number } | undefined> {
+  const out = await git(root, ['--literal-pathspecs', 'ls-files', '-s', '--', rel(root, file)]);
+  const m = /^(\d+) ([0-9a-f]+) (\d)\t/.exec(out.split('\n')[0]);
+  return m ? { mode: m[1], sha: m[2], stage: Number(m[3]) } : undefined;
+}
+
+/** True while the file has unmerged index entries (stages 1 to 3). */
+export async function indexHasConflict(root: string, file: string): Promise<boolean> {
+  return (await git(root, ['--literal-pathspecs', 'ls-files', '-u', '--', rel(root, file)])).trim() !== '';
+}
+
+/**
+ * Replaces the index entry of a file by `content` (UTF-8 text, BOM and line endings as given), keeping its mode.
+ * Refuses when the entry's sha is no longer `expectSha`. Not atomic: git has no compare-and-swap for one entry, the
+ * check right before `update-index` only narrows the window. The check is repeated after an `index.lock` retry.
+ */
+export async function writeIndexBlob(root: string, file: string, content: string, expectSha: string, retryDelayMs = 200): Promise<void> {
+  const path = rel(root, file);
+  const check = async () => {
+    const e = await indexEntry(root, file);
+    if (!e || e.stage !== 0 || e.sha !== expectSha) throw new Error('The index changed in the meantime, try again');
+    return e;
+  };
+  await check();
+  // --no-filters: the text already has the index's line endings; a clean filter (core.autocrlf) would convert it again
+  const sha = (await git(root, ['hash-object', '-w', '--no-filters', '--stdin'], { input: content })).trim();
+  for (let attempt = 0; ; attempt++) {
+    const e = await check();
+    try {
+      await git(root, ['update-index', '--cacheinfo', `${e.mode},${sha},${path}`]);
+      return;
+    } catch (err) {
+      if (attempt === 0 && /index\.lock/.test((err as Error).message)) { await new Promise(r => setTimeout(r, retryDelayMs)); continue; }
+      throw err;
+    }
+  }
+}

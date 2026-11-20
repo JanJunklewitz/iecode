@@ -40,6 +40,7 @@ import { SUMMARY_RE } from './core/plcArchive';
 import { LIB_SCHEME, registerLibrarySources } from './lang/librarySources';
 import { registerBlame } from './commands/blame';
 import { registerObjectHistory } from './commands/objectHistory';
+import { registerObjectStage } from './commands/objectStage';
 
 const SCHEME = 'iecode';
 const LANG = 'twincat-st';
@@ -136,6 +137,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerConfigDiff(ctx);
   registerBlame(ctx);
   registerObjectHistory(ctx);
+  registerObjectStage(ctx);
   registerIoLinkView(ctx, state);
   registerVisuEditor(ctx);
   registerAiChat(ctx);
