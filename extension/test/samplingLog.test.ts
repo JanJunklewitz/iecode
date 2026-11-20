@@ -9,7 +9,7 @@ const reloaded = (t: number): SamplingEvent => ({ kind: 'reloaded', t, reason: '
 
 test('a lost and restored connection is one line with both times', () => {
   assert.equal(noticeText([{ kind: 'lost', t: 3, error: 'ADS error 0x745' }, { kind: 'restored', t: 9 }], false, clock, names),
-    'Notice: the connection to the PLC was lost at T3 and restored at T9; values in between are missing.');
+    'Notice: the connection to the PLC was lost at T3 and restored at T9; values in between are missing; ads_state compares the PLC cycle counter with its previous call to tell a restart.');
 });
 test('a connection that is still lost names the error', () => {
   assert.equal(noticeText([{ kind: 'lost', t: 3, error: 'ADS error 0x745' }], false, clock, names),
@@ -184,7 +184,7 @@ test('a view shows the disconnect message first, else the notices of the last tw
   const log = new SamplingLog(); log.state(true, undefined, 1); log.state(false, 'ADS error 0x745', 1000);
   assert.equal(viewNotice({ connected: false, error: 'ADS error 0x745' }, log, 2000, clock, names), 'Disconnected: ADS error 0x745');
   log.state(true, undefined, 3000);
-  assert.equal(viewNotice({ connected: true }, log, 4000, clock, names), 'Notice: the connection to the PLC was lost at T1000 and restored at T3000; values in between are missing.');
+  assert.equal(viewNotice({ connected: true }, log, 4000, clock, names), 'Notice: the connection to the PLC was lost at T1000 and restored at T3000; values in between are missing; ads_state compares the PLC cycle counter with its previous call to tell a restart.');
   assert.equal(viewNotice({ connected: true }, log, 3000 + VIEW_NOTICE_MS + 1, clock, names), undefined);
   assert.equal(viewNotice({ connected: false }, new SamplingLog(), 0, clock, names), undefined);
 });

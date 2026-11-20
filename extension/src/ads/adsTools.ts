@@ -25,6 +25,7 @@ import { persistentIn } from '../core/writePolicy';
 import { nodeLogFs } from './logFs';
 import { LogRequest, ScopeArgs, WatchRequest, wantsFullList } from '../core/toolInput';
 import { NoticeReader, scopeGapWarning } from '../core/samplingLog';
+import { runState } from '../core/plcState';
 import { ToolNames, ToolText, capText, withNotice, withTrailingNotice, emptyReadText, emptyScopeText, newestSample, readOnceRow, readRow, readStructRows, structNeedsNewerCli, readText, addErrorLines, confirmRemoveText, scopeSummaryText, scopeToolText, symbolsText, captureResultText, configText, propertyHintText, enumText, noEnumText, hiddenText, waitResultText, watchFailureText, watchListText, watchResultText } from '../core/adsToolText';
 import type { WaitCondition } from '../core/waitCondition';
 import { expandAdds } from '../core/watchExpand';
@@ -319,6 +320,15 @@ export function adsTools(ctx: vscode.ExtensionContext, state: WorkspaceState, na
       } catch (e) {
         return failure(e);
       }
+    },
+
+    /** The PLC run state and task counters; compares with the previous call to show a restart or an online change. */
+    async state(input: { task: number }): Promise<ToolText> {
+      const r = await runState({
+        requires: f => host.requires(f), plcState: t => host.plcState(t), tracker: host.stateTracker,
+        targetKey: host.targetKey(), target: host.target(), clock, names, wallMs: () => Date.now(), monoMs: () => performance.now(),
+      }, input.task);
+      return { ...r, text: capText(r.text) };
     },
 
     /** New lines of the TwinCAT log since a marker; reads files only, never touches the PLC. */

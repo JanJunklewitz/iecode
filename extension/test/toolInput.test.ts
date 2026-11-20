@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, parseLogInput, writeKey } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, parseLogInput, parseStateInput, writeKey } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -299,4 +299,15 @@ test('parseWatchInput keeps expand only as a boolean', () => {
   assert.ok(p.ok && p.value.expand === true);
   const bad = parseWatchInput({ add: ['a'], expand: 'yes' });
   assert.ok(!bad.ok && bad.error === 'expand must be a boolean');
+});
+
+test('parseStateInput: task optional, integer 1-16, default 1', () => {
+  assert.deepEqual(parseStateInput(undefined), { ok: true, value: { task: 1 } });
+  assert.deepEqual(parseStateInput({}), { ok: true, value: { task: 1 } });
+  assert.deepEqual(parseStateInput({ task: null }), { ok: true, value: { task: 1 } });
+  assert.deepEqual(parseStateInput({ task: 16 }), { ok: true, value: { task: 16 } });
+  for (const bad of [0, 17, 1.5, '2', true]) {
+    assert.deepEqual(parseStateInput({ task: bad }), { ok: false, error: 'task must be an integer from 1 to 16' }, String(bad));
+  }
+  assert.equal(parseStateInput([]).ok, false);
 });
