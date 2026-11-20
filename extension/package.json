@@ -2422,6 +2422,30 @@
             }
           }
         }
+      },
+      {
+        "name": "iecode_ads_state",
+        "toolReferenceName": "adsState",
+        "displayName": "ADS State",
+        "userDescription": "Read the run state of the PLC and detect a restart.",
+        "modelDescription": "Returns the PLC run state (Run, Stop, Config), the state of the TwinCAT system when it is not running, the cycle time and cycle counter of a PLC task (default 1) and the online change count. Call it again later: it says when the cycle counter went down (restart) or the online change count changed (download or online change) since the previous call (the first call has nothing to compare with; a restart followed by a long wait can count past the old value and is then not seen). It also answers when TwinCAT is in config mode and the PLC cannot be reached. Needs a recent iecode CLI.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16,
+              "description": "PLC task number, default 1."
+            }
+          }
+        }
       }
     ],
     "submenus": [

@@ -392,3 +392,13 @@ export function parseWaitInput(raw: unknown): Parsed<{ symbol: string; condition
   }
   return { ok: true, value: { symbol, condition: condition.value, timeoutSeconds } };
 }
+
+/** ads_state: the PLC task number, 1 to 16, default 1 (the index of `_TaskInfo`). */
+export function parseStateInput(raw: unknown): Parsed<{ task: number }> {
+  const o = asObject(raw);
+  if (typeof o === 'string') return fail(o);
+  if (o.task === undefined || o.task === null) return { ok: true, value: { task: 1 } };
+  const t = o.task;
+  if (typeof t !== 'number' || !Number.isInteger(t) || t < 1 || t > 16) return fail('task must be an integer from 1 to 16');
+  return { ok: true, value: { task: t } };
+}

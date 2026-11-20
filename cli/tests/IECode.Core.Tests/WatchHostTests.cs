@@ -49,6 +49,13 @@ public sealed class WatchHostTests
             WriteManyCalls++;
             return WriteManyFn(writes);
         }
+        public int? LastTask;
+        public Func<int, PlcState> StateFn = _ => new PlcState("Run", 0, 1234567, 10000, 3, null, "Run", null);
+        public PlcState ReadPlcState(int task)
+        {
+            LastTask = task;
+            return StateFn(task);
+        }
         public void Dispose() { }
     }
 
@@ -866,5 +873,112 @@ public sealed class WatchHostTests
         r.Host.Tick(T0.AddMilliseconds(10));
         var kinds = r.Lines.Select(Parse).Where(e => e.TryGetProperty("event", out _)).Select(e => e.GetProperty("event").GetString()).ToList();
         Assert.True(kinds.IndexOf("samples") >= 0 && kinds.IndexOf("samples") < kinds.IndexOf("reloaded"));
+    }
+
+    [Fact]
+    public void State_op_returns_the_backend_state_and_passes_the_task()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"state","task":2}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal(2, r.Backend.LastTask);
+        var data = reply.GetProperty("data");
+        Assert.Equal("Run", data.GetProperty("adsState").GetString());
+        Assert.Equal(1234567, data.GetProperty("cycleCount").GetInt64());
+        Assert.Equal(10000, data.GetProperty("cycleTimeUs").GetInt64());
+        Assert.Equal("Run", data.GetProperty("systemState").GetString());
+    }
+
+    [Fact]
+    public void State_op_defaults_to_task_1()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        Assert.Equal(1, r.Backend.LastTask);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("17")]
+    [InlineData("1.5")]
+    [InlineData("\"2\"")]
+    public void State_op_rejects_a_task_outside_1_to_16(string task)
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("{\"id\":5,\"op\":\"state\",\"task\":" + task + "}");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("task must be an integer from 1 to 16.", reply.GetProperty("error").GetString());
+        Assert.Null(r.Backend.LastTask);
+    }
+
+    [Fact]
+    public void State_op_fault_with_lost_connection_marks_the_host_lost()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.StateFn = _ => throw new AdsFault("gone", 0x745, true);
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        Assert.False(r.Last().GetProperty("ok").GetBoolean());
+        Assert.False(r.Events("state")[^1].GetProperty("connected").GetBoolean());
+    }
+
+    [Fact]
+    public void State_reply_omits_null_counters()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.StateFn = _ => new PlcState("Run", 0, null, null, null, "task counters not readable: nope", null, null);
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var data = r.Last().GetProperty("data");
+        Assert.False(data.TryGetProperty("cycleCount", out _));
+        Assert.False(data.TryGetProperty("systemState", out _));
+        Assert.Equal("task counters not readable: nope", data.GetProperty("taskNote").GetString());
+    }
+
+    [Fact]
+    public void State_op_while_disconnected_answers_with_the_system_state()
+    {
+        var r = new Rig();
+        r.Backend.ConnectFault = new AdsFault("no plc", 0x6, true);
+        r.Backend.StateFn = _ => new PlcState(null, null, null, null, null, null, "Config", "Cannot reach x:851 over ADS: (0x6)", 0x6);
+        r.Host.Start();
+        var states = r.Events("state").Count;
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("Config", reply.GetProperty("data").GetProperty("systemState").GetString());
+        Assert.Equal(6, reply.GetProperty("data").GetProperty("plcAdsCode").GetInt32());
+        Assert.Equal(states, r.Events("state").Count);
+    }
+
+    [Fact]
+    public void State_op_with_nothing_reachable_fails_with_the_connection_error()
+    {
+        var r = new Rig();
+        r.Backend.ConnectFault = new AdsFault("no target", null, true);
+        r.Backend.StateFn = _ => throw new AdsFault("no target", null, true);
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no target", reply.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void State_op_with_a_lost_PLC_part_marks_a_connected_host_lost()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.StateFn = _ => new PlcState(null, null, null, null, null, null, "Run", "lost (0x745)", 0x745, PlcConnectionLost: true);
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("Run", reply.GetProperty("data").GetProperty("systemState").GetString());
+        Assert.False(r.Events("state")[^1].GetProperty("connected").GetBoolean());
     }
 }

@@ -41,7 +41,7 @@ The 2026-11-20 simulation test ran an older build, which probably explains P1-6 
 - [ ] **P3-2** Tree filter, Enter speed: type `motor` and press Enter within 200 ms several times; always the full word.
 - [ ] **P3-3** Tree filter while the member grouping setting changes.
 - [ ] **P3-4** Tree filter with several PLC projects and a collapsed group: Clear restores the group state.
-- [ ] **P3-5** `ads_state` tool (TODO item 4) is not built yet; nothing to test.
+- [ ] **P3-5** `ads_state` against a simulation: Run, after a stop, after a TwinCAT restart (restart finding), after an online change, after closing and reopening the MCP connection (baseline stays), with TwinCAT in config mode (config mode line and "PLC: not reachable"). Record the real names and the unit of `CycleTime` (plan C task 1 step 1).
 
 ## Other branches in flight
 
@@ -96,11 +96,11 @@ Checked on 2026-11-20 by reading code and test names (no test run for this check
 | Object analysis C staging | partly | task 4 Discard (own pull request by the master plan) |
 | Small items A auto-write expiry | done | Copilot gate test for a lapsed window; hand check |
 | Small items B sampling notice | done | hand check, simulation session items 1 to 8; plot break deferred |
-| Small items C `ads_state` | **not built** | everything |
+| Small items C `ads_state` | built (`feat/ads-state`) | names of the system-info symbols and hand checks (need a PLC) |
 | Small items D tree filter | done | one more look at the two fixes (P1-1 to P1-5) |
 | ADS wishlist C writes | done | task C8 (pin test, CLI release) |
 | ADS wishlist D symbols | mostly | D6, D6b, D8 |
-| ADS wishlist E runtime | partly | E4 `ads_state`, E2, E6, E7, E9 |
+| ADS wishlist E runtime | partly | E2, E6, E7, E9 |
 
 - [ ] Decide for each "not built" row: build before the pull request, ship as a separate pull request, or leave in the TODO. The TODO section "Plans in this pull request" lists them with the details.
 

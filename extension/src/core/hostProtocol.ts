@@ -19,7 +19,7 @@ function deepFreeze<T>(o: T): T {
 /** Immutable. Entry N is complete: it lists everything protocol N offers, not only the change. */
 export const PROTOCOL_TABLE: ProtocolTable = deepFreeze({
   1: { ops: ['watch', 'read', 'write', 'interval'], features: [] },
-  2: { ops: ['watch', 'read', 'write', 'interval', 'writeMany'], features: ['writeMany', 'structRead', 'onlineSymbols'] },
+  2: { ops: ['watch', 'read', 'write', 'interval', 'writeMany', 'state'], features: ['writeMany', 'structRead', 'onlineSymbols', 'plcState'] },
 });
 
 const highest = (table: ProtocolTable): number => Math.max(...Object.keys(table).map(Number));
@@ -28,7 +28,7 @@ const highest = (table: ProtocolTable): number => Math.max(...Object.keys(table)
 export const PROTOCOL: number = highest(PROTOCOL_TABLE);
 
 /** Words for a feature in user-facing texts; a feature without a label is printed by its id. */
-export const FEATURE_LABELS: Readonly<Record<string, string>> = { writeMany: 'batch write', structRead: 'struct read', onlineSymbols: 'online symbol list' };
+export const FEATURE_LABELS: Readonly<Record<string, string>> = { writeMany: 'batch write', structRead: 'struct read', onlineSymbols: 'online symbol list', plcState: 'PLC state' };
 
 const INSTALL = 'Update it with "IECode: Install CLI…"';
 

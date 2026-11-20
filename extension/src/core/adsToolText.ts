@@ -13,10 +13,10 @@ import type { UnresolvedEntry } from './unresolved';
 import { groupSummaries, isActive } from './watchGroups';
 
 /** What a client calls the tools in the texts that point from one tool to another. */
-export interface ToolNames { watch: string; scope: string; write: string; wait: string; config: string }
+export interface ToolNames { watch: string; scope: string; write: string; wait: string; config: string; state: string }
 
-export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait', config: 'adsConfig' };
-export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait', config: 'ads_config' };
+export const COPILOT_NAMES: ToolNames = { watch: 'adsWatch', scope: 'adsScope', write: 'adsWrite', wait: 'adsWait', config: 'adsConfig', state: 'adsState' };
+export const MCP_NAMES: ToolNames = { watch: 'ads_watch', scope: 'ads_scope', write: 'ads_write', wait: 'ads_wait', config: 'ads_config', state: 'ads_state' };
 
 export interface ToolText { text: string; isError?: boolean }
 

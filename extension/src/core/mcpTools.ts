@@ -5,7 +5,7 @@ import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import type { WaitCondition } from './waitCondition';
 import type { CaptureRequest } from './captureRun';
-import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, LogRequest, Parsed, ScopeArgs, WatchRequest } from './toolInput';
+import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseReadInput, parseScopeInput, parseStateInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, LogRequest, Parsed, ScopeArgs, WatchRequest } from './toolInput';
 import { GatePolicy, MIN_DIALOG_MS, WriteGate, writeResultIsError, writeResultText } from './writeGate';
 import { prepareWrite } from './writeCall';
 import type { RestorePlan } from './writeJournal';
@@ -24,6 +24,7 @@ export interface AdsToolFns {
   preset(input: { path?: string; preset?: string }): Promise<ToolText>;
   capture(input: CaptureInput, signal: AbortSignal): Promise<ToolText>;
   log(input: LogRequest): Promise<ToolText>;
+  state(input: { task: number }): Promise<ToolText>;
   /** The "needs a newer iecode CLI" text when the host lacks a protocol feature (optional so a fake without it keeps compiling). */
   requires?(feature: string): Promise<string | undefined>;
   /** The text of the session journal of AI writes (`ads_write` with `journal: true`). */
@@ -77,6 +78,7 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
     read('ads_preset', parsePresetInput, v => d.tools.preset(v)),
     read('ads_capture', parseCaptureInput, (v, signal) => d.tools.capture(v, signal)),
     read('ads_log', parseLogInput, v => d.tools.log(v)),
+    read('ads_state', parseStateInput, v => d.tools.state(v)),
   ];
 }
 

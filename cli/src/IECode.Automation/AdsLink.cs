@@ -17,6 +17,8 @@ internal interface IAdsLink : IDisposable
     /// <summary>Opens the local router port only; whether the target answers is shown by <see cref="ReadState"/>.</summary>
     void Connect();
     AdsErrorCode ReadState();
+    /// <summary>The ADS state and device state of the port; the device state is widened, never cast to ushort.</summary>
+    (AdsErrorCode Code, string AdsState, int DeviceState) ReadStateInfo();
     /// <summary>One byte of index group 0xF008; the data is shorter than one byte when the read fails.</summary>
     (AdsErrorCode Code, byte[] Data) ReadSymbolVersion();
     /// <summary>Uploads the symbol table of the PLC.</summary>
@@ -75,13 +77,23 @@ internal sealed record SumRead(AdsErrorCode Code, IReadOnlyList<SumItem>? Items)
 internal readonly record struct SumItem(AdsErrorCode Code, object? Value);
 
 [SupportedOSPlatform("windows")]
-internal sealed class BeckhoffLink(Core.AmsNetId target, int port) : IAdsLink
+internal sealed class BeckhoffLink(Core.AmsNetId target, int port, int timeoutMs = 0) : IAdsLink
 {
     private readonly AdsClient _client = new();
 
-    public void Connect() => _client.Connect(new AdsNetId(target.ToString()), port);
+    public void Connect()
+    {
+        if (timeoutMs > 0) _client.Timeout = timeoutMs;
+        _client.Connect(new AdsNetId(target.ToString()), port);
+    }
 
     public AdsErrorCode ReadState() => _client.TryReadState(out _);
+
+    public (AdsErrorCode Code, string AdsState, int DeviceState) ReadStateInfo()
+    {
+        var code = _client.TryReadState(out var info);
+        return code == AdsErrorCode.NoError ? (code, info.AdsState.ToString(), info.DeviceState) : (code, "", 0);
+    }
 
     public (AdsErrorCode Code, byte[] Data) ReadSymbolVersion()
     {

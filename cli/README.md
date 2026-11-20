@@ -109,6 +109,7 @@ code 0 when stdin closes, after it has answered every request read before that.
 ← {"id":3,"op":"write","symbol":"MAIN.nCount","value":"7"}   replies with the value read back
 ← {"id":4,"op":"interval","ms":50}                    poll interval, 10 … 5000 ms (default 100)
 ← {"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}   protocol 2: one sum write
+← {"id":6,"op":"state","task":1}                     protocol 2: PLC run state, system state, cycle time and cycle counter of a task (1..16, default 1), online change count
 ```
 
 Values are canonical text (`TRUE`/`FALSE`, decimal integers, REAL with `.`, enum member names, TIME as

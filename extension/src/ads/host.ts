@@ -16,6 +16,7 @@ import { HostCaps, negotiate } from '../core/hostProtocol';
 import { activeSymbols } from '../core/watchGroups';
 import { UnresolvedNotes } from '../core/unresolved';
 import { SamplingLog } from '../core/samplingLog';
+import { PlcStateReply, StateTracker, parsePlcState } from '../core/plcState';
 import { cliAvailable, customCliPath, output, useInstallDir } from '../cli/iecode';
 
 const KEY = 'iecode.adsWatch';
@@ -77,6 +78,8 @@ export class AdsHost implements vscode.Disposable {
   readonly onEnded = this.ended.event;
   /** Connection and sampling events for the notices of the tools and views (only the host's own state events, Decision 7). */
   readonly log = new SamplingLog();
+  /** The baseline of ads_state: one per window, so a new MCP session keeps it (the key holds target and task). */
+  readonly stateTracker = new StateTracker();
   /** An event was recorded in `log`, or the log was cleared. */
   readonly onLog = this.logged.event;
   readonly buffer: ScopeBuffer;
@@ -254,6 +257,16 @@ export class AdsHost implements vscode.Disposable {
       // applied inside the reply line, so samples of the new gen right behind it already find their items
       await this.request({ op: 'watch', symbols: list }, d => this.applyItems(d as { gen: number; items: WatchItem[] }));
       return this.items_;
+    });
+  }
+
+  /** The PLC and system state and the counters of one task (host op `state`, protocol 2). */
+  async plcState(task: number): Promise<PlcStateReply> {
+    return this.leased(async () => {
+      await this.ensure(true);
+      const parsed = parsePlcState(await this.request({ op: 'state', task }));
+      if (typeof parsed === 'string') throw new Error(parsed);
+      return parsed;
     });
   }
 

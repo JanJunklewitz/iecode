@@ -39,7 +39,7 @@ function deferred<T>(): Deferred<T> {
 const tick = () => new Promise<void>(r => setImmediate(r));
 
 const POLICY: GatePolicy = { dialogMs: 100_000, operationMs: 150_000, maxQueued: 10 };
-const descriptors: ToolDescriptor[] = ['symbols', 'watch', 'read', 'scope', 'wait', 'write', 'config', 'preset', 'capture', 'log'].map(x => ({
+const descriptors: ToolDescriptor[] = ['symbols', 'watch', 'read', 'scope', 'wait', 'write', 'config', 'preset', 'capture', 'log', 'state'].map(x => ({
   name: `ads_${x}`, description: `Description of ${x}.`, inputSchema: { type: 'object', properties: { x: { type: 'string' } } },
 }));
 const fns = (over: Partial<AdsToolFns> = {}): AdsToolFns => ({
@@ -52,6 +52,7 @@ const fns = (over: Partial<AdsToolFns> = {}): AdsToolFns => ({
   preset: async i => ({ text: `preset ${JSON.stringify(i)}` }),
   capture: async i => ({ text: `capture ${i.symbol}` }),
   log: async i => ({ text: `log ${JSON.stringify(i)}` }),
+  state: async i => ({ text: `state ${JSON.stringify(i)}` }),
   ...over,
 });
 
@@ -76,10 +77,10 @@ const result = async (p: Promise<string | undefined>) => JSON.parse((await p) ??
 
 // ---- tests ----
 
-test('tools/list names the ten ads_ tools with their schemas', async () => {
+test('tools/list names the eleven ads_ tools with their schemas', async () => {
   const r = rig();
   const list = JSON.parse((await r.session.handle(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })))!).result.tools;
-  assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log']);
+  assert.deepEqual(list.map((t: { name: string }) => t.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log', 'ads_state']);
   assert.deepEqual(list[5].inputSchema, descriptors[5].inputSchema);
   assert.equal(list[0].description, 'Description of symbols.');
 });
@@ -228,11 +229,11 @@ test('policy is undefined when the timeout leaves no room for a dialog', () => {
   assert.deepEqual(gatePolicyFor(21_000), { dialogMs: 6_000, operationMs: 11_000, maxQueued: 10 });
 });
 
-test('the manifest declares the ten tools in client-neutral words', () => {
+test('the manifest declares the eleven tools in client-neutral words', () => {
   // out/test/*.js -> the extension's package.json is two levels up
   const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'));
   const found = descriptorsFromManifest(manifest);
-  assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log']);
+  assert.deepEqual(found.map(d => d.name), ['ads_symbols', 'ads_watch', 'ads_read', 'ads_scope', 'ads_wait', 'ads_write', 'ads_config', 'ads_preset', 'ads_capture', 'ads_log', 'ads_state']);
   const wait = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')).contributes.languageModelTools.find((t: { name: string }) => t.name === 'iecode_ads_wait');
   assert.deepEqual(wait.inputSchema.required, ['symbol', 'condition']);
   const watch = found.find(d => d.name === 'ads_watch') as { inputSchema: { properties: { list: { type: string } } } };
@@ -400,4 +401,16 @@ test('ads_read passes depth and ads_watch passes expand to the tool functions', 
   assert.equal((seen[1] as [string, { expand?: boolean }])[1].expand, true);
   const bad = await result(r.session.handle(call(22, 'ads_read', { symbols: ['MAIN.st'], depth: 9 })));
   assert.equal(bad.content[0].text, 'Invalid arguments: depth must be a whole number from 1 to 5');
+});
+
+test('ads_state passes validated arguments and refuses a task outside 1 to 16', async () => {
+  const seen: unknown[] = [];
+  const r = rig({ state: async i => { seen.push(i); return { text: 'state ok' }; } });
+  assert.equal((await result(r.session.handle(call(60, 'ads_state', {})))).content[0].text, 'state ok');
+  assert.equal((await result(r.session.handle(call(61, 'ads_state', { task: 2 })))).content[0].text, 'state ok');
+  assert.deepEqual(seen, [{ task: 1 }, { task: 2 }]);
+  const bad = await result(r.session.handle(call(62, 'ads_state', { task: 17 })));
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0].text, /^Invalid arguments: task must be an integer from 1 to 16/);
+  assert.equal(seen.length, 2);
 });

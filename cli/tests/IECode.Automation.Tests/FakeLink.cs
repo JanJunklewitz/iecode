@@ -17,6 +17,9 @@ internal sealed class FakeLink : IAdsLink
 
     public void Connect() { }
     public AdsErrorCode ReadState() => State;
+    /// <summary>The answer of <see cref="ReadStateInfo"/>; a failing code is returned as it is.</summary>
+    public (AdsErrorCode Code, string AdsState, int DeviceState) StateInfo = (AdsErrorCode.NoError, "Run", 0);
+    public (AdsErrorCode Code, string AdsState, int DeviceState) ReadStateInfo() => StateInfo;
 
     public (AdsErrorCode Code, byte[] Data) ReadSymbolVersion()
     {
