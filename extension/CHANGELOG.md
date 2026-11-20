@@ -2,10 +2,10 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
-## Unreleased
+## 0.2.22
 
 ### Editor
-- Comments (`//` and `(* *)`) in the ST view stay green in themes that render them grey. Your own `editor.tokenColorCustomizations` still win.
+- Comments (`//` and `(* *)`) in the ST view stay green in themes that render them grey. Your own `editor.tokenColorCustomizations` still win (#64).
 
 ## 0.2.21
 
