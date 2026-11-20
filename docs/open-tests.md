@@ -4,7 +4,7 @@ State of 2026-11-20 for the project tree filter (branch `feature/tree-filter`) a
 
 Prerequisite: the VSIX built from `combined/all-in-one` (it holds the tree filter and the ADS work together). Legend: `[ ]` to do, `[x]` done, `[!]` failed.
 
-Build state of `combined/all-in-one` (2026-11-20): extension compiles, 1313 of 1319 tests pass (6 skipped, none failed), CLI builds without warnings and its 331 tests pass, VSIX packaged. These are automated checks only; every item below is a hand check that has not been done on this build.
+Build state of `combined/all-in-one` (2026-11-20, after merging `ads_state`, the renamed config items with the cancellable history, Discard Method and the Copilot gate test): extension compiles, 1371 of 1377 tests pass (6 skipped, none failed), CLI builds without warnings and its 357 tests pass (the full CLI run took 43 minutes once on this PC, 11 seconds before; not investigated). VSIX not rebuilt since the merge. The new items were reviewed twice (a Claude review and a second opinion from another model) and fixed.
 
 ## Priority 1: must pass before the branches are merged
 
@@ -42,6 +42,13 @@ The 2026-11-20 simulation test ran an older build, which probably explains P1-6 
 - [ ] **P3-3** Tree filter while the member grouping setting changes.
 - [ ] **P3-4** Tree filter with several PLC projects and a collapsed group: Clear restores the group state.
 - [ ] **P3-5** `ads_state` against a simulation: Run, after a stop, after a TwinCAT restart (restart finding), after an online change, after closing and reopening the MCP connection (baseline stays), with TwinCAT in config mode (config mode line and "PLC: not reachable"). Record the real names and the unit of `CycleTime` (plan C task 1 step 1).
+
+- [ ] **P4-1** Config Changes with a renamed task and a renamed symbol (compare an `.xti` before and after renaming one task and one symbol in XAE): one `renamed Old → New` row each, plus only the fields that really changed.
+- [ ] **P4-2** Show History of an object on a repository with many commits: the progress notification has a Cancel button; Cancel ends the walk without a message and without a picker.
+- [ ] **P4-3** Discard Method: edit two methods, Discard one: the other edit stays, the question names the method and says it goes back to the staged version.
+- [ ] **P4-4** Discard Method on a method that exists only in the working file: the question says Delete, not Discard.
+- [ ] **P4-5** Discard Method refuses while the ST view or the raw XML of the file has unsaved edits, also when the edit starts while the question is open.
+- [ ] **P4-6** Discard Method on the main section (declaration and body): the question names the implementation.
 
 ## Other branches in flight
 
@@ -92,11 +99,11 @@ Checked on 2026-11-20 by reading code and test names (no test run for this check
 |---|---|---|
 | Log viewer | done, 11 of 11 tasks | manual checks, Windows run of the perf test |
 | Object analysis: master, A blame, D graph, E unused, F impact, G IO checks, H structure checks | done | manual checks on real projects |
-| Object analysis B history | built (`feat/renamed-diff`) | hand checks: renamed task / symbol in Config Changes, Cancel during a history walk |
-| Object analysis C staging | built (`feat/discard-method`) | F5 hand check: discard one of two edited methods (the other edit stays); raw XML editor with unsaved edits refuses; confirm dialog text |
-| Small items A auto-write expiry | done | Copilot gate test for a lapsed window; hand check |
+| Object analysis B history | done | hand checks: renamed task / symbol in Config Changes, Cancel during a history walk |
+| Object analysis C staging | done | F5 hand check: discard one of two edited methods (the other edit stays); the raw XML editor with unsaved edits refuses, also if the edit starts while the question is open; the question for a new method says delete; the main section question names the implementation |
+| Small items A auto-write expiry | done | hand check |
 | Small items B sampling notice | done | hand check, simulation session items 1 to 8; plot break deferred |
-| Small items C `ads_state` | built (`feat/ads-state`) | names of the system-info symbols and hand checks (need a PLC) |
+| Small items C `ads_state` | done, names unverified | names of the system-info symbols and the unit of `CycleTime`, hand checks P3-5 (need a PLC) |
 | Small items D tree filter | done | one more look at the two fixes (P1-1 to P1-5) |
 | ADS wishlist C writes | done | task C8 (pin test, CLI release) |
 | ADS wishlist D symbols | mostly | D6, D6b, D8 |

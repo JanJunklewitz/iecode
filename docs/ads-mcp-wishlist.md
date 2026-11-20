@@ -83,7 +83,7 @@ Status values: **Done** (merged on the branch and unit-tested), **Planned** (in 
 
 | Item | Status | Notes |
 |---|---|---|
-| `ads_state`: run or stop state, task cycle time, cycle counter | Built, names unverified ([small items Plan C](superpowers/plans/2026-11-17-small-items-c-ads-state.md), plus the TwinCAT system state) | Detects a restart (everything reset). |
+| `ads_state`: run or stop state, task cycle time, cycle counter | Built (names unverified; needs a PLC check) ([small items Plan C](superpowers/plans/2026-11-17-small-items-c-ads-state.md), plus the TwinCAT system state) | Detects a restart (everything reset). |
 | Active alarms or the last N logger messages | Planned (Phase 9, spike first) | |
 | A one-call overview of a state-machine function block (step, description, elapsed time, error text, busy, release and interlock texts) | Done as user-defined presets (`ads_preset`, Plan E8) | A preset is a named list of member names you define, so no naming convention is built in. |
 | Component mode (manual or automatic) of a path | New | Same convention problem as the line above. |
