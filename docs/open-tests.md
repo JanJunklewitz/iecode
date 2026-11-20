@@ -80,6 +80,7 @@ Taken from the section "Branches in flight" of `TODO.md` on `docs/todo-branches-
 - [ ] Chain A in order (graph, unused, impact as stacked pull requests); chain C after it, dropping the two shared commits.
 - [ ] `combined/analysis-and-tree` (chain A, chain C and the tree filter, 964 extension tests): split into pull requests at the commits of the single branches.
 - [ ] Chain B (ADS) only after the hand checks above.
+- [ ] Plan-only branches stay out of the pull request and are listed in `TODO.md` ("Plan-only branches"): `feature/raw-xml-compare` (nothing built) and the plans of `feature/object-analysis-and-history` (kept in, chains A and C implement them).
 
 ## Seen so far (before the fixes)
 
