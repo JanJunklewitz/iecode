@@ -93,7 +93,7 @@ Checked on 2026-11-20 by reading code and test names (no test run for this check
 | Log viewer | done, 11 of 11 tasks | manual checks, Windows run of the perf test |
 | Object analysis: master, A blame, D graph, E unused, F impact, G IO checks, H structure checks | done | manual checks on real projects |
 | Object analysis B history | partly | task 4 renamed items in the config diff (own pull request by the master plan); history cannot be cancelled |
-| Object analysis C staging | partly | task 4 Discard (own pull request by the master plan) |
+| Object analysis C staging | built (`feat/discard-method`) | F5 hand check: discard one of two edited methods (the other edit stays); raw XML editor with unsaved edits refuses; confirm dialog text |
 | Small items A auto-write expiry | done | Copilot gate test for a lapsed window; hand check |
 | Small items B sampling notice | done | hand check, simulation session items 1 to 8; plot break deferred |
 | Small items C `ads_state` | **not built** | everything |

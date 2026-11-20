@@ -1,9 +1,10 @@
-// Stage one method, property or action from the ST view: a CodeLens above every changed section.
+// Stage or discard one method, property or action from the ST view: CodeLenses above every changed section.
 // Works on the file on disk and the git index; a dirty view or raw XML document is refused ("save first").
 
 import { createHash } from 'crypto';
+import { promises as fsp } from 'fs';
 import * as vscode from 'vscode';
-import { changedSections, decodeUtf8Strict, hasMixedEol, stageGuard, stageSection } from '../core/objectStage';
+import { GuardInput, SafeWriteIo, changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, stageGuard, stageSection, writeFileSafe } from '../core/objectStage';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, repoRoot, writeIndexBlob } from '../core/git';
 import { decode, outline } from '../model';
 
@@ -16,8 +17,16 @@ interface Snapshot { root: string; file: vscode.Uri; work: string; index: string
 const isDirty = (fsPath: string) => vscode.workspace.textDocuments.some(d =>
   d.isDirty && (d.uri.scheme === SCHEME || d.uri.scheme === 'file') && d.uri.fsPath.toLowerCase() === fsPath.toLowerCase());
 
-/** Reads everything staging needs and applies the guard. A refusal carries its message. */
-async function snapshot(file: vscode.Uri): Promise<{ ok: true; s: Snapshot } | { ok: false; message: string; wholeFile?: boolean }> {
+const nodeIo: SafeWriteIo = {
+  write: (p, c) => fsp.writeFile(p, c),
+  rename: (a, b) => fsp.rename(a, b),
+  remove: p => fsp.rm(p, { force: true }),
+};
+
+type Guard = (i: GuardInput) => { ok: true } | { ok: false; message: string; wholeFile?: boolean };
+
+/** Reads everything staging (or discarding) needs and applies the guard. A refusal carries its message. */
+async function snapshot(file: vscode.Uri, guard: Guard = stageGuard): Promise<{ ok: true; s: Snapshot } | { ok: false; message: string; wholeFile?: boolean }> {
   const root = await repoRoot(file.fsPath);
   if (!root) return { ok: false, message: 'The file is not in a git repository' };
   const entry = await indexEntry(root, file.fsPath);
@@ -30,7 +39,7 @@ async function snapshot(file: vscode.Uri): Promise<{ ok: true; s: Snapshot } | {
   const work = decoded ?? '';
   let decodes = true;
   try { decode(work.replace(/^﻿/, '')); if (index) decode(index.replace(/^﻿/, '')); } catch { decodes = false; }
-  const g = stageGuard({
+  const g = guard({
     tracked: !!entry && entry.stage === 0 || conflict, intentToAdd: index === '', conflict, decodes, dirty: isDirty(file.fsPath),
     mixedEol: !!index && hasMixedEol(index), utf8,
   });
@@ -59,7 +68,13 @@ export function registerObjectStage(ctx: vscode.ExtensionContext): void {
             title: 'Stage Method', command: 'iecode.stageSection', arguments: [doc.uri, k, r.s.hash],
             tooltip: `Stage only ${k.replace(':', ' ')} of this file`,
           });
-        });
+        }).concat([...r.s.keys].filter(k => heads.has(k)).map(k => {
+          const line = heads.get(k)!;
+          return new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
+            title: 'Discard Method', command: 'iecode.discardSection', arguments: [doc.uri, k, r.s.hash],
+            tooltip: `Restore ${k.replace(':', ' ')} from the index and drop your changes to it`,
+          });
+        }));
       } catch { return []; }
     },
   };
@@ -85,6 +100,29 @@ export function registerObjectStage(ctx: vscode.ExtensionContext): void {
         refresh();
       } catch (e) {
         vscode.window.showErrorMessage(`IECode: staging failed: ${(e as Error).message}`);
+      }
+    }),
+    vscode.commands.registerCommand('iecode.discardSection', async (uri: vscode.Uri, key: string, hash?: string) => {
+      if (!uri || !key) return;                  // not declared in package.json, so a keybinding or task may call it bare
+      const file = uri.with({ scheme: 'file' });
+      try {
+        const r = await snapshot(file, discardGuard);
+        if (!r.ok) { vscode.window.showWarningMessage(`IECode: ${r.message}`); return; }
+        if (hash && hash !== r.s.hash) { vscode.window.showWarningMessage('IECode: the file changed on disk, try again'); refresh(); return; }
+        if (!r.s.keys.has(key)) { vscode.window.showInformationMessage('IECode: nothing to discard for this section'); refresh(); return; }
+        const name = file.fsPath.split(/[\\/]/).pop() ?? file.fsPath;
+        const answer = await vscode.window.showWarningMessage(discardConfirmText(key, name), { modal: true }, 'Discard');
+        if (answer !== 'Discard') return;
+        // the modal can stay open for minutes: read everything again, with a fresh dirty state of both documents
+        const again = await snapshot(file, discardGuard);
+        if (!again.ok) { vscode.window.showWarningMessage(`IECode: ${again.message}`); return; }
+        if (again.s.hash !== r.s.hash) { vscode.window.showWarningMessage('IECode: the file changed on disk, try again'); refresh(); return; }
+        const next = discardSection(again.s.index, again.s.work, key);
+        await writeFileSafe(file.fsPath, Buffer.from(next, 'utf8'), nodeIo);
+        await vscode.commands.executeCommand('git.refresh').then(undefined, () => undefined);
+        refresh();
+      } catch (e) {
+        vscode.window.showErrorMessage(`IECode: discarding failed: ${(e as Error).message}`);
       }
     }),
     vscode.workspace.onDidSaveTextDocument(refresh),

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changedSections, decodeUtf8Strict, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection } from '../src/core/objectStage';
+import { changedSections, decodeUtf8Strict, discardConfirmText, discardGuard, discardSection, hasMixedEol, sectionRanges, stageGuard, stageSection, writeFileSafe } from '../src/core/objectStage';
 import { tempRepo } from './helpers/gitRepo';
 import { NotUtf8Error, indexEntry, indexHasConflict, readIndex, runGit, writeIndexBlob } from '../src/core/git';
 import { join } from 'path';
@@ -338,4 +338,69 @@ test('the index entry of a file name with glob characters is that file, not a ne
     assert.equal((await indexEntry(r.dir, join(r.dir, 'Pump[1].TcPOU')))?.sha, want);
     assert.equal(await indexHasConflict(r.dir, join(r.dir, 'Pump[1].TcPOU')), false);
   } finally { r.cleanup(); }
+});
+
+// ---- discard (plan C, task 4) ----
+
+const okInput = { tracked: true, intentToAdd: false, conflict: false, decodes: true, dirty: false, mixedEol: false, utf8: true };
+
+test('writeFileSafe writes through a temporary file in the same folder and renames it over the target', async () => {
+  const calls: string[] = [];
+  await writeFileSafe('C:/p/FB_A.TcPOU', 'new', {
+    write: async (p, c) => { calls.push(`write ${p} ${c}`); },
+    rename: async (a, b) => { calls.push(`rename ${a} -> ${b}`); },
+    remove: async p => { calls.push(`remove ${p}`); },
+  });
+  assert.equal(calls.length, 2);
+  const tmp = /^write (\S+) new$/.exec(calls[0])![1];
+  assert.ok(tmp.startsWith('C:/p/') && tmp !== 'C:/p/FB_A.TcPOU');
+  assert.equal(calls[1], `rename ${tmp} -> C:/p/FB_A.TcPOU`);
+});
+
+test('writeFileSafe leaves the original untouched when the write fails', async () => {
+  const calls: string[] = [];
+  await assert.rejects(writeFileSafe('C:/p/FB_A.TcPOU', 'new', {
+    write: async () => { throw new Error('disk full'); },
+    rename: async (a, b) => { calls.push(`rename ${a} -> ${b}`); },
+    remove: async p => { calls.push(`remove ${p}`); },
+  }), /disk full/);
+  assert.ok(!calls.some(c => c.startsWith('rename')), 'the original must not be replaced');
+  assert.ok(calls.some(c => c.startsWith('remove')), 'the temporary file is cleaned up');
+});
+
+test('writeFileSafe removes the temporary file when the rename fails', async () => {
+  const calls: string[] = [];
+  await assert.rejects(writeFileSafe('C:/p/FB_A.TcPOU', 'new', {
+    write: async () => undefined,
+    rename: async () => { throw new Error('locked'); },
+    remove: async p => { calls.push(`remove ${p}`); },
+  }), /locked/);
+  assert.equal(calls.length, 1);
+});
+
+test('discardGuard refuses when the file: or the iecode: document is dirty, also when it became dirty after the confirmation', () => {
+  assert.deepEqual(discardGuard(okInput), { ok: true });
+  // the command reads the dirty state again after the modal confirmation
+  const after = discardGuard({ ...okInput, dirty: true });
+  assert.equal(after.ok, false);
+  if (!after.ok) assert.match(after.message, /unsaved changes/);
+});
+
+test('discardGuard has no whole-file way out: an untracked file has nothing to restore from', () => {
+  for (const i of [{ ...okInput, tracked: false }, { ...okInput, intentToAdd: true }]) {
+    const g = discardGuard(i);
+    assert.equal(g.ok, false);
+    if (!g.ok) { assert.ok(!('wholeFile' in g)); assert.match(g.message, /no committed or staged version/); }
+  }
+  for (const [k, re] of [['conflict', /merge conflicts/], ['mixedEol', /mixed line endings/], ['utf8', /UTF-8/], ['decodes', /cannot be read/]] as const) {
+    const g = discardGuard({ ...okInput, [k]: k === 'conflict' || k === 'mixedEol' });
+    assert.equal(g.ok, false, k);
+    if (!g.ok) assert.match(g.message, re);
+  }
+});
+
+test('discardConfirmText names the section and says it cannot be undone', () => {
+  assert.equal(discardConfirmText('METHOD:Start', 'FB_A.TcPOU'), 'Discard your changes to method Start in FB_A.TcPOU? This cannot be undone.');
+  assert.match(discardConfirmText('MAIN', 'FB_A.TcPOU'), /^Discard your changes to the declaration in FB_A\.TcPOU\?/);
+  assert.match(discardConfirmText('GET:Speed', 'X.TcPOU'), /property getter Speed/);
 });
