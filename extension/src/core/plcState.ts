@@ -16,6 +16,10 @@ export interface PlcStateReply {
 }
 
 const UNEXPECTED = 'unexpected reply to the state request';
+
+/** An older protocol-2 CLI (built before the state op) answers "Unknown op 'state'.": the same text as a protocol-1 host. */
+export const isUnknownStateOp = (message: string): boolean => /Unknown op 'state'/.test(message);
+export const UNKNOWN_STATE_OP_TEXT = 'this needs a newer iecode CLI: PLC state (this CLI build has no state op). Update it with "IECode: Install CLI…"';
 const STRING_FIELDS = ['adsState', 'plcError', 'taskNote', 'systemState'] as const;
 const NUMBER_FIELDS = ['deviceState', 'plcAdsCode', 'cycleCount', 'cycleTimeUs', 'onlineChangeCount'] as const;
 
@@ -92,7 +96,8 @@ export class StateTracker {
         const expected = ((monoMs - cycleMono) * 1000) / s.cycleTimeUs;
         if (s.cycleCount < p.cycleCount) {
           restarted = true;
-          findings.push({ kind: p.cycleCount >= WRAP - 1.5 * expected ? 'restartOrWrap' : 'restart', was: p.cycleCount, now: s.cycleCount, sinceMs: cycleSince });
+          // a wrap needs the old count near 2^32 and the new count about as small as the cycles since then: else it is a restart
+          findings.push({ kind: p.cycleCount >= WRAP - 1.5 * expected && s.cycleCount <= 1.5 * expected + 100 ? 'restartOrWrap' : 'restart', was: p.cycleCount, now: s.cycleCount, sinceMs: cycleSince });
         } else if (expected >= 100 && s.cycleCount - p.cycleCount < expected / 2) {
           findings.push({ kind: 'slow', was: p.cycleCount, now: s.cycleCount, sinceMs: cycleSince });
         }
@@ -173,6 +178,7 @@ export async function runState(d: RunStateDeps, task: number): Promise<ToolText>
     const { first, findings } = d.tracker.observe(`${d.targetKey}#${task}`, state, d.wallMs(), d.monoMs());
     return { text: stateText({ target: d.target, task, state, first, findings, clock: d.clock, names: d.names }) };
   } catch (e) {
+    if (isUnknownStateOp((e as Error).message)) return { text: `Cannot read the PLC state: ${UNKNOWN_STATE_OP_TEXT}`, isError: true };
     return { text: `Error: ${(e as Error).message}`, isError: true };
   }
 }

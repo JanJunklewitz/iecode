@@ -444,8 +444,10 @@ public sealed class AdsWatchBackend : IWatchBackend
                 }
             }
         }
-        catch (AdsFault f) when (!f.ConnectionLost)
+        catch (AdsFault f)
         {
+            // The PLC state was just read, so even a lost-looking loader fault (empty symbol table) must not erase it: the next call's
+            // state read finds a real loss. A note keeps the run state.
             return (null, null, null, $"task counters not readable: {f.Message}");
         }
         var values = new long?[wanted.Length];
@@ -458,10 +460,18 @@ public sealed class AdsWatchBackend : IWatchBackend
             }
             catch (Exception e)
             {
-                throw ReadFault(e);
+                var fault = ReadFault(e);
+                if (fault.ConnectionLost) throw fault;
+                return (null, null, null, $"task counters not readable: {fault.Message}");
             }
-            if (read.Items is null || read.Code != AdsErrorCode.NoError || read.Items.Count != resolved.Count)
-                throw new AdsFault(Text($"Read from {_where}", (uint)read.Code), (uint)read.Code, AdsCodes.IsConnectionLost((uint)read.Code));
+            if (read.Code == AdsErrorCode.NoError && read.Items is not null && read.Items.Count != resolved.Count)
+                return (null, null, null, $"task counters not readable: ADS returned {read.Items.Count} results for {resolved.Count} counters");
+            if (read.Items is null || read.Code != AdsErrorCode.NoError)
+            {
+                // a lost connection is the caller's business; any other code is a counter problem, the run state stays
+                if (AdsCodes.IsConnectionLost((uint)read.Code)) throw new AdsFault(Text($"Read from {_where}", (uint)read.Code), (uint)read.Code, true);
+                return (null, null, null, $"task counters not readable: {Text($"Read from {_where}", (uint)read.Code)}");
+            }
             for (var k = 0; k < resolved.Count; k++)
             {
                 var item = read.Items[k];

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PlcStateReply, StateTracker, parsePlcState, runState, stateText } from '../src/core/plcState';
+import { UNKNOWN_STATE_OP_TEXT, PlcStateReply, StateTracker, parsePlcState, runState, stateText } from '../src/core/plcState';
 import { COPILOT_NAMES, MCP_NAMES } from '../src/core/adsToolText';
 
 const clock = (ms: number) => `T${ms}`;
@@ -206,6 +206,24 @@ test('runState compares with the previous call of the same target and task', asy
   const b = await runState(deps(), 1);
   assert.match(b.text, /The cycle count went down from 1000000 to 5/);
   assert.equal(b.isError, undefined);
+});
+
+test('a count far from 2^32 or a new count too large for a wrap is a restart, not a wrap', () => {
+  const t = new StateTracker();
+  // 1 ms cycle: 100 ms is 100 cycles; a wrap from 2^32-10 would land near 90, not at 1 000 000
+  t.observe('k#1', run(4_294_967_286), 1000, 0);
+  assert.deepEqual(t.observe('k#1', run(1_000_000), 1100, 100).findings.map(f => f.kind), ['restart']);
+  t.observe('w#1', run(4_294_967_286), 1000, 0);
+  assert.deepEqual(t.observe('w#1', run(90), 1100, 100).findings.map(f => f.kind), ['restartOrWrap']);
+});
+
+test('an older protocol-2 CLI without the state op gets the update text', async () => {
+  const r = await runState({
+    requires: async () => undefined, plcState: async () => { throw new Error("Unknown op 'state'."); },
+    tracker: new StateTracker(), targetKey: 'k', target: 'local', clock, names, wallMs: () => 0, monoMs: () => 0,
+  }, 1);
+  assert.equal(r.isError, true);
+  assert.equal(r.text, `Cannot read the PLC state: ${UNKNOWN_STATE_OP_TEXT}`);
 });
 
 test('runState turns a failed request into an error text', async () => {

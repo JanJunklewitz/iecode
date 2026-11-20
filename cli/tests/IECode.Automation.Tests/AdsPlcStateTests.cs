@@ -145,6 +145,45 @@ public class AdsPlcStateTests
     }
 
     [Fact]
+    public void ReadPlcState_keeps_the_run_state_when_the_counter_sum_read_is_rejected()
+    {
+        var (b, _, _) = Make(l =>
+        {
+            l.Upload = () => CounterSymbols();
+            l.Sum = () => new SumRead(AdsErrorCode.DeviceInvalidAccess, null);
+        });
+        var s = b.ReadPlcState(1);
+        Assert.Equal("Run", s.AdsState);
+        Assert.False(s.PlcConnectionLost);
+        Assert.StartsWith("task counters not readable: ", s.TaskNote);
+    }
+
+    [Fact]
+    public void ReadPlcState_keeps_the_run_state_when_the_symbol_table_is_empty()
+    {
+        var (b, _, _) = Make(l => l.Upload = () => new FakeSet());
+        var s = b.ReadPlcState(1);
+        Assert.Equal("Run", s.AdsState);
+        Assert.Null(s.PlcError);
+        Assert.StartsWith("task counters not readable: ", s.TaskNote);
+    }
+
+    [Fact]
+    public void ReadPlcState_names_a_result_count_mismatch_of_the_counter_read()
+    {
+        var (b, _, _) = Make(l => { l.Upload = () => CounterSymbols(); l.Sum = () => Values(1u); });
+        Assert.Contains("returned 1 results for 3 counters", b.ReadPlcState(1).TaskNote);
+    }
+
+    [Fact]
+    public void ReadPlcState_passes_a_lost_connection_of_the_counter_read_on()
+    {
+        var (b, _, _) = Make(l => { l.Upload = () => CounterSymbols(); l.Sum = () => new SumRead(AdsErrorCode.TargetPortNotFound, null); });
+        var s = b.ReadPlcState(1);
+        Assert.True(s.PlcConnectionLost);
+    }
+
+    [Fact]
     public void ReadPlcState_notes_a_counter_item_that_fails_in_the_sum_read()
     {
         var (b, _, _) = Make(l =>
