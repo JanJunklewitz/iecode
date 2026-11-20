@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { spawnSync } from 'child_process';
 import { decode, encode, hasXmlConflict, ConflictError, sectionsOfXml } from '../src/model';
 import { parseXml } from '../src/xml';
 
@@ -115,4 +116,22 @@ test('sectionsOfXml lists the same keys decode writes headers for', () => {
   const headers = decode(xml).split('\n').flatMap(l => { const m = /^\/\/==== (\w+) (\w+) ====$/.exec(l); return m ? [`${m[1]}:${m[2]}`] : []; });
   assert.equal(keys[0], 'MAIN');
   assert.deepEqual(keys.slice(1), headers);
+});
+
+// A parser that loops must not hang the test run: parse in a child process with a timeout.
+function parseInChild(src: string) {
+  const code = `try { require(${JSON.stringify(join(__dirname, '..', 'src', 'xml'))}).parseXml(${JSON.stringify(src)}); console.log('parsed'); } catch (e) { console.log('threw ' + e.message); }`;
+  return spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 5000 });
+}
+
+test('an unterminated processing instruction throws instead of looping', () => {
+  const r = parseInChild('<a><?pi never closed');
+  assert.equal(r.error, undefined, 'timed out');
+  assert.match(r.stdout, /threw Unterminated/);
+});
+
+test('an unterminated declaration (<!DOCTYPE) throws', () => {
+  const r = parseInChild('<a><!DOCTYPE never closed');
+  assert.equal(r.error, undefined, 'timed out');
+  assert.match(r.stdout, /threw Unterminated/);
 });

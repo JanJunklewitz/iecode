@@ -178,6 +178,11 @@
         "category": "IECode"
       },
       {
+        "command": "iecode.lintObjects",
+        "title": "Lint Objects",
+        "category": "IECode"
+      },
+      {
         "command": "iecode.openAsST",
         "title": "Open as Structured Text",
         "category": "IECode"
@@ -1498,6 +1503,23 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Show who last changed each method, property, action or accessor above it in the Structured Text view, and the author of a line on hover. Counted on the lines of the view, not on the XML. Off by default because every opened view costs a `git blame` of the object file. A view with unsaved edits shows nothing until it is saved."
+        },
+        "iecode.lint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check PLC object files on open and save and show the findings in the Problems panel: structure of the XML (bad or duplicate GUIDs, a method name that differs from its declaration, orphaned LineIds, merge conflict markers) and object-oriented rules (override and interface signatures, FINAL, ABSTRACT instantiation). Run **IECode: Lint Objects** to check the whole workspace."
+        },
+        "iecode.lint.rules": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "enum": ["error", "warning", "info", "hint", "off"] },
+          "markdownDescription": "Severity per lint rule id (`error`, `warning`, `info`, `hint`) or `off`. Rules: `xml-parse`, `merge-conflict`, `guid-format`, `guid-unique`, `name-mismatch`, `file-name-mismatch`, `member-structure`, `lineids-orphan`, `naming-prefix`, `signature-mismatch`, `final-violation`, `abstract-instantiation`, `unresolved-base`."
+        },
+        "iecode.lint.namingPrefixes": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "markdownDescription": "Name prefix per object kind, for the hint rule `naming-prefix`, e.g. `{ \"FUNCTION_BLOCK\": \"FB_\", \"INTERFACE\": \"I_\", \"STRUCT\": \"ST_\", \"ENUM\": \"E_\" }`. Kinds: FUNCTION_BLOCK, PROGRAM, FUNCTION, INTERFACE, STRUCT, UNION, ENUM, ALIAS, GVL. Nothing is checked while this is empty."
         },
         "iecode.checkProjectFiles": {
           "type": "boolean",
