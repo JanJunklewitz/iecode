@@ -287,8 +287,10 @@ export async function indexHasConflict(root: string, file: string): Promise<bool
  * Replaces the index entry of a file by `content` (UTF-8 text, BOM and line endings as given), keeping its mode.
  * Refuses when the entry's sha is no longer `expectSha`. Not atomic: git has no compare-and-swap for one entry, the
  * check right before `update-index` only narrows the window. The check is repeated after an `index.lock` retry.
+ * `retryWait` is the delay before that retry in ms, or a function to await instead (tests use it to act at that point).
  */
-export async function writeIndexBlob(root: string, file: string, content: string, expectSha: string, retryDelayMs = 200): Promise<void> {
+export async function writeIndexBlob(root: string, file: string, content: string, expectSha: string,
+  retryWait: number | (() => Promise<void>) = 200): Promise<void> {
   const path = rel(root, file);
   const check = async () => {
     const e = await indexEntry(root, file);
@@ -304,7 +306,10 @@ export async function writeIndexBlob(root: string, file: string, content: string
       await git(root, ['update-index', '--cacheinfo', `${e.mode},${sha},${path}`]);
       return;
     } catch (err) {
-      if (attempt === 0 && /index\.lock/.test((err as Error).message)) { await new Promise(r => setTimeout(r, retryDelayMs)); continue; }
+      if (attempt === 0 && /index\.lock/.test((err as Error).message)) {
+        await (typeof retryWait === 'number' ? new Promise(r => setTimeout(r, retryWait)) : retryWait());
+        continue;
+      }
       throw err;
     }
   }

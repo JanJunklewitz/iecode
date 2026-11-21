@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { tempRepo } from './helpers/gitRepo';
 import { blame, runGit } from '../src/core/git';
 import { LineBlame, SectionBlame, blameSections, lensText, makeRefine, parseBlamePorcelain, stripTags } from '../src/core/blame';
@@ -37,11 +38,10 @@ test('parseBlamePorcelain keeps the filename per commit, also for an abbreviated
 });
 
 test('runGit reports a child killed by its timeout as timed out', async () => {
-  const r = tempRepo();
-  try {
-    // `hash-object --stdin` waits for input that never comes
-    await assert.rejects(runGit(r.dir, ['hash-object', '--stdin'], { timeout: 300 }), (e: { timedOut?: boolean }) => e.timedOut === true);
-  } finally { r.cleanup(); }
+  // `hash-object --stdin` waits for input that never comes and needs no repository. It runs in the system temp
+  // folder, not a throwaway repository: on Windows the killed git launcher's git.exe can hold its working folder
+  // for longer than a delete retries (EBUSY).
+  await assert.rejects(runGit(tmpdir(), ['hash-object', '--stdin'], { timeout: 300 }), (e: { timedOut?: boolean }) => e.timedOut === true);
 });
 
 const lb = (commit: number, time: number, over: Partial<LineBlame> = {}): LineBlame =>

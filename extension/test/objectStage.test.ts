@@ -266,12 +266,12 @@ test('the sha check is repeated after an index.lock retry', async () => {
     const e = (await indexEntry(r.dir, f))!;
     const lock = join(r.dir, '.git', 'index.lock');
     writeFileSync(lock, '');
-    const p = writeIndexBlob(r.dir, f, 'two\n', e.sha, 600);
-    await new Promise(res => setTimeout(res, 200));
-    rmSync(lock);
-    // behind the writer's back, during its retry delay
-    const sneaky = (await runGit(r.dir, ['hash-object', '-w', '--stdin'], { input: 'sneaky\n' })).trim();
-    await runGit(r.dir, ['update-index', '--cacheinfo', `100644,${sneaky},a.txt`]);
+    // the first update-index fails on the lock; behind the writer's back, during its retry wait, the entry changes
+    const p = writeIndexBlob(r.dir, f, 'two\n', e.sha, async () => {
+      rmSync(lock);
+      const sneaky = (await runGit(r.dir, ['hash-object', '-w', '--stdin'], { input: 'sneaky\n' })).trim();
+      await runGit(r.dir, ['update-index', '--cacheinfo', `100644,${sneaky},a.txt`]);
+    });
     await assert.rejects(p, /index changed/);
   } finally { r.cleanup(); }
 });
