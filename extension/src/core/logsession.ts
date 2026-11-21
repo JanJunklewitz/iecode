@@ -145,11 +145,15 @@ async function fileIdentity(p: string): Promise<FileIdentity> {
   }
 }
 
-/** Another file under the same name: a different dev/ino, or (where ino is 0) a different birth time. */
+/**
+ * Another file under the same name: a different dev/ino, or a different birth time. Linux reuses the inode
+ * of a deleted file at once, so a recreated file can keep the ino and differ only in its birth time; a birth
+ * time of 0 means the file system does not report one.
+ */
 function replacedFile(a: FileIdentity, b: FileIdentity): boolean {
   if (a.dev !== b.dev) return true;
-  if (a.ino !== 0 || b.ino !== 0) return a.ino !== b.ino;
-  return a.birthtimeMs !== b.birthtimeMs;
+  if ((a.ino !== 0 || b.ino !== 0) && a.ino !== b.ino) return true;
+  return a.birthtimeMs !== 0 && b.birthtimeMs !== 0 && a.birthtimeMs !== b.birthtimeMs;
 }
 
 /** The same file rewritten in place: it shrank, or the bytes it started with changed. */
