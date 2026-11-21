@@ -22,7 +22,7 @@ State of 2026-11-20. Every branch below was reviewed (code review at level high)
 
 Open pull requests:
 - [#63](https://github.com/JanJunklewitz/iecode/pull/63) `combined/all-in-one`: chain A, chain C, chain B (ADS), `feature/tree-filter` and `ph/log-viewer` in one line, with `ads_state` and the renamed config items. It replaces `combined/analysis-and-tree`, which was deleted (`all-in-one` holds everything of it, plus later fixes of the tree filter such as remembering open folders).
-- [x] [#64](https://github.com/JanJunklewitz/iecode/pull/64) `ph/st-comment-color-pr`: keeps ST comments green regardless of the theme. Merged and released in 0.2.22 (not yet looked at in a theme that renders comments grey).
+- [x] [#64](https://github.com/JanJunklewitz/iecode/pull/64) `ph/st-comment-color-pr`: keeps ST comments green regardless of the theme. Merged and released in 0.2.23 (0.2.22 was not published) (not yet looked at in a theme that renders comments grey).
 
 The single branches below are still the stacked pull requests of the same content; their open points are the known limits of #63.
 
