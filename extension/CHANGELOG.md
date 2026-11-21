@@ -2,7 +2,9 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€¦) are pre-releases.
 
-## Unreleased
+## 0.2.23
+
+0.2.22 was not published; its change is part of this release.
 
 ### Structured Text view
 - **Blame per method:** the new setting `iecode.blame.enabled` (off by default, toggle with **IECode: Toggle Blame per Method**) shows above every method, property, action and accessor who last changed it, and the author, date and commit of a line on hover. It counts on the lines of the view, so an appended line does not take over the line before it, and whitespace and line-ending changes are ignored. A view with unsaved edits shows nothing until it is saved.
@@ -55,8 +57,6 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - **Live** follows a growing file (also when it is replaced or rewritten), **Open Logs Merged on One Timeline** shows several files sorted by time.
 - Tested with 100 MB files: about one million entries load in under 2 s without freezing VS Code, a text search takes about 1 s. Files with more than 5,000,000 entries or 1,000,000 distinct sources get a clear message to open them as text.
 - **Live** off now also holds a refresh that was queued behind the running one, and the years 0000 to 0099 are read as years.
-
-## 0.2.22
 
 ### Editor
 - Comments (`//` and `(* *)`) in the ST view stay green in themes that render them grey. Your own `editor.tokenColorCustomizations` still win (#64).
