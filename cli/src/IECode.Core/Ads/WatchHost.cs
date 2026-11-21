@@ -8,7 +8,8 @@ namespace IECode.Core.Ads;
 /// </summary>
 public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action<string>? log = null, string? target = null)
 {
-    public const int Protocol = 1, MaxSymbols = 200;
+    public const int Protocol = 2, MaxSymbols = 200, MaxWrites = 20;
+    private const string VersionReason = "symbol version changed", HandlesReason = "symbol handles no longer valid";
     private const int FlushMs = 100, RetryMs = 2000, MinIntervalMs = 10, MaxIntervalMs = 5000, ResolveBackoffMs = 5000;
 
     private readonly Action<string> _log = log ?? Console.Error.WriteLine;
@@ -24,6 +25,8 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     private bool _connected, _needResolve, _freshResolve;
     private DateTimeOffset? _lastFlush, _retryAt, _resolveBackoffUntil;
     private bool _retryPending;
+    /// <summary>Why the last resolve that did not finish was started; the retry (or the reconnect) reports it, a finished resolve clears it.</summary>
+    private string? _pendingReason;
     private int _intervalMs = 100;
 
     public int IntervalMs => _intervalMs;
@@ -47,9 +50,11 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
             object data = op switch
             {
                 "watch" => DoWatch(Symbols(root)),
-                "read" => DoRead(Symbols(root)),
+                "read" => DoRead(Symbols(root), Depth(root)),
                 "write" => DoWrite(Str(root, "symbol"), Str(root, "value")),
+                "writeMany" => DoWriteMany(root),
                 "interval" => DoInterval(root),
+                "state" => DoState(root),
                 _ => throw new IECodeException(ExitCodes.Usage, $"Unknown op '{op}'."),
             };
             emit(WatchJson.Serialize(new WatchReply(id, true, data, null, null)));
@@ -117,6 +122,8 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         var fresh = _freshResolve;
         _freshResolve = false;
         var guarded = fresh || _resolveBackoffUntil is { } until && now < until;
+        // a resolve after a back-off loads the same table again: it is a retry, not news for the extension
+        var retry = _resolveBackoffUntil is not null;
         IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> row;
         try
         {
@@ -126,7 +133,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         {
             if (f.AdsCode is { } c && AdsCodes.IsDeadHandle(c))
             {
-                if (!guarded) { ResolveAgain(); return; }
+                if (!guarded) { ResolveAgain(retry ? null : HandlesReason); return; }
                 if (fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
             }
             ReportOnce("read:" + f.Message, f.Message);
@@ -135,10 +142,15 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         var dead = new SortedDictionary<int, uint>();
         for (var i = 0; i < row.Count; i++)
             if (row[i].AdsCode is { } c && AdsCodes.IsDeadHandle(c)) dead[i] = c;
-        if ((dead.Count > 0 && !guarded) || backend.SymbolVersionChanged())
+        if (dead.Count == 0) _resolveBackoffUntil = null;
+        string? reason = null;
+        var resolve = false;
+        if (dead.Count > 0 && !guarded) { resolve = true; reason = retry ? null : HandlesReason; }
+        else if (backend.SymbolVersionChanged()) { resolve = true; reason = VersionReason; }
+        if (resolve)
         {
             // The row belongs to the old resolution: drop it.
-            ResolveAgain();
+            ResolveAgain(reason);
             return;
         }
         if (dead.Count > 0 && fresh) _resolveBackoffUntil = now + TimeSpan.FromMilliseconds(ResolveBackoffMs);
@@ -184,12 +196,14 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
     /// Resolves the watched symbols again; a changed result starts a new gen (rows of the old gen are flushed first).
     /// A failed resolve stays pending, so the next Tick tries again.
     /// </summary>
-    private void ResolveAgain()
+    private void ResolveAgain(string? reason = null)
     {
         FlushPending();
         _needResolve = true;
+        _pendingReason = reason ?? _pendingReason;
         var items = backend.Resolve(_symbols);
         _needResolve = false;
+        EmitReloaded();
         _freshResolve = true;
         if (!items.SequenceEqual(_resolvedItems))
         {
@@ -198,6 +212,18 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         }
         // Unreadable items keep their error until the next poll shows whether they read now.
         Publish();
+    }
+
+    /// <summary>
+    /// After a successful resolve: tells the extension that the symbols were loaded again, also when the items did not change.
+    /// The reason is the pending one of an unfinished resolve, else the version change the backend saw at this resolve
+    /// (a watch request or a reconnect can be the first resolve after a download).
+    /// </summary>
+    private void EmitReloaded()
+    {
+        var reason = _pendingReason ?? (backend.ResolveChangedVersion ? VersionReason : null);
+        _pendingReason = null;
+        if (reason is not null) emit(WatchJson.Serialize(new WatchReloadedEvent("reloaded", reason)));
     }
 
     /// <summary>Announces a new gen with an items event if the published items changed.</summary>
@@ -288,6 +314,7 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
                 throw;
             }
             _needResolve = false;
+            EmitReloaded();
         }
         else
         {
@@ -299,13 +326,26 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         return new WatchItemsData(_gen, _items);
     }
 
-    private object DoRead(IReadOnlyList<string> symbols)
+    /// <summary>The optional `depth` of a read: absent is null (scalar read as before), else clamped to 1..MaxDepth.</summary>
+    private static int? Depth(JsonElement root)
+    {
+        if (!root.TryGetProperty("depth", out var d) || d.ValueKind == JsonValueKind.Null) return null;
+        if (d.ValueKind != JsonValueKind.Number || !d.TryGetInt32(out var n)) throw new IECodeException(ExitCodes.Usage, "read needs an integer 'depth'.");
+        return Math.Clamp(n, 1, StructExpand.MaxDepth);
+    }
+
+    private object DoRead(IReadOnlyList<string> symbols, int? depth)
     {
         var result = new List<WatchReadItem>();
         foreach (var s in symbols)
         {
             try
             {
+                if (depth is { } levels && backend.ReadMembers(s, levels) is { } sr)
+                {
+                    result.Add(new WatchReadItem(s, sr.Type, null, null, sr.Members, new WatchReadNotes(sr.OmittedMembers, sr.OmittedElements, sr.NotExpanded)));
+                    continue;
+                }
                 var (type, value) = backend.ReadOnce(s);
                 result.Add(new WatchReadItem(s, type, value, null));
             }
@@ -327,12 +367,51 @@ public sealed class WatchHost(IWatchBackend backend, Action<string> emit, Action
         return new WatchWriteData(symbol, back, readBackError);
     }
 
+    /// <summary>Every validation failure is a <see cref="WriteNotSentException"/>, so the client reads it as "nothing was sent".</summary>
+    private object DoWriteMany(JsonElement root)
+    {
+        if (!root.TryGetProperty("writes", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            throw new WriteNotSentException("Missing array 'writes'.");
+        var n = arr.GetArrayLength();
+        if (n == 0) throw new WriteNotSentException("writes must not be empty.");
+        if (n > MaxWrites) throw new WriteNotSentException($"At most {MaxWrites} writes are allowed.");
+        var writes = new List<(string Symbol, string Value)>(n);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var i = 0;
+        foreach (var e in arr.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.Object
+                || !e.TryGetProperty("symbol", out var s) || s.ValueKind != JsonValueKind.String
+                || !e.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.String)
+                throw new WriteNotSentException($"writes[{i}] needs string 'symbol' and 'value'.");
+            var symbol = s.GetString()!;
+            if (!seen.Add(symbol.Trim())) throw new WriteNotSentException($"Duplicate symbol: {symbol}");
+            writes.Add((symbol, v.GetString()!));
+            i++;
+        }
+        return new WatchWriteManyData(backend.WriteMany(writes));
+    }
+
     private object DoInterval(JsonElement root)
     {
         if (!root.TryGetProperty("ms", out var ms) || !ms.TryGetInt32(out var n))
             throw new IECodeException(ExitCodes.Usage, "interval needs an integer 'ms'.");
         _intervalMs = Math.Clamp(n, MinIntervalMs, MaxIntervalMs);
         return new WatchIntervalData(_intervalMs);
+    }
+
+    /// <summary>
+    /// Works in every host state: the system state does not need the PLC connection. A PLC part lost while the host counts itself
+    /// connected marks it lost, otherwise an empty watch list would never notice the loss and never reconnect.
+    /// </summary>
+    private object DoState(JsonElement root)
+    {
+        var task = 1;
+        if (root.TryGetProperty("task", out var t) && !(t.ValueKind == JsonValueKind.Number && t.TryGetInt32(out task) && task is >= 1 and <= 16))
+            throw new IECodeException(ExitCodes.Usage, "task must be an integer from 1 to 16.");
+        var s = backend.ReadPlcState(task);
+        if (s.PlcConnectionLost) MarkLost(s.PlcError ?? "PLC connection lost", null);
+        return new WatchStateData(s.AdsState, s.DeviceState, s.PlcError, s.PlcAdsCode, s.CycleCount, s.CycleTimeUs, s.OnlineChangeCount, s.TaskNote, s.SystemState);
     }
 
     private static string Str(JsonElement root, string name) =>

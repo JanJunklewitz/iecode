@@ -6,14 +6,16 @@ import * as vscode from 'vscode';
 import { WorkspaceState } from '../state';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
 import { COPILOT_NAMES } from '../core/adsToolText';
-import { writeKey } from '../core/toolInput';
-import { confirmMessage } from '../core/writeText';
-import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseScopeInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
+import { WriteInput as WriteInputOf, parseWriteInput, writeKey } from '../core/toolInput';
+import { prepareWrite } from '../core/writeCall';
+import { WriteItem, confirmMessage } from '../core/writeText';
+import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseScopeInput, parseStateInput, parseWaitInput, parseWatchInput } from '../core/toolInput';
 import { lmToolEntries } from '../core/lmToolTable';
-import { PreparedWrites, WriteGate, WriteOp, writeResultText } from '../core/writeGate';
+import { PreparedWrites, WriteGate, WriteOp, itemsOf, writeResultText } from '../core/writeGate';
 import { writePolicyReason } from '../core/writePolicy';
 import { sendToAiChat } from '../commands/aiChat';
-import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
+import { autoNote, clampAutoMinutes } from '../core/writeArming';
+import { aiWritePathsSetting, aiWriteState, aiWritesSetting, setAiWrites } from './aiSettings';
 import { SCOPE_SECONDS, adsTools, newest, scopeSummary } from './adsTools';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -21,7 +23,7 @@ const show = (s: unknown) => oneLine(String(s));
 
 const text = (s: string) => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
 
-interface WriteInput { symbol: string; value: string }
+interface WriteInput { symbol?: string; value?: string; pulseMs?: number; writes?: { symbol: string; value: string; pulseMs?: number }[]; journal?: boolean; restore?: boolean; confirmPersistent?: boolean }
 type SymbolsInput = Parameters<ReturnType<typeof adsTools>['symbols']>[0];
 type WatchInput = Parameters<ReturnType<typeof adsTools>['watch']>[0];
 type ReadInput = Parameters<ReturnType<typeof adsTools>['read']>[0];
@@ -99,6 +101,14 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     },
   };
 
+  const stateTool: vscode.LanguageModelTool<{ task?: number }> = {
+    prepareInvocation: () => ({ invocationMessage: 'Reading the PLC state' }),
+    async invoke(opts) {
+      const parsed = parseStateInput(opts.input);
+      return text(parsed.ok ? (await tools.state(parsed.value)).text : `Invalid arguments: ${parsed.error}`);
+    },
+  };
+
   const configTool: vscode.LanguageModelTool<{ pollMs?: number; bufferSeconds?: number }> = {
     prepareInvocation: () => ({ invocationMessage: 'Reading or changing the ADS sampling' }),
     async invoke(opts, token) {
@@ -134,29 +144,49 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
   // The decision and target each prepared write was shown with; the gate checks them against the settings at send time.
   const prepared = new PreparedWrites(WRITE_PREPARE_MAX_AGE_MS);
 
+  /** The key a prepared confirmation is stored under: a restore also keys the plan it showed, so a changed journal is noticed. */
+  const preparedKey = (input: WriteInputOf, items: readonly WriteItem[]): string => ('restore' in input ? `${writeKey(input)}${JSON.stringify(items.map(i => [i.symbol, i.value]))}` : writeKey(input));
+  const writeDeps = { targetKey: () => host.targetKey(), requires: tools.requires, journal: tools.journal, restorePlan: tools.restorePlan, persistentOf: tools.persistentOf };
+
   const writeTool: vscode.LanguageModelTool<WriteInput> = {
-    prepareInvocation(opts) {
-      const symbol = show(opts.input.symbol), value = show(opts.input.value);
-      // outside the allowed paths the gate refuses without a dialog; asking the user first would be pointless
-      if (writePolicyReason([opts.input.symbol], { allowedPaths: aiWritePathsSetting() }) !== undefined) {
+    async prepareInvocation(opts) {
+      const parsed = parseWriteInput(opts.input);
+      // an invalid call never opens a confirmation; invoke answers with the reason
+      if (!parsed.ok) return { invocationMessage: 'Not writing: invalid arguments' };
+      if ('journal' in parsed.value) return { invocationMessage: 'Reading the write journal' };
+      // outside the allowed paths the gate refuses without a dialog; asking the user first would be pointless. A batch on a
+      // CLI that is too old, a write to persistent data without confirmPersistent and an empty restore are refused the same way.
+      const call = await prepareWrite(parsed.value, 'Copilot', writeDeps);
+      if ('text' in call) return { invocationMessage: `Not writing: ${show(call.text.text.split('\n')[0])}` };
+      const items = itemsOf(call.op);
+      if (writePolicyReason(items.map(i => i.symbol), { allowedPaths: aiWritePathsSetting() }) !== undefined) {
         return { invocationMessage: 'Not writing: outside the allowed paths' };
       }
-      const setting = aiWritesSetting();
-      const redirected = workspaceTarget();
-      const decision = aiWriteDecision(setting, redirected);
-      prepared.prepare(writeKey(opts.input), { decision, targetKey: host.targetKey() });
-      if (decision !== 'confirm') return { invocationMessage: decision === 'allow' ? `Writing ${symbol} := ${value}` : undefined };
-      const note = setting === 'auto' && redirected ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
+      const summary = call.op.restore ? `restoring ${items.length} value${items.length === 1 ? '' : 's'}` : items.length === 1 ? `${show(items[0].symbol)} := ${show(items[0].value)}` : `${items.length} values`;
+      const w = aiWriteState();
+      const decision = aiWriteDecision(w.effective, w.redirected);
+      prepared.prepare(preparedKey(parsed.value, items), { decision, targetKey: host.targetKey() });
+      if (decision !== 'confirm') return { invocationMessage: decision === 'allow' ? `Writing ${summary}` : undefined };
+      const note = autoNote(w.auto, w.redirected);
       return {
-        invocationMessage: `Writing ${symbol} := ${value}`,
-        confirmationMessages: { title: 'Write PLC variable', message: confirmMessage([{ symbol: opts.input.symbol, value: opts.input.value }], host.target(), note) },
+        invocationMessage: `Writing ${summary}`,
+        confirmationMessages: {
+          title: call.op.restore ? 'Restore PLC variables' : items.length === 1 ? 'Write PLC variable' : 'Write PLC variables',
+          message: confirmMessage(items, host.target(), note, { restore: call.op.restore !== undefined, persistent: call.op.persistent }),
+        },
       };
     },
     async invoke(opts, token) {
-      const { symbol, value } = opts.input;
+      const parsed = parseWriteInput(opts.input);
+      if (!parsed.ok) return text(`Invalid arguments: ${parsed.error}`);
+      const call = await prepareWrite(parsed.value, 'Copilot', writeDeps);
+      if ('text' in call) return text(call.text.text);
+      const op: WriteOp = call.op;
       // the confirmation Copilot showed in prepareInvocation; none (or an ambiguous one) makes the gate refuse
-      const record = prepared.take(writeKey(opts.input));
-      const op: WriteOp = { symbol, value, targetKey: record?.targetKey ?? host.targetKey(), via: 'Copilot', prepared: record && { decision: record.decision } };
+      const record = prepared.take(preparedKey(parsed.value, itemsOf(op)));
+      if (op.restore && !record) return text('Not written: the journal changed after the confirmation was shown; call restore again.');
+      op.targetKey = record?.targetKey ?? op.targetKey;
+      if (record) op.prepared = { decision: record.decision };
       const abort = new AbortController();
       const cancelled = token.onCancellationRequested(() => abort.abort());
       if (token.isCancellationRequested) abort.abort();
@@ -172,7 +202,7 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     // one handler per tool the manifest declares (the table type and a test keep both lists in step)
     ...lmToolEntries<vscode.LanguageModelTool<any>>({
       iecode_ads_symbols: symbolsTool, iecode_ads_watch: watchTool, iecode_ads_read: readTool,
-      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool, iecode_ads_preset: presetTool, iecode_ads_capture: captureTool, iecode_ads_log: logTool,
+      iecode_ads_scope: scopeTool, iecode_ads_write: writeTool, iecode_ads_wait: waitTool, iecode_ads_config: configTool, iecode_ads_preset: presetTool, iecode_ads_capture: captureTool, iecode_ads_log: logTool, iecode_ads_state: stateTool,
     }).map(([name, tool]) => vscode.lm.registerTool(name, tool)),
     vscode.commands.registerCommand('iecode.adsWatchAiChat', async () => {
       const symbols = host.watched();
@@ -182,14 +212,20 @@ export function registerAdsLmTools(ctx: vscode.ExtensionContext, state: Workspac
     }),
     vscode.commands.registerCommand('iecode.adsAiWrites', async () => {
       const current = aiWritesSetting();
+      const w = aiWriteState();
+      const minutes = clampAutoMinutes(vscode.workspace.getConfiguration('iecode.ads').inspect<unknown>('aiWritesAutoMinutes')?.globalValue);
       const picks: (vscode.QuickPickItem & { value: string })[] = [
         { value: 'off', label: 'Off', detail: 'AI tools cannot write PLC variables.' },
         { value: 'confirm', label: 'Confirm each write', detail: 'You confirm every AI write (in Copilot Chat unless you chose "Always Allow" for the ADS Write tool).' },
-        { value: 'auto', label: 'Auto-approve', detail: 'IECode writes without asking; VS Code may still ask by its own tool approval rules.' },
+        { value: 'auto', label: 'Auto-approve', detail: `IECode writes without asking; VS Code may still ask by its own tool approval rules. Lasts ${minutes} min, then each write is confirmed again.` },
       ];
-      for (const p of picks) if (p.value === current) p.description = '(current)';
+      for (const p of picks) {
+        if (p.value !== current) continue;
+        p.description = w.auto.kind === 'armed' ? `(current, ${Math.ceil(w.auto.leftMs / 60_000)} min left)`
+          : w.auto.kind === 'expired' ? '(current, expired)' : w.auto.kind === 'notArmed' ? '(current, not armed)' : '(current)';
+      }
       const pick = await vscode.window.showQuickPick(picks, { title: 'AI write access to the PLC (iecode.ads.aiWrites)' });
-      if (pick) await vscode.workspace.getConfiguration('iecode.ads').update('aiWrites', pick.value, vscode.ConfigurationTarget.Global);
+      if (pick) await setAiWrites(pick.value as 'off' | 'confirm' | 'auto');
     }),
   );
 }

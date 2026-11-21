@@ -31,8 +31,31 @@ public sealed class WatchHostTests
         }
         public IReadOnlyList<(string? Value, long? EnumValue, uint? AdsCode)> ReadWatched() => ReadFn();
         public bool SymbolVersionChanged() => VersionFn();
+        public bool ResolveChangedVersion { get; set; }
         public (string Type, string Value) ReadOnce(string symbol) => ("INT", "1");
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => WriteFn(symbol, text);
+        public int WriteManyCalls;
+        public List<int> MembersDepths = [];
+        public Func<string, int, StructRead?> MembersFn = (_, _) => null;
+        public StructRead? ReadMembers(string symbol, int depth)
+        {
+            MembersDepths.Add(depth);
+            return MembersFn(symbol, depth);
+        }
+        public Func<IReadOnlyList<(string Symbol, string Value)>, IReadOnlyList<WriteManyItem>> WriteManyFn =
+            w => w.Select(x => new WriteManyItem(x.Symbol, WriteStatus.Written, x.Value)).ToList();
+        public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes)
+        {
+            WriteManyCalls++;
+            return WriteManyFn(writes);
+        }
+        public int? LastTask;
+        public Func<int, PlcState> StateFn = _ => new PlcState("Run", 0, 1234567, 10000, 3, null, "Run", null);
+        public PlcState ReadPlcState(int task)
+        {
+            LastTask = task;
+            return StateFn(task);
+        }
         public void Dispose() { }
     }
 
@@ -63,7 +86,7 @@ public sealed class WatchHostTests
         r.Host.Start();
         var e = Parse(r.Lines[0]);
         Assert.Equal("hello", e.GetProperty("event").GetString());
-        Assert.Equal(1, e.GetProperty("protocol").GetInt32());
+        Assert.Equal(2, e.GetProperty("protocol").GetInt32());
     }
 
     [Fact]
@@ -515,6 +538,21 @@ public sealed class WatchHostTests
     }
 
     [Fact]
+    public void A_phantom_symbol_announces_the_reload_once_not_at_every_retry()
+    {
+        var r = new Rig();
+        r.Backend.ReadFn = () => [Ok("1"), Err(0x710)];
+        r.Host.Start();
+        r.Watch("MAIN.a", "MAIN.phantom");
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+        // the retries after each 5 s back-off find the same table: nothing changed, nothing to announce
+        for (var ms = 10; ms < 16000; ms += 10) r.Host.Tick(T0.AddMilliseconds(ms));
+        Assert.True(r.Backend.ResolveCalls >= 4, "the retries still resolve");
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
     public void WatchHost_PhantomSymbol_ReadableAgain_ClearsItemError()
     {
         var r = new Rig();
@@ -551,5 +589,396 @@ public sealed class WatchHostTests
         Assert.Equal(2, r.Backend.ResolveCalls);
         r.Host.Tick(T0.AddMilliseconds(5010));
         Assert.Equal(3, r.Backend.ResolveCalls);
+    }
+
+    [Fact]
+    public void WriteMany_reply_has_one_entry_per_item()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = w => [new WriteManyItem("MAIN.a", "written", "1"), new WriteManyItem("MAIN.b", "notWritten", Error: "rejected", AdsCode: 1808)];
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        var items = reply.GetProperty("data").GetProperty("items");
+        Assert.Equal(2, items.GetArrayLength());
+        Assert.Equal("written", items[0].GetProperty("status").GetString());
+        Assert.Equal("1", items[0].GetProperty("value").GetString());
+        Assert.False(items[0].TryGetProperty("readBackError", out _));
+        Assert.Equal("notWritten", items[1].GetProperty("status").GetString());
+        Assert.Equal(1808u, items[1].GetProperty("adsCode").GetUInt32());
+    }
+
+    [Theory]
+    [InlineData("""{"id":5,"op":"writeMany"}""", "Missing array 'writes'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":"x"}""", "Missing array 'writes'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[]}""", "writes must not be empty.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[{"symbol":"A","value":"1"},{"symbol":"B"}]}""", "writes[1] needs string 'symbol' and 'value'.")]
+    [InlineData("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.A","value":"1"},{"symbol":"main.a","value":"2"}]}""", "Duplicate symbol: main.a")]
+    public void WriteMany_validation_failures_say_written_no_and_call_no_backend(string request, string error)
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle(request);
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+        Assert.Equal(error, reply.GetProperty("error").GetString());
+        Assert.Equal(0, r.Backend.WriteManyCalls);
+    }
+
+    [Fact]
+    public void WriteMany_more_than_the_limit_is_refused_before_the_backend()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        var writes = string.Join(",", Enumerable.Range(0, WatchHost.MaxWrites + 1).Select(i => $$"""{"symbol":"S{{i}}","value":"1"}"""));
+        r.Host.Handle($$"""{"id":5,"op":"writeMany","writes":[{{writes}}]}""");
+        var reply = r.Last();
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+        Assert.Equal("At most 20 writes are allowed.", reply.GetProperty("error").GetString());
+        Assert.Equal(0, r.Backend.WriteManyCalls);
+    }
+
+    [Fact]
+    public void WriteMany_not_sent_exception_says_written_no()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = _ => throw new WriteNotSentException("writes[1] MAIN.b: bad");
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no", reply.GetProperty("written").GetString());
+    }
+
+    [Fact]
+    public void WriteMany_ads_fault_has_no_written_field_and_keeps_the_code()
+    {
+        var r = new Rig();
+        r.Backend.WriteManyFn = _ => throw new AdsFault("no reply", 0x745, false);
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.False(reply.TryGetProperty("written", out _));
+        Assert.Equal(0x745u, reply.GetProperty("adsCode").GetUInt32());
+    }
+
+    private static StructRead OneMember() => new("ST_Axis", [new MemberValue("MAIN.st.a", "DINT", "5", null)], 0, 0, []);
+
+    [Fact]
+    public void Read_with_depth_asks_the_backend_for_members()
+    {
+        var r = new Rig();
+        r.Backend.MembersFn = (_, _) => OneMember();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.st"],"depth":3}""");
+        var item = r.Last().GetProperty("data")[0];
+        Assert.Equal("ST_Axis", item.GetProperty("type").GetString());
+        Assert.Equal("MAIN.st.a", item.GetProperty("members")[0].GetProperty("name").GetString());
+        Assert.Equal(0, item.GetProperty("notes").GetProperty("omittedMembers").GetInt32());
+    }
+
+    [Fact]
+    public void Read_without_depth_has_no_members_property()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"]}""");
+        var item = r.Last().GetProperty("data")[0];
+        Assert.False(item.TryGetProperty("members", out _));
+        Assert.False(item.TryGetProperty("notes", out _));
+        Assert.Equal(4, item.EnumerateObject().Count());
+        Assert.Empty(r.Backend.MembersDepths);
+    }
+
+    [Fact]
+    public void Read_with_depth_of_a_single_value_falls_back_to_the_scalar_read()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":2}""");
+        Assert.Equal("1", r.Last().GetProperty("data")[0].GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Depth_is_clamped_to_the_allowed_range()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":9}""");
+        r.Host.Handle("""{"id":8,"op":"read","symbols":["MAIN.n"],"depth":0}""");
+        Assert.Equal([5, 1], r.Backend.MembersDepths);
+    }
+
+    [Fact]
+    public void A_non_integer_depth_fails_the_request()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":7,"op":"read","symbols":["MAIN.n"],"depth":"x"}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("read needs an integer 'depth'.", reply.GetProperty("error").GetString());
+    }
+
+    private static List<string> Reasons(Rig r) => r.Events("reloaded").Select(e => e.GetProperty("reason").GetString()!).ToList();
+
+    [Fact]
+    public void Symbol_version_change_with_unchanged_items_emits_reloaded()
+    {
+        var r = new Rig();
+        var changed = true;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Lines.Clear();
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol version changed"], Reasons(r));
+        Assert.Empty(r.Events("items"));
+        Assert.Equal("""{"event":"reloaded","reason":"symbol version changed"}""", r.Lines.Single(l => l.Contains("reloaded")));
+    }
+
+    [Fact]
+    public void Dead_handle_resolve_emits_reloaded_with_the_handle_reason()
+    {
+        var r = new Rig();
+        var dead = true;
+        r.Backend.ReadFn = () => { var d = dead; dead = false; return d ? [Err(0x710)] : [Ok("1")]; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Watch_op_does_not_emit_reloaded()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Watch("MAIN.nCount", "MAIN.nOther");
+        Assert.Empty(r.Events("reloaded"));
+    }
+
+    [Fact]
+    public void Watch_op_as_the_first_resolve_after_a_download_emits_reloaded()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.ResolveChangedVersion = true;
+        r.Watch("MAIN.nCount");
+        Assert.Equal(["symbol version changed"], Reasons(r));
+        // The event comes before the reply of the watch request.
+        Assert.Contains("reloaded", r.Lines[^2]);
+        Assert.True(r.Last().GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public void Reconnect_resolve_does_not_emit_reloaded()
+    {
+        var r = new Rig();
+        var lost = true;
+        r.Backend.ReadFn = () => lost ? throw new AdsFault("gone", 0x745, true) : [Ok("1")];
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        lost = false;
+        r.Host.Tick(T0.AddMilliseconds(2000));
+        Assert.Equal(3, r.Events("state").Count);
+        Assert.Empty(r.Events("reloaded"));
+    }
+
+    [Fact]
+    public void A_failed_resolve_emits_reloaded_once_when_the_retry_succeeds()
+    {
+        var r = new Rig();
+        var changed = true;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        var ok = r.Backend.ResolveFn;
+        r.Backend.ResolveFn = _ => throw new AdsFault("Symbol upload failed", null, false);
+        r.Host.Tick(T0);
+        Assert.Empty(r.Events("reloaded"));
+        r.Backend.ResolveFn = ok;
+        r.Host.Tick(T0.AddMilliseconds(100));
+        r.Host.Tick(T0.AddMilliseconds(200));
+        Assert.Equal(["symbol version changed"], Reasons(r));
+    }
+
+    [Fact]
+    public void Reconnect_after_a_symbol_version_change_emits_reloaded()
+    {
+        var r = new Rig();
+        var lost = true;
+        r.Backend.ReadFn = () => lost ? throw new AdsFault("gone", 0x745, true) : [Ok("1")];
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        lost = false;
+        r.Backend.ResolveChangedVersion = true;
+        r.Host.Tick(T0.AddMilliseconds(2000));
+        Assert.Equal(["symbol version changed"], Reasons(r));
+    }
+
+    [Fact]
+    public void A_dead_handle_reason_survives_a_connection_loss()
+    {
+        var r = new Rig();
+        var dead = true;
+        r.Backend.ReadFn = () => { var d = dead; dead = false; return d ? [Err(0x710)] : [Ok("1")]; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        var ok = r.Backend.ResolveFn;
+        r.Backend.ResolveFn = _ => throw new AdsFault("gone", 0x745, true);
+        r.Host.Tick(T0);
+        Assert.Empty(r.Events("reloaded"));
+        r.Backend.ResolveFn = ok;
+        r.Backend.ResolveChangedVersion = true;
+        r.Host.Tick(T0.AddMilliseconds(2000));
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Dead_handles_with_a_changed_version_keep_the_handle_reason()
+    {
+        var r = new Rig();
+        var versionCalls = 0;
+        var dead = true;
+        r.Backend.ReadFn = () => { var d = dead; dead = false; return d ? [Err(0x710)] : [Ok("1")]; };
+        r.Backend.VersionFn = () => { versionCalls++; return true; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        var before = versionCalls;
+        r.Host.Tick(T0);
+        Assert.Equal(before, versionCalls);
+        Assert.Equal(["symbol handles no longer valid"], Reasons(r));
+    }
+
+    [Fact]
+    public void Samples_buffered_before_the_reload_poll_come_before_the_reloaded_event()
+    {
+        var r = new Rig();
+        var changed = false;
+        r.Backend.ReadFn = () => [Ok("1")];
+        r.Backend.VersionFn = () => { var c = changed; changed = false; return c; };
+        r.Host.Start();
+        r.Watch("MAIN.nCount");
+        r.Host.Tick(T0);
+        changed = true;
+        r.Host.Tick(T0.AddMilliseconds(10));
+        var kinds = r.Lines.Select(Parse).Where(e => e.TryGetProperty("event", out _)).Select(e => e.GetProperty("event").GetString()).ToList();
+        Assert.True(kinds.IndexOf("samples") >= 0 && kinds.IndexOf("samples") < kinds.IndexOf("reloaded"));
+    }
+
+    [Fact]
+    public void State_op_returns_the_backend_state_and_passes_the_task()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"state","task":2}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal(2, r.Backend.LastTask);
+        var data = reply.GetProperty("data");
+        Assert.Equal("Run", data.GetProperty("adsState").GetString());
+        Assert.Equal(1234567, data.GetProperty("cycleCount").GetInt64());
+        Assert.Equal(10000, data.GetProperty("cycleTimeUs").GetInt64());
+        Assert.Equal("Run", data.GetProperty("systemState").GetString());
+    }
+
+    [Fact]
+    public void State_op_defaults_to_task_1()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        Assert.Equal(1, r.Backend.LastTask);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("17")]
+    [InlineData("1.5")]
+    [InlineData("\"2\"")]
+    public void State_op_rejects_a_task_outside_1_to_16(string task)
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Host.Handle("{\"id\":5,\"op\":\"state\",\"task\":" + task + "}");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("task must be an integer from 1 to 16.", reply.GetProperty("error").GetString());
+        Assert.Null(r.Backend.LastTask);
+    }
+
+    [Fact]
+    public void State_op_fault_with_lost_connection_marks_the_host_lost()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.StateFn = _ => throw new AdsFault("gone", 0x745, true);
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        Assert.False(r.Last().GetProperty("ok").GetBoolean());
+        Assert.False(r.Events("state")[^1].GetProperty("connected").GetBoolean());
+    }
+
+    [Fact]
+    public void State_reply_omits_null_counters()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.StateFn = _ => new PlcState("Run", 0, null, null, null, "task counters not readable: nope", null, null);
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var data = r.Last().GetProperty("data");
+        Assert.False(data.TryGetProperty("cycleCount", out _));
+        Assert.False(data.TryGetProperty("systemState", out _));
+        Assert.Equal("task counters not readable: nope", data.GetProperty("taskNote").GetString());
+    }
+
+    [Fact]
+    public void State_op_while_disconnected_answers_with_the_system_state()
+    {
+        var r = new Rig();
+        r.Backend.ConnectFault = new AdsFault("no plc", 0x6, true);
+        r.Backend.StateFn = _ => new PlcState(null, null, null, null, null, null, "Config", "Cannot reach x:851 over ADS: (0x6)", 0x6);
+        r.Host.Start();
+        var states = r.Events("state").Count;
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("Config", reply.GetProperty("data").GetProperty("systemState").GetString());
+        Assert.Equal(6, reply.GetProperty("data").GetProperty("plcAdsCode").GetInt32());
+        Assert.Equal(states, r.Events("state").Count);
+    }
+
+    [Fact]
+    public void State_op_with_nothing_reachable_fails_with_the_connection_error()
+    {
+        var r = new Rig();
+        r.Backend.ConnectFault = new AdsFault("no target", null, true);
+        r.Backend.StateFn = _ => throw new AdsFault("no target", null, true);
+        r.Host.Start();
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var reply = r.Last();
+        Assert.False(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("no target", reply.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void State_op_with_a_lost_PLC_part_marks_a_connected_host_lost()
+    {
+        var r = new Rig();
+        r.Host.Start();
+        r.Backend.StateFn = _ => new PlcState(null, null, null, null, null, null, "Run", "lost (0x745)", 0x745, PlcConnectionLost: true);
+        r.Host.Handle("""{"id":5,"op":"state"}""");
+        var reply = r.Last();
+        Assert.True(reply.GetProperty("ok").GetBoolean());
+        Assert.Equal("Run", reply.GetProperty("data").GetProperty("systemState").GetString());
+        Assert.False(r.Events("state")[^1].GetProperty("connected").GetBoolean());
     }
 }

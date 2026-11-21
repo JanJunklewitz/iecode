@@ -95,9 +95,13 @@ Shared files that force sequential merges: `adsToolText.ts`, `toolInput.ts`, `pa
 - A manual check against a simulation target for every tool that changed, recorded in the PR (done for Plan A and `ads_wait` on 2026-11-11 against a simulation: changesOnly, edges, maxRows, decimals, the stall note and `ads_wait` changes and timeout all behaved as specified; open observation: `changesOnly` has no row limit per fast-changing column, e.g. a TIME elapsed counter fills all 200 rows).
 - CHANGELOG entry per user-visible change.
 
+## Status (2026-11-17)
+
+Plans A and B are done, as are the extension-only tasks of C, D and E (C0, C3a-b, C5, C7a, D1-D4, E1, E5, E8). The CLI part of Plan C is done (C2, C3c, C4, C6a, C6b, C7b, with C1 measured on 2026-11-12), and of Plan D the tasks D2b, D5, D5b, D7 and D7b. They share ADS host protocol 2, which is not frozen until a CLI with it is released (C8). Open: D6, D6b (loaded build, spike), D8, Plan E3 to E4 (now planned as Plans B and C of the [small items master plan](2026-11-17-small-items-master-plan.md)) and E6 to E7 (spikes and PLC-side work), the live checks listed in `TODO.md`, and C8 (freeze protocol 2, release notes).
+
 ## First action
 
-Build Plan A task A2 (A1 is done, commits 04a0232 and 9c1c6fc).
+Release a CLI with protocol 2 after the live checks in `TODO.md`; then freeze entry 2 of the protocol table with a pin test (C8). The remaining work needs a running PLC (spikes D6, E2 to E4, E6, E7).
 
 ## Engineering review (2026-11-10)
 

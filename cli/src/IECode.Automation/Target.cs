@@ -16,7 +16,7 @@ public sealed record TargetState(string NetId, string State, short DeviceState);
 [SupportedOSPlatform("windows")]
 public static class Target
 {
-    private const int SystemServicePort = 10000;
+    internal const int SystemServicePort = 10000;
 
     public static TargetState State(Core.AmsNetId target)
     {

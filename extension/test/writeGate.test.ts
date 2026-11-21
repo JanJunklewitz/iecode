@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WriteGate, GateDeps, GatePolicy, WriteOp, WriteResult, PreparedWrites, WriteNotSent, WriteOutcomeUnknown, sendOutcome, writeResultText, writeResultIsError, itemsOf, featureOf } from '../src/core/writeGate';
-import { WriteDecision } from '../src/core/adswatch';
+import { WriteDecision, aiWriteDecision } from '../src/core/adswatch';
+import { autoState, effectiveSetting } from '../src/core/writeArming';
 
 // ---- helpers ----
 
@@ -40,7 +41,7 @@ const POLICY: GatePolicy = { dialogMs: 100_000, operationMs: 150_000, maxQueued:
 
 function rig(policy: Partial<GatePolicy> = {}) {
   const clock = new FakeClock();
-  const state = { decision: 'confirm' as WriteDecision, target: 'A:851' };
+  const state = { decision: 'confirm' as WriteDecision, target: 'A:851', queue: [] as WriteDecision[] };
   const confirms: { op: WriteOp; signal: AbortSignal; answer: Deferred<boolean> }[] = [];
   const sent: string[] = [];
   const late: [string, string][] = [];
@@ -56,7 +57,7 @@ function rig(policy: Partial<GatePolicy> = {}) {
     gate: undefined as unknown as WriteGate,
   };
   const deps: GateDeps = {
-    decision: () => state.decision,
+    decision: () => state.queue.shift() ?? state.decision,
     targetKey: () => state.target,
     confirm: (o, signal) => { const answer = deferred<boolean>(); confirms.push({ op: o, signal, answer }); return answer.promise; },
     send: (o, b) => r.send(o, b),
@@ -375,11 +376,47 @@ test('gate refuses an allow that now needs confirmation', async () => {
   assert.match(refused(await p), /needs the user's confirmation now/);
 });
 
+test('an auto approval that lapses before the send is refused', async () => {
+  const r = rig();
+  // the arming window ends between the decision and beforeSend: allow on the first call, confirm afterwards
+  r.state.queue = ['allow'];
+  const res = await r.gate.run(op(), ac().signal);
+  assert.match(refused(res), /needs the user's confirmation now/);
+  assert.equal(r.sent.length, 0);
+});
+
+test('an expired or not-armed auto window decides confirm', () => {
+  const NOW = 1_000_000_000_000;
+  const expired = autoState({ setting: 'auto', armedAt: new Date(NOW - 120 * 60_000).toISOString(), minutes: 60, nowMs: NOW });
+  const notArmed = autoState({ setting: 'auto', armedAt: new Date(NOW + 60_000).toISOString(), minutes: 60, nowMs: NOW });
+  assert.equal(expired.kind, 'expired');
+  assert.equal(notArmed.kind, 'notArmed');
+  assert.equal(aiWriteDecision(effectiveSetting('auto', expired), false), 'confirm');
+  assert.equal(aiWriteDecision(effectiveSetting('auto', notArmed), false), 'confirm');
+});
+
+
 test('gate takes a prepared Copilot approval', async () => {
   const r = rig();
   const res = await r.gate.run(op('MAIN.x', { via: 'Copilot', prepared: { decision: 'confirm' } }), ac().signal);
   assert.equal(res.kind, 'written');
   assert.equal(r.confirms.length, 0, 'Copilot shows its own confirmation');
+});
+
+test('a Copilot write prepared inside the auto window is refused once the window has lapsed', async () => {
+  const NOW = 1_000_000_000_000;
+  const armedAt = new Date(NOW - 58 * 60_000).toISOString();
+  // the real rules decide: the same arming time, read at two moments
+  const decisionAt = (nowMs: number): WriteDecision =>
+    aiWriteDecision(effectiveSetting('auto', autoState({ setting: 'auto', armedAt, minutes: 60, nowMs })), false);
+  assert.equal(decisionAt(NOW), 'allow', 'the window is open when the write is prepared');
+  assert.equal(decisionAt(NOW + 5 * 60_000), 'confirm', 'and has lapsed a few minutes later, inside the 15 minutes a prepared record lives');
+  const r = rig();
+  r.state.decision = decisionAt(NOW + 5 * 60_000);
+  const res = await r.gate.run(op('MAIN.x', { via: 'Copilot', prepared: { decision: decisionAt(NOW) } }), ac().signal);
+  assert.match(refused(res), /changed after this write was prepared.*call adsWrite again/);
+  assert.equal(r.sent.length, 0);
+  assert.equal(r.confirms.length, 0, 'the gate does not open a dialog of its own for Copilot');
 });
 
 test('gate refuses a Copilot op without a prepare step', async () => {

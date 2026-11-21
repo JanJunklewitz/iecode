@@ -4,11 +4,13 @@
 
 import * as vscode from 'vscode';
 import { aiWriteDecision, oneLine } from '../core/adswatch';
-import { GatePolicy, WriteGate, WriteOp, WriteResult, itemsOf, sendOutcome } from '../core/writeGate';
+import { GatePolicy, WriteGate, WriteOp, WriteResult, itemsOf } from '../core/writeGate';
+import { executeWrite } from '../core/writeExec';
 import { writePolicyReason } from '../core/writePolicy';
 import { confirmMessage } from '../core/writeText';
 import { output } from '../cli/iecode';
-import { aiWritePathsSetting, aiWritesSetting, workspaceTarget } from './aiSettings';
+import { autoNote } from '../core/writeArming';
+import { aiWritePathsSetting, aiWriteState } from './aiSettings';
 import { AdsHost } from './host';
 
 /** AI-supplied symbol or value, safe for one log line or prompt. */
@@ -16,32 +18,51 @@ const show = (s: unknown) => oneLine(String(s));
 
 export function adsWriteGate(host: AdsHost, workspaceName: () => string, policy: GatePolicy): WriteGate {
   return new WriteGate({
-    decision: () => aiWriteDecision(aiWritesSetting(), workspaceTarget()),
+    decision: () => { const w = aiWriteState(); return aiWriteDecision(w.effective, w.redirected); },
     targetKey: () => host.targetKey(),
     policy: op => writePolicyReason(itemsOf(op).map(i => i.symbol), { allowedPaths: aiWritePathsSetting() }),
 
     // The raw choice: a modal cannot be closed from outside, so an answer after a cancellation still arrives here and
     // the gate decides what it means.
     async confirm(op: WriteOp): Promise<boolean> {
-      const note = aiWritesSetting() === 'auto' && workspaceTarget()
-        ? ' (the workspace settings set the ADS target or port, so auto-approve does not apply)' : '';
+      const w = aiWriteState();
+      const note = autoNote(w.auto, w.redirected);
       const pick = await vscode.window.showWarningMessage(
-        confirmMessage(itemsOf(op), `${op.targetKey} (${workspaceName()})`, note), { modal: true }, 'Write');
+        confirmMessage(itemsOf(op), `${op.targetKey} (${workspaceName()})`, note, { restore: op.restore !== undefined, persistent: op.persistent }), { modal: true }, 'Write');
       return pick === 'Write';
     },
 
     async send(op, beforeSend): Promise<WriteResult> {
-      try {
-        const back = await host.write(op.symbol, op.value, () => {
-          const why = beforeSend();
-          if (why === undefined) output.info(`AI write ${show(op.symbol)} := ${show(op.value)} on ${op.targetKey} via ${op.via}`);
-          return why;
-        });
-        return { kind: 'written', readBack: back.value, readBackError: back.readBackError };
-      } catch (e) {
-        output.warn(`AI write ${show(op.symbol)} via ${op.via} did not complete: ${show((e as Error).message)}`);
-        return sendOutcome(e);
+      const items = itemsOf(op);
+      const label = items.length === 1 ? show(items[0].symbol) : `batch of ${items.length}`;
+      const logged = () => {
+        const why = beforeSend();
+        if (why === undefined) {
+          output.info(items.length === 1
+            ? `AI write ${show(items[0].symbol)} := ${show(items[0].value)} on ${op.targetKey} via ${op.via}`
+            : `AI write batch of ${items.length} on ${op.targetKey} via ${op.via}: ${items.map(i => `${show(i.symbol)} := ${show(i.value)}`).join(', ')}`);
+        }
+        return why;
+      };
+      const result = await executeWrite(op, logged, {
+        writeOne: (item, before) => host.write(item.symbol, item.value, before),
+        writeMany: (list, before) => host.writeMany(list, before),
+        journal: host.journal,
+        sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+        now: () => performance.now(),
+        targetKey: () => host.targetKey(),
+        readBefore: async symbols => {
+          try {
+            return await host.read(symbols);
+          } catch (e) {
+            return symbols.map(symbol => ({ symbol, type: null, value: null, error: (e as Error).message }));
+          }
+        },
+      });
+      if (result.kind === 'refused' || result.kind === 'unknown') {
+        output.warn(`AI write ${label} via ${op.via} did not complete: ${show(result.reason)}`);
       }
+      return result;
     },
 
     lateApproval(op, reason) {

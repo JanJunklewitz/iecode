@@ -2,6 +2,7 @@
 // and the text form handed to LM tools. No vscode imports; the host process and views live elsewhere.
 
 export { PROTOCOL } from './hostProtocol';
+import type { WriteItemResult } from './writeText';
 
 export interface WatchItem { symbol: string; type: string; numeric: boolean; error: string | null }
 export interface Row { t: number; v: (string | null)[]; e?: (number | null)[] }
@@ -11,6 +12,7 @@ export type HostMessage =
   | { event: 'samples'; gen: number; rows: Row[] }
   | { event: 'state'; connected: boolean; error?: string }
   | { event: 'items'; gen: number; items: WatchItem[] }
+  | { event: 'reloaded'; reason: string }
   | { id: number | null; ok: boolean; data?: unknown; error?: string; adsCode?: number; written?: string };
 
 // The CLI may print other text (build output, warnings) on stdout; those lines are not messages, and neither is JSON
@@ -619,4 +621,41 @@ export function niceTicks(min: number, max: number, count: number): number[] {
   const first = Math.ceil(min / step - 1e-9);
   for (let i = first; i * step <= max + step * 1e-9; i++) out.push(Number((i * step).toPrecision(12)));
   return out;
+}
+
+export type WriteManyStage =
+  | { kind: 'items'; items: WriteItemResult[] }
+  | { kind: 'notSent'; reason: string }
+  | { kind: 'unknown'; reason: string };
+
+const MISMATCH = 'The ADS host answered a batch write with a result that does not match the request';
+
+/**
+ * How far a batch write got. Only the host's own proof (`written: "no"`) says nothing was sent; a reply whose items do
+ * not line up with the request (count, order, symbols) is an unknown outcome, never a partial success.
+ */
+export function writeManyStage(outcome: { data: unknown } | { error: unknown }, writes: readonly { symbol: string }[]): WriteManyStage {
+  if ('error' in outcome) {
+    const e = outcome.error;
+    const reason = e instanceof Error ? e.message : String(e);
+    return e instanceof HostError && e.written === 'no' ? { kind: 'notSent', reason } : { kind: 'unknown', reason };
+  }
+  const raw = (outcome.data as { items?: unknown } | null | undefined)?.items;
+  if (!Array.isArray(raw) || raw.length !== writes.length) return { kind: 'unknown', reason: MISMATCH };
+  const items: WriteItemResult[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const r = raw[i] as { symbol?: unknown; status?: unknown; value?: unknown; readBackError?: unknown; error?: unknown } | null;
+    if (!r || typeof r.symbol !== 'string' || r.symbol.trim().toLowerCase() !== writes[i].symbol.trim().toLowerCase()) return { kind: 'unknown', reason: MISMATCH };
+    const reason = typeof r.error === 'string' && r.error ? r.error : 'no reason given';
+    if (r.status === 'written') {
+      const w: WriteItemResult = { symbol: writes[i].symbol, status: 'written', readBack: typeof r.value === 'string' ? r.value : null };
+      if (typeof r.readBackError === 'string') w.readBackError = r.readBackError;
+      items.push(w);
+    } else if (r.status === 'notWritten') {
+      items.push({ symbol: writes[i].symbol, status: 'notWritten', reason });
+    } else {
+      items.push({ symbol: writes[i].symbol, status: 'unknown', reason });
+    }
+  }
+  return { kind: 'items', items };
 }

@@ -328,3 +328,21 @@ test('matchingProperties: a property named with the P_ prefix matches the hidden
   ];
   assert.deepEqual(matchingProperties(src, 'MAIN.fbLock.bActive'), ['MAIN.fbLock.P_Active']);
 });
+
+test('fromTmc marks PERSISTENT symbols and the members of persistent types and symbols', () => {
+  const tmc = `<?xml version="1.0"?><TcModuleClass><DataTypes>
+    <DataType><Name>ST_Cfg</Name><BitSize>16</BitSize>
+      <SubItem><Name>nKept</Name><Type>INT</Type><BitSize>16</BitSize><Properties><Property><Name>TcPersistent</Name></Property></Properties></SubItem>
+      <SubItem><Name>nLost</Name><Type>INT</Type><BitSize>16</BitSize></SubItem>
+    </DataType>
+    <DataType><Name>ST_Pair</Name><BitSize>16</BitSize>
+      <SubItem><Name>nA</Name><Type>INT</Type><BitSize>16</BitSize></SubItem>
+    </DataType></DataTypes>
+    <Modules><Module><Name>PLC1</Name><DataAreas><DataArea><Name>Plc</Name>
+      <Symbol><Name>GVL.stCfg</Name><BitSize>32</BitSize><BaseType>ST_Cfg</BaseType></Symbol>
+      <Symbol><Name>GVL.stPair</Name><BitSize>16</BitSize><BaseType>ST_Pair</BaseType><Properties><Property><Name>TcPersistent</Name></Property><Property><Name>TcVarGlobal</Name></Property></Properties></Symbol>
+      <Symbol><Name>GVL.nPlain</Name><BitSize>16</BitSize><BaseType>INT</BaseType></Symbol>
+    </DataArea></DataAreas></Module></Modules></TcModuleClass>`;
+  const flags = Object.fromEntries(fromTmc(tmc, true).map(s => [s.name, s.persistent === true]));
+  assert.deepEqual(flags, { 'GVL.nPlain': false, 'GVL.stCfg': false, 'GVL.stCfg.nKept': true, 'GVL.stCfg.nLost': false, 'GVL.stPair': true, 'GVL.stPair.nA': true });
+});

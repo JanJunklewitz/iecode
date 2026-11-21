@@ -1,28 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { mergeLabels, mergeText, stage } from '../src/core/git';
 import { AutoResolveError, autoResolve, editedSinceConflict, sameSnapshot, snapshotOf } from '../src/core/autoResolve';
 import { decode } from '../src/model';
+import { tempRepo } from './helpers/gitRepo';
 
 const BASE = 'l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n';
 const labels = { ours: 'ours-label', base: 'base-label', theirs: 'theirs-label' };
-
-/** Temp repo with real git; autocrlf off so Windows and Linux see the same bytes. */
-function tempRepo() {
-  const dir = mkdtempSync(join(tmpdir(), 'iecode-merge-test-'));
-  const git = (...a: string[]) => execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...a],
-    { cwd: dir, stdio: 'pipe', encoding: 'utf8' });
-  /** Runs git and returns normally even on a non-zero exit (a conflicting merge exits 1). */
-  const tryGit = (...a: string[]) => { try { git(...a); } catch { /* expected conflict */ } };
-  const file = join(dir, 'f.txt');
-  const commit = (content: string, msg: string) => { writeFileSync(file, content); git('add', 'f.txt'); git('commit', '-q', '-m', msg); };
-  git('init', '-q', '-b', 'main');
-  return { dir, file, git, tryGit, commit, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
-}
 
 /** main and topic both change line 2 differently, starting from BASE. Leaves main checked out. */
 function divergedRepo() {

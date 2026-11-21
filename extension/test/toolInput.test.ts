@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, parseLogInput, writeKey } from '../src/core/toolInput';
+import { parseSymbolsInput, parseWatchInput, wantsFullList, parseReadInput, parseScopeInput, parseWriteInput, parseWaitInput, parseConfigInput, parsePresetInput, parseCaptureInput, parseLogInput, parseStateInput, writeKey } from '../src/core/toolInput';
 
 test('toolInput accepts valid input', () => {
   assert.deepEqual(parseSymbolsInput({ filter: 'MAIN.' }), { ok: true, value: { filter: 'MAIN.' } });
@@ -241,4 +241,73 @@ test('parseLogInput trims and limits terms and maxLines', () => {
   assert.deepEqual(parseLogInput({ maxLines: 1.5 }), { ok: false, error: 'maxLines must be an integer from 1 to 500' });
   assert.deepEqual(parseLogInput({ filter: 'a' }), { ok: false, error: 'filter must be a list of strings' });
   assert.deepEqual(parseLogInput([]), { ok: false, error: 'arguments must be an object' });
+});
+
+test('pulseMs parses on the single form and per item and keeps the plain form untouched', () => {
+  assert.deepEqual(parseWriteInput({ symbol: 'MAIN.b', value: 'TRUE', pulseMs: 200 }), { ok: true, value: { symbol: 'MAIN.b', value: 'TRUE', pulseMs: 200 } });
+  const plain = parseWriteInput({ symbol: 'MAIN.b', value: 'TRUE' });
+  assert.ok(plain.ok && !('pulseMs' in plain.value));
+  assert.deepEqual(parseWriteInput({ writes: [{ symbol: 'MAIN.b', value: '1', pulseMs: 50 }, { symbol: 'MAIN.n', value: '5' }] }),
+    { ok: true, value: { writes: [{ symbol: 'MAIN.b', value: '1', pulseMs: 50 }, { symbol: 'MAIN.n', value: '5' }] } });
+});
+
+test('pulseMs is refused when out of range, fractional, on a non-BOOL value or twice', () => {
+  const err = (raw: unknown) => { const p = parseWriteInput(raw); assert.equal(p.ok, false); return p.ok ? '' : p.error; };
+  for (const ms of [9, 5001, 10.5, '200']) assert.equal(err({ symbol: 'MAIN.b', value: 'TRUE', pulseMs: ms }), 'pulseMs must be a whole number from 10 to 5000', String(ms));
+  assert.equal(err({ symbol: 'MAIN.n', value: '5', pulseMs: 100 }), 'pulseMs needs a BOOL value (TRUE, FALSE, 1 or 0), not "5"');
+  assert.equal(err({ writes: [{ symbol: 'MAIN.a', value: '5', pulseMs: 100 }] }), 'writes[0].pulseMs needs a BOOL value (TRUE, FALSE, 1 or 0), not "5"');
+  assert.equal(err({ writes: [{ symbol: 'A', value: 'TRUE', pulseMs: 100 }, { symbol: 'B', value: 'TRUE', pulseMs: 100 }] }), 'only one write per call can set pulseMs');
+  assert.equal(parseWriteInput({ symbol: 'MAIN.b', value: 'TRUE', pulseMs: 10 }).ok, true);
+  assert.equal(parseWriteInput({ symbol: 'MAIN.b', value: 'TRUE', pulseMs: 5000 }).ok, true);
+});
+
+test('journal and restore are calls of their own, exclusive with the other forms', () => {
+  assert.deepEqual(parseWriteInput({ journal: true }), { ok: true, value: { journal: true } });
+  assert.deepEqual(parseWriteInput({ restore: true }), { ok: true, value: { restore: true } });
+  assert.deepEqual(parseWriteInput({ restore: true, confirmPersistent: true }), { ok: true, value: { restore: true, confirmPersistent: true } });
+  const err = (raw: unknown) => { const p = parseWriteInput(raw); assert.equal(p.ok, false); return p.ok ? '' : p.error; };
+  const exclusive = 'use either symbol and value, writes, journal or restore';
+  assert.equal(err({ journal: true, symbol: 'A', value: '1' }), exclusive);
+  assert.equal(err({ restore: true, writes: [{ symbol: 'A', value: '1' }] }), exclusive);
+  assert.equal(err({ journal: true, restore: true }), exclusive);
+  assert.equal(err({ journal: 'yes' }), 'journal must be true or false');
+  assert.equal(err({ journal: true, confirmPersistent: true }), 'journal does not take confirmPersistent');
+  // false counts as absent
+  assert.deepEqual(parseWriteInput({ journal: false, symbol: 'MAIN.x', value: '1' }), { ok: true, value: { symbol: 'MAIN.x', value: '1' } });
+});
+
+test('confirmPersistent is kept only when true, on the single and the batch form', () => {
+  assert.deepEqual(parseWriteInput({ symbol: 'MAIN.x', value: '1', confirmPersistent: true }), { ok: true, value: { symbol: 'MAIN.x', value: '1', confirmPersistent: true } });
+  assert.deepEqual(parseWriteInput({ symbol: 'MAIN.x', value: '1', confirmPersistent: false }), { ok: true, value: { symbol: 'MAIN.x', value: '1' } });
+  assert.deepEqual(parseWriteInput({ writes: [{ symbol: 'A', value: '1' }], confirmPersistent: true }), { ok: true, value: { writes: [{ symbol: 'A', value: '1' }], confirmPersistent: true } });
+  const bad = parseWriteInput({ symbol: 'A', value: '1', confirmPersistent: 'yes' });
+  assert.equal(bad.ok, false);
+});
+
+test('parseReadInput takes a depth from 1 to 5 and keeps the plain form untouched', () => {
+  assert.deepEqual(parseReadInput({ symbols: ['a'], depth: 2 }), { ok: true, value: { symbols: ['a'], depth: 2 } });
+  const plain = parseReadInput({ symbols: ['a'] });
+  assert.ok(plain.ok && !('depth' in plain.value));
+  for (const d of [0, 6, 2.5, '2']) {
+    const p = parseReadInput({ symbols: ['a'], depth: d });
+    assert.ok(!p.ok && p.error === 'depth must be a whole number from 1 to 5', String(d));
+  }
+});
+
+test('parseWatchInput keeps expand only as a boolean', () => {
+  const p = parseWatchInput({ add: ['a'], expand: true });
+  assert.ok(p.ok && p.value.expand === true);
+  const bad = parseWatchInput({ add: ['a'], expand: 'yes' });
+  assert.ok(!bad.ok && bad.error === 'expand must be a boolean');
+});
+
+test('parseStateInput: task optional, integer 1-16, default 1', () => {
+  assert.deepEqual(parseStateInput(undefined), { ok: true, value: { task: 1 } });
+  assert.deepEqual(parseStateInput({}), { ok: true, value: { task: 1 } });
+  assert.deepEqual(parseStateInput({ task: null }), { ok: true, value: { task: 1 } });
+  assert.deepEqual(parseStateInput({ task: 16 }), { ok: true, value: { task: 16 } });
+  for (const bad of [0, 17, 1.5, '2', true]) {
+    assert.deepEqual(parseStateInput({ task: bad }), { ok: false, error: 'task must be an integer from 1 to 16' }, String(bad));
+  }
+  assert.equal(parseStateInput([]).ok, false);
 });

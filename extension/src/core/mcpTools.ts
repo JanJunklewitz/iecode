@@ -5,8 +5,10 @@ import { McpTool } from './mcp';
 import { ToolText } from './adsToolText';
 import type { WaitCondition } from './waitCondition';
 import type { CaptureRequest } from './captureRun';
-import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseReadInput, parseScopeInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, LogRequest, Parsed, ScopeArgs, WatchRequest } from './toolInput';
-import { GatePolicy, MIN_DIALOG_MS, WriteGate, WriteOp, writeResultIsError, writeResultText } from './writeGate';
+import { parseCaptureInput, parseConfigInput, parseLogInput, parsePresetInput, parseReadInput, parseScopeInput, parseStateInput, parseSymbolsInput, parseWaitInput, parseWatchInput, parseWriteInput, LogRequest, Parsed, ScopeArgs, WatchRequest } from './toolInput';
+import { GatePolicy, MIN_DIALOG_MS, WriteGate, writeResultIsError, writeResultText } from './writeGate';
+import { prepareWrite } from './writeCall';
+import type { RestorePlan } from './writeJournal';
 
 /** A tool as declared in package.json (`languageModelTools`), `iecode_ads_<x>` already renamed to `ads_<x>`. */
 export interface ToolDescriptor { name: string; description: string; inputSchema: object }
@@ -15,13 +17,22 @@ export interface ToolDescriptor { name: string; description: string; inputSchema
 export interface AdsToolFns {
   symbols(input: { filter: string }): Promise<ToolText>;
   watch(input: WatchRequest, signal: AbortSignal): Promise<ToolText>;
-  read(input: { symbols?: string[] }): Promise<ToolText>;
+  read(input: { symbols?: string[]; depth?: number }): Promise<ToolText>;
   scope(input: Partial<ScopeArgs>): ToolText | Promise<ToolText>;
   wait(input: { symbol: string; condition: WaitCondition; timeoutSeconds: number }, signal: AbortSignal): Promise<ToolText>;
   config(input: { pollMs?: number; bufferSeconds?: number }, signal: AbortSignal): Promise<ToolText>;
   preset(input: { path?: string; preset?: string }): Promise<ToolText>;
   capture(input: CaptureInput, signal: AbortSignal): Promise<ToolText>;
   log(input: LogRequest): Promise<ToolText>;
+  state(input: { task: number }): Promise<ToolText>;
+  /** The "needs a newer iecode CLI" text when the host lacks a protocol feature (optional so a fake without it keeps compiling). */
+  requires?(feature: string): Promise<string | undefined>;
+  /** The text of the session journal of AI writes (`ads_write` with `journal: true`). */
+  journal?(): ToolText;
+  /** What a restore would write back (`ads_write` with `restore: true`). */
+  restorePlan?(): Promise<RestorePlan>;
+  /** The symbols of those given that lie in persistent data (iecode.ads.persistentPaths). */
+  persistentOf?(symbols: string[]): Promise<string[]>;
 }
 
 export type CaptureInput = CaptureRequest & { symbols: string[] };
@@ -57,17 +68,17 @@ export function buildMcpTools(d: { descriptors: ToolDescriptor[]; tools: AdsTool
       async call(args, signal) {
         const p = parseWriteInput(args);
         if (!p.ok) return invalid(p.error);
-        // the schema does not offer `writes` yet; C3c wires the batch
-        if ('writes' in p.value) return invalid('writes is not supported yet');
-        const op: WriteOp = { symbol: p.value.symbol, value: p.value.value, targetKey: d.targetKey(), via: 'MCP' };
-        const result = await d.gate.run(op, signal);
-        return { text: writeResultText(result, op), isError: writeResultIsError(result) };
+        const call = await prepareWrite(p.value, 'MCP', { targetKey: d.targetKey, ...d.tools });
+        if ('text' in call) return call.text;
+        const result = await d.gate.run(call.op, signal);
+        return { text: writeResultText(result, call.op), isError: writeResultIsError(result) };
       },
     },
     read('ads_config', parseConfigInput, (v, signal) => d.tools.config(v, signal)),
     read('ads_preset', parsePresetInput, v => d.tools.preset(v)),
     read('ads_capture', parseCaptureInput, (v, signal) => d.tools.capture(v, signal)),
     read('ads_log', parseLogInput, v => d.tools.log(v)),
+    read('ads_state', parseStateInput, v => d.tools.state(v)),
   ];
 }
 

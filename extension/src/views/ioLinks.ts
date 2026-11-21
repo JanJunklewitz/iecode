@@ -11,9 +11,11 @@ import { changesToCsv, diffLinks, linksToCsv, sortLinks, toIoLink } from '../cor
 import { buildTree, diffSummary, diffTrees, treeToYaml } from '../core/iotree';
 import { projectAt } from '../core/iohistory';
 import { log, repoRoot } from '../core/git';
+import type { IoFindingRow } from '../core/ioLinkChecks';
 
 type Msg =
   | { type: 'ready' }
+  | { type: 'open'; file: string; line: number }
   | { type: 'project'; tsproj: string }
   | { type: 'load'; tsproj: string; left: string; right: string }
   | { type: 'export'; tsproj: string; left: string; right: string }
@@ -23,6 +25,14 @@ const WORKING = '';               // ref value for the working copy
 export const YAML_SCHEME = 'iecode-io';
 
 let panel: vscode.WebviewPanel | undefined;
+/** Fires with the selected project when the view opens or another project is selected; the IO link checks listen. */
+export const ioLinksShown = new vscode.EventEmitter<string | undefined>();
+/** The rows of the "Checks" group per project, as the last run of the IO link checks produced them. */
+const checkRows = new Map<string, IoFindingRow[]>();
+export function setIoChecks(tsproj: string, rows: IoFindingRow[]) {
+  checkRows.set(tsproj, rows);
+  panel?.webview.postMessage({ type: 'checks', tsproj, rows });
+}
 /** Tells VS Code to re-read an open YAML document (its URI is the same for every compare of that version). */
 const yamlChanged = new vscode.EventEmitter<vscode.Uri>();
 
@@ -151,9 +161,15 @@ export function showIoLinks(ctx: vscode.ExtensionContext, state: WorkspaceState,
         const list = projects(state);
         const first = tsproj && list.includes(tsproj) ? tsproj : list[0];
         post({ type: 'projects', projects: list.map(f => ({ file: f, name: projectLabel(f, list) })), selected: first });
-        if (first) post({ type: 'versions', tsproj: first, versions: await versions(first) });
+        if (first) { post({ type: 'versions', tsproj: first, versions: await versions(first) }); post({ type: 'checks', tsproj: first, rows: checkRows.get(first) ?? [] }); }
+        ioLinksShown.fire(first);
       } else if (m.type === 'project') {
         post({ type: 'versions', tsproj: m.tsproj, versions: await versions(m.tsproj) });
+        post({ type: 'checks', tsproj: m.tsproj, rows: checkRows.get(m.tsproj) ?? [] });
+        ioLinksShown.fire(m.tsproj);
+      } else if (m.type === 'open') {
+        const at = new vscode.Position(m.line, 0);
+        await vscode.window.showTextDocument(vscode.Uri.file(m.file), { selection: new vscode.Range(at, at) });
       } else if (m.type === 'load') {
         post({ type: 'result', ...(await compute(m)) });
       } else if (m.type === 'yaml') {
@@ -206,6 +222,7 @@ summary .n{opacity:.55;font-size:11px;margin-left:6px}
 .badge{font-size:10px;padding:0 5px;border-radius:8px;margin-left:6px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
 .err{color:var(--vscode-errorForeground);padding:14px}.empty{padding:14px;opacity:.7}
 label{font-size:12px;opacity:.8}
+.chk{padding:2px 14px 6px}.chk summary{font-weight:600}.chk .r{margin-left:18px;padding:1px 0;cursor:pointer}.chk .r:hover{text-decoration:underline}.chk .r span{opacity:.6;font-size:11px;margin-left:8px}.chk .error{color:var(--vscode-errorForeground)}.chk .warning{color:var(--vscode-editorWarning-foreground)}
 mark{background:var(--vscode-editor-findMatchHighlightBackground);color:inherit}
 </style></head><body>
 <div class="top">
@@ -219,6 +236,7 @@ mark{background:var(--vscode-editor-findMatchHighlightBackground);color:inherit}
 </div>
 <div class="sum" id="sum"></div>
 <div class="warn" id="warn"></div>
+<div id="checks"></div>
 <div id="out"><div class="empty">Loading…</div></div>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
@@ -291,7 +309,16 @@ window.addEventListener('message', ev => {
     req('load');
   }
   if (m.type === 'result') { R = m; render(); }
+  if (m.type === 'checks' && m.tsproj === $('proj').value) {
+    window.chk = m.rows;
+    $('checks').innerHTML = m.rows.length ? '<details class="chk" open><summary>Checks (' + m.rows.length + ')</summary>'
+      + m.rows.map((r, i) => '<div class="r ' + e(r.level) + '" data-i="' + i + '" title="' + e(r.file) + '">' + e(r.label) + '<span>' + e(r.description) + '</span></div>').join('') + '</details>' : '';
+  }
   if (m.type === 'error') $('out').innerHTML = '<div class="err">' + e(m.message) + '</div>';
+});
+$('checks').addEventListener('click', ev => {
+  const r = ev.target.closest && ev.target.closest('.r');
+  if (r && window.chk) vscode.postMessage({ type: 'open', file: window.chk[+r.dataset.i].file, line: window.chk[+r.dataset.i].line });
 });
 $('proj').onchange = () => vscode.postMessage({ type: 'project', tsproj: $('proj').value });
 $('left').onchange = $('right').onchange = () => req('load');

@@ -195,6 +195,8 @@ internal static class TargetCommands
         public bool SymbolVersionChanged() => false;
         public (string Type, string Value) ReadOnce(string symbol) => throw new AdsFault(error, null, true);
         public (string? Value, string? ReadBackError) Write(string symbol, string text) => throw new AdsFault(error, null, true);
+        public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes) => throw new AdsFault(error, null, true);
+        public PlcState ReadPlcState(int task) => throw new AdsFault(error, null, true);
         public void Dispose() { }
     }
 
@@ -246,10 +248,14 @@ internal static class TargetCommands
         var filter = new Option<string?>("--filter") { Description = "Only symbols whose name contains this text" };
         var csv = new Option<string?>("--csv") { Description = "Also write the list to a CSV file" };
         var save = new Option<string?>("--save") { Description = "Write a JSON snapshot to compare later builds with (ads diff --against)" };
+        var online = new Option<bool>("--online") { Description = "List the symbols of the running PLC instead of the build output (needs --filter, at most 500 symbols, Windows only)" };
+        var target = TargetOption();
+        var port = PortOption();
         var cmd = new Command("symbols", "List the ADS interface (symbols) of PLC projects from the build output (.tmc); no running PLC needed")
-            { path, plc, members, filter, csv, save };
+            { path, plc, members, filter, csv, save, online, target, port };
         Action(cmd, ctx =>
         {
+            if (ctx.Get(online)) return OnlineSymbolsOutcome(ctx, ctx.Get(target), ctx.Get(port), ctx.Get(filter));
             var interfaces = LoadInterfaces(ctx, ctx.Get(path), ctx.Get(plc), ctx.Get(members));
             if (ctx.Get(save) is { } snap)
             {
@@ -273,6 +279,25 @@ internal static class TargetCommands
             return Outcome.Ok(interfaces.Select(i => new { project = i.Project, source = i.Source, symbols = i.Symbols }));
         });
         return cmd;
+    }
+
+    /// <summary>`ads symbols --online`: the matches of the running PLC, named as such.</summary>
+    private static Outcome OnlineSymbolsOutcome(Context ctx, string target, int port, string? filter)
+    {
+        var f = OnlineSymbols.RequireFilter(filter);
+        if (!OperatingSystem.IsWindows()) throw new IECodeException(ExitCodes.Usage, "--online needs Windows (the ADS client).");
+        return ListOnline(ctx, target, port, f);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Outcome ListOnline(Context ctx, string target, int port, string filter)
+    {
+        var id = AmsNetId.Parse(target);
+        var (matches, total) = OnlineSymbolList.List(id, port, filter);
+        ctx.Log.Info($"Running PLC {id}:{port}  ({matches.Count} of {total} symbol(s))");
+        foreach (var s in matches)
+            ctx.Log.Info($"  {s.Name,-48} {s.Type,-28}{(s.Comment is null ? "" : "  // " + s.Comment.ReplaceLineEndings(" "))}");
+        return Outcome.Ok(new { target = id.ToString(), port, total, symbols = matches });
     }
 
     private static Command Diff()

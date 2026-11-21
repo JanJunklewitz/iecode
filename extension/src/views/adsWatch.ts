@@ -7,8 +7,12 @@ import { WorkspaceState } from '../state';
 import { fromBuild } from '../core/adsinterface';
 import { AdsHost, StartError, WriteNotSent } from '../ads/host';
 import { MAX_WATCHED, WatchItem, symbolAt, watchEdit, watchRename } from '../core/adswatch';
-import { aiWritesSetting } from '../ads/aiSettings';
+import { aiWriteState } from '../ads/aiSettings';
+import { autoLabel, nextRefreshMs } from '../core/writeArming';
 import { writeAdsSetting } from '../ads/settingsWrite';
+import { clock } from '../ads/adsTools';
+import { MCP_NAMES } from '../core/adsToolText';
+import { VIEW_NOTICE_MS, viewNotice } from '../core/samplingLog';
 
 const REFRESH_MS = 250;
 const NAME = /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/;
@@ -92,12 +96,27 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
   let timer: NodeJS.Timeout | undefined;
   const schedule = () => { if (!timer) timer = setTimeout(() => { timer = undefined; tree.refresh(); }, REFRESH_MS); };
   const showState = () => {
-    const s = host.state();
-    view.message = !s.connected && s.error ? `Disconnected: ${s.error}` : undefined;
+    view.message = viewNotice(host.state(), host.log, Date.now(), clock, MCP_NAMES);
   };
   showState();
+  // a notice is shown for two minutes: re-run once when the newest one expires
+  let noticeTimer: NodeJS.Timeout | undefined;
+  const onLog = () => {
+    showState();
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(showState, VIEW_NOTICE_MS + 1);
+  };
   // the target is always shown (a write goes there); auto-approved AI writes must never be on unnoticed
-  const showAiWrites = () => { view.description = [host.target(), mcp?.serving() ? 'MCP: on' : undefined, aiWritesSetting() === 'auto' ? 'AI writes: auto' : undefined].filter(Boolean).join(' · '); };
+  // while armed, a one-shot timer re-runs this at the next label change or at the expiry, so "expired" shows at once
+  let armTimer: NodeJS.Timeout | undefined;
+  const showAiWrites = () => {
+    clearTimeout(armTimer);
+    armTimer = undefined;
+    const auto = aiWriteState().auto;
+    view.description = [host.target(), mcp?.serving() ? 'MCP: on' : undefined, autoLabel(auto)].filter(Boolean).join(' · ');
+    const next = nextRefreshMs(auto);
+    if (next !== undefined) armTimer = setTimeout(showAiWrites, next);
+  };
   showAiWrites();
 
   // the host runs while the view is visible with a non-empty list; a saved list alone does not connect (O11)
@@ -113,10 +132,11 @@ export function registerAdsWatch(ctx: vscode.ExtensionContext, state: WorkspaceS
     host.onSamples(schedule),
     host.onItems(() => { schedule(); updateLease(); }),
     host.onState(() => { showState(); schedule(); }),
+    host.onLog(onLog),
     ...(mcp ? [mcp.onState(showAiWrites)] : []),
     view.onDidChangeVisibility(updateLease),
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
-    new vscode.Disposable(() => { clearTimeout(timer); lease?.dispose(); }),
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('iecode.ads.aiWrites') || e.affectsConfiguration('iecode.ads.aiWritesArmedAt') || e.affectsConfiguration('iecode.ads.aiWritesAutoMinutes') || e.affectsConfiguration('iecode.ads.target') || e.affectsConfiguration('iecode.ads.port')) showAiWrites(); }),
+    new vscode.Disposable(() => { clearTimeout(timer); clearTimeout(armTimer); clearTimeout(noticeTimer); lease?.dispose(); }),
   );
 
   const add = async (symbols: string[]) => {

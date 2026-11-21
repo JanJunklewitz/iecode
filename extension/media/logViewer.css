@@ -1,0 +1,92 @@
+html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+body { color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+#app { display: flex; flex-direction: column; height: 100%; }
+/* The hidden attribute must win over the display of every layout rule below. */
+[hidden] { display: none !important; }
+
+.bar { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.bar .filters, .bar .tools { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: flex-start; }
+.bar .tools { align-items: center; }
+.bar .status { flex: 1; min-width: 8em; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field .line { display: flex; gap: 4px; align-items: center; }
+.fieldError { color: var(--vscode-errorForeground); font-size: 90%; white-space: pre-wrap; max-width: 40em; }
+.fieldError:empty { display: none; }
+.timeErrors { display: flex; flex-direction: column; }
+.hiddenCount { color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.dash, .unit { color: var(--vscode-descriptionForeground); }
+.nav { display: flex; gap: 4px; }
+.group, .live { display: flex; gap: 4px; align-items: center; cursor: pointer; white-space: nowrap; }
+
+button { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid transparent; padding: 2px 8px; cursor: pointer; font: inherit; white-space: nowrap; }
+button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.toggle[aria-pressed="true"] { color: var(--vscode-inputOption-activeForeground, inherit); background: var(--vscode-inputOption-activeBackground); border-color: var(--vscode-inputOption-activeBorder, transparent); }
+.toggle[aria-pressed="false"] { opacity: 0.6; }
+.levelToggle[aria-pressed="false"] { text-decoration: line-through; }
+.option { font-family: var(--vscode-editor-font-family); padding: 2px 5px; }
+
+input, select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 2px 4px; font: inherit; }
+input:focus, select:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+input.invalid { border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); }
+.timeInput { width: 11.5em; }
+.minutes { width: 4em; }
+.sourceInput { width: 12em; }
+.textInput { width: 18em; }
+
+.message { padding: 4px 8px; white-space: pre-wrap; word-break: break-word; }
+.message.error { color: var(--vscode-errorForeground); background: var(--vscode-inputValidation-errorBackground, transparent); }
+.message.warning { color: var(--vscode-editorWarning-foreground); background: var(--vscode-inputValidation-warningBackground, transparent); }
+
+.table { display: flex; flex-direction: column; flex: 1; min-height: 0; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+.scroller { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; outline: none; }
+.spacer { width: 1px; }
+.rows { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; will-change: transform; }
+
+/* Fixed row height of 20 px: logScroll.js ROW_HEIGHT depends on it. */
+.row { display: grid; grid-template-columns: 18px 13em 5em 14em minmax(0, 1fr); column-gap: 8px; height: 20px; line-height: 20px; box-sizing: border-box; padding: 0 8px 0 2px; white-space: nowrap; }
+.row > span { overflow: hidden; text-overflow: ellipsis; }
+/* The file column shows only in a merged view (#app.multiFile). */
+.row > .file { display: none; }
+.multiFile .row { grid-template-columns: 18px 13em 10em 5em 14em minmax(0, 1fr); }
+.multiFile .row > .file { display: block; }
+/* The head keeps the table font size: the em column widths must resolve to the same pixels as in the rows. */
+.row.head { color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+/* The head cells share the column classes of the rows but not their colors. */
+.row.head > span { color: inherit; }
+.rows .row { cursor: default; }
+.rows .row:hover { background: var(--vscode-list-hoverBackground); }
+.row.gap { border-top: 1px dashed var(--vscode-descriptionForeground); }
+.row.bookmarked { background: var(--vscode-editor-rangeHighlightBackground, transparent); }
+.rows .row.selected { color: var(--vscode-list-inactiveSelectionForeground, inherit); background: var(--vscode-list-inactiveSelectionBackground); }
+.scroller:focus-within .row.selected { color: var(--vscode-list-activeSelectionForeground, inherit); background: var(--vscode-list-activeSelectionBackground); }
+.row.loading .msg::after { content: '…'; color: var(--vscode-descriptionForeground); }
+
+.mark { cursor: pointer; text-align: center; color: var(--vscode-editorInfo-foreground); }
+.time { color: var(--vscode-descriptionForeground); }
+.time.warn { color: var(--vscode-editorWarning-foreground); }
+.source { color: var(--vscode-textLink-foreground); }
+/* One stripe color per file of a merged view (logViewer.js FILE_COLORS). */
+.file-0 { --file-color: var(--vscode-charts-blue, #3794ff); }
+.file-1 { --file-color: var(--vscode-charts-orange, #d18616); }
+.file-2 { --file-color: var(--vscode-charts-green, #89d185); }
+.file-3 { --file-color: var(--vscode-charts-purple, #b180d7); }
+.file-4 { --file-color: var(--vscode-charts-red, #f14c4c); }
+.file-5 { --file-color: var(--vscode-charts-yellow, #cca700); }
+/* .toggle.fileToggle outranks the border color of a pressed .toggle. */
+.rows .file, .toggle.fileToggle { border-left: 4px solid var(--file-color); }
+.rows .file { padding-left: 4px; }
+.level-error { color: var(--vscode-errorForeground); font-weight: 600; }
+.level-warning { color: var(--vscode-editorWarning-foreground); }
+.level-info { color: var(--vscode-editorInfo-foreground); }
+.level-debug, .level-other { color: var(--vscode-descriptionForeground); }
+.badge { display: inline-block; margin-left: 6px; padding: 0 4px; line-height: 16px; border-radius: 3px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
+
+.detail { display: flex; flex-direction: column; flex: 0 0 35%; min-height: 0; border-top: 1px solid var(--vscode-panel-border, var(--vscode-descriptionForeground)); }
+.detailHead { display: flex; align-items: flex-start; gap: 8px; padding: 4px 8px; }
+.detailFields { display: flex; flex-wrap: wrap; gap: 2px 16px; flex: 1; min-width: 0; }
+.detailField .key { color: var(--vscode-descriptionForeground); margin-right: 4px; }
+.detailField .value { word-break: break-all; }
+.detailHead .close { padding: 0 6px; }
+.detailNote { padding: 0 8px 4px; color: var(--vscode-editorWarning-foreground); }
+.detailText { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 4px 8px; white-space: pre; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+.detailText.loading { color: var(--vscode-descriptionForeground); }

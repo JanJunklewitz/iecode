@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmMessage, doneIsError, doneText, readBackChanged, sentence } from '../src/core/writeText';
+import { confirmMessage, doneIsError, doneText, oppositeBool, readBackChanged, sentence } from '../src/core/writeText';
 
 test('sentence strips exactly one trailing dot', () => {
   assert.equal(sentence('ends with a dot.'), 'ends with a dot');
@@ -102,4 +102,41 @@ test('doneIsError is true when any item is not written', () => {
   assert.equal(doneIsError([w, w]), false);
   assert.equal(doneIsError([w, { symbol: 'b', status: 'unknown', reason: 'x' }]), true);
   assert.equal(doneIsError([w, { symbol: 'b', status: 'notWritten', reason: 'x' }]), true);
+});
+
+test('oppositeBool flips BOOL literals and refuses everything else', () => {
+  assert.equal(oppositeBool('TRUE'), 'FALSE');
+  assert.equal(oppositeBool(' 1 '), 'FALSE');
+  assert.equal(oppositeBool('false'), 'TRUE');
+  assert.equal(oppositeBool('0'), 'TRUE');
+  assert.equal(oppositeBool('5'), undefined);
+  assert.equal(oppositeBool(''), undefined);
+});
+
+test('the dialog names the pulse and what the bit returns to', () => {
+  assert.equal(confirmMessage([{ symbol: 'MAIN.bStart', value: 'TRUE', pulseMs: 200 }], 'A:851 (ws)', ''),
+    'Write MAIN.bStart := TRUE (pulse 200 ms, then FALSE) on A:851 (ws)?');
+});
+
+test('pulse lines: done, reset not sent, reset unknown', () => {
+  const items = [{ symbol: 'MAIN.bStart', value: 'TRUE', pulseMs: 200 }];
+  const done = doneText(items, [{ symbol: 'MAIN.bStart', status: 'written', readBack: 'TRUE', pulse: { ms: 200, heldMs: 214, reset: 'FALSE', state: 'done' } }]);
+  assert.equal(done, 'Write sent: 1 written.\nMAIN.bStart: pulsed TRUE for 214 ms (asked 200 ms, timed by the extension, not cycle-exact), then FALSE');
+  const notSent = doneText(items, [{ symbol: 'MAIN.bStart', status: 'written', readBack: 'TRUE', pulse: { ms: 200, heldMs: 210, reset: 'FALSE', state: 'notSent', reason: 'host stopped.' } }]);
+  assert.match(notSent, /MAIN\.bStart: written TRUE, but the reset to FALSE was not sent: host stopped\. MAIN\.bStart may still be TRUE; reset it or ask the user\./);
+  const unknown = doneText(items, [{ symbol: 'MAIN.bStart', status: 'written', readBack: 'TRUE', pulse: { ms: 200, heldMs: 210, reset: 'FALSE', state: 'unknown', reason: 'timed out' } }]);
+  assert.match(unknown, /the reset to FALSE has an unknown outcome: timed out\. MAIN\.bStart may still be TRUE; read it, reset it or ask the user\./);
+});
+
+test('doneIsError is true when a pulse reset did not go through', () => {
+  const ok = { symbol: 'A', status: 'written' as const, readBack: 'TRUE', pulse: { ms: 10, heldMs: 12, reset: 'FALSE', state: 'done' as const } };
+  assert.equal(doneIsError([ok]), false);
+  assert.equal(doneIsError([{ ...ok, pulse: { ms: 10, heldMs: 12, reset: 'FALSE', state: 'unknown', reason: 'x' } }]), true);
+});
+
+test('the dialog says Restore and marks PERSISTENT symbols', () => {
+  const items = [{ symbol: 'MAIN.a', value: '1' }, { symbol: 'MAIN.b', value: '5' }];
+  assert.equal(confirmMessage(items, 'A:851 (ws)', '', { restore: true }), 'Restore 2 values on A:851 (ws)?\nMAIN.a := 1\nMAIN.b := 5');
+  assert.equal(confirmMessage([items[0]], 'A:851 (ws)', '', { persistent: ['MAIN.a'] }), 'Write MAIN.a := 1 on A:851 (ws)?\nPERSISTENT: MAIN.a survives a PLC restart.');
+  assert.equal(confirmMessage(items, 'T', '', { persistent: ['MAIN.b'] }), 'Write 2 values on T?\nMAIN.a := 1\nMAIN.b := 5\nPERSISTENT: MAIN.b survives a PLC restart.');
 });

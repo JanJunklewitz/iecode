@@ -41,7 +41,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `target state\|run\|config [-t <netid>]` | TwinCAT runtime state, restart in run mode, switch to config mode | ADS |
 | `ads read <symbol> [-t] [--port 851]` / `ads write <symbol> <value>` | Read / write PLC variables | ADS |
 | `ads serve [-t <netid>] [--port 851]` | Live values for tools: JSON requests on stdin, JSON events and replies on stdout, until stdin closes (see [Live values](#live-values)) | ADS |
-| `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
+| `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>] [--online --target <netid> --filter <text>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
 | `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
 | `mcp` | MCP stdio server for Claude Code: relays the ADS tools to the VS Code window that serves the working directory, until stdin closes (see [MCP bridge](#mcp-bridge-for-claude-code)) | VS Code with IECode |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
@@ -99,14 +99,17 @@ talks JSON lines: requests on stdin (←), events and replies on stdout (→). L
 code 0 when stdin closes, after it has answered every request read before that.
 
 ```text
-→ {"event":"hello","protocol":1}                       first line, before anything about the target can fail
+→ {"event":"hello","protocol":2}                       first line, before anything about the target can fail
 → {"event":"state","connected":true}                   or connected:false with "error"; retried every 2 s
 ← {"id":1,"op":"watch","symbols":["MAIN.nCount","GVL.bRun"]}
 → {"id":1,"ok":true,"data":{"gen":1,"items":[{"symbol":"MAIN.nCount","type":"INT","numeric":true,"error":null}, …]}}
 → {"event":"samples","gen":1,"rows":[{"t":1730539200000,"v":["42","TRUE"]}]}
+→ {"event":"reloaded","reason":"symbol version changed"}   the host resolved the symbols again by itself (download, online change, PLC restart); also when the items did not change
 ← {"id":2,"op":"read","symbols":["MAIN.sName"]}       one-off read, also of symbols not watched
 ← {"id":3,"op":"write","symbol":"MAIN.nCount","value":"7"}   replies with the value read back
 ← {"id":4,"op":"interval","ms":50}                    poll interval, 10 … 5000 ms (default 100)
+← {"id":5,"op":"writeMany","writes":[{"symbol":"MAIN.a","value":"1"},{"symbol":"MAIN.b","value":"2"}]}   protocol 2: one sum write
+← {"id":6,"op":"state","task":1}                     protocol 2: PLC run state, system state, cycle time and cycle counter of a task (1..16, default 1), online change count
 ```
 
 Values are canonical text (`TRUE`/`FALSE`, decimal integers, REAL with `.`, enum member names, TIME as
@@ -122,11 +125,26 @@ read-back failed; `ok:false` with `"written":"no"` was not sent (unknown symbol,
 `ok:false` without a `written` field failed in the ADS call itself, so the value may or may not have reached the PLC (a client
 must treat a missing `written` as "outcome unknown", also when talking to an older CLI).
 
+A `writeMany` request (protocol 2, 1 to 20 writes, each symbol once) prepares every value first and then sends them in one ADS sum
+write, without a fallback to single writes, and reads the written items back with one sum read. The reply is
+`{"ok":true,"data":{"items":[…]}}` with one entry per write in request order: `{"symbol","status","value"}` where `status` is
+`written` (`value` is the read-back, or `readBackError` when only the read-back failed), `notWritten` (a device rejection proven
+to have no effect, with `error` and `adsCode`) or `unknown` (every other non-zero code, with `error`; the value may or may not
+have been written). `ok:false` with `"written":"no"` means nothing was sent (invalid request, unknown or non-single-value symbol, a
+value that does not parse, a repeated symbol, more than 20 writes; the error names `writes[i]`); `ok:false` without `written` failed
+after sending, so the outcome is unknown for every item. One request does not guarantee that the PLC applies the values in the same
+cycle. Only the two item codes measured to come from the PLC itself with no effect on that item (`DeviceInvalidAccess`, `DeviceInvalidOffset`) are `notWritten`; every other code is `unknown`.
+
+`iecode ads symbols --online --target <netid> [--port 851] --filter <text> [--json]` (Windows only) lists the symbols of the running PLC instead of the build output: a filter is required, at most 500 symbols are returned, the total is reported. It is a command of its own, not an op of the watch host, because uploading the whole symbol table is slow and would stall a running watch.
+
+A `read` request with an integer `depth` (protocol 2, clamped to 1..5) answers a structure, function block instance or array with `members` (`{"name","type","value","error"}` per value leaf, `name` is the full instance path, `value` and `error` of the item itself are null) and `notes` (`omittedMembers`, `omittedElements`, `notExpanded`). The leaves come from one sum read; at most 200 members and 20 elements per array are read, pointers, references and interfaces are listed under `notExpanded`. A single value answers as before, and a request without `depth` is unchanged.
+
 Protocol versions (the `hello` event carries the number):
 
 | Protocol | Ops | Since |
 |---|---|---|
 | 1 | `watch`, `read`, `write`, `interval` | first release |
+| 2 | + `writeMany` (batch write), `read` with `depth` (struct read), `ads symbols --online` | next release (not frozen until it ships) |
 
 A client accepts every protocol from 1 up to its own and switches off only the features an older host lacks; a host newer than the client is refused.
 

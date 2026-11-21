@@ -25,28 +25,47 @@ public sealed class AdsWatchBackend : IWatchBackend
     private bool _stale = true, _versionUnreadable, _versionWarned, _resolved;
     /// <summary>A watched item read 0x710/0x711: the next Resolve uploads a new symbol table, one-off reads and writes do not.</summary>
     private bool _itemsDead;
+    /// <summary>The version of the last successful Resolve; unlike <see cref="_watchVersion"/> it survives <see cref="Drop"/>, so a download during a connection loss is still noticed.</summary>
+    private byte? _lastResolvedVersion;
     private Watched[] _watched = [];
     private int[] _sumIndex = [];
     private ISymbolRead? _sum;
 
     private sealed record Watched(ILinkSymbol? Symbol, string BaseType, IReadOnlyDictionary<long, string>? Members);
 
+    /// <summary>The router answers its own port within this time; a silent router must not eat the time budget of a state call.</summary>
+    private const int RouterTimeoutMs = 1000;
+
     public AdsWatchBackend(Core.AmsNetId target, int port, Action<string>? log = null)
-        : this($"{LocalTarget.Resolve(target)}:{port}", () => new BeckhoffLink(LocalTarget.Resolve(target), port), log)
+        : this($"{LocalTarget.Resolve(target)}:{port}", () => new BeckhoffLink(LocalTarget.Resolve(target), port), log,
+            newRouterLink: () => new BeckhoffLink(LocalTarget.Resolve(target), Target.SystemServicePort, RouterTimeoutMs))
     {
     }
 
-    internal AdsWatchBackend(string where, Func<IAdsLink> newLink, Action<string>? log = null)
+    internal AdsWatchBackend(string where, Func<IAdsLink> newLink, Action<string>? log = null,
+        IReadOnlySet<uint>? noEffectCodes = null, IReadOnlySet<uint>? notSentAggregateCodes = null,
+        Func<IAdsLink>? newRouterLink = null, PlcStateNames? stateNames = null)
     {
         _where = where;
         _newLink = newLink;
         _log = log;
+        _noEffect = noEffectCodes ?? DefaultNoEffectCodes;
+        _notSentAggregate = notSentAggregateCodes ?? DefaultNotSentAggregateCodes;
+        _newRouterLink = newRouterLink;
+        _stateNames = stateNames ?? PlcStateNames.Default;
     }
+
+    private readonly IReadOnlySet<uint> _noEffect, _notSentAggregate;
+    private readonly Func<IAdsLink>? _newRouterLink;
+    /// <summary>Why the last <see cref="Connect"/> failed (with its ADS code); the state op reports it instead of a code-less "Not connected".</summary>
+    private AdsFault? _lastConnectFault;
+    private readonly PlcStateNames _stateNames;
 
     /// <summary>Opens the ADS port and proves the target is there: connecting alone only opens the local router port.</summary>
     public void Connect()
     {
         Drop();
+        _lastConnectFault = null;
         IAdsLink? link = null;
         try
         {
@@ -59,10 +78,13 @@ public sealed class AdsWatchBackend : IWatchBackend
         {
             link?.Dispose();
             var fault = Map(e, $"Cannot reach {_where} over ADS");
-            throw fault.ConnectionLost ? fault : new AdsFault(fault.Message, fault.AdsCode, true);
+            throw _lastConnectFault = fault.ConnectionLost ? fault : new AdsFault(fault.Message, fault.AdsCode, true);
         }
         _link = link;
     }
+
+    /// <summary>True when the last successful <see cref="Resolve"/> saw another symbol version than the one before it, also across a reconnect.</summary>
+    public bool ResolveChangedVersion { get; private set; }
 
     /// <summary>Builds a new symbol loader after a fault or a symbol version change, otherwise looks the names up in the old one (O2).</summary>
     public IReadOnlyList<WatchItem> Resolve(IReadOnlyList<string> symbols)
@@ -107,6 +129,9 @@ public sealed class AdsWatchBackend : IWatchBackend
         _sumIndex = index;
         _watched = watched;
         _watchVersion = version;
+        ResolveChangedVersion = _lastResolvedVersion is { } old && version is { } v && old != v;
+        // An unreadable version keeps the last known one as the baseline, so a download behind it is still reported later.
+        if (version is not null) _lastResolvedVersion = version;
         _resolved = true;
         return items;
     }
@@ -197,6 +222,270 @@ public sealed class AdsWatchBackend : IWatchBackend
         {
             return (null, e.Message);
         }
+    }
+
+    /// <summary>
+    /// Codes of a sum write item that are proven to be a device rejection without effect on that item (SDK contract check C1,
+    /// 2026-11-12: both come from the PLC itself and the neighbours of the item were written). Every other non-zero code stays
+    /// "unknown", for example 0x701 (service not supported for that item).
+    /// </summary>
+    internal static readonly IReadOnlySet<uint> DefaultNoEffectCodes = new HashSet<uint>
+    {
+        (uint)AdsErrorCode.DeviceInvalidAccess,
+        (uint)AdsErrorCode.DeviceInvalidOffset,
+    };
+
+    /// <summary>Aggregate codes proven to come back before any sub-write ran: the router found no runtime on the port.</summary>
+    internal static readonly IReadOnlySet<uint> DefaultNotSentAggregateCodes = new HashSet<uint>
+    {
+        (uint)AdsErrorCode.TargetPortNotFound,
+    };
+
+    public IReadOnlyList<WriteManyItem> WriteMany(IReadOnlyList<(string Symbol, string Value)> writes)
+    {
+        var link = Link();
+        var loader = Loader(link, ReadVersion(link), writes.Count);
+        var symbols = new ILinkSymbol[writes.Count];
+        var values = new object[writes.Count];
+        // Everything that can fail without a request is checked here, before one value is sent.
+        for (var i = 0; i < writes.Count; i++)
+        {
+            var (name, text) = writes[i];
+            ILinkSymbol? sym;
+            try
+            {
+                sym = Lookup(loader, name);
+            }
+            catch (AdsFault f) when (!f.ConnectionLost)
+            {
+                throw new WriteNotSentException($"writes[{i}] {name}: {f.Message}", f);
+            }
+            if (sym is null) throw new WriteNotSentException($"writes[{i}] {name}: Symbol '{name}' not found on {_where}. {NotFoundHint(loader, name)}");
+            if (!sym.IsSingleValue) throw new WriteNotSentException($"writes[{i}] {name}: {sym.TypeName} is not a single value; write its members instead");
+            try
+            {
+                values[i] = sym.Prepare(text);
+            }
+            catch (WriteNotSentException e)
+            {
+                throw new WriteNotSentException($"writes[{i}] {name}: {e.Message}", e);
+            }
+            symbols[i] = sym;
+        }
+
+        SumWrite sum;
+        try
+        {
+            sum = Call($"Write of {writes.Count} values to {_where}", () => link.PrepareWrite(symbols).Write(values));
+        }
+        catch (Exception e) when (e is ArgumentException or IndexOutOfRangeException)
+        {
+            // The SDK throws these while it builds the request (a value that does not fit its symbol): nothing was sent.
+            throw new WriteNotSentException($"Write of {writes.Count} values to {_where}: {e.Message}", e);
+        }
+        if (sum.Code != AdsErrorCode.NoError || sum.Items is null)
+        {
+            var text = Text($"Write of {writes.Count} values to {_where}", (uint)sum.Code);
+            if (_notSentAggregate.Contains((uint)sum.Code)) throw new WriteNotSentException(text);
+            throw new AdsFault(text, (uint)sum.Code, AdsCodes.IsConnectionLost((uint)sum.Code));
+        }
+        if (sum.Items.Count != writes.Count)
+        {
+            var mismatch = $"ADS returned {sum.Items.Count} results for {writes.Count} writes";
+            return writes.Select(w => new WriteManyItem(w.Symbol, WriteStatus.Unknown, Error: mismatch)).ToList();
+        }
+
+        var result = new WriteManyItem[writes.Count];
+        var written = new List<int>();
+        for (var i = 0; i < writes.Count; i++)
+        {
+            var code = sum.Items[i];
+            if (code == AdsErrorCode.NoError)
+            {
+                written.Add(i);
+                continue;
+            }
+            var status = _noEffect.Contains((uint)code) ? WriteStatus.NotWritten : WriteStatus.Unknown;
+            result[i] = new WriteManyItem(writes[i].Symbol, status, Error: Text($"Write {writes[i].Symbol}", (uint)code), AdsCode: (uint)code);
+        }
+        ReadBack(link, written, symbols, writes, result);
+        return result;
+    }
+
+    /// <summary>One sum read of the written items. From here on the PLC took the values: a failing read-back never changes "written".</summary>
+    private void ReadBack(IAdsLink link, List<int> written, ILinkSymbol[] symbols, IReadOnlyList<(string Symbol, string Value)> writes, WriteManyItem[] result)
+    {
+        if (written.Count == 0) return;
+        string? failure = null;
+        IReadOnlyList<SumItem>? items = null;
+        try
+        {
+            var read = link.PrepareRead(written.Select(i => symbols[i]).ToList()).Read();
+            if (read.Items is null || read.Code != AdsErrorCode.NoError || read.Items.Count != written.Count)
+                failure = read.Items is not null && read.Code == AdsErrorCode.NoError
+                    ? $"ADS returned {read.Items.Count} read-back results for {written.Count} items"
+                    : Text("Read-back", (uint)read.Code);
+            else items = read.Items;
+        }
+        catch (Exception e)
+        {
+            failure = e.Message;
+        }
+        for (var k = 0; k < written.Count; k++)
+        {
+            var i = written[k];
+            var name = writes[i].Symbol;
+            if (items is null) result[i] = new WriteManyItem(name, WriteStatus.Written, ReadBackError: failure);
+            else if (items[k].Code != AdsErrorCode.NoError) result[i] = new WriteManyItem(name, WriteStatus.Written, ReadBackError: Text($"Read {name}", (uint)items[k].Code));
+            else result[i] = new WriteManyItem(name, WriteStatus.Written, PlcValueText.Format(symbols[i].BaseType, AdsValues.Normalize(symbols[i].BaseType, items[k].Value), symbols[i].Members));
+        }
+    }
+
+    public StructRead? ReadMembers(string symbol, int depth)
+    {
+        var link = Link();
+        var loader = Loader(link, ReadVersion(link), 1);
+        var sym = Lookup(loader, symbol)
+            ?? throw new IECodeException(ExitCodes.NotFound, $"Symbol '{symbol}' not found on {_where}. {NotFoundHint(loader, symbol)}");
+        if (sym.IsSingleValue) return null;
+        var walk = StructExpand.Walk(sym, depth, StructExpand.MaxMembers, StructExpand.MaxElements, s => s.Kind, s => s.Children, s => s.Path);
+        if (walk.Leaves.Count == 0) return new StructRead(sym.TypeName, [], walk.OmittedMembers, walk.OmittedElements, walk.NotExpanded);
+        SumRead read;
+        try
+        {
+            read = link.PrepareRead(walk.Leaves).Read();
+        }
+        catch (Exception e)
+        {
+            throw ReadFault(e);
+        }
+        if (read.Items is null || read.Code != AdsErrorCode.NoError || read.Items.Count != walk.Leaves.Count)
+            throw new AdsFault(Text($"Read from {_where}", (uint)read.Code), (uint)read.Code, AdsCodes.IsConnectionLost((uint)read.Code));
+        var members = new MemberValue[walk.Leaves.Count];
+        for (var i = 0; i < members.Length; i++)
+        {
+            var leaf = walk.Leaves[i];
+            var item = read.Items[i];
+            members[i] = item.Code == AdsErrorCode.NoError
+                ? new MemberValue(leaf.Path, leaf.TypeName, PlcValueText.Format(leaf.BaseType, AdsValues.Normalize(leaf.BaseType, item.Value), leaf.Members), null)
+                : new MemberValue(leaf.Path, leaf.TypeName, null, $"{item.Code} (0x{(uint)item.Code:X})");
+        }
+        return new StructRead(sym.TypeName, members, walk.OmittedMembers, walk.OmittedElements, walk.NotExpanded);
+    }
+
+    /// <summary>
+    /// The system state comes first and from its own short-lived link, so config mode is told even when the PLC port does not exist.
+    /// The PLC part only goes through the connected link; a PLC fault becomes <see cref="PlcState.PlcError"/> when the system part answered.
+    /// </summary>
+    public PlcState ReadPlcState(int task)
+    {
+        var system = ReadSystemState();
+        try
+        {
+            var link = _link ?? throw (_lastConnectFault ?? new AdsFault($"Not connected to {_where}", null, true));
+            var (code, adsState, deviceState) = Call($"State read from {_where}", link.ReadStateInfo);
+            if (code != AdsErrorCode.NoError)
+                throw new AdsFault(Text($"State read from {_where}", (uint)code), (uint)code, AdsCodes.IsConnectionLost((uint)code));
+            var (count, cycleUs, online, note) = ReadTaskCounters(link, task);
+            return new PlcState(adsState, deviceState, count, cycleUs, online, note, system, null);
+        }
+        catch (AdsFault f) when (system is not null)
+        {
+            return new PlcState(null, null, null, null, null, null, system, f.Message, f.AdsCode, f.ConnectionLost);
+        }
+    }
+
+    /// <summary>Null when there is no router link factory or the router does not answer: the system line is then left out.</summary>
+    private string? ReadSystemState()
+    {
+        if (_newRouterLink is null) return null;
+        IAdsLink? router = null;
+        try
+        {
+            router = _newRouterLink();
+            router.Connect();
+            var (code, state, _) = router.ReadStateInfo();
+            return code == AdsErrorCode.NoError ? state : null;
+        }
+        catch (Exception)
+        {
+            // Any failure of this optional part (no route, transport, SDK exception) only leaves the field out.
+            return null;
+        }
+        finally
+        {
+            router?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Each name is looked up on its own and the ones that resolve are read in one sum read, so a runtime without one of them still
+    /// gives the others. A connection loss is not a note: it propagates to <see cref="ReadPlcState"/>.
+    /// </summary>
+    private (long? Count, long? CycleUs, long? Online, string? Note) ReadTaskCounters(IAdsLink link, int task)
+    {
+        var wanted = new[] { _stateNames.CycleCount(task), _stateNames.CycleTime(task), _stateNames.OnlineChange };
+        var resolved = new List<(int Slot, ILinkSymbol Symbol)>();
+        var missing = new List<string>();
+        try
+        {
+            var loader = Loader(link, ReadVersion(link), 1);
+            for (var i = 0; i < wanted.Length; i++)
+            {
+                try
+                {
+                    var sym = Lookup(loader, wanted[i]);
+                    if (sym is { IsSingleValue: true }) resolved.Add((i, sym));
+                    else missing.Add($"{wanted[i]} ({(sym is null ? "symbol not found" : "not a single value")})");
+                }
+                catch (AdsFault f) when (!f.ConnectionLost)
+                {
+                    missing.Add($"{wanted[i]} ({f.Message})");
+                }
+            }
+        }
+        catch (AdsFault f)
+        {
+            // The PLC state was just read, so even a lost-looking loader fault (empty symbol table) must not erase it: the next call's
+            // state read finds a real loss. A note keeps the run state.
+            return (null, null, null, $"task counters not readable: {f.Message}");
+        }
+        var values = new long?[wanted.Length];
+        if (resolved.Count > 0)
+        {
+            SumRead read;
+            try
+            {
+                read = link.PrepareRead(resolved.Select(r => r.Symbol).ToList()).Read();
+            }
+            catch (Exception e)
+            {
+                var fault = ReadFault(e);
+                if (fault.ConnectionLost) throw fault;
+                return (null, null, null, $"task counters not readable: {fault.Message}");
+            }
+            if (read.Code == AdsErrorCode.NoError && read.Items is not null && read.Items.Count != resolved.Count)
+                return (null, null, null, $"task counters not readable: ADS returned {read.Items.Count} results for {resolved.Count} counters");
+            if (read.Items is null || read.Code != AdsErrorCode.NoError)
+            {
+                // a lost connection is the caller's business; any other code is a counter problem, the run state stays
+                if (AdsCodes.IsConnectionLost((uint)read.Code)) throw new AdsFault(Text($"Read from {_where}", (uint)read.Code), (uint)read.Code, true);
+                return (null, null, null, $"task counters not readable: {Text($"Read from {_where}", (uint)read.Code)}");
+            }
+            for (var k = 0; k < resolved.Count; k++)
+            {
+                var item = read.Items[k];
+                if (item.Code == AdsErrorCode.NoError)
+                {
+                    values[resolved[k].Slot] = ToInt64(item.Value);
+                    if (values[resolved[k].Slot] is null) missing.Add($"{wanted[resolved[k].Slot]} (unexpected value type)");
+                }
+                else missing.Add($"{wanted[resolved[k].Slot]} ({Text("read", (uint)item.Code)})");
+            }
+        }
+        var note = missing.Count == 0 ? null
+            : (values.All(v => v is null) ? "task counters not readable: " : "not readable: ") + string.Join("; ", missing);
+        return (values[0], values[1] is { } t ? t / 10 : null, values[2], note);
     }
 
     public void Dispose() => Drop();

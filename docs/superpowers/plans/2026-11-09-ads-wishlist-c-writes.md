@@ -968,6 +968,10 @@ _Measured 2026-11-12 with Beckhoff.TwinCAT.Ads 7.0.389 (net10.0 console, throwaw
 
 Statements in this plan that depend on these rows: C2 (`BeckhoffLink` construction, both code sets, count-mismatch handling), C3b/C3c (the words "one ADS request" and the `notWritten` examples), C7b Step 0 (row 9), C8 check 4.
 
+### C7b check (2026-11-17)
+
+Checked with `fromTmc` against a built PLC module (about 7 MB `.tmc`). (a) The marker is `<Properties><Property><Name>TcPersistent</Name></Property></Properties>` on a `<Symbol>` (global declared PERSISTENT) and on a `<SubItem>` of a `<DataType>` (member declared PERSISTENT); ordinary variables have no such property. (b) Members of a persistent symbol carry no mark of their own, so `fromTmc` inherits it. (c) Decision: variant A is built (`AdsSymbol.persistent`, `persistentIn` takes the marks and treats parents as covering members) together with variant B (`iecode.ads.persistentPaths`). Not measured: an `%I*` mapped variable, a RETAIN variable, array elements of a persistent array (covered by the parent rule, untested against real output). Parsing the members of that file takes about 2 s, so the extension caches the marks per file time.
+
 ## Open decisions
 
 1. **Journal lifetime:** in memory per window (a reload empties it) versus saved in `workspaceState`. Recommendation: in memory. A restore after a reload would act on values the user no longer remembers, and a stale persisted journal could write old values onto a target that has moved on.

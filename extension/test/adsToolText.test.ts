@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeBuffer, WatchItem, gapNote } from '../src/core/adswatch';
 import { parseCondition } from '../src/core/waitCondition';
-import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, configText, captureResultText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText } from '../src/core/adsToolText';
+import { COPILOT_NAMES, MCP_NAMES, MAX_TOOL_TEXT, TRUNCATED, capText, emptyReadText, emptyScopeText, readRow, readOnceRow, readText, scopeSummaryText, scopeToolText, symbolsText, enumText, noEnumText, hiddenText, propertyHintText, configText, captureResultText, addErrorLines, targetLine, targetOfKey, confirmRemoveText, unresolvedText, watchFailureText, watchListText, watchResultText, waitResultText, withNotice, withTrailingNotice } from '../src/core/adsToolText';
 
 const item = (symbol: string, type = 'INT', error: string | null = null): WatchItem => ({ symbol, type, numeric: true, error });
 const filled = (symbols: string[], n = 3) => {
@@ -341,4 +341,9 @@ test('captureResultText: captured, partial, history short, timeout, ended, refus
   assert.equal(refused.text, 'Error: raise it with adsConfig { bufferSeconds: 3 }');
   assert.equal(refused.isError, true);
   assert.deepEqual(captureResultText({ ...base, outcome: { kind: 'cancelled' } }), { text: 'Capture cancelled.' });
+});
+
+test('withNotice without a notice returns the text unchanged', () => {
+  assert.equal(withNotice('a\nb', undefined), 'a\nb'); assert.equal(withTrailingNotice('a', undefined), 'a');
+  assert.equal(withNotice('a', 'N'), 'N\na'); assert.equal(withTrailingNotice('a', 'N'), 'a\nN');
 });

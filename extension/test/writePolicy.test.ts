@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateWritePolicy, writePolicyReason } from '../src/core/writePolicy';
+import { evaluateWritePolicy, writePolicyReason, persistentIn, persistentRefusal } from '../src/core/writePolicy';
 
 test('an empty list allows everything', () => assert.deepEqual(evaluateWritePolicy('MAIN.x', { allowedPaths: [] }), { allowed: true }));
 
@@ -26,4 +26,27 @@ test('a batch reason names every symbol outside', () => {
     'MAIN.a, MAIN.b are outside the paths the user allows for AI writes (iecode.ads.aiWritePaths: GVL.Test)');
   assert.equal(writePolicyReason(['GVL.Test.a'], { allowedPaths: ['GVL.Test'] }), undefined);
   assert.equal(writePolicyReason(['MAIN.a'], { allowedPaths: [] }), undefined);
+});
+
+test('persistentIn finds the symbols below a persistent prefix, same rule as the allow-list', () => {
+  const paths = ['GVL.Persistent', ' ', 'MAIN.Cfg.'];
+  assert.deepEqual(persistentIn(['GVL.Persistent.nA', 'gvl.persistent', 'GVL.PersistentX.n', 'MAIN.Cfg.nB', 'MAIN.nOther'], paths), ['GVL.Persistent.nA', 'gvl.persistent', 'MAIN.Cfg.nB']);
+  assert.deepEqual(persistentIn(['GVL.Persistent.nA'], []), []);
+});
+
+test('persistentRefusal names every symbol and the flag', () => {
+  assert.equal(persistentRefusal(['MAIN.nCfg']), 'MAIN.nCfg is PERSISTENT data (it survives a PLC restart). Call again with confirmPersistent: true if the user asked for this write.');
+  assert.equal(persistentRefusal(['MAIN.nCfg', 'MAIN.nOther']), 'MAIN.nCfg, MAIN.nOther are PERSISTENT data (they survive a PLC restart). Call again with confirmPersistent: true if the user asked for these writes.');
+});
+
+test('persistentIn also counts symbols the build output marks, and their members', () => {
+  const built = new Set(['gvl.stpair', 'gvl.stcfg.nkept', 'gvl.arr[2]']);
+  assert.deepEqual(persistentIn(['GVL.stPair', 'GVL.stPair.nA', 'GVL.stCfg.nKept', 'GVL.stCfg.nLost', 'GVL.Arr[2].x', 'GVL.Arr[3].x', 'GVL.nPlain'], [], built),
+    ['GVL.stPair', 'GVL.stPair.nA', 'GVL.stCfg.nKept', 'GVL.Arr[2].x']);
+});
+
+test('persistentIn walks up through multi-dimensional and nested index steps', () => {
+  const built = new Set(['gvl.m[1,2]', 'gvl.n[2][3]', 'gvl.o.p[4]']);
+  assert.deepEqual(persistentIn(['GVL.M[1,2].x', 'GVL.M[1,3].x', 'GVL.N[2][3].y', 'GVL.N[2][4].y', 'GVL.O.P[4]', 'GVL.O.P[5]', 'GVL.O.Q'], [], built),
+    ['GVL.M[1,2].x', 'GVL.N[2][3].y', 'GVL.O.P[4]']);
 });

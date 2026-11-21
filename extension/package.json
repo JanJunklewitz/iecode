@@ -158,6 +158,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "iecode.logViewer",
+        "displayName": "IECode Log Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.log"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "snippets": [
@@ -167,6 +177,41 @@
       }
     ],
     "commands": [
+      {
+        "command": "iecode.showUnused",
+        "title": "Show Unused Objects",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.showImpact",
+        "title": "Show Impact of Object, Member or Variable",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.exportGraphMermaid",
+        "title": "Export Project or Object Graph as Mermaid",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.objectHistory",
+        "title": "Show History of Object or Member",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.toggleBlame",
+        "title": "Toggle Blame per Method",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.lintIoLinks",
+        "title": "Lint IO Links",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.lintObjects",
+        "title": "Lint Objects",
+        "category": "IECode"
+      },
       {
         "command": "iecode.openAsST",
         "title": "Open as Structured Text",
@@ -212,6 +257,18 @@
         "title": "Refresh",
         "category": "IECode",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "iecode.filterTree",
+        "title": "Filter Project Tree…",
+        "category": "IECode",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "iecode.clearTreeFilter",
+        "title": "Clear Project Tree Filter",
+        "category": "IECode",
+        "icon": "$(clear-all)"
       },
       {
         "command": "iecode.addObject",
@@ -589,6 +646,42 @@
         "command": "iecode.mcpDisconnect",
         "title": "Disconnect Claude Code",
         "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.open",
+        "title": "Open in Log Viewer",
+        "category": "IECode",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "iecode.logViewer.openMerged",
+        "title": "Open Logs Merged on One Timeline",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.nextError",
+        "title": "Log Viewer: Next Error",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.previousError",
+        "title": "Log Viewer: Previous Error",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.toggleBookmark",
+        "title": "Log Viewer: Toggle Bookmark",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.nextBookmark",
+        "title": "Log Viewer: Next Bookmark",
+        "category": "IECode"
+      },
+      {
+        "command": "iecode.logViewer.previousBookmark",
+        "title": "Log Viewer: Previous Bookmark",
+        "category": "IECode"
       }
     ],
     "menus": {
@@ -642,6 +735,16 @@
           "command": "iecode.configDiff",
           "when": "resourceExtname =~ /\\.xti$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.logViewer.open",
+          "when": "resourceExtname =~ /\\.log$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "iecode.logViewer.openMerged",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /\\.log$/i",
+          "group": "navigation"
         }
       ],
       "editor/title": [
@@ -695,6 +798,16 @@
       ],
       "editor/context": [
         {
+          "command": "iecode.objectHistory",
+          "when": "resourceScheme == iecode",
+          "group": "3_iecodeHistory@1"
+        },
+        {
+          "command": "iecode.showImpact",
+          "when": "resourceScheme == iecode",
+          "group": "3_iecodeHistory@2"
+        },
+        {
           "command": "iecode.aiAdd",
           "when": "resourceScheme == iecode || editorLangId == twincat-st",
           "group": "1_iecodeAi@1"
@@ -738,6 +851,16 @@
         }
       ],
       "view/title": [
+        {
+          "command": "iecode.filterTree",
+          "when": "view == iecode.projects",
+          "group": "navigation@0"
+        },
+        {
+          "command": "iecode.clearTreeFilter",
+          "when": "view == iecode.projects && iecode.treeFiltered",
+          "group": "navigation@1"
+        },
         {
           "command": "iecode.addObject",
           "when": "view == iecode.projects",
@@ -870,6 +993,21 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "iecode.showUnused",
+          "when": "view == iecode.projects && viewItem =~ /^unit\\.(application|standalone)/",
+          "group": "3_analysis@1"
+        },
+        {
+          "command": "iecode.showImpact",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
+          "group": "3_analysis@2"
+        },
+        {
+          "command": "iecode.objectHistory",
+          "when": "view == iecode.projects && viewItem =~ /^(object\\.|member\\.)/ && viewItem != object.encrypted",
+          "group": "3_history@1"
+        },
         {
           "command": "iecode.addObject",
           "when": "view == iecode.projects && viewItem =~ /^(unit|folder)/",
@@ -1093,12 +1231,36 @@
       ],
       "commandPalette": [
         {
+          "command": "iecode.clearTreeFilter",
+          "when": "iecode.treeFiltered"
+        },
+        {
           "command": "iecode.showRawDiff",
           "when": "isInDiffEditor && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^iecode(-rev|-src)?$/"
         },
         {
           "command": "iecode.showViewDiff",
           "when": "isInDiffEditor && resourceExtname =~ /\\.(TcPOU|TcDUT|TcGVL|TcIO|TcVIS|TcGTLO|TcIPO|TcGIPO|TcTTO|TcVMO)$/i && resourceScheme =~ /^(?!iecode(-rev|-src)?$)/"
+        },
+        {
+          "command": "iecode.logViewer.nextError",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.previousError",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.toggleBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.nextBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+        },
+        {
+          "command": "iecode.logViewer.previousBookmark",
+          "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
         },
         {
           "command": "iecode.aiAdd",
@@ -1306,6 +1468,11 @@
           "command": "iecode.configDiff",
           "when": "resourceExtname =~ /\\.xti$/i",
           "group": "3_compare"
+        },
+        {
+          "command": "iecode.logViewer.open",
+          "when": "resourceExtname =~ /\\.log$/i && activeCustomEditorId != iecode.logViewer",
+          "group": "1_open"
         }
       ],
       "scm/resourceState/context": [
@@ -1359,6 +1526,32 @@
         "command": "iecode.build",
         "key": "ctrl+shift+b",
         "when": "resourceScheme == iecode"
+      },
+      {
+        "command": "iecode.logViewer.nextError",
+        "key": "f8",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.previousError",
+        "key": "shift+f8",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.toggleBookmark",
+        "key": "ctrl+f2",
+        "mac": "cmd+f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.nextBookmark",
+        "key": "f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
+      },
+      {
+        "command": "iecode.logViewer.previousBookmark",
+        "key": "shift+f2",
+        "when": "activeCustomEditorId == 'iecode.logViewer' || activeWebviewPanelId == 'iecode.logViewer.merged'"
       }
     ],
     "configuration": {
@@ -1436,6 +1629,50 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Keep the `.plcproj` in step with TwinCAT object files (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`, `.TcTTO`, `.TcVIS`, `.TcGTLO`, `.TcTLO`, `.TcIPO`, `.TcGIPO`, `.TcVMO`) and folders created, deleted, renamed or moved in VS Code (explorer, paste, drag and drop). An empty new `.TcPOU`/`.TcDUT`/`.TcGVL`/`.TcIO` gets a template named after the file; a copied object takes the file's name and new ids. Changes made by other programs (git, TwinCAT) are not touched."
+        },
+        "iecode.stage.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show **Stage Method** above every changed method, property or action in the Structured Text view. It stages only that section of the object file; the index is written with git plumbing, so the rest of the file stays unstaged. Nothing is shown for a view or XML editor with unsaved edits, an untracked file or a file with merge conflicts."
+        },
+        "iecode.analysis.markUnused": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Mark objects and members that no PLC task can reach: **unused** in the project tree and a faded hint in the Structured Text view. Findings are hints, never errors, and say how sure they are. Library projects, interface implementations and overrides are never marked. The analysis starts when a PLC project is expanded; turn this off to skip it."
+        },
+        "iecode.analysis.rootObjects": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Objects or members that count as entry points for the object analysis in addition to the PLC tasks (names or globs with `*` and `?`, case-insensitive, e.g. `FB_Plugin_*` or `FB_Motor.Start`). Use it for code that is only reached from outside the PLC project."
+        },
+        "iecode.analysis.rootPragmas": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["TcRpcEnable", "call_after_init", "call_after_global_init_slot", "call_after_online_change_slot", "OPC.UA.DA"],
+          "markdownDescription": "Pragma attributes (`{attribute 'name'}`) that make an object or member an entry point for the object analysis, because the runtime or a client calls it without any code reference."
+        },
+        "iecode.blame.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show who last changed each method, property, action or accessor above it in the Structured Text view, and the author of a line on hover. Counted on the lines of the view, not on the XML. Off by default because every opened view costs a `git blame` of the object file. A view with unsaved edits shows nothing until it is saved."
+        },
+        "iecode.lint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check PLC object files on open and save and show the findings in the Problems panel: structure of the XML (bad or duplicate GUIDs, a method name that differs from its declaration, orphaned LineIds, merge conflict markers) and object-oriented rules (override and interface signatures, FINAL, ABSTRACT instantiation). Run **IECode: Lint Objects** to check the whole workspace."
+        },
+        "iecode.lint.rules": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "enum": ["error", "warning", "info", "hint", "off"] },
+          "markdownDescription": "Severity per lint rule id (`error`, `warning`, `info`, `hint`) or `off`. Rules: `xml-parse`, `merge-conflict`, `guid-format`, `guid-unique`, `name-mismatch`, `file-name-mismatch`, `member-structure`, `lineids-orphan`, `naming-prefix`, `signature-mismatch`, `final-violation`, `abstract-instantiation`, `unresolved-base`, `io-dead-link`, `io-type-changed`, `io-unlinked`, `io-channel-twice`, `io-channel-twice-weak`, `io-not-built`, `io-links-incomplete`."
+        },
+        "iecode.lint.namingPrefixes": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "markdownDescription": "Name prefix per object kind, for the hint rule `naming-prefix`, e.g. `{ \"FUNCTION_BLOCK\": \"FB_\", \"INTERFACE\": \"I_\", \"STRUCT\": \"ST_\", \"ENUM\": \"E_\" }`. Kinds: FUNCTION_BLOCK, PROGRAM, FUNCTION, INTERFACE, STRUCT, UNION, ENUM, ALIAS, GVL. Nothing is checked while this is empty."
         },
         "iecode.checkProjectFiles": {
           "type": "boolean",
@@ -1559,11 +1796,26 @@
           "enumDescriptions": [
             "AI tools cannot write PLC variables.",
             "You confirm each AI write. Claude Code writes always show IECode's own dialog. In Copilot Chat this relies on you not choosing \"Always Allow\" for the ADS Write tool: VS Code then skips the confirmation, and extensions cannot prevent that.",
-            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto\"."
+            "Auto-approve: IECode writes without asking (each write is logged in the IECode output). VS Code may still ask by its own tool approval rules. While the workspace or workspace folder settings set iecode.ads.target or iecode.ads.port to something else than your user settings, each write is confirmed instead, so a cloned repository cannot choose where auto-approved writes go. The ADS Watch view shows \"AI writes: auto (N min left)\" while armed, or \"auto expired\" / \"auto not armed\" when each write is confirmed. Lasts iecode.ads.aiWritesAutoMinutes (default 60) from arming, then each write is confirmed again."
           ],
           "default": "off",
           "scope": "application",
           "markdownDescription": "Whether AI tools (GitHub Copilot Chat in agent mode, Claude Code) may write PLC variables over ADS. User settings only, so a workspace cannot turn it on. Set it with **IECode: Set AI Write Access…** in the ADS Watch view."
+        },
+        "iecode.ads.aiWritesAutoMinutes": {
+          "type": "integer",
+          "default": 60,
+          "minimum": 1,
+          "maximum": 1440,
+          "scope": "application",
+          "markdownDescription": "How long **Auto-approve** of `iecode.ads.aiWrites` lasts after you arm it with **IECode: Set AI Write Access…**. Afterwards every AI write is confirmed again until you arm it again. Changing it changes the current arming too: a lower value can end it at once, a higher one extends it."
+        },
+        "iecode.ads.aiWritesArmedAt": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "ignoreSync": true,
+          "markdownDescription": "Set by **IECode: Set AI Write Access…**: when you last chose Auto-approve (cleared when you choose Off or Confirm). It is cleared only by choosing Off or Confirm in **IECode: Set AI Write Access…**, so editing `aiWrites` by hand does not clear it. Not meant to be edited; a time in the future is ignored. Not synced with Settings Sync, so each PC is armed on its own."
         },
         "iecode.ads.presets": {
           "type": "object",
@@ -1585,11 +1837,80 @@
           "scope": "application",
           "markdownDescription": "Path prefixes AI tools may write, e.g. `MAIN.Sim` or `GVL.Test`. A prefix matches the symbol itself and everything below it, not other names that merely start with the same letters. Empty (default): every symbol is allowed. User settings only, so a workspace cannot widen it. The list limits symbol names, not machines: it does not say which PLC a name is written on."
         },
+        "iecode.ads.persistentPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "Extra path prefixes of persistent or configuration data, e.g. `GVL.Persistent`. Variables the build output (`.tmc`) marks as PERSISTENT are guarded without being listed; this list adds names the build output does not mark. AI writes to guarded data are refused unless the call sets `confirmPersistent: true`, and the confirmation marks them. Same matching as `iecode.ads.aiWritePaths`. User settings only."
+        },
         "iecode.ads.logDirectory": {
           "type": "string",
           "default": "",
           "scope": "application",
           "markdownDescription": "Folder with the TwinCAT log files, read by the AI tool **ADS Log**. User settings only; a workspace value is ignored. The log of the machine this editor runs on, not necessarily of the ADS target. Must be a full path."
+        },
+        "iecode.logViewer.formats": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "entry"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id; a user format with the id of a built-in format replaces it."
+              },
+              "name": {
+                "type": "string",
+                "description": "Name shown in the viewer."
+              },
+              "entry": {
+                "type": "string",
+                "markdownDescription": "Regular expression for the first line of an entry, with the optional named groups `seq`, `time`, `level`, `source` and `message` (lines that don't match continue the previous entry)."
+              },
+              "timeFormat": {
+                "type": "string",
+                "markdownDescription": "Format of the `time` group with the tokens `yyyy`, `MM`, `dd`, `HH`, `mm`, `ss` and `SSS`, e.g. `yyyy-MM-dd HH:mm:ss.SSS`."
+              },
+              "levels": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info",
+                    "debug",
+                    "other"
+                  ]
+                },
+                "markdownDescription": "Maps the text of the `level` group to a level."
+              },
+              "ignore": {
+                "type": "string",
+                "description": "Regular expression for lines to skip."
+              }
+            }
+          },
+          "markdownDescription": "Log formats of the **Log Viewer**, tried before the built-in ones. Only the first 8 KB of a line are matched. **Caution:** a regular expression with catastrophic backtracking (e.g. nested quantifiers like `(a+)+`) blocks VS Code while a file is scanned."
+        },
+        "iecode.logViewer.gapSeconds": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 0,
+          "markdownDescription": "The **Log Viewer** marks a gap above an entry that comes more than this many seconds after the previous one. `0` turns the marks off."
+        },
+        "iecode.logViewer.groupRepeats": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "The **Log Viewer** shows consecutive repeats of the same entry (same source, level, message and continuation lines) as one row with a count."
         }
       }
     },
@@ -1643,7 +1964,7 @@
         "toolReferenceName": "adsSymbols",
         "displayName": "ADS Symbols",
         "userDescription": "Find PLC variables (ADS names and types) in the build output of the workspace PLC projects.",
-        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol.",
+        "modelDescription": "Lists ADS symbol names and their types from the build output (.tmc) of the TwinCAT PLC projects in the workspace whose name contains the filter (case-insensitive), optionally narrowed by prefix and type, at most 100 per call (continue with offset). Use it to find the exact ADS name (e.g. MAIN.fbMotor.bEnable) before watching, reading or writing a variable. Projects that were never built are reported as not listed. Members of array elements are not listed unless the prefix names the element (MAIN.afbMotor[2].). With enumType it returns the members and values of that enum type instead (valid values for ads_write and ads_wait); with hidden: true it also lists variables marked {attribute 'hide'}, which have no ADS symbol. A project without a build output is listed from the running PLC when a filter or prefix is given, else from the source code (see source); the first lines of the answer name the source.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1687,6 +2008,16 @@
               "minimum": 1,
               "maximum": 100,
               "description": "Rows per page, 1 to 100 (default 100). A small limit keeps a narrow look-up cheap; continue with offset."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "online",
+                "build",
+                "source"
+              ],
+              "description": "Where the list comes from. auto (default) uses the build output of each PLC project and falls back to the running PLC (a filter or prefix is needed, at most 500 matches) and then to the source code; the result always says which source it used."
             }
           }
         }
@@ -1696,7 +2027,7 @@
         "toolReferenceName": "adsWatch",
         "displayName": "ADS Watch",
         "userDescription": "Add or remove PLC variables in the ADS Watch list (live values).",
-        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history.",
+        "modelDescription": "Adds or removes ADS symbols in the ADS Watch list, whose values are then sampled continuously (every iecode.ads.sampleIntervalMs, default 100 ms) for the read and scope tools. Returns what the call added and removed plus the count; call it with no arguments, or with list: true, for the full list with types and per-symbol errors. Entries you add are marked as added by AI; you can remove only those, unless you pass force: true with remove, which asks the user once to confirm removing their entries. clearAi: true removes all entries you added. Entries can be put in named groups (add with group); a group can be switched off (group with enable: false) so its symbols are not sampled but stay in the list, or removed (group with removeGroup: true). A symbol in two groups is sampled while one of them is on. Watch a variable before asking for its history. With expand: true, a structure in add is replaced by its members (at most 200).",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1748,6 +2079,10 @@
             "removeGroup": {
               "type": "boolean",
               "description": "With group: remove the group and the entries that belong to no other group."
+            },
+            "expand": {
+              "type": "boolean",
+              "description": "Add the members of a structure instead of failing; at most 200 members."
             }
           }
         }
@@ -1757,7 +2092,7 @@
         "toolReferenceName": "adsRead",
         "displayName": "ADS Read",
         "userDescription": "Read current values of PLC variables over ADS.",
-        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned.",
+        "modelDescription": "Returns the current values of ADS symbols on the configured target (iecode.ads.target). Watched symbols come from the live sample buffer, others are read once. Without symbols, all watched symbols are returned. A structure, function block instance or array is returned as the list of its members (see depth); the result says what was left out.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1775,6 +2110,12 @@
               },
               "maxItems": 200,
               "description": "ADS names to read; default all watched symbols."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "How many levels of nested structures to read, default 3; a structure or array is returned as a list of its members, at most 200 members and 20 array elements."
             }
           }
         }
@@ -1867,7 +2208,7 @@
         "toolReferenceName": "adsWrite",
         "displayName": "ADS Write",
         "userDescription": "Write a value to a PLC variable over ADS (per iecode.ads.aiWrites; off by default). With \"confirm\" each write is confirmed unless you choose \"Always Allow\" for this tool.",
-        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt (but asks while the workspace settings change the ADS target or port). Every write is logged.",
+        "modelDescription": "Writes a value to an ADS symbol on the configured target and returns the value read back. This changes a running machine or PLC: only write when the user asked for it. Values are plain text in this format, not IEC 61131-3 literals (no T#1S, no 16#FF): BOOL as TRUE or FALSE (also 1 or 0); integers as decimal numbers (42, -7); REAL and LREAL with a dot (3.5, 1e-3); TIME, LTIME and TOD as [d.]hh:mm:ss[.fffffff] (00:00:01.5 for 1.5 s); DATE as yyyy-MM-dd; DT as yyyy-MM-ddTHH:mm:ss; enums as the member name (any case, the exact spelling wins) or its number; STRING and WSTRING as is, without quotes. Writes are governed by the user setting iecode.ads.aiWrites: off (default) refuses with a note how the user can enable it, confirm asks the user for each write, auto writes without an IECode prompt only while it is armed (time-limited; after it lapses or when it is not armed each write is confirmed), and asks while the workspace settings change the ADS target or port. To set several values together, pass writes (1-20 items) instead of symbol and value: after one confirmation they are sent in one ADS request (not guaranteed to land in the same PLC cycle) and every item gets its own result. If any value is invalid nothing is sent. Every symbol must be named once. pulseMs (10-5000) pulses a BOOL command bit: it writes the value, waits, then writes the opposite value, so a start does not depend on the PLC resetting the bit; the result says how long it was held. journal: true lists this session's writes; restore: true writes their old values back after one confirmation. Writes to PERSISTENT data (marked in the build output or listed in iecode.ads.persistentPaths) are refused unless confirmPersistent: true. Every write is logged.",
         "canBeReferencedInPrompt": true,
         "tags": [
           "iecode",
@@ -1886,12 +2227,56 @@
               "type": "string",
               "maxLength": 4096,
               "description": "New value as plain text, e.g. TRUE, 42, 3.5, 00:00:01.5 (TIME) or an enum member name."
+            },
+            "writes": {
+              "type": "array",
+              "maxItems": 20,
+              "description": "Several writes in one call, instead of symbol and value: 1 to 20 items, each symbol at most once.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "description": "ADS name, e.g. MAIN.bStart."
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "New value as plain text."
+                  },
+                  "pulseMs": {
+                    "type": "number",
+                    "minimum": 10,
+                    "maximum": 5000,
+                    "description": "BOOL only: write the value, wait pulseMs, then write the opposite value, all after the one confirmation; the timing is kept by the extension and is not cycle-exact. At most one write per call."
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "value"
+                ]
+              }
+            },
+            "pulseMs": {
+              "type": "number",
+              "minimum": 10,
+              "maximum": 5000,
+              "description": "BOOL only: write the value, wait pulseMs, then write the opposite value, all after the one confirmation; the timing is kept by the extension and is not cycle-exact. At most one write per call."
+            },
+            "journal": {
+              "type": "boolean",
+              "description": "true lists what was written through the ADS tools in this session (time, symbol, old and new value, pulses, unknown outcomes). Read-only, no confirmation. Use it alone."
+            },
+            "restore": {
+              "type": "boolean",
+              "description": "true writes the old values of this session's writes back after one confirmation, newest write first, at most 20 per call, and lists what cannot be restored. Use it alone."
+            },
+            "confirmPersistent": {
+              "type": "boolean",
+              "description": "Set true only when the user asked to write PERSISTENT data (marked in the build output or listed in iecode.ads.persistentPaths); without it such a write is refused."
             }
-          },
-          "required": [
-            "symbol",
-            "value"
-          ]
+          }
         }
       },
       {
@@ -2049,6 +2434,30 @@
               "minimum": 1,
               "maximum": 500,
               "description": "Most lines to return (default 100)."
+            }
+          }
+        }
+      },
+      {
+        "name": "iecode_ads_state",
+        "toolReferenceName": "adsState",
+        "displayName": "ADS State",
+        "userDescription": "Read the run state of the PLC and detect a restart.",
+        "modelDescription": "Returns the PLC run state (Run, Stop, Config), the state of the TwinCAT system when it is not running, the cycle time and cycle counter of a PLC task (default 1) and the online change count. Call it again later: it says when the cycle counter went down (restart) or the online change count changed (download or online change) since the previous call (the first call has nothing to compare with; a restart followed by a long wait can count past the old value and is then not seen). It also answers when TwinCAT is in config mode and the PLC cannot be reached. Needs a recent iecode CLI.",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "iecode",
+          "twincat",
+          "ads"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16,
+              "description": "PLC task number, default 1."
             }
           }
         }

@@ -40,4 +40,29 @@ public sealed class PlcValueTextTests
     [InlineData("DT", false, false)]
     [InlineData("ST_Motor", false, false)]
     public void IsNumeric(string type, bool isEnum, bool expected) => Assert.Equal(expected, PlcValueText.IsNumeric(type, isEnum));
+
+    private static readonly Dictionary<long, string> ByValue = new() { [0] = "Off", [1] = "Run" };
+    private static readonly List<(string Name, long Value)> All = [("Off", 0), ("Run", 1), ("Start", 1)];
+
+    [Theory]
+    [InlineData("Start")]
+    [InlineData("start")]
+    [InlineData("1")]
+    [InlineData("Run")]
+    public void Enum_alias_names_parse_to_their_value(string text) =>
+        Assert.Equal(1L, System.Convert.ToInt64(PlcValueText.Parse("INT", text, ByValue, All)));
+
+    [Fact]
+    public void Enum_names_that_differ_only_by_case_with_different_values_stay_ambiguous()
+    {
+        var e = Assert.Throws<IECodeException>(() => PlcValueText.Parse("INT", "run", new Dictionary<long, string> { [1] = "Run", [2] = "RUN" }, [("Run", 1), ("RUN", 2)]));
+        Assert.Contains("matches several enum members: Run, RUN", e.Message);
+    }
+
+    [Fact]
+    public void Without_the_full_list_an_alias_is_still_unknown()
+    {
+        var e = Assert.Throws<IECodeException>(() => PlcValueText.Parse("INT", "Start", ByValue));
+        Assert.Equal("'Start' is not a valid INT.", e.Message);
+    }
 }

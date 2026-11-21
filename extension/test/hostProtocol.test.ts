@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROTOCOL, PROTOCOL_TABLE, ProtocolTable, negotiate, featureMissingText, tableProblems } from '../src/core/hostProtocol';
+import { FEATURE_LABELS, PROTOCOL, PROTOCOL_TABLE, ProtocolTable, negotiate, featureMissingText, tableProblems } from '../src/core/hostProtocol';
 
 const BASE = ['watch', 'read', 'write', 'interval'];
 // a synthetic table proves the rules without depending on what the real table offers today
@@ -77,4 +77,15 @@ test('the real table accepts its own protocol and refuses the next one', () => {
   assert.equal(negotiate(PROTOCOL).ok, true);
   assert.equal(negotiate(1).ok, true);
   assert.equal(negotiate(PROTOCOL + 1).ok, false);
+});
+
+test('protocol 2 adds batch write and drops nothing', () => {
+  assert.equal(PROTOCOL, 2);
+  assert.deepEqual(PROTOCOL_TABLE[2], { ops: ['watch', 'read', 'write', 'interval', 'writeMany', 'state'], features: ['writeMany', 'structRead', 'onlineSymbols', 'plcState'] });
+  assert.equal(FEATURE_LABELS.writeMany, 'batch write');
+  assert.deepEqual(tableProblems(PROTOCOL_TABLE), []);
+  const old = negotiate(1);
+  assert.ok(old.ok && old.caps.missing('writeMany') === 'this needs a newer iecode CLI: batch write (installed: ADS host protocol 1, needed: 2). Update it with "IECode: Install CLI…"');
+  const cur = negotiate(2);
+  assert.ok(cur.ok && cur.caps.supports('writeMany'));
 });
