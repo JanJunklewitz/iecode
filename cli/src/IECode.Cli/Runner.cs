@@ -78,55 +78,95 @@ internal static class Runner
     /// Starts the XAE shell, selects version / user database / login, opens the solution, runs the body
     /// and always closes the shell again.
     /// </summary>
+    /// <param name="saves">The command writes project files: then <c>--tc auto</c> stops instead of moving a project to another line.</param>
     [SupportedOSPlatform("windows")]
-    public static T WithShell<T>(Context ctx, string solution, Func<XaeShell, T> body)
+    public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body)
     {
         var slnFile = SolutionFile.Load(solution);
-        var request = ctx.Version;
-        if (request.IsAuto && slnFile.TwinCatProjects.Select(p => p.TcVersion).FirstOrDefault(v => v is not null) is { } saved)
-        {
-            // Prefer the exact version the project was saved with, if it's installed.
-            request = TwinCatVersion.Parse(saved);
-            ctx.Log.Detail($"Project was saved with TwinCAT {saved}");
-        }
-
-        var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
-        using var shell = XaeShell.Start(new ShellOptions(request, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
-
-        if (!request.IsAuto)
-        {
-            try { shell.SelectVersion(request); }
-            catch (IECodeException e) when (ctx.Version.IsAuto && e.ExitCode == ExitCodes.VersionNotInstalled)
-            {
-                ctx.Log.Warn($"{e.Message} Using the shell's default version.");
-            }
-        }
-
-        if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
-        if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
+        using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request);
         if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
-
         shell.OpenSolution(slnFile.Path);
         return body(shell);
     }
 
     /// <summary>
-    /// Starts one XAE shell for several solutions (version, user database, login applied); the caller opens
-    /// the solutions and disposes the shell. Starting XAE once saves ~5–10 s per solution.
+    /// The version to open a solution with (<see cref="TcLineGuard"/>); prints its note as a warning. Call it before the
+    /// first write of a command, so a stop happens before anything changed.
     /// </summary>
+    public static TcChoice ChooseVersion(Context ctx, SolutionFile solution, bool saves, bool quiet = false)
+    {
+        var stamps = solution.TwinCatProjects.Select(p => p.TcVersion).ToList();
+        var choice = TcLineGuard.Choose(ctx.Version, stamps, TwinCatInstall.Builds(RepTool.TwinCatDir), saves);
+        if (!quiet)
+        {
+            if (stamps.FirstOrDefault(v => v is not null) is { } saved) ctx.Log.Detail($"Project was saved with TwinCAT {saved}");
+            if (choice.Note is { } note) ctx.Log.Warn(note);
+        }
+        return choice;
+    }
+
+    /// <summary>Starts a shell with the given version, user database and login; the caller opens solutions and disposes it.</summary>
     [SupportedOSPlatform("windows")]
-    public static XaeShell StartShell(Context ctx)
+    private static XaeShell StartShell(Context ctx, TwinCatVersion request)
     {
         var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
-        var shell = XaeShell.Start(new ShellOptions(ctx.Version, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
+        var shell = XaeShell.Start(new ShellOptions(request, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
         try
         {
-            if (!ctx.Version.IsAuto) shell.SelectVersion(ctx.Version);
+            if (!request.IsAuto) SelectVersion(ctx, shell, request);
             if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
             if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
             return shell;
         }
         catch { shell.Dispose(); throw; }
+    }
+
+    /// <summary>
+    /// Selects the version in the Remote Manager. The install folders are only a hint: when --tc auto chose an exact
+    /// build the Remote Manager does not know, the newest build of the same line is used; never another line.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static void SelectVersion(Context ctx, XaeShell shell, TwinCatVersion request)
+    {
+        try { shell.SelectVersion(request); }
+        catch (IECodeException e) when (ctx.Version.IsAuto && e.ExitCode == ExitCodes.VersionNotInstalled && request.Revision is not null)
+        {
+            ctx.Log.Warn($"{e.Message} Using the newest build of TwinCAT {request.Line}.");
+            shell.SelectVersion(new TwinCatVersion(request.Build, null));
+        }
+    }
+
+    /// <summary>
+    /// One XAE shell for several solutions (starting XAE once saves ~5–10 s per solution). The version is decided per
+    /// solution when it is opened; the shell is restarted only when the TwinCAT line changes.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public sealed class ShellSession(Context ctx, bool saves) : IDisposable
+    {
+        private XaeShell? _shell;
+        private int? _line;
+
+        /// <summary>Opens a solution, in a new shell when it needs another line than the open one.</summary>
+        public XaeShell Open(string solution)
+        {
+            var slnFile = SolutionFile.Load(solution);
+            var request = ChooseVersion(ctx, slnFile, saves).Request;
+            if (_shell is null || request.Line != _line)
+            {
+                if (_shell is not null)
+                {
+                    ctx.Log.Step($"Switching to TwinCAT {request.Line} for {Path.GetFileName(solution)}");
+                    _shell.Dispose();
+                    _shell = null;
+                }
+                _shell = StartShell(ctx, request);
+                _line = request.Line;
+            }
+            _shell.OpenSolution(slnFile.Path);
+            return _shell;
+        }
+
+        public void Dispose() => _shell?.Dispose();
     }
 
     [SupportedOSPlatform("windows")]

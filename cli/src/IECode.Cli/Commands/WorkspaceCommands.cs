@@ -123,14 +123,14 @@ internal static class WorkspaceCommands
                 [.. s.Exports.Select(u => new LibraryId(u.Plc.Title!, u.Plc.ProjectVersion!, u.Plc.Company!))]))]);
 
             var results = new List<object>();
-            using var shell = StartShell(ctx);
+            using var session = new ShellSession(ctx, saves: true);
             var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var step = 0;
             foreach (var u in order)
             {
                 step++;
                 if (!done.Add(u.Solution!.Path)) continue;
-                shell.OpenSolution(u.Solution.Path);
+                var shell = session.Open(u.Solution.Path);
                 var r = shell.Build(null);
                 results.Add(new { unit = u.Id, r.Ok, r.Errors, r.Warnings, r.Seconds, r.StaticAnalysisOnly });
                 if (!r.Ok)
@@ -170,6 +170,8 @@ internal static class WorkspaceCommands
                     "Libraries: " + string.Join(", ", w.Units.Where(u => u.Plc.IsLibrary).Select(u => u.Plc.Title)));
             var from = unit.Plc.ProjectVersion!;
             var to = Workspace.Bump(from, ctx.Get(bump));
+            // a line change stops before the version is written, not after
+            if (!ctx.Get(noSave) && unit.Solution is not null) ChooseVersion(ctx, SolutionFile.Load(unit.Solution.Path), saves: true, quiet: true);
             Workspace.SetProjectVersion(unit.Plc.Path, to);
             ctx.Log.Success($"{unit.Plc.Title}: {from} → {to}");
 
@@ -180,7 +182,7 @@ internal static class WorkspaceCommands
                     throw new IECodeException(ExitCodes.NotSupportedPlatform, "Saving the library needs Windows with TwinCAT XAE.", "Use --no-save to only change versions.");
                 if (unit.Solution is null) throw new IECodeException(ExitCodes.NotFound, $"{unit.Id} has no .sln to save from.");
                 var target = Path.Combine(Path.GetDirectoryName(unit.Solution.Path)!, "dist", $"{unit.Plc.Title}_{to}.library");
-                file = WithShell(ctx, unit.Solution.Path, shell => shell.SaveAsLibrary(unit.Plc.Name, target, install: true));
+                file = WithShell(ctx, unit.Solution.Path, saves: true, shell => shell.SaveAsLibrary(unit.Plc.Name, target, install: true));
                 ctx.Log.Success($"Saved and installed {file}");
             }
 

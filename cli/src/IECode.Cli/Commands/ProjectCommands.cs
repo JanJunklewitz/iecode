@@ -78,7 +78,7 @@ internal static class ProjectCommands
         {
             var path = SolutionFile.Find(ctx.Get(sln));
             LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
-            var results = WithShell(ctx, path, shell =>
+            var results = WithShell(ctx, path, saves: true, shell =>
             {
                 if (ctx.Get(configuration) is { } c) shell.SelectConfiguration(c);
                 var list = new List<BuildResult>();
@@ -106,7 +106,7 @@ internal static class ProjectCommands
         {
             var path = SolutionFile.Find(ctx.Get(sln));
             LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
-            var (errors, warnings, ok) = WithShell(ctx, path, shell => shell.CheckAllObjects());
+            var (errors, warnings, ok) = WithShell(ctx, path, saves: false, shell => shell.CheckAllObjects());
             if (ok) ctx.Log.Success($"Check ok · {warnings} warning(s)");
             else ctx.Log.Error($"Check failed · {errors} error(s) · {warnings} warning(s)");
             return new Outcome(BuildOutcome.ExitCode([ok]), new { solution = path, errors, warnings });
@@ -142,7 +142,7 @@ internal static class ProjectCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode clean' needs Windows with TwinCAT XAE.", "Use 'iecode clean --artifacts' on any OS.");
             var sln = SolutionFile.Find(ctx.Get(path));
-            WithShell(ctx, sln, shell => { shell.Clean(); return 0; });
+            WithShell(ctx, sln, saves: false, shell => { shell.Clean(); return 0; });
             ctx.Log.Success("Solution cleaned");
             return Outcome.Ok(new { solution = sln });
         });
@@ -167,7 +167,7 @@ internal static class ProjectCommands
                     $"Activate{(restart ? " and restart TwinCAT" : "")} on {string.Join(", ", remote)}?", ctx.Yes))
                 return new Outcome(ExitCodes.Cancelled, null);
 
-            var done = WithShell(ctx, path, shell =>
+            var done = WithShell(ctx, path, saves: true, shell =>
             {
                 if (!ctx.Get(noBuild))
                 {
@@ -218,7 +218,7 @@ internal static class ProjectCommands
             if (!ctx.Log.Confirm("Protected objects can only be opened by users of the user database afterwards. Keep a backup. Continue?", ctx.Yes))
                 return new Outcome(ExitCodes.Cancelled, null);
 
-            WithShell(ctx, path, shell =>
+            WithShell(ctx, path, saves: true, shell =>
             {
                 foreach (var s in specs) shell.SetProtection(s);
                 return 0;
