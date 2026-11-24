@@ -169,9 +169,24 @@ public sealed partial class XaeShell : IDisposable
 
     // ---------------------------------------------------------------- Solution
 
+    /// <summary>
+    /// Set by a build without saving: the open solution is closed without saving before another one is opened and before
+    /// the shell quits, so changes XAE made while loading are not written then.
+    /// </summary>
+    public bool DiscardChanges { get; set; }
+
+    private void CloseWithoutSaving()
+    {
+        if (!DiscardChanges || _solution is null || SolutionPath is null) return;
+        ComCall.Retry(() => { Solution.Close(false); });
+        _log.Detail($"Closed {Path.GetFileName(SolutionPath)} without saving");
+        SolutionPath = null;
+    }
+
     public void OpenSolution(string path)
     {
         var full = Path.GetFullPath(path);
+        CloseWithoutSaving();
         _log.Step($"Opening {Path.GetFileName(full)}…");
         _solution = ComCall.Retry(() => (object)Dte.Solution);
         ComCall.Retry(() => { Solution.Open(full); });
@@ -242,6 +257,8 @@ public sealed partial class XaeShell : IDisposable
         try
         {
             _log.Detail("Closing shell…");
+            try { CloseWithoutSaving(); }
+            catch (Exception e) { _log.Detail($"Closing the solution without saving failed: {e.Message}"); }
             ComCall.Retry(() => { Dte.Quit(); }, attempts: 5);
         }
         catch (Exception e)

@@ -73,17 +73,23 @@ internal static class ProjectCommands
         var platforms = new Option<string[]>("--platform", "-p") { Description = "Target platform, e.g. \"TwinCAT RT (x64)\"; repeat for several (default: active platform)" };
         var clean = new Option<bool>("--clean") { Description = "Clean before building" };
         var configuration = new Option<string?>("--configuration", "-c") { Description = "Solution configuration, e.g. Release" };
-        var cmd = new Command("build", "Build the solution with TwinCAT XAE and report compiler messages") { sln, platforms, clean, configuration };
+        var noSave = new Option<bool>("--no-save")
+        {
+            Description = "Don't save the solution before building, and close it without saving (XAE may still save a project it changes while building)",
+        };
+        var cmd = new Command("build", "Build the solution with TwinCAT XAE and report compiler messages") { sln, platforms, clean, configuration, noSave };
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
             LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
             var folder = Path.GetDirectoryName(path)!;
+            WarnLongPath(ctx, folder);
+            var save = !ctx.Get(noSave);
             var before = WorkingTreeSnapshot.Take(folder);
             IReadOnlyList<string>? changed = null;
             List<BuildResult> results;
             // also after a failed or broken-off build: its side effects are in the tree all the same
-            try { results = WithShell(ctx, path, saves: true, BuildAll); }
+            try { results = WithShell(ctx, path, saves: save, BuildAll); }
             finally { changed = ReportChanges(ctx, before, folder); }
             return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results, changedFiles = changed });
 
@@ -95,7 +101,7 @@ internal static class ProjectCommands
                 foreach (var platform in requested)
                 {
                     if (ctx.Get(clean)) shell.Clean();
-                    var r = shell.Build(platform);
+                    var r = shell.Build(platform, save);
                     list.Add(r);
                     if (r.Ok) ctx.Log.Success($"{r.Platform}: build ok · {r.Warnings} warning(s) · {r.Seconds:0.0} s");
                     else ctx.Log.Error($"{r.Platform}: build failed{(r.StaticAnalysisOnly ? " on static analysis only" : "")} · {r.Errors} error(s) · {r.Warnings} warning(s)");
@@ -104,6 +110,14 @@ internal static class ProjectCommands
             }
         }, windowsOnly: true);
         return cmd;
+    }
+
+    /// <summary>Warns about a project file path long enough to make the hidden shell show dialogs.</summary>
+    internal static void WarnLongPath(Context ctx, string folder)
+    {
+        if (PathLength.Longest(folder) is not { } longest) return;
+        var copyRoot = Path.Combine(Path.GetTempPath(), "iecode", "b", "00000000-00000");
+        ctx.Log.Warn(PathLength.Warning(longest, folder, copyRoot));
     }
 
     /// <summary>Prints how many files the build changed in git status (the list with -v); null without git or a repository.</summary>

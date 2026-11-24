@@ -59,15 +59,20 @@ public sealed partial class XaeShell
         ComCall.Retry(() => { m.Activate(); });
     }
 
-    /// <summary>Builds the solution for the current (or given) platform and collects the compiler messages.</summary>
-    public BuildResult Build(string? platform)
+    /// <summary>
+    /// Builds the solution for the current (or given) platform and collects the compiler messages. <paramref name="save"/>
+    /// false skips the save before the build and sets <see cref="DiscardChanges"/>; XAE may still save a project it
+    /// changed itself while building.
+    /// </summary>
+    public BuildResult Build(string? platform, bool save = true)
     {
         if (platform is not null) SelectPlatform(platform);
         var active = platform ?? TwinCatProjects()
             .Select(p => ComCall.Retry(() => (string)p.SysManager.ConfigurationManager.ActiveTargetPlatform))
             .FirstOrDefault() ?? "default";
 
-        SaveAll();
+        if (save) SaveAll();
+        else DiscardChanges = true;
         ClearErrorList();
         _log.Step($"Building {Path.GetFileName(SolutionPath)} · {active}");
         var sw = Stopwatch.StartNew();

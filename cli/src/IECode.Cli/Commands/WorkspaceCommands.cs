@@ -95,7 +95,8 @@ internal static class WorkspaceCommands
         var since = new Option<string?>("--since") { Description = "With --affected: git ref to compare against, e.g. origin/main (default: uncommitted changes)" };
         var changed = new Option<string[]>("--changed") { Description = "With --affected: changed files or project ids instead of git" };
         var dryRun = new Option<bool>("--dry-run") { Description = "Only show what would be built" };
-        var cmd = new Command("build", "Build all (or affected) projects in dependency order; workspace libraries are saved + installed before their users") { folder, affected, since, changed, dryRun };
+        var noSave = new Option<bool>("--no-save") { Description = "Don't save the solutions before building (libraries installed for their users are still saved)" };
+        var cmd = new Command("build", "Build all (or affected) projects in dependency order; workspace libraries are saved + installed before their users") { folder, affected, since, changed, dryRun, noSave };
         Action(cmd, ctx =>
         {
             var w = Workspace.Load(ctx.Get(folder) ?? ".");
@@ -123,7 +124,8 @@ internal static class WorkspaceCommands
                 [.. s.Exports.Select(u => new LibraryId(u.Plc.Title!, u.Plc.ProjectVersion!, u.Plc.Company!))]))]);
 
             var results = new List<object>();
-            using var session = new ShellSession(ctx, saves: true);
+            var save = !ctx.Get(noSave);
+            using var session = new ShellSession(ctx, saves: save || willInstall.Count > 0);
             var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var step = 0;
             foreach (var u in order)
@@ -131,7 +133,7 @@ internal static class WorkspaceCommands
                 step++;
                 if (!done.Add(u.Solution!.Path)) continue;
                 var shell = session.Open(u.Solution.Path);
-                var r = shell.Build(null);
+                var r = shell.Build(null, save);
                 results.Add(new { unit = u.Id, r.Ok, r.Errors, r.Warnings, r.Seconds, r.StaticAnalysisOnly });
                 if (!r.Ok)
                 {
