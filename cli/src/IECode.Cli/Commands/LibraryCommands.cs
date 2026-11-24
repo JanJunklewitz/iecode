@@ -193,44 +193,55 @@ internal static class LibraryCommands
     private static Command Update()
     {
         var paths = PathsArg("Projects to update");
-        var name = new Option<string>("--lib", "-l") { Description = "Library name, e.g. Tc3_MotorLib", Required = true };
-        var to = new Option<string?>("--to") { Description = "New version, or * for always newest (default: newest installed with --repository, else required)" };
-        var vendor = new Option<string?>("--vendor") { Description = "Only references from this vendor" };
-        var fromLib = new Option<string?>("--from-project") { Description = "Take the version from this library .plcproj (its ProjectVersion)" };
+        var names = new Option<string[]>("--lib", "-l") { Description = "Library name, e.g. Tc3_MotorLib, or name=version (repeatable)" };
+        var to = new Option<string?>("--to") { Description = "New version for the named libraries, latest, or * for always newest (default: newest installed)" };
+        var vendor = new Option<string?>("--vendor") { Description = "Only references from this vendor; without --lib: every library of this vendor, each to its newest installed version" };
+        var fromLib = new Option<string?>("--from-project") { Description = "Take the version from this library .plcproj (its ProjectVersion); needs exactly one --lib" };
         var repo = new Option<string?>("--repository") { Description = "Library repository folder for --to latest (default: TwinCAT's Managed Libraries)" };
         var dryRun = new Option<bool>("--dry-run") { Description = "Only show what would change" };
-        var cmd = new Command("update", "Set a library to a version in every .plcproj below the paths (text edit, keeps formatting)")
-            { paths, name, to, vendor, fromLib, repo, dryRun };
+        var cmd = new Command("update", "Set libraries to a version in every .plcproj below the paths (text edit, keeps formatting)")
+            { paths, names, to, vendor, fromLib, repo, dryRun };
         Action(cmd, ctx =>
         {
-            var lib = ctx.Get(name);
-            var version = ctx.Get(to);
+            var projects = LoadProjects(ctx.Get(paths));
+            var items = LibrarySelection.ParseUpdate(ctx.Get(names) ?? [], ctx.Get(to), ctx.Get(vendor), projects, fromProject: ctx.Get(fromLib) is not null);
+            string? fromVersion = null;
             if (ctx.Get(fromLib) is { } lp)
             {
                 var src = PlcProjectFile.Load(lp);
-                version = src.ProjectVersion ?? throw new IECodeException(ExitCodes.Usage, $"'{lp}' has no ProjectVersion.");
-                ctx.Log.Step($"{src.Title ?? src.Name} is at version {version}");
-            }
-            if (version is null or "latest")
-            {
-                var installed = LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)));
-                version = LibraryRepository.Newest(installed, lib, ctx.Get(vendor))?.Version
-                    ?? throw new IECodeException(ExitCodes.NotFound, $"{lib} is not installed in the library repository.", "Pass --to <version>.");
-                ctx.Log.Step($"Newest installed {lib}: {version}");
+                fromVersion = src.ProjectVersion ?? throw new IECodeException(ExitCodes.Usage, $"'{lp}' has no ProjectVersion.");
+                ctx.Log.Step($"{src.Title ?? src.Name} is at version {fromVersion}");
             }
 
-            var changes = new List<ReferenceChange>();
-            foreach (var p in LoadProjects(ctx.Get(paths)))
+            // every version is resolved before the first file is written
+            IReadOnlyList<InstalledLibrary>? installed = null;
+            var resolved = new List<UpdateItem>();
+            foreach (var item in items)
             {
-                var c = p.SetLibraryVersion(lib, version, ctx.Get(vendor), ctx.Get(dryRun));
-                foreach (var ch in c) ctx.Log.Info($"  {ch.Project,-24} {ch.Library} {ch.From} → {ch.To}");
-                changes.AddRange(c);
+                var version = item.Version ?? fromVersion ?? ctx.Get(to);
+                if (version is null or "latest")
+                {
+                    installed ??= LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)));
+                    version = LibraryRepository.Newest(installed, item.Library, ctx.Get(vendor))?.Version
+                        ?? throw new IECodeException(ExitCodes.NotFound, $"{item.Library} is not installed in the library repository; nothing was changed.", "Pass --to <version> or <name>=<version>.");
+                    ctx.Log.Step($"Newest installed {item.Library}: {version}");
+                }
+                resolved.Add(item with { Version = version });
             }
+
+            var changes = LibrarySelection.ApplyUpdate(resolved, projects, ctx.Get(vendor), ctx.Get(dryRun));
+            foreach (var ch in changes) ctx.Log.Info($"  {ch.Project,-24} {ch.Library} {ch.From} → {ch.To}");
             var projectsChanged = changes.Select(c => c.Project).Distinct().Count();
-            if (changes.Count == 0) ctx.Log.Success($"Nothing to change: {lib} is already at {version} everywhere (or not referenced)");
+            var first = resolved[0];
+            var target = resolved.Count == 1 ? $"{first.Library} is already at {first.Version}" : "the libraries are already at these versions";
+            if (changes.Count == 0) ctx.Log.Success($"Nothing to change: {target} everywhere (or not referenced)");
             else if (ctx.Get(dryRun)) ctx.Log.Info($"{changes.Count} reference(s) in {projectsChanged} project(s) would change");
-            else ctx.Log.Success($"{changes.Count} reference(s) in {projectsChanged} project(s) updated to {version}");
-            return Outcome.Ok(new { library = lib, version, dryRun = ctx.Get(dryRun), changes });
+            else ctx.Log.Success($"{changes.Count} reference(s) in {projectsChanged} project(s) updated{(resolved.Count == 1 ? $" to {first.Version}" : "")}");
+            return Outcome.Ok(new
+            {
+                library = first.Library, version = first.Version, dryRun = ctx.Get(dryRun), changes,
+                items = resolved.Select(i => new { library = i.Library, version = i.Version }),
+            });
         });
         return cmd;
     }
