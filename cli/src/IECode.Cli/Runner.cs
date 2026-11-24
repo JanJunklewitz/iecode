@@ -79,11 +79,14 @@ internal static class Runner
     /// and always closes the shell again.
     /// </summary>
     /// <param name="saves">The command writes project files: then <c>--tc auto</c> stops instead of moving a project to another line.</param>
+    /// <param name="discard">Close the solution without saving at the end even though <paramref name="saves"/> is set (build --no-save).</param>
     [SupportedOSPlatform("windows")]
-    public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body)
+    public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false)
     {
         var slnFile = SolutionFile.Load(solution);
         using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request);
+        // a command that does not save must not save at Quit either, also when it fails early
+        shell.DiscardChanges = !saves || discard;
         if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
         shell.OpenSolution(slnFile.Path);
         return body(shell);
@@ -138,29 +141,31 @@ internal static class Runner
 
     /// <summary>
     /// One XAE shell for several solutions (starting XAE once saves ~5–10 s per solution). The version is decided per
-    /// solution when it is opened; the shell is restarted only when the TwinCAT line changes.
+    /// solution when it is opened; the shell is restarted when the TwinCAT line changes, and for a command that saves
+    /// also when the exact build changes (so a project is not saved with an older build of its line).
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public sealed class ShellSession(Context ctx, bool saves) : IDisposable
+    public sealed class ShellSession(Context ctx, bool saves, bool discard = false) : IDisposable
     {
         private XaeShell? _shell;
-        private int? _line;
+        private TwinCatVersion? _request;
 
-        /// <summary>Opens a solution, in a new shell when it needs another line than the open one.</summary>
+        /// <summary>Opens a solution, in a new shell when it needs another version than the open one.</summary>
         public XaeShell Open(string solution)
         {
             var slnFile = SolutionFile.Load(solution);
             var request = ChooseVersion(ctx, slnFile, saves).Request;
-            if (_shell is null || request.Line != _line)
+            if (_shell is null || request.Line != _request!.Line || (saves && request != _request))
             {
                 if (_shell is not null)
                 {
-                    ctx.Log.Step($"Switching to TwinCAT {request.Line} for {Path.GetFileName(solution)}");
+                    ctx.Log.Step($"Switching to TwinCAT {request} for {Path.GetFileName(solution)}");
                     _shell.Dispose();
                     _shell = null;
                 }
                 _shell = StartShell(ctx, request);
-                _line = request.Line;
+                _shell.DiscardChanges = !saves || discard;
+                _request = request;
             }
             _shell.OpenSolution(slnFile.Path);
             return _shell;

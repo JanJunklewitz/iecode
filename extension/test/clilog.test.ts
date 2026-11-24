@@ -69,6 +69,12 @@ test('only the generic line left counts as no compiler error', () => {
 test('diagnostics from a run that broke off mid-build replace the old problems', () =>
   assert.equal(ranBuild({ diagnostics: [{ severity: 'error', message: 'e' }] }), true));
 
+test('no second version pointer when the CLI hint already names the setting', () => {
+  const cliHint = 'Pass --tc <version>, e.g. --tc 4024 (VS Code: setting iecode.tcVersion, command "IECode: Select TwinCAT Version…").';
+  assert.equal(tcVersionHint(2, 'The projects carry no TwinCAT version and 4024 and 4026 are installed; --tc auto would pick one.', cliHint), undefined);
+  assert.match(tcVersionHint(15, 'TwinCAT 3.1.4024 is not installed.', 'Installed: 3.1.4026.28') ?? '', /iecode\.tcVersion/);
+});
+
 test('exit 2 points to the version setting only when the error is about the version', () => {
   assert.equal(tcVersionHint(2, 'Several .sln files found; pass one.'), undefined);
   assert.match(tcVersionHint(2, 'Both TwinCAT 4024 and 4026 are installed; pass --tc.') ?? '', /iecode\.tcVersion/);

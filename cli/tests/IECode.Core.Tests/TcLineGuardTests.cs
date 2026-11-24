@@ -72,11 +72,12 @@ public class TcLineGuardTests
         Assert.Contains("4026", mixed.Note);
     }
 
-    // a Visual Studio 2022 ProgID is no TwinCAT 4026: only the Build_* folders count
-    [Fact] public void VisualStudioAloneIsNotTwinCat()
+    // (R1: a Visual Studio 2022 ProgID is no TwinCAT 4026; the guard only sees the Build_* folders, see BuildsFromFolders)
+
+    [Fact] public void MixedLinesStopEvenWithoutInstallInformation()
     {
-        var c = Auto([null], Only4024);
-        Assert.Equal(4024, c.Request.Line);
+        var e = Assert.Throws<IECodeException>(() => Auto(["3.1.4024.66", "3.1.4026.28"], []));
+        Assert.Equal(ExitCodes.Usage, e.ExitCode);
     }
 
     [Fact] public void UnknownInstallKeepsTheStamp()

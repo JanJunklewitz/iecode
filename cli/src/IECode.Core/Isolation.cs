@@ -18,7 +18,7 @@ public sealed class IsolatedCopy(string sourceRoot, string copyRoot, string solu
 
     /// <summary>
     /// Deletes the copy, retrying while files are still open (the shell process lives on for a few seconds after
-    /// Quit); false when it is still there after <paramref name="wait"/>. A later run removes it after 24 h.
+    /// Quit); false when it is still there after <paramref name="wait"/>. A later isolated build of the same repository removes it after 24 h.
     /// </summary>
     public bool TryDelete(TimeSpan wait)
     {
@@ -162,8 +162,28 @@ public static partial class Isolation
         var copyRoot = CopyRootFor(root, dir, id);
         RemoveStaleCopies(root, dir, id);
         if (Directory.Exists(copyRoot)) DeleteFolder(copyRoot);
-        var files = CopyTree(root, copyRoot);
+        int files;
+        try { files = CopyTree(root, copyRoot); }
+        catch
+        {
+            try { DeleteFolder(copyRoot); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
+        // %TEMP% may be an 8.3 short path; XAE reports long ones
+        copyRoot = LongPath(copyRoot);
         return new IsolatedCopy(root, copyRoot, Path.Combine(copyRoot, Path.GetRelativePath(root, solution)), files);
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, EntryPoint = "GetLongPathNameW")]
+    private static extern uint GetLongPathName(string shortPath, StringBuilder longPath, uint size);
+
+    /// <summary>The long form of an existing path (Windows 8.3 names expanded); the path itself elsewhere or on failure.</summary>
+    internal static string LongPath(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return path;
+        var sb = new StringBuilder(1024);
+        var n = GetLongPathName(path, sb, (uint)sb.Capacity);
+        return n > 0 && n < sb.Capacity ? sb.ToString() : path;
     }
 
     /// <summary>Deletes copies of the same source whose run has ended more than 24 h ago; never one of a live process.</summary>
@@ -192,6 +212,8 @@ public static partial class Isolation
         var count = 0;
         foreach (var f in Directory.EnumerateFiles(from, "*", options))
         {
+            // a .git file (worktree, submodule) would make the copy part of the original repository
+            if (Excluded.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)) continue;
             File.Copy(f, Path.Combine(to, Path.GetFileName(f)));
             count++;
         }
@@ -201,11 +223,25 @@ public static partial class Isolation
         return count;
     }
 
-    /// <summary>The diagnostic with a path inside the copy pointing at the same file in the source.</summary>
-    public static Diagnostic MapBack(Diagnostic d, IsolatedCopy copy) =>
-        d.File is { } f && Inside(f, copy.CopyRoot)
-            ? d with { File = Path.Combine(copy.SourceRoot, f[copy.CopyRoot.TrimEnd(Path.DirectorySeparatorChar).Length..].TrimStart(Path.DirectorySeparatorChar)) }
+    /// <summary>
+    /// The diagnostic with paths inside the copy pointing at the same file in the source: the file (in any spelling:
+    /// '/' or '..' segments) and the copy's folder in the message text.
+    /// </summary>
+    public static Diagnostic MapBack(Diagnostic d, IsolatedCopy copy)
+    {
+        var root = copy.CopyRoot.TrimEnd(Path.DirectorySeparatorChar);
+        if (d.File is { } f)
+        {
+            string full;
+            try { full = Path.GetFullPath(f.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)); }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { full = f; }
+            if (Inside(full, root))
+                d = d with { File = Path.Combine(copy.SourceRoot, full[root.Length..].TrimStart(Path.DirectorySeparatorChar)) };
+        }
+        return d.Message.Contains(root, PathComparison)
+            ? d with { Message = d.Message.Replace(root, copy.SourceRoot.TrimEnd(Path.DirectorySeparatorChar), PathComparison) }
             : d;
+    }
 
     /// <summary>
     /// Copies the .tmc files the build wrote (newer than <paramref name="sinceUtc"/>) to the same place in the source, so

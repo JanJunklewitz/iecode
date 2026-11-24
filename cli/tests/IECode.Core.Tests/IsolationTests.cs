@@ -45,6 +45,34 @@ public sealed class IsolationTests : IDisposable
         Assert.Equal(4, copy.Files);
     }
 
+    [Fact] public void GitFileIsNotCopied()
+    {
+        // a worktree or submodule has a .git file; in the copy it would point at the original repository
+        File.WriteAllText(ws["src/sln/.git"], "gitdir: does-not-exist");
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        Assert.False(File.Exists(Path.Combine(copy.CopyRoot, ".git")));
+    }
+
+    [Fact] public void FailedCopyLeavesNothingBehind()
+    {
+        Assert.SkipUnless(WindowsOnly.IsWindows, "only Windows locks open files against reading");
+        var root = Isolation.RootOf(ws["src/sln/Machine.sln"]);
+        using (new FileStream(ws["src/sln/PLC1/POUs/MAIN.TcPOU"], FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.ThrowsAny<IOException>(() => Isolation.Create(ws["src/sln/Machine.sln"], TempBase));
+        Assert.False(Directory.Exists(Isolation.CopyRootFor(root, TempBase, Environment.ProcessId)));
+    }
+
+    [Fact] public void MapsOtherSpellingsAndMessageTextBack()
+    {
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        var slashes = new Diagnostic(Severity.Error, "x", File: copy.CopyRoot.Replace('\\', '/') + "/PLC1/POUs/FB_A.TcPOU");
+        Assert.Equal(ws["src/sln/PLC1/POUs/FB_A.TcPOU"], Isolation.MapBack(slashes, copy).File);
+        var dots = new Diagnostic(Severity.Error, "x", File: Path.Combine(copy.CopyRoot, "PLC1", "..", "PLC1", "POUs", "FB_A.TcPOU"));
+        Assert.Equal(ws["src/sln/PLC1/POUs/FB_A.TcPOU"], Isolation.MapBack(dots, copy).File);
+        var text = new Diagnostic(Severity.Error, $"Cannot open '{Path.Combine(copy.CopyRoot, "PLC1", "x.TcPOU")}'");
+        Assert.Equal($"Cannot open '{ws["src/sln/PLC1/x.TcPOU"]}'", Isolation.MapBack(text, copy).Message);
+    }
+
     [Fact] public void CopyIsDeletedOnDispose()
     {
         var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);

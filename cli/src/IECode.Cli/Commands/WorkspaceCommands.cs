@@ -125,7 +125,7 @@ internal static class WorkspaceCommands
 
             var results = new List<object>();
             var save = !ctx.Get(noSave);
-            using var session = new ShellSession(ctx, saves: save || willInstall.Count > 0);
+            using var session = new ShellSession(ctx, saves: true, discard: !save);
             var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var step = 0;
             foreach (var u in order)

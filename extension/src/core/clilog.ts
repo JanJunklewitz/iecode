@@ -68,9 +68,10 @@ export function ranBuild(res: { data?: unknown; diagnostics?: CliDiagnostic[] })
 
 /**
  * A pointer to the version setting: always for exit 15 (version not installed), for a usage error (exit 2) only when
- * its message is about the TwinCAT version.
+ * its message is about the TwinCAT version; none when the CLI's own hint already names the setting.
  */
-export function tcVersionHint(exitCode: number, error?: string): string | undefined {
+export function tcVersionHint(exitCode: number, error?: string, cliHint?: string): string | undefined {
+  if (cliHint?.includes('iecode.tcVersion')) return undefined;
   const aboutVersion = exitCode === 15 || (exitCode === 2 && /--tc\b|TwinCAT (version|40\d\d)/i.test(error ?? ''));
   return aboutVersion ? 'Check the TwinCAT version (setting iecode.tcVersion, command "IECode: Select TwinCAT Version…").' : undefined;
 }

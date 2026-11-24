@@ -131,9 +131,11 @@ public sealed class Git
         try
         {
             using var p = Process.Start(psi)!;
+            // read stderr at the same time: git blocks on a full stderr pipe (e.g. many line-ending warnings)
+            var stderr = p.StandardError.ReadToEndAsync();
             var stdout = p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
             p.WaitForExit();
+            _ = stderr.Result;
             return p.ExitCode == 0 ? stdout : null;
         }
         catch (System.ComponentModel.Win32Exception e)

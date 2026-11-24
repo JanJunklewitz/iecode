@@ -102,6 +102,17 @@ public class WorkingTreeSnapshotTests
         Assert.Empty(WorkingTreeSnapshot.Take(repo.Root)!.ChangedSince(before));
     }
 
+    [Fact] public void FolderNameWithGlobCharactersIsTakenLiterally()
+    {
+        using var repo = TempRepo.WithCommittedFile("a.TcPOU", "x");
+        Directory.CreateDirectory(repo["Module [A]"]);
+        Directory.CreateDirectory(repo["Module A"]);
+        var before = WorkingTreeSnapshot.Take(repo["Module [A]"])!;
+        File.WriteAllText(repo["Module [A]/b.sln"], "z");
+        File.WriteAllText(repo["Module A/c.sln"], "z");
+        Assert.Equal(["Module [A]/b.sln"], WorkingTreeSnapshot.Take(repo["Module [A]"])!.ChangedSince(before));
+    }
+
     [Fact] public void SubfolderSnapshotSeesOnlyItsFolder()
     {
         using var repo = TempRepo.WithCommittedFile("a.TcPOU", "x");

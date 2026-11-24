@@ -23,9 +23,6 @@ public static class TcLineGuard
             .OrderByDescending(v => v.Build).ThenByDescending(v => v.Revision ?? -1).ToList();
         var installedLines = installed.Select(v => v.Line!.Value).Distinct().Order().ToList();
 
-        if (installed.Count == 0)
-            return new(stamps.FirstOrDefault() ?? TwinCatVersion.Auto, null);
-
         var stampedLines = stamps.Select(v => v.Line!.Value).Distinct().Order().ToList();
         string? note = null;
         if (stampedLines.Count > 1)
@@ -36,6 +33,9 @@ public static class TcLineGuard
                     $"The projects of this solution were saved with different TwinCAT lines ({lines}); --tc auto does not pick one for a command that saves.", Hint);
             note = $"The projects were saved with different TwinCAT lines ({lines}); opening with the first one. This command does not save.";
         }
+
+        if (installed.Count == 0)
+            return new(stamps.FirstOrDefault() ?? TwinCatVersion.Auto, note);
 
         if (stamps.Count == 0)
         {

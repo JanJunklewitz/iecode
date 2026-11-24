@@ -105,9 +105,11 @@ internal static class ProjectCommands
             var before = WorkingTreeSnapshot.Take(folder);
             IReadOnlyList<string>? changed = null;
             List<BuildResult> results;
-            // also after a failed or broken-off build: its side effects are in the tree all the same
-            try { results = WithShell(ctx, path, saves: save, shell => BuildAll(shell, save)); }
-            finally { changed = ReportChanges(ctx, before, folder); }
+            var opened = false;
+            // a build counts as saving for the line guard even with --no-save: XAE writes a project it changed while
+            // building (spike, R35). The report also runs after a failed or broken-off build, once the shell opened it.
+            try { results = WithShell(ctx, path, saves: true, shell => { opened = true; return BuildAll(shell, save); }, discard: !save); }
+            finally { if (opened) changed = ReportChanges(ctx, before, folder); }
             return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results, changedFiles = changed });
 
             Outcome BuildIsolated(string root, string dir)
@@ -141,7 +143,7 @@ internal static class ProjectCommands
                     ctx.Log.MapDiagnostic = null;
                     if (copy.Keep) ctx.Log.Info($"Kept the isolated copy: {copy.CopyRoot}");
                     else if (!copy.TryDelete(TimeSpan.FromSeconds(15)))
-                        ctx.Log.Warn($"Could not delete the isolated copy {copy.CopyRoot} (files still in use); a later --isolate run removes it after 24 h.");
+                        ctx.Log.Warn($"Could not delete the isolated copy {copy.CopyRoot} (files still in use); a later --isolate build of the same repository removes it after 24 h, or delete it yourself.");
                 }
             }
 
