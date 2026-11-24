@@ -7,13 +7,13 @@ using static IECode.Cli.Runner;
 
 namespace IECode.Cli.Commands;
 
-/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, restore, install, install-project, uninstall.</summary>
+/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, check, restore, install, install-project, uninstall.</summary>
 internal static class LibraryCommands
 {
     public static Command Create()
     {
         var lib = new Command("lib", "PLC libraries: save (one or all), list, update references, install");
-        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), InstallProject(), Uninstall() })
+        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Check(), Restore(), Install(), InstallProject(), Uninstall() })
             lib.Subcommands.Add(c);
         return lib;
     }
@@ -274,6 +274,38 @@ internal static class LibraryCommands
                 .ToList();
             foreach (var i in all) ctx.Log.Info($"  {i.Name,-30} {i.Version,-12} {i.Vendor}");
             return Outcome.Ok(all);
+        });
+        return cmd;
+    }
+
+    // ------------------------------------------------------------------ check
+
+    /// <summary>Every library repository TwinCAT may use on this PC (4024 and 4026 can differ).</summary>
+    internal static IReadOnlyList<string> DefaultRepositories() =>
+        LibraryRepository.Candidates(Environment.GetEnvironmentVariable("TWINCAT3DIR"),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+
+    internal static string Describe(ReferenceProblem p) => p.Kind == ReferenceProblemKind.NoVersionInstalled
+        ? $"{p.Name} * ({p.Vendor}): no version installed · used by {string.Join(", ", p.Projects)}"
+        : $"{p.Name} {p.Version} ({p.Vendor}) not installed · used by {string.Join(", ", p.Projects)}";
+
+    private static Command Check()
+    {
+        var paths = PathsArg("Projects to check");
+        var repos = new Option<string[]>("--repository") { Description = "Library repository folder (repeatable; default: every TwinCAT repository on this PC)" };
+        var cmd = new Command("check", "Find library references that cannot resolve before a build: missing pinned versions and * references with no version installed") { paths, repos };
+        Action(cmd, ctx =>
+        {
+            var projects = LoadProjects(ctx.Get(paths));
+            var roots = ctx.Get(repos) is { Length: > 0 } r ? r : DefaultRepositories();
+            var existing = roots.Where(Directory.Exists).ToList();
+            foreach (var root in roots) ctx.Log.Detail($"{(Directory.Exists(root) ? "Scanning" : "Not found")}: {root}");
+            if (existing.Count == 0)
+                throw new IECodeException(ExitCodes.NotFound, "No library repository found; references not checked.", "Pass the folder with --repository.");
+            var problems = Core.Projects.Restore.Check(projects, LibraryRepository.ScanAll(existing));
+            foreach (var p in problems) ctx.Log.Error(Describe(p));
+            if (problems.Count == 0) ctx.Log.Success($"All library references of {projects.Count} project(s) resolve");
+            return new Outcome(problems.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { problems, repositories = existing });
         });
         return cmd;
     }

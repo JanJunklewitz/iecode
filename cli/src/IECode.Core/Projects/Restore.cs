@@ -5,6 +5,11 @@ namespace IECode.Core.Projects;
 /// <summary>A pinned library version referenced by a project but not installed in the library repository.</summary>
 public sealed record MissingLibrary(string Name, string Version, string Vendor, IReadOnlyList<string> Projects, string? Source);
 
+public enum ReferenceProblemKind { VersionMissing, NoVersionInstalled }
+
+/// <summary>A library reference that cannot resolve. <see cref="Version"/> is <c>*</c> for <see cref="ReferenceProblemKind.NoVersionInstalled"/>.</summary>
+public sealed record ReferenceProblem(string Name, string Version, string Vendor, ReferenceProblemKind Kind, IReadOnlyList<string> Projects);
+
 /// <summary>
 /// Plans <c>iecode lib restore</c>: the .plcproj files are the source of truth (pinned versions);
 /// everything not in the library repository is looked up in source folders
@@ -46,6 +51,34 @@ public static partial class Restore
             missing.Add(new MissingLibrary(id.Name, id.Version, id.Vendor, users, sources.GetValueOrDefault((id.Name, id.Version))));
         }
         return missing.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// References that cannot resolve: a pinned version not installed, or a <c>*</c> reference with no version of the
+    /// library installed at all. Groups by name, version and vendor (a different vendor is a different library).
+    /// </summary>
+    public static IReadOnlyList<ReferenceProblem> Check(IEnumerable<PlcProjectFile> projects, IReadOnlyList<InstalledLibrary> installed)
+    {
+        var wanted = projects
+            .SelectMany(p => p.References.Select(r => (p.Name, Id: r.Effective)))
+            .GroupBy(x => (x.Id.Name.ToLowerInvariant(), x.Id.Version, x.Id.Vendor.ToLowerInvariant()))
+            .Select(g => (g.First().Id, Projects: (IReadOnlyList<string>)g.Select(x => x.Name).Distinct().ToList()));
+
+        var problems = new List<ReferenceProblem>();
+        foreach (var (id, users) in wanted)
+        {
+            if (id.IsNewest)
+            {
+                if (LibraryRepository.Newest(installed, id.Name, id.Vendor) is null)
+                    problems.Add(new ReferenceProblem(id.Name, "*", id.Vendor, ReferenceProblemKind.NoVersionInstalled, users));
+                continue;
+            }
+            var present = installed.Any(i => i.Name.Equals(id.Name, StringComparison.OrdinalIgnoreCase)
+                                             && i.Version == id.Version
+                                             && i.Vendor.Equals(id.Vendor, StringComparison.OrdinalIgnoreCase));
+            if (!present) problems.Add(new ReferenceProblem(id.Name, id.Version, id.Vendor, ReferenceProblemKind.VersionMissing, users));
+        }
+        return problems.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.Version, StringComparer.Ordinal).ToList();
     }
 
     private sealed class NameVersionComparer : IEqualityComparer<(string, string)>

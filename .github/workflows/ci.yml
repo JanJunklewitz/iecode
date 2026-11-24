@@ -73,6 +73,17 @@ jobs:
       - run: dotnet test --solution IECode.slnx -c Release --no-build
       - name: Smoke test (file-based commands)
         run: dotnet run --project src/IECode.Cli -c Release --no-build -- lib list tests/IECode.Core.Tests/Fixtures/Machine --json
+      - name: Smoke test (lib check finds missing libraries)
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/empty-repo"
+          set +e
+          out=$(dotnet run --project src/IECode.Cli -c Release --no-build -- lib check tests/IECode.Core.Tests/Fixtures/Machine --json --repository "$RUNNER_TEMP/empty-repo")
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -eq 3
+          test "$(echo "$out" | jq '.data.problems | length')" -eq 5
 
   dco:
     if: github.event_name == 'pull_request'

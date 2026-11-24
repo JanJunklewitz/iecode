@@ -46,6 +46,13 @@ public static class LibraryRepository
         return list;
     }
 
+    /// <summary>
+    /// Every library of every repository that exists (a PC with 4024 and 4026 can have two). Folders that do not
+    /// exist are skipped; the list is empty when none exists.
+    /// </summary>
+    public static IReadOnlyList<InstalledLibrary> ScanAll(IEnumerable<string> roots) =>
+        [.. roots.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(Scan)];
+
     /// <summary>Newest installed version of a library (name/vendor compared case-insensitively), or null.</summary>
     public static InstalledLibrary? Newest(IEnumerable<InstalledLibrary> installed, string name, string? vendor) =>
         installed
