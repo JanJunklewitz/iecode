@@ -68,9 +68,10 @@ public sealed class ShellRegistry(string folder)
     /// <summary>The iecode that started the shell still runs (same PID and creation time).</summary>
     public static bool OwnerAlive(ShellEntry e, DateTime? ownerActualStartUtc) => ownerActualStartUtc == e.OwnerStartedUtc;
 
-    public static ShellState State(ShellEntry e, DateTime? shellStartUtc, DateTime? ownerStartUtc) =>
+    /// <param name="ownerUnreadable">The owner PID exists but its start time cannot be read: counted as alive, so a live run's shell is never ended without --force.</param>
+    public static ShellState State(ShellEntry e, DateTime? shellStartUtc, DateTime? ownerStartUtc, bool ownerUnreadable = false) =>
         !IsSame(e, shellStartUtc) ? ShellState.Stale
-        : OwnerAlive(e, ownerStartUtc) ? ShellState.Owned
+        : OwnerAlive(e, ownerStartUtc) || ownerUnreadable ? ShellState.Owned
         : ShellState.Orphaned;
 
     /// <summary>Orphaned shells are killed; a shell whose iecode still runs only with <paramref name="force"/>; stale ones never.</summary>
@@ -87,16 +88,23 @@ public sealed class ShellRegistry(string folder)
     }
 
     /// <summary>Creation time (UTC) of a running process, or null when there is none with that PID.</summary>
-    public static DateTime? StartTimeOf(int pid)
+    public static DateTime? StartTimeOf(int pid) => Probe(pid).StartUtc;
+
+    /// <summary>
+    /// Creation time (UTC) of a running process; <c>Unreadable</c> when a process with that PID runs but its time cannot
+    /// be read (another user, elevated).
+    /// </summary>
+    public static (DateTime? StartUtc, bool Unreadable) Probe(int pid)
     {
         try
         {
             using var p = Process.GetProcessById(pid);
-            return p.HasExited ? null : p.StartTime.ToUniversalTime();
+            try { return p.HasExited ? (null, false) : (p.StartTime.ToUniversalTime(), false); }
+            catch (Exception e) when (e is System.ComponentModel.Win32Exception or NotSupportedException) { return (null, true); }
         }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
         {
-            return null;
+            return (null, false);
         }
     }
 

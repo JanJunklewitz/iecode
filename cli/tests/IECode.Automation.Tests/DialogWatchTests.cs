@@ -112,10 +112,30 @@ public class DialogWatchTests
         var p = ShowBox(Title, "OKCancel");
         try
         {
-            using var me = Process.GetCurrentProcess();
-            using var watch = DialogWatch.Start(me, userCanAnswer: false, Log(new StringWriter()), Fast);
-            Assert.False(p.WaitForExit(4000));
-            Assert.Null(watch.Cancelled);
+            // a stand-in for the owned shell: a process without windows, so the watcher never acts on the test host
+            var other = Process.Start(new ProcessStartInfo("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep 30"]) { UseShellExecute = false })!;
+            try
+            {
+                using var watch = DialogWatch.Start(other, userCanAnswer: false, Log(new StringWriter()), Fast);
+                Assert.False(p.WaitForExit(4000));
+                Assert.Null(watch.Cancelled);
+            }
+            finally { End(other); }
+        }
+        finally { End(p); }
+    }
+
+    [Fact]
+    public void KnownTitleOfAProcessThatIsNoShellIsConfirmedDuringActivation()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows dialogs");
+        // the activation dialog may belong to a TwinCAT helper instead of the shell; other shells are skipped
+        var p = ShowBox(DialogPolicy.KnownTitles[0], "OKCancel");
+        try
+        {
+            using var watch = DialogWatch.Start(null, userCanAnswer: false, Log(new StringWriter()), Fast, skipShells: true);
+            Assert.True(p.WaitForExit(30000));
+            Assert.Equal("OK", p.StandardOutput.ReadToEnd().Trim());
         }
         finally { End(p); }
     }

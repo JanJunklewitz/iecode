@@ -93,3 +93,26 @@ public class ShellRegistryTests
     public void DefaultFolderIsUnderLocalAppData() =>
         Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "iecode", "shells"), ShellRegistry.DefaultFolder());
 }
+
+public class ShellRegistryReviewFixTests
+{
+    private static readonly DateTime T0 = new(2026, 11, 24, 8, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void AnOwnerWhoseStartTimeCannotBeReadIsSpared()
+    {
+        var e = new ShellEntry(1, T0, 99, T0.AddMinutes(-1), "x", null);
+        Assert.Equal(ShellState.Owned, ShellRegistry.State(e, T0, null, ownerUnreadable: true));
+        Assert.Equal(ShellState.Orphaned, ShellRegistry.State(e, T0, null, ownerUnreadable: false));
+    }
+
+    [Fact]
+    public void ProbeOfTheCurrentProcess()
+    {
+        using var me = System.Diagnostics.Process.GetCurrentProcess();
+        var (start, unreadable) = ShellRegistry.Probe(me.Id);
+        Assert.Equal(me.StartTime.ToUniversalTime(), start);
+        Assert.False(unreadable);
+        Assert.Equal((null, false), ShellRegistry.Probe(int.MaxValue));
+    }
+}

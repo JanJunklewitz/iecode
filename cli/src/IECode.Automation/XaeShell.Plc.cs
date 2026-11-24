@@ -168,8 +168,9 @@ public sealed partial class XaeShell
         }
         SaveAll();
 
-        // the shell's watch confirms known dialogs; without one (PID unknown) the former global title match runs here
-        using var known = _watch is null ? DialogWatch.Start(null, userCanAnswer: false, _log) : null;
+        // the shell's own watch confirms known dialogs of the shell; this one also confirms them in a TwinCAT helper
+        // process. Without an owned shell it is the former global title match; with one, other XAE shells are left alone.
+        using var known = DialogWatch.Start(null, userCanAnswer: false, _log, skipShells: _watch is not null);
         _log.Step($"Activating configuration on {(target.IsLocal ? "local system" : target.ToString())}…");
         try
         {

@@ -24,14 +24,17 @@ internal sealed class DialogWatch : IDisposable
     private readonly ManualResetEventSlim _stop = new();
     private readonly Thread _thread;
     private readonly HashSet<nint> _confirmed = [];
+    private readonly bool _skipShells;
+    private readonly Lock _sync = new();
     private volatile SeenDialog? _cancelled;
     private volatile bool _gaveUp;
     private IECodeException? _failure;
 
-    private DialogWatch(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings)
+    private DialogWatch(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings, bool skipShells)
     {
         _shell = shell;
         _pid = shell?.Id;
+        _skipShells = skipShells;
         _log = log;
         _timings = timings ?? DialogTimings.Default;
         _tracker = new DialogTracker(_pid, userCanAnswer, _timings);
@@ -41,8 +44,9 @@ internal sealed class DialogWatch : IDisposable
 
     /// <param name="shell">The owned shell process (kept open for the kill on give-up), or null: known titles of any process only.</param>
     /// <param name="userCanAnswer">The shell is visible: unknown dialogs are left to the user.</param>
-    public static DialogWatch Start(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings = null) =>
-        new(shell, userCanAnswer, log, timings);
+    /// <param name="skipShells">Without a shell process: leave XAE shell processes alone (the owned one has its own watch), confirm known titles of other processes only.</param>
+    public static DialogWatch Start(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings = null, bool skipShells = false) =>
+        new(shell, userCanAnswer, log, timings, skipShells);
 
     /// <summary>The first dialog that was cancelled (or that made the watcher give up).</summary>
     public SeenDialog? Cancelled => _cancelled;
@@ -56,7 +60,7 @@ internal sealed class DialogWatch : IDisposable
         get
         {
             if (_cancelled is not { } d) return null;
-            lock (_stop) return _failure ??= DialogPolicy.Failure(d, _gaveUp);
+            lock (_sync) return _failure ??= DialogPolicy.Failure(d, _gaveUp);
         }
     }
 
@@ -114,12 +118,26 @@ internal sealed class DialogWatch : IDisposable
         var title = Title(h);
         // without an owned shell only the known titles matter; other processes' windows are not read further
         if (_pid is null && !DialogPolicy.KnownTitles.Contains(title, StringComparer.Ordinal)) return null;
+        if (_pid is null && _skipShells && IsShell((int)pid)) return null;
         var cls = ClassOf(h);
         var owner = GetWindow(h, GW_OWNER);
         var visible = IsWindowVisible(h);
         var ownerDisabled = owner != IntPtr.Zero && !IsWindowEnabled(owner);
-        var text = cls == DialogPolicy.DialogClass && visible ? ChildText(h) : "";
-        return new WindowSnapshot(h, (int)pid, cls, title, text, visible, ownerDisabled);
+        var (text, progress) = cls == DialogPolicy.DialogClass && visible ? Children(h) : ("", false);
+        return new WindowSnapshot(h, (int)pid, cls, title, text, visible, ownerDisabled, progress);
+    }
+
+    private static bool IsShell(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return DialogPolicy.IsShellProcess(p.ProcessName);
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            return true; // gone or unreadable: do not touch it
+        }
     }
 
     /// <summary>Re-checks that the handle is still the same window (handles are reused) and posts; a failed post is logged, not retried.</summary>
@@ -133,16 +151,22 @@ internal sealed class DialogWatch : IDisposable
         return false;
     }
 
-    /// <summary>The texts of the static controls of a dialog (the message of a message box), read with WM_GETTEXT.</summary>
-    private static string ChildText(IntPtr dialog)
+    /// <summary>
+    /// The texts of the static controls of a dialog (the message of a message box), read with WM_GETTEXT, and whether
+    /// it has a progress bar (a progress window of a running operation).
+    /// </summary>
+    private static (string Text, bool Progress) Children(IntPtr dialog)
     {
         var parts = new List<string>();
+        var progress = false;
         EnumChildWindows(dialog, (c, _) =>
         {
-            if (ClassOf(c).Equals("Static", StringComparison.OrdinalIgnoreCase) && Text(c) is { Length: > 0 } t) parts.Add(t.Trim());
+            var cls = ClassOf(c);
+            if (cls.Equals("msctls_progress32", StringComparison.OrdinalIgnoreCase)) progress = true;
+            else if (cls.Equals("Static", StringComparison.OrdinalIgnoreCase) && Text(c) is { Length: > 0 } t) parts.Add(t.Trim());
             return true;
         }, IntPtr.Zero);
-        return string.Join(" ", parts);
+        return (string.Join(" ", parts), progress);
     }
 
     /// <summary>Window text by WM_GETTEXT with a timeout, so a hung window does not stop the watcher.</summary>

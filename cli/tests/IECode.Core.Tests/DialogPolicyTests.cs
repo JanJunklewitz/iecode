@@ -158,3 +158,32 @@ public class ShellStartTests
     [Fact] public void TwoNewProcessesAreNotOwned() => Assert.Null(ShellRegistry.Started([10], [10, 30, 40]));
     [Fact] public void NoNewProcessIsNotOwned() => Assert.Null(ShellRegistry.Started([10, 20], [20]));
 }
+
+public class DialogReviewFixTests
+{
+    private static readonly DateTime T0 = new(2026, 11, 24, 8, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void ProgressDialogIsIgnored()
+    {
+        var d = new SeenDialog(1, 42, "#32770", "Activating", "", T0, true, true, null, null, Progress: true);
+        Assert.Equal(DialogAction.None, DialogPolicy.Decide(d, 42, false, T0.AddMinutes(5)));
+    }
+
+    [Fact]
+    public void TrackerPassesTheProgressFlagOn()
+    {
+        var t = new DialogTracker(42, userCanAnswer: false);
+        var w = new WindowSnapshot(1, 42, "#32770", "Activating", "", true, true, Progress: true);
+        t.Next([w], T0);
+        Assert.Empty(t.Next([w], T0.AddMinutes(1)));
+    }
+
+    [Theory]
+    [InlineData("TcXaeShell", true)]
+    [InlineData("tcxaeshell64", true)]
+    [InlineData("devenv", true)]
+    [InlineData("TcSysUi", false)]
+    [InlineData("powershell", false)]
+    public void ShellProcessNames(string name, bool shell) => Assert.Equal(shell, DialogPolicy.IsShellProcess(name));
+}

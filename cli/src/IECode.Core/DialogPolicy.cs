@@ -2,14 +2,15 @@ namespace IECode.Core;
 
 /// <summary>A top-level window as the dialog watcher read it in one poll.</summary>
 /// <param name="OwnerDisabled">The window has an owner and that owner is disabled: the window is modal.</param>
-public sealed record WindowSnapshot(nint Handle, int Pid, string ClassName, string Title, string Text, bool Visible, bool OwnerDisabled);
+/// <param name="Progress">The window has a progress bar: a progress window of a running operation, never cancelled.</param>
+public sealed record WindowSnapshot(nint Handle, int Pid, string ClassName, string Title, string Text, bool Visible, bool OwnerDisabled, bool Progress = false);
 
 /// <summary>
 /// A window the watcher follows: when it was first seen as a visible modal window in a row, and when Cancel and
 /// WM_CLOSE were sent to it.
 /// </summary>
 public sealed record SeenDialog(nint Handle, int Pid, string ClassName, string Title, string Text, DateTime FirstSeenUtc,
-    bool Visible, bool OwnerDisabled, DateTime? CancelSentUtc, DateTime? CloseSentUtc);
+    bool Visible, bool OwnerDisabled, DateTime? CancelSentUtc, DateTime? CloseSentUtc, bool Progress = false);
 
 /// <summary>How long an unknown modal dialog may stay before Cancel, and before each next step; tests shorten them.</summary>
 public sealed record DialogTimings(TimeSpan CancelAfter, TimeSpan EscalateAfter)
@@ -39,6 +40,11 @@ public static class DialogPolicy
     /// <summary>Titles confirmed with OK. Confirming keeps the mapping information on type changes. English XAE titles only so far.</summary>
     public static readonly string[] KnownTitles = ["Potential symbol type change detected"];
 
+    /// <summary>Process names of XAE shells (TwinCAT 4024, 4026, Visual Studio). Their dialogs are never touched unless the shell is the one iecode started.</summary>
+    public static readonly string[] ShellProcessNames = ["TcXaeShell", "TcXaeShell64", "devenv"];
+
+    public static bool IsShellProcess(string processName) => ShellProcessNames.Contains(processName, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The standard dialog class (message boxes, Save As, …).</summary>
     public const string DialogClass = "#32770";
 
@@ -50,7 +56,7 @@ public static class DialogPolicy
         if (shellPid is { } pid && d.Pid != pid) return DialogAction.None;
         if (KnownTitles.Contains(d.Title, StringComparer.Ordinal)) return DialogAction.ConfirmOk;
         if (shellPid is null || userCanAnswer) return DialogAction.None;
-        if (d.ClassName != DialogClass || !d.Visible || !d.OwnerDisabled) return DialogAction.None;
+        if (d.ClassName != DialogClass || !d.Visible || !d.OwnerDisabled || d.Progress) return DialogAction.None;
         if (d.CloseSentUtc is { } close) return nowUtc - close >= escalateAfter ? DialogAction.GiveUp : DialogAction.None;
         if (d.CancelSentUtc is { } cancel) return nowUtc - cancel >= escalateAfter ? DialogAction.Close : DialogAction.None;
         return nowUtc - d.FirstSeenUtc >= cancelAfter ? DialogAction.Cancel : DialogAction.None;
@@ -90,8 +96,8 @@ public sealed class DialogTracker(int? shellPid, bool userCanAnswer, DialogTimin
             present.Add(w.Handle);
             var modal = w.Visible && w.OwnerDisabled;
             var d = _seen.TryGetValue(w.Handle, out var old) && modal && old.Visible && old.OwnerDisabled && old.Pid == w.Pid && old.ClassName == w.ClassName && old.Title == w.Title
-                ? old with { Text = w.Text.Length > 0 ? w.Text : old.Text }
-                : new SeenDialog(w.Handle, w.Pid, w.ClassName, w.Title, w.Text, nowUtc, w.Visible, w.OwnerDisabled, null, null);
+                ? old with { Text = w.Text.Length > 0 ? w.Text : old.Text, Progress = w.Progress }
+                : new SeenDialog(w.Handle, w.Pid, w.ClassName, w.Title, w.Text, nowUtc, w.Visible, w.OwnerDisabled, null, null, w.Progress);
             if (GaveUp) { _seen[w.Handle] = d; continue; }
 
             var action = DialogPolicy.Decide(d, shellPid, userCanAnswer, nowUtc, timings);

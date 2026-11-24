@@ -109,3 +109,18 @@ public class TwinCatInstallTests
         Assert.Empty(TwinCatInstall.Builds(Path.Combine(Path.GetTempPath(), "no-such-twincat-" + Guid.NewGuid().ToString("N"))));
     }
 }
+
+public class ShellReuseTests
+{
+    private static TwinCatVersion V(string s) => TwinCatVersion.Parse(s);
+
+    [Fact] public void NoShellYet() => Assert.True(TcLineGuard.NeedsNewShell(null, V("4024.66"), saves: false, shellFailed: false));
+    [Fact] public void SameBuildReuses() => Assert.False(TcLineGuard.NeedsNewShell(V("4024.66"), V("4024.66"), saves: true, shellFailed: false));
+    [Fact] public void OtherLine() => Assert.True(TcLineGuard.NeedsNewShell(V("4024.66"), V("4026.28"), saves: false, shellFailed: false));
+    [Fact] public void OtherBuildOnlyWhenSaving()
+    {
+        Assert.False(TcLineGuard.NeedsNewShell(V("4024.66"), V("4024.47"), saves: false, shellFailed: false));
+        Assert.True(TcLineGuard.NeedsNewShell(V("4024.66"), V("4024.47"), saves: true, shellFailed: false));
+    }
+    [Fact] public void AShellThatHadADialogIsReplaced() => Assert.True(TcLineGuard.NeedsNewShell(V("4024.66"), V("4024.66"), saves: false, shellFailed: true));
+}

@@ -244,11 +244,13 @@ internal static class Runner
         private void Ensure(SolutionFile slnFile, bool quiet)
         {
             var request = ChooseVersion(ctx, slnFile, saves, quiet).Request;
-            if (_shell is null || request.Line != _request!.Line || (saves && request != _request))
+            if (TcLineGuard.NeedsNewShell(_shell is null ? null : _request, request, saves, _shell?.DialogFailed == true))
             {
                 if (_shell is not null)
                 {
-                    ctx.Log.Step($"Switching to TwinCAT {request} for {Path.GetFileName(slnFile.Path)}");
+                    ctx.Log.Step(_shell.DialogFailed
+                        ? $"Starting a new shell for {Path.GetFileName(slnFile.Path)} (the last one stopped on a dialog)"
+                        : $"Switching to TwinCAT {request} for {Path.GetFileName(slnFile.Path)}");
                     _shell.Dispose();
                     _shell = null;
                 }

@@ -90,10 +90,12 @@ public sealed partial class XaeShell : IDisposable
                 shell.Register();
                 shell._watch = DialogWatch.Start(process, options.Visible || options.ShowUi, log);
             }
-            shell.Configure();
+            // a dialog while configuring fails Start with its text, not with the COM error of the cancelled call
+            shell.Watched(shell.Configure);
             shell._processId = shell.ShellProcessId();
         }
         catch { shell.Dispose(); throw; }
+        if (process is null) log.Warn("The started XAE shell could not be told apart from other shells: its dialogs are not watched and it is not ended with iecode in this run (details with -v).");
         log.Detail($"Shell ready after {sw.Elapsed.TotalSeconds:0.0} s");
         return shell;
     }
@@ -136,12 +138,13 @@ public sealed partial class XaeShell : IDisposable
     /// After Quit: waits up to 30 s for the shell process to end (it still writes its settings), then drops its record.
     /// An entry is removed only once the exit is confirmed.
     /// </summary>
-    private void AwaitExit()
+    private void AwaitExit(bool quitReturned)
     {
         if (_process is null) return;
         try
         {
-            if (_process.WaitForExit(TimeSpan.FromSeconds(30)))
+            // a shell that did not take Quit has no settings to write; do not hold a failed run for 30 s
+            if (_process.WaitForExit(TimeSpan.FromSeconds(quitReturned ? 30 : 5)))
             {
                 try { _registry?.Remove(_process.Id); }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not removed: {e.Message}"); }
@@ -161,11 +164,12 @@ public sealed partial class XaeShell : IDisposable
     /// <summary>Title of the dialog the watcher cancelled, if any.</summary>
     public string? BlockingDialog => _watch?.Cancelled?.Title;
 
-    private static readonly string[] ShellProcessNames = ["TcXaeShell", "TcXaeShell64", "devenv"];
+    /// <summary>A dialog was cancelled (or the shell ended): every later call fails with it, so a session starts a new shell.</summary>
+    public bool DialogFailed => _watch?.Cancelled is not null;
 
     private static int[] ShellPids() =>
     [
-        .. ShellProcessNames.SelectMany(Process.GetProcessesByName).Select(p => { using (p) return p.Id; }),
+        .. DialogPolicy.ShellProcessNames.SelectMany(Process.GetProcessesByName).Select(p => { using (p) return p.Id; }),
     ];
 
     /// <summary>The one shell process CreateInstance started, opened now so its handle stays valid; null when it is not exactly one.</summary>
@@ -276,7 +280,9 @@ public sealed partial class XaeShell : IDisposable
     // ---------------------------------------------------------------- TwinCAT version (Remote Manager)
 
     /// <summary>Versions known to the TwinCAT Remote Manager, e.g. 3.1.4024.62, 3.1.4024.66.</summary>
-    public IReadOnlyList<string> InstalledVersions()
+    public IReadOnlyList<string> InstalledVersions() => Watched(InstalledVersionsCore);
+
+    private IReadOnlyList<string> InstalledVersionsCore()
     {
         var rm = RemoteManager();
         return ComCall.Items(ComCall.Retry(() => (object)rm.Versions)).Select(v => (string)v.ToString()).ToList();
@@ -312,7 +318,9 @@ public sealed partial class XaeShell : IDisposable
         ?? throw new IECodeException(ExitCodes.UserManagementFailed, "TwinCAT user management is not available in this shell.",
             "Needs TwinCAT 3 Security Management (TwinCAT 4024.x or newer).");
 
-    public string? ActiveUser()
+    public string? ActiveUser() => Watched(ActiveUserCore);
+
+    private string? ActiveUserCore()
     {
         try { var um = UserManagement(); return ComCall.Retry(() => (string?)um.ActiveUser); }
         catch (IECodeException) { return null; }
@@ -441,6 +449,7 @@ public sealed partial class XaeShell : IDisposable
     public void Dispose()
     {
         if (_dte is null) return;
+        var quitReturned = false;
         try
         {
             // after a give-up the watcher has ended the shell; there is nothing to quit
@@ -455,7 +464,7 @@ public sealed partial class XaeShell : IDisposable
                     _log.Warn($"Closing the solution without saving failed: {e.Message}");
                 }
                 // Quit saves a dirty project (spike): after a failed discard it would write what the command promised not to
-                if (discarded) ComCall.Retry(() => { Dte.Quit(); }, attempts: 5);
+                if (discarded) { ComCall.Retry(() => { Dte.Quit(); }, attempts: 5); quitReturned = true; }
                 else TerminateWithoutSaving();
             }
         }
@@ -469,7 +478,7 @@ public sealed partial class XaeShell : IDisposable
             ComCall.Release(_dte);
             _solution = null;
             _dte = null;
-            AwaitExit();
+            AwaitExit(quitReturned);
             // after Quit, so a dialog while closing is still handled; before Runner writes the result
             _watch?.Dispose();
             _process?.Dispose();

@@ -15,7 +15,9 @@ public sealed record BuildResult(string Platform, bool Ok, int FailedProjects, i
 public sealed partial class XaeShell
 {
     /// <summary>Target platforms the TwinCAT projects support, e.g. "TwinCAT RT (x64)".</summary>
-    public IReadOnlyList<string> TargetPlatforms() =>
+    public IReadOnlyList<string> TargetPlatforms() => Watched(TargetPlatformsCore);
+
+    private IReadOnlyList<string> TargetPlatformsCore() =>
         TwinCatProjects(includePlcOnly: true)
             .SelectMany(p => ComCall.Items(ComCall.Retry(() => (object)p.SysManager.ConfigurationManager.TargetPlatforms)))
             .Select(x => (string)x.ToString())

@@ -9,6 +9,14 @@ public sealed record TcChoice(TwinCatVersion Request, string? Note);
 /// </summary>
 public static class TcLineGuard
 {
+    /// <summary>
+    /// A shell reused for several solutions is replaced when the line changes, for a command that saves also when the
+    /// exact build changes, and after a dialog made it fail (a cancelled operation or an ended shell must not fail the
+    /// next solution with the same dialog).
+    /// </summary>
+    public static bool NeedsNewShell(TwinCatVersion? open, TwinCatVersion request, bool saves, bool shellFailed) =>
+        open is not { } o || shellFailed || request.Line != o.Line || (saves && request != o);
+
     private const string Hint = "Pass --tc <version>, e.g. --tc 4024 (VS Code: setting iecode.tcVersion, command \"IECode: Select TwinCAT Version…\").";
 
     /// <param name="savedStamps">The <c>TcVersion</c> of each TwinCAT project of the solution (null when it has none).</param>

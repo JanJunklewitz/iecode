@@ -28,7 +28,8 @@ internal static class ShellCommands
         var rows = new List<Row>();
         foreach (var e in registry.All())
         {
-            var state = ShellRegistry.State(e, ShellRegistry.StartTimeOf(e.Pid), ShellRegistry.StartTimeOf(e.OwnerPid));
+            var (ownerStart, ownerUnreadable) = ShellRegistry.Probe(e.OwnerPid);
+            var state = ShellRegistry.State(e, ShellRegistry.StartTimeOf(e.Pid), ownerStart, ownerUnreadable);
             if (state == ShellState.Stale)
             {
                 registry.Remove(e.Pid);
@@ -89,25 +90,37 @@ internal static class ShellCommands
             if (!ctx.Log.Confirm($"End {targets.Count} XAE shell(s)?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
 
             var killed = new List<int>();
+            var gone = new List<int>();
             var failed = 0;
             foreach (var r in targets)
             {
-                if (End(r.Entry, ctx.Log))
+                switch (End(r.Entry, ctx.Log))
                 {
-                    registry.Remove(r.Entry.Pid);
-                    killed.Add(r.Entry.Pid);
-                    ctx.Log.Success($"Ended PID {r.Entry.Pid}");
+                    case EndResult.Ended:
+                        registry.Remove(r.Entry.Pid);
+                        killed.Add(r.Entry.Pid);
+                        ctx.Log.Success($"Ended PID {r.Entry.Pid}");
+                        break;
+                    case EndResult.Gone:
+                        registry.Remove(r.Entry.Pid);
+                        gone.Add(r.Entry.Pid);
+                        ctx.Log.Info($"PID {r.Entry.Pid} had already ended");
+                        break;
+                    default:
+                        failed++;
+                        break;
                 }
-                else failed++;
             }
-            var data = new { killed, skipped = rows.Except(targets).Select(r => r.Entry.Pid) };
+            var data = new { killed, gone, skipped = rows.Except(targets).Select(r => r.Entry.Pid) };
             return failed == 0 ? Outcome.Ok(data) : new Outcome(ExitCodes.Failed, data);
         });
         return cmd;
     }
 
+    private enum EndResult { Ended, Gone, Failed }
+
     /// <summary>Ends a recorded shell; the creation time is checked on the same handle that is killed, so a reused PID is never hit.</summary>
-    private static bool End(ShellEntry e, Reporter log)
+    private static EndResult End(ShellEntry e, Reporter log)
     {
         try
         {
@@ -115,18 +128,18 @@ internal static class ShellCommands
             if (!ShellRegistry.IsSame(e, p.StartTime.ToUniversalTime()))
             {
                 log.Detail($"PID {e.Pid} is another process now; not touched.");
-                return true;
+                return EndResult.Gone;
             }
             p.Kill();
-            if (p.WaitForExit(TimeSpan.FromSeconds(10))) return true;
+            if (p.WaitForExit(TimeSpan.FromSeconds(10))) return EndResult.Ended;
             log.Error($"PID {e.Pid} did not end within 10 s.");
-            return false;
+            return EndResult.Failed;
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return true; } // already gone
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return EndResult.Gone; }
         catch (System.ComponentModel.Win32Exception ex)
         {
             log.Error($"Ending PID {e.Pid} failed: {ex.Message}");
-            return false;
+            return EndResult.Failed;
         }
     }
 }

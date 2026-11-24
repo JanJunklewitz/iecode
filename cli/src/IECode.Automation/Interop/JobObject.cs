@@ -46,7 +46,8 @@ internal static class JobObject
         var job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) return IntPtr.Zero;
         var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // BREAKAWAY_OK: a child the shell starts with CREATE_BREAKAWAY_FROM_JOB still starts (outside the job)
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
         var size = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
         var ptr = Marshal.AllocHGlobal(size);
         try
@@ -61,6 +62,7 @@ internal static class JobObject
 
     private const int JobObjectExtendedLimitInformation = 9;
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+    private const uint JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x0800;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
