@@ -23,7 +23,9 @@ public sealed partial class XaeShell
             .ToList();
 
     /// <summary>Sets the active target platform on every TwinCAT project that supports it.</summary>
-    public void SelectPlatform(string platform)
+    public void SelectPlatform(string platform) => Watched(() => SelectPlatformCore(platform));
+
+    private void SelectPlatformCore(string platform)
     {
         var applied = 0;
         foreach (var (_, sysMan, _) in TwinCatProjects())
@@ -41,14 +43,18 @@ public sealed partial class XaeShell
                 "Available: " + string.Join(", ", TargetPlatforms()));
     }
 
-    public void Clean()
+    public void Clean() => Watched(CleanCore);
+
+    private void CleanCore()
     {
         _log.Step("Cleaning…");
         ComCall.Retry(() => { Solution.SolutionBuild.Clean(true); });
     }
 
     /// <summary>Activates a solution configuration such as Debug or Release.</summary>
-    public void SelectConfiguration(string name)
+    public void SelectConfiguration(string name) => Watched(() => SelectConfigurationCore(name));
+
+    private void SelectConfigurationCore(string name)
     {
         var configs = ComCall.Items(ComCall.Retry(() => (object)Solution.SolutionBuild.SolutionConfigurations)).ToList();
         var match = configs.FirstOrDefault(c => string.Equals((string)c.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -64,7 +70,9 @@ public sealed partial class XaeShell
     /// false skips the save before the build and sets <see cref="DiscardChanges"/>; XAE may still save a project it
     /// changed itself while building.
     /// </summary>
-    public BuildResult Build(string? platform, bool save = true)
+    public BuildResult Build(string? platform, bool save = true) => Watched(() => BuildCore(platform, save));
+
+    private BuildResult BuildCore(string? platform, bool save)
     {
         if (platform is not null) SelectPlatform(platform);
         var active = platform ?? TwinCatProjects()
@@ -83,6 +91,7 @@ public sealed partial class XaeShell
         ComCall.Retry(() => { b.Build(false); });
         while (ComCall.Retry(() => (int)b.BuildState) != BuildStateDone)
         {
+            ThrowIfDialogCancelled();
             if (sw.Elapsed > timeout)
                 throw new IECodeException(ExitCodes.Timeout, $"Build did not finish within {timeout.TotalMinutes:0} min.", "Raise the limit with --timeout <seconds>.");
             _log.Status(StatusText());
@@ -106,7 +115,9 @@ public sealed partial class XaeShell
     /// Runs "Check all objects" on every PLC project (faster than a full build, no output files). Errors and warnings
     /// are counted as shown; <c>Ok</c> comes from the raw diagnostics, so the generic last line alone still fails.
     /// </summary>
-    public (int Errors, int Warnings, bool Ok) CheckAllObjects()
+    public (int Errors, int Warnings, bool Ok) CheckAllObjects() => Watched(CheckAllObjectsCore);
+
+    private (int Errors, int Warnings, bool Ok) CheckAllObjectsCore()
     {
         ClearErrorList();
         foreach (var plc in PlcProjects())

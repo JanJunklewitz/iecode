@@ -15,6 +15,8 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly List<Diagnostic> _diagnostics = [];
     private readonly List<string> _messages = [];
+    // the dialog watcher logs from its own thread
+    private readonly Lock _sync = new();
     // ConsoleVt last: it switches the Windows console into ANSI mode, and only matters when colors are wanted.
     // Without that mode (old conhost), colors and the overwriting status line are dropped instead of printed raw.
     private bool _color = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && ConsoleVt.IsAvailable;
@@ -37,12 +39,14 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     /// <summary>Shows a status line that is overwritten by the next one (human mode, interactive only).</summary>
     public void Status(string text)
     {
+        using var _ = _sync.EnterScope();
         if (Json || !_color) return;
         _err.Write("\r\e[2K\e[2m  " + Truncate(text, Math.Max(20, SafeWidth() - 4)) + "\e[0m");
     }
 
     public void ClearStatus()
     {
+        using var _ = _sync.EnterScope();
         if (!Json && _color) _err.Write("\r\e[2K");
     }
 
@@ -55,7 +59,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     private int _printedErrors, _printedWarnings, _hiddenErrors, _hiddenWarnings;
 
     /// <summary>Starts the print limit anew: each build of a command gets its own <see cref="MaxErrors"/>.</summary>
-    public void BeginBuild() => _printedErrors = _printedWarnings = _hiddenErrors = _hiddenWarnings = 0;
+    public void BeginBuild() { lock (_sync) _printedErrors = _printedWarnings = _hiddenErrors = _hiddenWarnings = 0; }
 
     /// <summary>Applied to every diagnostic before it is recorded or printed, e.g. to point paths of an isolated copy back at the source.</summary>
     public Func<Diagnostic, Diagnostic>? MapDiagnostic { get; set; }
@@ -64,6 +68,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
 
     public void Add(Diagnostic d)
     {
+        using var _ = _sync.EnterScope();
         d = Mapped(d);
         _diagnostics.Add(d);
         if (Json) return;
@@ -94,6 +99,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     /// </summary>
     public void Report(Triage t, bool failed)
     {
+        using var _ = _sync.EnterScope();
         BeginBuild();
         if (!Json && t.RootCauses.Count > 0)
         {
@@ -142,6 +148,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
 
     public void Finish(string command, int exitCode, object? data, string? error = null, string? hint = null)
     {
+        using var _ = _sync.EnterScope();
         if (!Json) return;
         var doc = new Result(
             Command: command,
@@ -172,6 +179,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
 
     private void Line(TextWriter w, string text, string? color)
     {
+        using var _ = _sync.EnterScope();
         if (Json)
         {
             _messages.Add(text);

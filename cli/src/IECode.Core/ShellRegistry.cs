@@ -76,6 +76,16 @@ public sealed class ShellRegistry(string folder)
     /// <summary>Orphaned shells are killed; a shell whose iecode still runs only with <paramref name="force"/>; stale ones never.</summary>
     public static bool MayKill(ShellState s, bool force) => s == ShellState.Orphaned || (s == ShellState.Owned && force);
 
+    /// <summary>
+    /// The shell a CreateInstance started, from the shell processes before and after it (taken under the shell-start
+    /// mutex): exactly one new PID, else null (another program started a shell at the same time; nothing is owned).
+    /// </summary>
+    public static int? Started(IEnumerable<int> before, IEnumerable<int> after)
+    {
+        var fresh = after.Except(before).Distinct().ToList();
+        return fresh.Count == 1 ? fresh[0] : null;
+    }
+
     /// <summary>Creation time (UTC) of a running process, or null when there is none with that PID.</summary>
     public static DateTime? StartTimeOf(int pid)
     {

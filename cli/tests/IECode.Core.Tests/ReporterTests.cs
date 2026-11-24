@@ -132,6 +132,37 @@ public class ReporterTests
         using var doc = JsonDocument.Parse(stdout.ToString());
         Assert.True(doc.RootElement.GetProperty("data").TryGetProperty("fresh", out _));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinesFromSeveralThreadsAreAllKept(bool json)
+    {
+        // the dialog watcher logs from its own thread while the command thread logs too
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var r = new Reporter(json, verbose: false, stdout: stdout, stderr: stderr);
+        r.DisableColor();
+        const int perThread = 3000;
+        var threads = Enumerable.Range(0, 4).Select(i => new Thread(() =>
+        {
+            for (var n = 0; n < perThread; n++)
+            {
+                r.Warn($"t{i} line {n}");
+                r.Add(new Diagnostic(Severity.Info, $"t{i} d{n}", null, null, null, null, null));
+            }
+        })).ToList();
+        threads.ForEach(t => t.Start());
+        threads.ForEach(t => t.Join());
+        Assert.Equal(4 * perThread, r.Diagnostics.Count);
+        if (json)
+        {
+            r.Finish("x", 0, null);
+            using var doc = JsonDocument.Parse(stdout.ToString());
+            Assert.Equal(4 * perThread, doc.RootElement.GetProperty("messages").GetArrayLength());
+        }
+        else Assert.Equal(4 * perThread, stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+    }
 }
 
 public class BuildOutcomeTests
