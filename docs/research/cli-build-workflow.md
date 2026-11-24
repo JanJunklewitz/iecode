@@ -162,6 +162,23 @@ The person who did the run answered these questions. "Unknown" means it was not 
 1. **Where does the save noise come from?** Unknown. Only `build` and `lib save` were used, never `check`, and no build
    ran without `SaveAll()`. Next step: build one affected solution twice, once as today and once with `SaveAll()` removed,
    and compare `git status`.
+
+   **Spike (2026-11-24, TwinCAT 4024.66, `--tc 4024`, throwaway copies, clean `git status` before each run):**
+
+   | Run | Small PLC-only solution | Module solution with an external-resources helper project (two `.tspproj`) |
+   |---|---|---|
+   | `build` as today (`SaveAll()`) | `.tmc` and `.xti` (`TmcHash`, `TmcPath`) | both `.tspproj` gain `Target64Bit="true"` |
+   | `build` without `SaveAll()` | same two files, written during the build | one `.tspproj` written during the build, the other one at `Quit` |
+   | as above plus `Solution.Close(false)` before `Quit` | not run | only the `.tspproj` written during the build |
+   | `check` | not run | nothing changed |
+
+   `Quit` returned in under 0.1 s every time. Conclusions: XAE saves a project it made dirty itself before building
+   (the "save all changes before build" behaviour), so removing `SaveAll()` does not remove the `.tspproj` noise;
+   `Solution.Close(false)` removes the part written at `Quit`. `.tmc` / `.xti` hash changes are build output. Decision
+   (plan B decision rule): `build --no-save` is an option, the default keeps saving, and `--isolate` is the answer to a
+   clean tree. Not tested: switching off the shell's save-before-build option, because each build of the module
+   solution runs its after-compile batch file, which outside its usual folder layout waits for a key press and asks
+   for elevation (a side effect a hidden build cannot answer; see section 5).
 2. **Isolation source.** Mostly `git archive HEAD`; twice the working tree (tracked plus untracked) because a fix was
    not committed yet. In one PLC project `HEAD` was **not enough**: a folder of generated, git-ignored files was missing,
    and the build failed with `Unknown type` errors until that folder was copied from the original. Consequence:
