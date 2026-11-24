@@ -128,3 +128,14 @@ public class BuildOutcomeTests
         Assert.Equal(ExitCodes.Ok, BuildOutcome.ExitCode([]));
     }
 }
+
+public class ExitCodeHelpTests
+{
+    [Fact]
+    public void EveryExitCodeHasADescription()
+    {
+        var codes = typeof(ExitCodes).GetFields().Where(f => f.IsLiteral && f.FieldType == typeof(int)).Select(f => (int)f.GetRawConstantValue()!).ToList();
+        var listed = System.Text.RegularExpressions.Regex.Matches(ExitCodes.HelpText, @"(?<=[:,] )(\d+) ").Select(m => int.Parse(m.Groups[1].Value)).ToList();
+        Assert.Equal(codes.Order(), listed.Order());
+    }
+}

@@ -20,6 +20,12 @@ public static class ExitCodes
     public const int NotSupportedPlatform = 20;
     public const int Cancelled = 130;
     public const int Unexpected = 99;
+
+    /// <summary>One line for <c>--help</c>; a test checks it lists every code above (keep it in step with the README table).</summary>
+    public const string HelpText =
+        "Exit codes: 0 ok, 1 failed, 2 usage, 3 not found, 10 build failed, 11 activation, 12 library, 13 protection, " +
+        "14 user management, 15 TwinCAT version missing, 16 target, 17 timeout, 18 IO links changed, " +
+        "19 ADS interface changed, 20 needs Windows, 99 unexpected, 130 cancelled.";
 }
 
 /// <summary>An expected failure with a user-facing message, an exit code and an optional hint.</summary>

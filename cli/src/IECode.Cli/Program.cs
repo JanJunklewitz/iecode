@@ -13,7 +13,8 @@ internal static class Program
         Console.OutputEncoding = Encoding.UTF8;
 
         var root = new RootCommand("iecode – TwinCAT engineering from the command line: build, activate, libraries, protection.\n" +
-                                   "Commands that drive TwinCAT XAE need Windows; file-based commands work on any OS.");
+                                   "Commands that drive TwinCAT XAE need Windows; file-based commands work on any OS.\n" +
+                                   Core.ExitCodes.HelpText);
         Globals.AddTo(root);
         foreach (var c in ProjectCommands.All()) root.Subcommands.Add(c);
         root.Subcommands.Add(LibraryCommands.Create());

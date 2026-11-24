@@ -28,6 +28,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `lib update [paths…] --lib <name> (--to <ver>\|--to latest\|--from-project <plcproj>) [--vendor] [--dry-run]` | Set a library version in every `.plcproj` below the paths. Edits text in place: formatting, BOM and CRLF stay | files |
 | `lib outdated [paths…] [--repository <dir>]` | Pinned references with a newer version in the library repository | files |
 | `lib installed [--lib <name>] [--repository <dir>]` | Libraries in the local library repository | files |
+| `lib check [paths…] [--repository <dir>]…` | Find library references that cannot resolve, before a build: pinned versions that are not installed and `*` references with no version installed. Looks in every library repository of the PC (4024 and 4026 can differ) unless `--repository` is given. Exit 3 when something is missing; JSON `data.problems` | files |
 | `lib restore [paths…] -s <folder>… [--dry-run]` | Install the library versions pinned in the `.plcproj` files that are missing locally (CI, fresh PCs) | TwinCAT (`--dry-run`: files) |
 | `lib install <file\|folder> [--overwrite] [--profile]` | Install libraries (RepTool) | TwinCAT |
 | `lib install-project [paths…] [--missing-only] [--dry-run]` | Install the libraries kept in each project's `_Libraries` folder, like XAE's *Install Project Libraries*; `--missing-only` = *(Unknown versions)* | TwinCAT (`--dry-run`: files) |
@@ -57,6 +58,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `--credential <target>` | Log in with a generic credential from the Windows Credential Manager (asked and saved on first use) |
 | `--visible`, `--show-ui` | Show the XAE window / allow its message boxes (both off by default) |
 | `--timeout <s>` | Abort build or activation after N seconds (default 1800) |
+| `--max-errors <n>` | Print at most N errors (and N warnings) per build; `0` = all. Default 50 on a console, all when stderr is redirected to a file. Root causes are always printed, JSON always has every diagnostic |
 | `--json`, `-v/--verbose`, `--no-color`, `-y/--yes`, `--pause` | Output and interaction |
 
 Commands that change a remote target, delete files or protect a project ask first. In scripts and CI pass `--yes`;
@@ -173,11 +175,15 @@ version 2025-11-25), logs to stderr and ends when stdin closes. It has no ADS co
 
 ```json
 { "command": "build", "ok": false, "exitCode": 10, "durationMs": 18412, "twinCat": "3.1.4024.66",
-  "data": { "builds": [ { "platform": "TwinCAT RT (x64)", "ok": false, "errors": 1, "warnings": 0 } ] },
+  "data": { "builds": [ { "platform": "TwinCAT RT (x64)", "ok": false, "errors": 1, "warnings": 0, "staticAnalysisOnly": false } ] },
   "diagnostics": [ { "severity": "error", "code": "C0077", "message": "Unknown type: 'fSped'",
                      "file": "C:\\…\\FB_Motor.TcPOU", "project": "PLC1", "line": 2, "column": 13 } ],
   "messages": [ "…" ] }
 ```
+
+A diagnostic that causes the others (a library that is not installed or cannot be opened) has `"rootCause": true`;
+`build` and `check` print these first. `staticAnalysisOnly` is `true` when every error of a build is a static
+analysis finding (`SAxxxx`); the exit code stays 10.
 
 ## Exit codes
 

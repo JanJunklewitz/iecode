@@ -2,6 +2,16 @@
 
 All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x …) are pre-releases.
 
+## Unreleased
+
+### CLI
+- **`iecode lib check`** finds library references that cannot resolve before a build: pinned versions that are not installed and `*` references with no version installed, in every library repository of the PC. `build`, `check` and `ws build` run the same check first and warn (they never stop on it).
+- A failed build prints its **root causes first**: the library manager errors (a library that is not installed or cannot be opened), then the other errors, then the follow-up errors counted per library. In `--json` these diagnostics carry `rootCause: true`.
+- **`--max-errors <n>`** limits the printed errors and warnings per build (default 50 on a console, all when stderr goes to a file; `0` = all). JSON always has every diagnostic.
+- A build that fails only on static analysis (`SAxxxx`) says so, and its `builds[]` entry in JSON has `staticAnalysisOnly: true`; the exit code stays 10.
+- The generic "The operation could not be completed" line no longer counts as a compiler error in the output; a build with no other error still fails and says "No compiler errors; see the shell output (-v)".
+- `iecode --help` lists the exit codes.
+
 ## 0.2.23
 
 0.2.22 was not published; its change is part of this release.
