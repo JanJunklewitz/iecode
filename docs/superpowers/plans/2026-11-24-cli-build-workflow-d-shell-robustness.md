@@ -10,6 +10,14 @@
 
 **Spec:** [docs/research/cli-build-workflow.md](../../research/cli-build-workflow.md) section 5; master plan [decisions 10 and 11](2026-11-24-cli-build-workflow-master-plan.md#decisions-planner-2026-11-24-the-user-delegated-every-decision).
 
+## Eng review amendments (2026-11-24)
+
+The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-amendments-2026-11-24) wins over the task text below:
+- **Task 1 (R10):** `ShellEntry` gains `DateTime OwnerStartedUtc`; new `ShellRegistry.OwnerAlive(ShellEntry e, DateTime? ownerActualStartUtc)` with test `LiveOwnerIsSpared`.
+- **Task 2 (R6, R7, R8, R27):** `DialogPolicy.Decide(SeenDialog d, int shellPid, bool userCanAnswer, DateTime nowUtc)`; `SeenDialog` gains `bool Visible, bool OwnerDisabled, DateTime? CancelSentUtc, DateTime? CloseSentUtc`. Actions: `None`, `ConfirmOk`, `Cancel` (modal and visible for 10 s), `Close` (5 s after Cancel), `GiveUp` (5 s after Close: the command fails and `Dispose` terminates the shell). `userCanAnswer` (with `--visible` or `--show-ui`) means `None` for unknown dialogs. Extra tests: `NoCancelWhenUserCanAnswer`, `InvisibleOrModelessIsIgnored`, `CloseAfterCancelHadNoEffect`, `GiveUpAfterClose`. A `COMException` from a shell call while `DialogWatch.Cancelled` is set becomes the dialog `IECodeException` (one helper in `XaeShell`). `Reporter.Line` and `Add` take a lock.
+- **Task 3 (R9, R10, R11):** `shells kill` skips entries with a live owner unless `--force`; `Dispose` waits up to 30 s for the shell process to exit after `Quit`; manual step adds an `iecode activate` run that triggers "Potential symbol type change detected" and checks which process owns it.
+- **Known limits (R29):** a dialog during `CreateInstance` (before the PID is known) is not watched.
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). Runs after Plan B (both edit `XaeShell.Build.cs`). Interop code is not unit-testable; every decision it makes goes through a Core function with tests.

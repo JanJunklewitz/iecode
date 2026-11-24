@@ -10,6 +10,16 @@
 
 **Spec:** [docs/research/cli-build-workflow.md](../../research/cli-build-workflow.md) sections 3, 4, 7 and answers Q6, Q8, Q9; master plan [decisions 1 to 4](2026-11-24-cli-build-workflow-master-plan.md#decisions-planner-2026-11-24-the-user-delegated-every-decision).
 
+## Eng review amendments (2026-11-24)
+
+The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-amendments-2026-11-24) wins over the task text below:
+- **Task 1 (R21):** `XaeShell.Build` and `CheckAllObjects` always also parse the Build pane for `.Library Manager` lines, even when the Error List was read, and merge them (dedupe by message). Test `LibraryManagerLinesFromThePaneAreMerged` with a Core helper `BuildTriage.Merge(IReadOnlyList<Diagnostic> errorList, IReadOnlyList<Diagnostic> pane)`.
+- **Task 3 (R2):** no `StaticAnalysisFailed = 21`; exit stays 10. `BuildResult.StaticAnalysisOnly` goes into JSON `builds[]` and the summary line. Drop the `Errors.cs` change.
+- **Task 3 (R18, R25):** pre-flight logic moves into Core `Preflight.Problems(IEnumerable<PlcProjectFile> projects, IReadOnlyList<InstalledLibrary> installed, ISet<string> workspaceLibraries)`; `ws build` passes the titles of libraries it builds itself. Exit aggregation moves into `BuildOutcome.ExitCode(...)`. Both get tests.
+- **Task 3 (R19, R20):** `Reporter.BeginBuild()` resets the printed counts per build; `MaxErrors` default is 50 on a console and 0 (unlimited) when stderr is redirected. Tests `CountResetsPerBuild`, `RedirectedDefaultIsUnlimited` (the default decision as a pure function `Reporter.DefaultMaxErrors(bool errorRedirected)`).
+- **Task 4 (R28):** generate the exit code help line from the `ExitCodes` constants (reflection) plus a description table; test `EveryExitCodeHasADescription`.
+- **Task 5 (R21):** add a 4026 run (Error List path) to steps 1 and 2.
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). In short: public repo, example names only; `dotnet build` and `dotnet test` as separate PowerShell calls; additive JSON; CHANGELOG and README rows.
@@ -257,7 +267,7 @@ git commit -s -m "Show root causes first and limit printed build errors" -m "The
 - Modify: `extension/CHANGELOG.md` (`## Unreleased`)
 - Test: none (text only); verified by step 2.
 
-- [ ] **Step 1: Append to the root command description** a compact exit code list generated from `ExitCodes` (one line: `Exit codes: 0 ok, 1 failed, 2 usage, 3 not found, 10 build failed, 11 activation, 12 library, 13 protection, 14 user management, 15 TwinCAT version missing, 16 target, 17 timeout, 18 IO links changed, 19 ADS interface changed, 20 needs Windows, 21 static analysis only, 99 unexpected, 130 cancelled.`). Keep it as one constant string next to `ExitCodes` (`ExitCodes.HelpText`) so README and code are compared in review.
+- [ ] **Step 1: Append to the root command description** a compact exit code list generated from `ExitCodes` (one line: `Exit codes: 0 ok, 1 failed, 2 usage, 3 not found, 10 build failed, 11 activation, 12 library, 13 protection, 14 user management, 15 TwinCAT version missing, 16 target, 17 timeout, 18 IO links changed, 19 ADS interface changed, 20 needs Windows, 99 unexpected, 130 cancelled.`). Keep it as one constant string next to `ExitCodes` (`ExitCodes.HelpText`) so README and code are compared in review.
 
 - [ ] **Step 2: Verify**
 

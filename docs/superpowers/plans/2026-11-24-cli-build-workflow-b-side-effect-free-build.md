@@ -10,6 +10,15 @@
 
 **Spec:** [docs/research/cli-build-workflow.md](../../research/cli-build-workflow.md) section 1, 5 (long paths) and answers Q1 to Q3; master plan [decisions 5 to 7](2026-11-24-cli-build-workflow-master-plan.md#decisions-planner-2026-11-24-the-user-delegated-every-decision).
 
+## Eng review amendments (2026-11-24)
+
+The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-amendments-2026-11-24) wins over the task text below:
+- **Task 1 (R13):** the spike also records whether the noise is written at build time or at `Quit` (check `git status` before closing the shell, with `--visible` and a pause) and how long `Quit` takes.
+- **Task 2 (R1, R14):** no `XaeShell.InstalledLines()`. New Core `TwinCatInstall.Builds(string twinCatDir)` lists `Components\Plc\Build_*` (same rule as `RepTool.Find`); `TcLineGuard.Choose(requested, savedStamps, installedBuilds, bool saves)` always gets the list. A line change throws only when `saves` is true; otherwise it returns the stamped or newest build with a `Note` that is printed as a warning. Mixed lines are decided per solution when `StartShell` users open it. Extra tests: `NonSavingCommandWarnsInsteadOfStopping`, `VisualStudioAloneIsNotTwinCat` (no `Build_4026*` folder means no 4026, whatever ProgIDs exist), `BuildsFromFolders`. The stop hint names `--tc` and the VS Code setting `iecode.tcVersion`.
+- **Task 3 (R15):** `WorkingTreeSnapshot.Take` returns null when git is missing; test through an internal `Git.Executable` override pointing at a file that does not exist.
+- **Task 4 (R13, R16):** with `save: false`, `Dispose` calls `Solution.Close(false)` before `Quit`. The long-path warning suggests `--isolate` only when the planned copy path is shorter.
+- **Task 5 (R3, R4, R5, R15, R16, R17):** copy `*.tmc` back after a build (test `CopiesTmcBack`); copy folder `<hash>-<pid>` and cleanup of dead-PID siblings (test `ConcurrentCopiesDoNotCollide`); case-insensitive mapping on Windows only; `RootOf` falls back to the solution folder without git; `--isolate-dir <dir>`; `OutsideRoot` checks every `.sln` project path, every `Include="…"` in `.plcproj` files and every `File="…"` in `.tsproj` / `.xti` files (tests `PlcprojItemOutsideRootIsReported`, `NonTwinCatProjectOutsideRootIsReported`).
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). Plan A is merged first; its `build` changes (pre-flight, summary, exit 21) stay intact.

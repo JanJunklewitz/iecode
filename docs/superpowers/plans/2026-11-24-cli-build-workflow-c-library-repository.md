@@ -10,6 +10,14 @@
 
 **Spec:** [docs/research/cli-build-workflow.md](../../research/cli-build-workflow.md) sections 2, 6, 7 and answers Q4, Q5; master plan [decisions 8 and 9](2026-11-24-cli-build-workflow-master-plan.md#decisions-planner-2026-11-24-the-user-delegated-every-decision).
 
+## Eng review amendments (2026-11-24)
+
+The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-amendments-2026-11-24) wins over the task text below:
+- **Task 1 (R12):** every XAE save that installs (`lib save --install`, `lib save-all --install`, `ws build`, `ws release`) calls `SaveAsLibrary(..., install: false)` and then `RepTool.Install(file, overwrite: true)` inside the lock, so the install always runs in a fresh process. The lock covers only the RepTool call. `AbandonedLockIsAcquired` runs on Windows only (`WindowsOnly.IsWindows`).
+- **Task 2 (R22, R23):** JSON keeps `library` / `version` (first item) and always adds `items`. Without `--lib`, `--vendor` needs `--to latest` (newest per library); `--vendor X --to 1.2.0.0` without `--lib` is exit 2. Test `VendorWithFixedVersionIsAUsageError`; the existing test `VendorWithoutLibTakesAllReferencedLibrariesOfThatVendor` uses `--to latest`.
+- **Task 3 (R26):** `uninstall --all` prints the repository folder it read the names from.
+- **Task 4 (R24, R26):** the `dist/` default also applies to `encrypt --compiled-library`; update its `--out` help. `*` resolution and the stray warning use `RepositoryPath` (one repository, as `lib outdated`), not the merged scan.
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). Plan A's `lib check` is in `LibraryCommands.cs`; keep it.
