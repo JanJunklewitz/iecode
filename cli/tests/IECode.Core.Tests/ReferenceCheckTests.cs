@@ -77,3 +77,42 @@ public sealed class ReferenceCheckTests : IDisposable
     public void ScanAllWithoutAnyRepositoryIsEmpty() =>
         Assert.Empty(LibraryRepository.ScanAll([_ws["nope1"], _ws["nope2"]]));
 }
+
+public sealed class PreflightTests : IDisposable
+{
+    private readonly TempWorkspace _ws = new();
+    public void Dispose() => _ws.Dispose();
+
+    private PlcProjectFile Project(string resolution)
+    {
+        var path = _ws["Pre/PLC1/PLC1.plcproj"];
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <Project><PropertyGroup><Name>PLC1</Name></PropertyGroup><ItemGroup>
+              <PlaceholderReference Include="Tc3_MotorLib"><DefaultResolution>{resolution}</DefaultResolution></PlaceholderReference>
+            </ItemGroup></Project>
+            """);
+        return PlcProjectFile.Load(path);
+    }
+
+    [Fact]
+    public void ReportsWhatTheCheckReports() =>
+        Assert.Single(Preflight.Problems([Project("Tc3_MotorLib, 1.2.0.0 (Example)")], [], []));
+
+    [Fact]
+    public void SkipsTheExactVersionTheWorkspaceInstalls() =>
+        Assert.Empty(Preflight.Problems([Project("Tc3_MotorLib, 1.2.0.0 (Example)")], [], [new LibraryId("tc3_motorlib", "1.2.0.0", "example")]));
+
+    [Fact]
+    public void AnotherVersionOrVendorFromTheWorkspaceDoesNotHide()
+    {
+        var project = Project("Tc3_MotorLib, 1.2.0.0 (Example)");
+        Assert.Single(Preflight.Problems([project], [], [new LibraryId("Tc3_MotorLib", "1.3.0.0", "Example")]));
+        Assert.Single(Preflight.Problems([project], [], [new LibraryId("Tc3_MotorLib", "1.2.0.0", "Other")]));
+    }
+
+    [Fact]
+    public void StarReferenceIsSatisfiedByAnyWorkspaceVersion() =>
+        Assert.Empty(Preflight.Problems([Project("Tc3_MotorLib, * (Example)")], [], [new LibraryId("Tc3_MotorLib", "1.3.0.0", "Example")]));
+}

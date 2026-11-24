@@ -25,6 +25,7 @@ internal static class Runner
     {
         var log = new Reporter(!protocolStdout && parse.GetValue(Globals.Json), parse.GetValue(Globals.Verbose));
         if (parse.GetValue(Globals.NoColor)) log.DisableColor();
+        if (parse.GetValue(Globals.MaxErrors) is int max) log.MaxErrors = Math.Max(0, max);
         var name = FullName(command);
         int code;
         try

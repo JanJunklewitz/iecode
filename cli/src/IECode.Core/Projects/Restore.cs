@@ -11,6 +11,17 @@ public enum ReferenceProblemKind { VersionMissing, NoVersionInstalled }
 public sealed record ReferenceProblem(string Name, string Version, string Vendor, ReferenceProblemKind Kind, IReadOnlyList<string> Projects);
 
 /// <summary>
+/// The library check before a build. Warns only: the line chosen at start may use another repository than the ones
+/// scanned. Libraries the command builds and installs itself (<c>ws build</c>) count as installed, by exact identity.
+/// </summary>
+public static class Preflight
+{
+    public static IReadOnlyList<ReferenceProblem> Problems(
+        IEnumerable<PlcProjectFile> projects, IReadOnlyList<InstalledLibrary> installed, IReadOnlyCollection<LibraryId> willInstall) =>
+        Restore.Check(projects, [.. installed, .. willInstall.Select(l => new InstalledLibrary(l.Name, l.Version, l.Vendor, ""))]);
+}
+
+/// <summary>
 /// Plans <c>iecode lib restore</c>: the .plcproj files are the source of truth (pinned versions);
 /// everything not in the library repository is looked up in source folders
 /// (files named <c>&lt;Name&gt;_&lt;Version&gt;.library</c> or <c>.compiled-library</c>).

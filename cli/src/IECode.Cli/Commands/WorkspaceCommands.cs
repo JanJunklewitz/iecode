@@ -117,6 +117,10 @@ internal static class WorkspaceCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode ws build' needs Windows with TwinCAT XAE.", "Use --dry-run to see the build order on any OS.");
 
+            // libraries built here are saved and installed before their users, so they are not missing
+            var willInstall = order.Where(u => u.Plc.IsLibrary).Select(u => new LibraryId(u.Plc.Title!, u.Plc.ProjectVersion!, u.Plc.Company!)).ToList();
+            LibraryCommands.Preflight(ctx, order.Select(u => u.Plc), willInstall);
+
             var results = new List<object>();
             using var shell = StartShell(ctx);
             var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -127,7 +131,7 @@ internal static class WorkspaceCommands
                 if (!done.Add(u.Solution!.Path)) continue;
                 shell.OpenSolution(u.Solution.Path);
                 var r = shell.Build(null);
-                results.Add(new { unit = u.Id, r.Ok, r.Errors, r.Warnings, r.Seconds });
+                results.Add(new { unit = u.Id, r.Ok, r.Errors, r.Warnings, r.Seconds, r.StaticAnalysisOnly });
                 if (!r.Ok)
                 {
                     ctx.Log.Error($"[{step}/{order.Count}] {u.Id}: build failed ({r.Errors} error(s)); stopping.");

@@ -77,6 +77,7 @@ internal static class ProjectCommands
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
+            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects, []);
             var results = WithShell(ctx, path, shell =>
             {
                 if (ctx.Get(configuration) is { } c) shell.SelectConfiguration(c);
@@ -88,11 +89,11 @@ internal static class ProjectCommands
                     var r = shell.Build(platform);
                     list.Add(r);
                     if (r.Ok) ctx.Log.Success($"{r.Platform}: build ok · {r.Warnings} warning(s) · {r.Seconds:0.0} s");
-                    else ctx.Log.Error($"{r.Platform}: build failed · {r.Errors} error(s) · {r.Warnings} warning(s)");
+                    else ctx.Log.Error($"{r.Platform}: build failed{(r.StaticAnalysisOnly ? " on static analysis only" : "")} · {r.Errors} error(s) · {r.Warnings} warning(s)");
                 }
                 return list;
             });
-            return new Outcome(results.All(r => r.Ok) ? ExitCodes.Ok : ExitCodes.BuildFailed, new { solution = path, builds = results });
+            return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results });
         }, windowsOnly: true);
         return cmd;
     }
@@ -104,6 +105,7 @@ internal static class ProjectCommands
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
+            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects, []);
             var (errors, warnings) = WithShell(ctx, path, shell => shell.CheckAllObjects());
             if (errors == 0) ctx.Log.Success($"Check ok · {warnings} warning(s)");
             else ctx.Log.Error($"Check found {errors} error(s), {warnings} warning(s)");

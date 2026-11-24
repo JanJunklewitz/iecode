@@ -5,8 +5,12 @@ using IECode.Core;
 
 namespace IECode.Automation;
 
-/// <summary>Outcome of building one target platform.</summary>
-public sealed record BuildResult(string Platform, bool Ok, int FailedProjects, int Errors, int Warnings, BuildSummary? Summary, double Seconds);
+/// <summary>
+/// Outcome of building one target platform. <see cref="StaticAnalysisOnly"/>: every error is a static analysis
+/// finding (SAxxxx); the exit code stays 10.
+/// </summary>
+public sealed record BuildResult(string Platform, bool Ok, int FailedProjects, int Errors, int Warnings, BuildSummary? Summary, double Seconds,
+    bool StaticAnalysisOnly = false);
 
 public sealed partial class XaeShell
 {
@@ -83,12 +87,23 @@ public sealed partial class XaeShell
 
         var failedProjects = ComCall.Retry(() => (int)b.LastBuildInfo);
         var output = ReadOutputPane("Build");
-        var diags = ReadErrorList() ?? BuildOutput.Parse(output);
-        foreach (var d in diags) _log.Add(d);
+        var diags = ReadDiagnostics(output);
         var summary = BuildSummary.TryParse(output);
-        var errors = diags.Count(d => d.Severity == Severity.Error);
-        var ok = failedProjects == 0 && errors == 0 && (summary?.Failed ?? 0) == 0;
-        return new BuildResult(active, ok, failedProjects, errors, diags.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds);
+        var ok = BuildOutcome.Ok(failedProjects, diags, summary);
+        var triage = BuildTriage.Classify(diags);
+        _log.Report(triage, failed: !ok);
+        return new BuildResult(active, ok, failedProjects, diags.Count(d => d.Severity == Severity.Error),
+            diags.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds, triage.StaticAnalysisOnly);
+    }
+
+    /// <summary>
+    /// The Error List items plus the library manager lines of the Build pane (they can be missing from the Error
+    /// List), or the parsed Build pane when the Error List is not readable.
+    /// </summary>
+    private IReadOnlyList<Diagnostic> ReadDiagnostics(string output)
+    {
+        var pane = BuildOutput.Parse(output);
+        return ReadErrorList() is { } errorList ? BuildTriage.Merge(errorList, pane) : pane;
     }
 
     /// <summary>Runs "Check all objects" on every PLC project (faster than a full build, no output files).</summary>
@@ -106,9 +121,10 @@ public sealed partial class XaeShell
             }
         }
         WaitUntilIdle();
-        var diags = ReadErrorList() ?? BuildOutput.Parse(ReadOutputPane("Build"));
-        foreach (var d in diags) _log.Add(d);
-        return (diags.Count(d => d.Severity == Severity.Error), diags.Count(d => d.Severity == Severity.Warning));
+        var diags = ReadDiagnostics(ReadOutputPane("Build"));
+        var errors = diags.Count(d => d.Severity == Severity.Error);
+        _log.Report(BuildTriage.Classify(diags), failed: errors > 0);
+        return (errors, diags.Count(d => d.Severity == Severity.Warning));
     }
 
     // EnvDTE.Constants.vsWindowKindErrorList / vsWindowKindOutput

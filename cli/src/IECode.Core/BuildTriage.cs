@@ -8,7 +8,7 @@ public sealed record FollowUpGroup(string Key, int Errors);
 /// <summary>
 /// Diagnostics of one build, sorted for display. <see cref="All"/> is the input with root causes marked and the
 /// generic last line turned into <see cref="Severity.Info"/>; <see cref="Errors"/> counts the errors in it.
-/// Display only: exit codes come from the raw signals (see BuildOutcome).
+/// Display only: exit codes come from the raw signals (see <see cref="BuildOutcome"/>).
 /// </summary>
 public sealed record Triage(
     IReadOnlyList<Diagnostic> All,
@@ -16,6 +16,19 @@ public sealed record Triage(
     IReadOnlyList<FollowUpGroup> FollowUps,
     bool StaticAnalysisOnly,
     int Errors);
+
+/// <summary>
+/// Whether a build or check failed, from the raw signals only: the triage changes what is shown, never the result,
+/// so the generic last line still fails a build that has no other error.
+/// </summary>
+public static class BuildOutcome
+{
+    public static bool Ok(int failedProjects, IReadOnlyList<Diagnostic> raw, BuildSummary? summary) =>
+        failedProjects == 0 && !raw.Any(d => d.Severity == Severity.Error) && (summary?.Failed ?? 0) == 0;
+
+    /// <summary>Exit code of a command that ran several builds: 10 when any of them failed.</summary>
+    public static int ExitCode(IEnumerable<bool> buildsOk) => buildsOk.All(ok => ok) ? ExitCodes.Ok : ExitCodes.BuildFailed;
+}
 
 /// <summary>
 /// Finds the few errors that cause the rest: a missing library makes every user of it fail, and those follow-up

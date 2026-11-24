@@ -289,6 +289,25 @@ internal static class LibraryCommands
         ? $"{p.Name} * ({p.Vendor}): no version installed · used by {string.Join(", ", p.Projects)}"
         : $"{p.Name} {p.Version} ({p.Vendor}) not installed · used by {string.Join(", ", p.Projects)}";
 
+    /// <summary>
+    /// The library check before a build: warns, never fails. Libraries the command installs itself
+    /// (<paramref name="willInstall"/>) count as installed.
+    /// </summary>
+    internal static void Preflight(Context ctx, IEnumerable<PlcProjectFile> projects, IReadOnlyCollection<LibraryId> willInstall)
+    {
+        var roots = DefaultRepositories().Where(Directory.Exists).ToList();
+        if (roots.Count == 0) { ctx.Log.Warn("Library references not checked: no library repository found."); return; }
+        IReadOnlyList<ReferenceProblem> problems;
+        try { problems = Core.Projects.Preflight.Problems(projects, LibraryRepository.ScanAll(roots), willInstall); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            ctx.Log.Warn($"Library references not checked: {e.Message}");
+            return;
+        }
+        foreach (var p in problems) ctx.Log.Warn(Describe(p));
+        if (problems.Count > 0) ctx.Log.Warn("The build will likely fail on these libraries; details: iecode lib check");
+    }
+
     private static Command Check()
     {
         var paths = PathsArg("Projects to check");

@@ -23,13 +23,19 @@ internal static class Globals
     public static readonly Option<bool> ShowUi = new("--show-ui") { Description = "Allow XAE message boxes (default: suppressed)", Recursive = true };
     public static readonly Option<int?> Timeout = new("--timeout") { Description = "Abort build/activation after N seconds (default 1800)", Recursive = true };
 
+    public static readonly Option<int?> MaxErrors = new("--max-errors")
+    {
+        Description = "Print at most N errors (and N warnings) per build; 0 = all (default: 50 on a console, all when stderr is redirected). JSON always has all; root causes are always printed",
+        Recursive = true,
+    };
+
     public static readonly Option<string?> UserDb = new("--userdb") { Description = "TwinCAT user database (.tcudb) to select before opening the project", Recursive = true };
     public static readonly Option<string?> User = new("--user") { Description = "Log in to TwinCAT user management (password from IECODE_PASSWORD or prompt)", Recursive = true };
     public static readonly Option<string?> Credential = new("--credential") { Description = "Log in with a generic Windows credential (Credential Manager target name)", Recursive = true };
 
     public static void AddTo(RootCommand root)
     {
-        foreach (var o in new Option[] { Json, Verbose, NoColor, Yes, Pause, Tc, ProgId, Visible, ShowUi, Timeout, UserDb, User, Credential })
+        foreach (var o in new Option[] { Json, Verbose, NoColor, Yes, Pause, Tc, ProgId, Visible, ShowUi, Timeout, MaxErrors, UserDb, User, Credential })
             root.Options.Add(o);
     }
 }
