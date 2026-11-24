@@ -77,23 +77,75 @@ internal static class ProjectCommands
         {
             Description = "Don't save the solution before building, and close it without saving (XAE may still save a project it changes while building)",
         };
-        var cmd = new Command("build", "Build the solution with TwinCAT XAE and report compiler messages") { sln, platforms, clean, configuration, noSave };
+        var isolate = new Option<bool>("--isolate")
+        {
+            Description = "Build in a temporary copy of the repository (ignored files included), so the working tree stays as it is",
+        };
+        var keepIsolated = new Option<bool>("--keep-isolated") { Description = "With --isolate: keep the copy and print its path" };
+        var isolateDir = new Option<string?>("--isolate-dir") { Description = "With --isolate: parent folder of the copy (default: %TEMP%\\iecode\\b)" };
+        var copyTmc = new Option<bool>("--copy-tmc") { Description = "With --isolate: copy the .tmc files the build wrote back next to the PLC projects" };
+        var cmd = new Command("build", "Build the solution with TwinCAT XAE and report compiler messages")
+            { sln, platforms, clean, configuration, noSave, isolate, keepIsolated, isolateDir, copyTmc };
+        cmd.Validators.Add(r =>
+        {
+            if (!r.GetValue(isolate) && (r.GetValue(keepIsolated) || r.GetValue(isolateDir) is not null || r.GetValue(copyTmc)))
+                r.AddError("--keep-isolated, --isolate-dir and --copy-tmc need --isolate.");
+        });
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
             LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
             var folder = Path.GetDirectoryName(path)!;
-            WarnLongPath(ctx, folder);
+            var root = Isolation.RootOf(path);
+            var dir = ctx.Get(isolateDir) ?? Isolation.DefaultDir;
+            WarnLongPath(ctx, folder, root, Isolation.CopyRootFor(root, dir, Environment.ProcessId), ctx.Get(isolate));
+            if (ctx.Get(isolate)) return BuildIsolated(root, dir);
+
             var save = !ctx.Get(noSave);
             var before = WorkingTreeSnapshot.Take(folder);
             IReadOnlyList<string>? changed = null;
             List<BuildResult> results;
             // also after a failed or broken-off build: its side effects are in the tree all the same
-            try { results = WithShell(ctx, path, saves: save, BuildAll); }
+            try { results = WithShell(ctx, path, saves: save, shell => BuildAll(shell, save)); }
             finally { changed = ReportChanges(ctx, before, folder); }
             return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results, changedFiles = changed });
 
-            List<BuildResult> BuildAll(XaeShell shell)
+            Outcome BuildIsolated(string root, string dir)
+            {
+                if (Isolation.OutsideRoot(path, root) is { Count: > 0 } outside)
+                    throw new IECodeException(ExitCodes.Usage,
+                        $"--isolate copies '{root}', but the solution references files outside of it or by absolute path:\n  " + string.Join("\n  ", outside),
+                        "Build without --isolate, or make the references relative and inside the repository.");
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var copy = Isolation.Create(path, dir);
+                copy.Keep = ctx.Get(keepIsolated);
+                ctx.Log.Step($"Isolated copy: {copy.CopyRoot} ({copy.Files} files, {sw.Elapsed.TotalSeconds:0.0} s)");
+                IReadOnlyList<string> tmc = [];
+                try
+                {
+                    ctx.Log.MapDiagnostic = d => Isolation.MapBack(d, copy);
+                    var started = DateTime.UtcNow;
+                    // the copy is thrown away: nothing to save, and no line change can reach the working tree
+                    var list = WithShell(ctx, copy.Solution, saves: false, shell => BuildAll(shell, save: false));
+                    if (ctx.Get(copyTmc))
+                    {
+                        tmc = Isolation.CopyTmcBack(copy, started);
+                        ctx.Log.Info($"Copied {tmc.Count} .tmc file(s) back");
+                        foreach (var f in tmc) ctx.Log.Detail($"  {f}");
+                    }
+                    return new Outcome(BuildOutcome.ExitCode(list.Select(r => r.Ok)),
+                        new { solution = path, builds = list, isolatedCopy = copy.Keep ? copy.CopyRoot : null, tmcCopied = tmc });
+                }
+                finally
+                {
+                    ctx.Log.MapDiagnostic = null;
+                    if (copy.Keep) ctx.Log.Info($"Kept the isolated copy: {copy.CopyRoot}");
+                    else if (!copy.TryDelete(TimeSpan.FromSeconds(15)))
+                        ctx.Log.Warn($"Could not delete the isolated copy {copy.CopyRoot} (files still in use); a later --isolate run removes it after 24 h.");
+                }
+            }
+
+            List<BuildResult> BuildAll(XaeShell shell, bool save)
             {
                 if (ctx.Get(configuration) is { } c) shell.SelectConfiguration(c);
                 var list = new List<BuildResult>();
@@ -113,11 +165,10 @@ internal static class ProjectCommands
     }
 
     /// <summary>Warns about a project file path long enough to make the hidden shell show dialogs.</summary>
-    internal static void WarnLongPath(Context ctx, string folder)
+    internal static void WarnLongPath(Context ctx, string folder, string root, string copyRoot, bool isolating)
     {
         if (PathLength.Longest(folder) is not { } longest) return;
-        var copyRoot = Path.Combine(Path.GetTempPath(), "iecode", "b", "00000000-00000");
-        ctx.Log.Warn(PathLength.Warning(longest, folder, copyRoot));
+        if (PathLength.Warning(longest, root, copyRoot, isolating) is { } warning) ctx.Log.Warn(warning);
     }
 
     /// <summary>Prints how many files the build changed in git status (the list with -v); null without git or a repository.</summary>

@@ -57,8 +57,14 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     /// <summary>Starts the print limit anew: each build of a command gets its own <see cref="MaxErrors"/>.</summary>
     public void BeginBuild() => _printedErrors = _printedWarnings = _hiddenErrors = _hiddenWarnings = 0;
 
+    /// <summary>Applied to every diagnostic before it is recorded or printed, e.g. to point paths of an isolated copy back at the source.</summary>
+    public Func<Diagnostic, Diagnostic>? MapDiagnostic { get; set; }
+
+    private Diagnostic Mapped(Diagnostic d) => MapDiagnostic is { } map ? map(d) : d;
+
     public void Add(Diagnostic d)
     {
+        d = Mapped(d);
         _diagnostics.Add(d);
         if (Json) return;
         if (d.Severity == Severity.Error && !Within(ref _printedErrors, ref _hiddenErrors)) return;
@@ -92,11 +98,11 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
         if (!Json && t.RootCauses.Count > 0)
         {
             Line(_err, "Root causes:", "\e[31m");
-            foreach (var d in t.RootCauses) Print(d);
+            foreach (var d in t.RootCauses) Print(Mapped(d));
         }
         foreach (var d in t.All)
         {
-            if (d.RootCause == true) _diagnostics.Add(d);
+            if (d.RootCause == true) _diagnostics.Add(Mapped(d));
             else Add(d);
         }
         if (Json) return;

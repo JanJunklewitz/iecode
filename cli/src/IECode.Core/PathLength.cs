@@ -43,12 +43,16 @@ public static class PathLength
 
     /// <summary>
     /// The warning for a long path below <paramref name="root"/>; suggests <c>--isolate</c> only when the same file in the
-    /// copy at <paramref name="copyRoot"/> would be shorter.
+    /// copy at <paramref name="copyRoot"/> would be shorter. When <paramref name="isolating"/>, the build runs in that copy:
+    /// null unless the path there is still long.
     /// </summary>
-    public static string Warning(string longest, string root, string copyRoot)
+    public static string? Warning(string longest, string root, string copyRoot, bool isolating = false)
     {
         var inCopy = longest.Length - root.TrimEnd('\\', '/').Length + copyRoot.TrimEnd('\\', '/').Length;
-        return $"Path of {longest.Length} characters: {longest}. Hidden shells may show dialogs for long paths"
+        const string Risk = "Hidden shells may show dialogs for long paths";
+        if (isolating)
+            return inCopy < WarnAt ? null : $"Path of {inCopy} characters in the isolated copy (from {longest}). {Risk}; pass a shorter --isolate-dir.";
+        return $"Path of {longest.Length} characters: {longest}. {Risk}"
             + (inCopy < longest.Length ? $"; --isolate builds in a copy where it has {inCopy}." : ".");
     }
 }

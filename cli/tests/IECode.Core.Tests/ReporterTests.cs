@@ -30,6 +30,17 @@ public class ReporterTests
     }
 
     [Fact]
+    public void MapDiagnosticRewritesEveryRecordedDiagnostic()
+    {
+        var r = Human(out var err);
+        r.MapDiagnostic = d => d with { File = d.File?.Replace("copy", "source") };
+        var ds = new[] { new Diagnostic(Severity.Error, RootCauseText, File: "copy/a.TcPOU", Project: "PLC1"), new Diagnostic(Severity.Error, "e", File: "copy/b.TcPOU") };
+        r.Report(BuildTriage.Classify(ds), failed: true);
+        r.Add(new Diagnostic(Severity.Warning, "w", File: "copy/c.TcPOU"));
+        Assert.Equal(["source/a.TcPOU", "source/b.TcPOU", "source/c.TcPOU"], r.Diagnostics.Select(d => d.File).Order());
+    }
+
+    [Fact]
     public void ZeroMeansUnlimited()
     {
         var r = Human(out var err); r.MaxErrors = 0;

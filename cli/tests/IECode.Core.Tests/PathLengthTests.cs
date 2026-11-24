@@ -36,4 +36,13 @@ public class PathLengthTests
         Assert.Contains("--isolate", PathLength.Warning(file, root, @"C:\t\b\1234abcd-42"));
         Assert.DoesNotContain("--isolate", PathLength.Warning(file, root, root + @"\even\longer\copy\root"));
     }
+
+    [Fact] public void IsolatedBuildIsJudgedByThePathInTheCopy()
+    {
+        var root = @"C:\a\very\long\root\folder\name";
+        var file = root + @"\PLC\" + new string('x', 160) + ".TcPOU";
+        Assert.Null(PathLength.Warning(file, root, @"C:\t\b\1234abcd-42", isolating: true));
+        var stillLong = PathLength.Warning(file, root, @"C:\t\much\longer\isolate\dir\b\1234abcd-42", isolating: true);
+        Assert.Contains("--isolate-dir", stillLong);
+    }
 }
