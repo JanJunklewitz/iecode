@@ -21,18 +21,19 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `encrypt [sln] --protect "<tree path>,encrypted=true,signed=true,level=<name>"…` | Object protection with TwinCAT 3 Security Management (encryption, signing, protection level) | XAE |
 | `encrypt [sln] --compiled-library [--plc <name>] [--out <dir>]` | Ship a library without source | XAE |
 | `user status` | Active TwinCAT user (after `--userdb` / `--user` / `--credential`) | XAE |
-| `lib save [sln] [--compiled] [--install] [--plc <name>] [-o <dir>]` | Save a PLC project as `<Title>_<Version>.library` / `.compiled-library` | XAE |
+| `lib save [sln] [--compiled] [--install] [--plc <name>] [-o <dir>]` | Save a PLC project as `<Title>_<Version>.library` / `.compiled-library`. Default output: `dist` next to the solution. `--install` installs the saved file with RepTool, with the TwinCAT build the shell used | XAE |
 | `lib save-all [folder] [--compiled] [--install] [--libraries-only] [-o <dir>\|--dist <name>] [--fail-fast] [--dry-run]` | Save every PLC project of a workspace as `.library` / `.compiled-library` with one XAE shell, in build order (with `--install` libraries are installed before their users). Default output: `dist` next to each solution. Continues after a failure and exits with an error at the end unless `--fail-fast` | XAE (`--dry-run`: files) |
-| `lib list [paths…] [--csv <file>]` | Library references and the version that applies (pinned or `*`) | files |
+| `lib list [paths…] [--csv <file>] [--repository <dir>]` | Library references and the version that applies (pinned or `*`); for `*` also the highest installed version in the library repository (JSON `resolvedVersion`) | files |
 | `lib info [paths…]` | Title, company and version of library projects | files |
-| `lib update [paths…] --lib <name> (--to <ver>\|--to latest\|--from-project <plcproj>) [--vendor] [--dry-run]` | Set a library version in every `.plcproj` below the paths. Edits text in place: formatting, BOM and CRLF stay | files |
+| `lib update [paths…] --lib <name>[=<ver>]… [--to <ver>\|--to latest\|--from-project <plcproj>] [--vendor] [--dry-run]` | Set library versions in every `.plcproj` below the paths. `--lib` is repeatable; `name=version` pairs cannot be combined with `--to`. `--vendor` without `--lib` updates every library of that vendor, each to its newest installed version (`--to latest` only). Checks every version and file before the first write. Edits text in place: formatting, BOM and CRLF stay. JSON keeps `library` / `version` (first item) and adds `items` | files |
 | `lib outdated [paths…] [--repository <dir>]` | Pinned references with a newer version in the library repository | files |
-| `lib installed [--lib <name>] [--repository <dir>]` | Libraries in the local library repository | files |
+| `lib installed [--lib <pattern>] [--vendor <vendor>] [--repository <dir>]` | Libraries in the local library repository; `--lib` takes `*` and `?` as wildcards (e.g. `Tc3_*`) | files |
 | `lib check [paths…] [--repository <dir>]…` | Find library references that cannot resolve, before a build: pinned versions that are not installed and `*` references with no version installed. Looks in every library repository of the PC (4024 and 4026 can differ) unless `--repository` is given. Exit 3 when something is missing; JSON `data.problems` | files |
 | `lib restore [paths…] -s <folder>… [--dry-run]` | Install the library versions pinned in the `.plcproj` files that are missing locally (CI, fresh PCs) | TwinCAT (`--dry-run`: files) |
 | `lib install <file\|folder> [--overwrite] [--profile]` | Install libraries (RepTool) | TwinCAT |
 | `lib install-project [paths…] [--missing-only] [--dry-run]` | Install the libraries kept in each project's `_Libraries` folder, like XAE's *Install Project Libraries*; `--missing-only` = *(Unknown versions)* | TwinCAT (`--dry-run`: files) |
 | `lib uninstall <name>… --vendor <vendor> [--version all]` | Remove libraries (RepTool) | TwinCAT |
+| `lib uninstall --all --vendor <vendor> --version <ver> [--repository <dir>]` | Remove every library of a vendor installed at one version; the names come from the library repository it prints (`--repository` is needed when the PC has several). Exit 3 when nothing matches | TwinCAT |
 | `ws list [folder]` | Libraries, applications and standalone PLC projects in a workspace folder | files |
 | `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |
 | `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run] [--no-save]` | Build in dependency order with one XAE shell per TwinCAT line; workspace libraries are saved + installed before their users. `--no-save` as in `build` | XAE (`--dry-run`: files) |
@@ -57,7 +58,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `--user <name>` | Log in to TwinCAT user management; password from `IECODE_PASSWORD` or a prompt |
 | `--credential <target>` | Log in with a generic credential from the Windows Credential Manager (asked and saved on first use) |
 | `--visible`, `--show-ui` | Show the XAE window / allow its message boxes (both off by default) |
-| `--timeout <s>` | Abort build or activation after N seconds (default 1800) |
+| `--timeout <s>` | Abort build or activation after N seconds (default 1800). Also limits how long a library install waits for another one and how long one RepTool run may take |
 | `--max-errors <n>` | Print at most N errors (and N warnings) per build; `0` = all. Default 50 on a console, all when stderr is redirected to a file. Root causes are always printed, JSON always has every diagnostic |
 | `--json`, `-v/--verbose`, `--no-color`, `-y/--yes`, `--pause` | Output and interaction |
 
