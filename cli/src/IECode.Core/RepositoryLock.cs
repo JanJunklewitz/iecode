@@ -7,7 +7,8 @@ namespace IECode.Core;
 /// installs from several iecode runs left a version listed but unusable. <c>Local\</c> limits the lock to one Windows
 /// session, where parallel runs happen; it is not a machine-wide guarantee.
 /// A file next to the mutex records the PID of the RepTool the holder started. When a holder dies without releasing
-/// (the mutex is abandoned), its RepTool may still write; the next holder waits for that process to end.
+/// (the mutex is abandoned), or a RepTool cannot be stopped after a timeout, it may still write; the next holder
+/// waits for that process to end. The record is per user (local application data), like the session-wide mutex.
 /// </summary>
 public sealed class RepositoryLock : IDisposable
 {
@@ -26,13 +27,19 @@ public sealed class RepositoryLock : IDisposable
 
     /// <summary>
     /// Takes the lock, waiting up to <paramref name="timeout"/> (exit 17 after that). Logs once when it has to wait.
-    /// An abandoned mutex counts as acquired once the dead holder's recorded writer has ended. Release it on the
-    /// thread that acquired it.
+    /// An abandoned mutex counts as acquired. Every holder then waits for a recorded writer that still runs (the RepTool
+    /// of a holder that died, or one that could not be stopped after a timeout). Release it on the thread that acquired it.
     /// </summary>
     public static RepositoryLock Acquire(Reporter log, TimeSpan timeout, string name = Name)
     {
         var clock = Stopwatch.StartNew();
-        var mutex = new Mutex(false, name);
+        Mutex mutex;
+        try { mutex = new Mutex(false, name); }
+        catch (UnauthorizedAccessException)
+        {
+            throw new IECodeException(ExitCodes.Failed, "The library repository lock belongs to an iecode running as administrator.",
+                "Run this iecode as administrator too, or wait until the other one has ended.");
+        }
         bool abandoned = false, owned;
         try
         {
@@ -54,11 +61,8 @@ public sealed class RepositoryLock : IDisposable
         var held = new RepositoryLock(mutex, WriterFile(name));
         try
         {
-            if (abandoned)
-            {
-                log.Detail("The previous holder of the library repository lock ended without releasing it.");
-                held.WaitForWriter(log, timeout - clock.Elapsed);
-            }
+            if (abandoned) log.Detail("The previous holder of the library repository lock ended without releasing it.");
+            held.WaitForWriter(log, timeout - clock.Elapsed);
             return held;
         }
         catch { held.Dispose(); throw; }
@@ -88,9 +92,9 @@ public sealed class RepositoryLock : IDisposable
         if (Writer() is not { } writer) return;
         using (writer)
         {
-            log.Warn($"Waiting for the RepTool (PID {writer.Id}) of an aborted iecode to finish…");
+            log.Warn($"Waiting for the RepTool (PID {writer.Id}) started by an earlier iecode to finish…");
             if (!writer.WaitForExit(timeout < TimeSpan.Zero ? TimeSpan.Zero : timeout))
-                throw new IECodeException(ExitCodes.Timeout, $"The RepTool (PID {writer.Id}) of an aborted iecode is still writing to the library repository.",
+                throw new IECodeException(ExitCodes.Timeout, $"The RepTool (PID {writer.Id}) started by an earlier iecode is still writing to the library repository.",
                     "Wait for it to finish, or end it in the Task Manager.");
         }
         ClearWriter();
@@ -116,13 +120,13 @@ public sealed class RepositoryLock : IDisposable
     }
 
     private static string WriterFile(string name) =>
-        Path.Combine(Path.GetTempPath(), "iecode", "locks", string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_')) + ".writer");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "iecode", "locks", string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_')) + ".writer");
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        ClearWriter();
+        // the writer record stays: RepTool.Run clears it once its RepTool has ended, so one that could not be stopped is waited for
         _mutex.ReleaseMutex();
         _mutex.Dispose();
     }

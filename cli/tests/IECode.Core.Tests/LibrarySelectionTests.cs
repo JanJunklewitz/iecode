@@ -53,6 +53,10 @@ public sealed class LibrarySelectionTests : IDisposable
         Assert.Equal(ExitCodes.Usage, UsageOf(() => LibrarySelection.ParseUpdate([], "1.2.0.0", Vendor, [Plc1])));
 
     [Fact]
+    public void VendorWithStarUnpinsEveryLibraryOfThatVendor() =>
+        Assert.Equal(2, LibrarySelection.ParseUpdate([], "*", Vendor, [Plc1]).Count);
+
+    [Fact]
     public void VendorWithNoReferencedLibraryIsNotFound() =>
         Assert.Equal(ExitCodes.NotFound, UsageOf(() => LibrarySelection.ParseUpdate([], "latest", "Someone Else", [Plc1])));
 
@@ -152,7 +156,18 @@ public sealed class LibrarySelectionTests : IDisposable
 
     [Fact]
     public void UninstallAllTakesTheNamesFromTheRepository() =>
-        Assert.Equal(["tc3_axislib", "tc3_motorlib"], LibrarySelection.UninstallAll(Repo, [], "example", "1.3.1.0").Order());
+        Assert.Equal(["tc3_axislib", "tc3_motorlib"], LibrarySelection.UninstallAll(Repo, [], "example", "1.3.1.0").Select(i => i.Name).Order());
+
+    [Fact]
+    public void UninstallAllPassesTheInstalledVersionNotTheTypedOne() =>
+        Assert.All(LibrarySelection.UninstallAll(Repo, [], "example", "1.3.1"), i => Assert.Equal("1.3.1.0", i.Version));
+
+    [Theory]
+    [InlineData("x")]
+    [InlineData("1.x")]
+    [InlineData("")]
+    public void UninstallAllNeedsANumericVersion(string version) =>
+        Assert.Equal(ExitCodes.Usage, UsageOf(() => LibrarySelection.UninstallAll(Repo, [], "example", version)));
 
     [Fact]
     public void UninstallAllMatchingNothingIsNotFound()

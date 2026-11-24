@@ -89,20 +89,97 @@ public class RepositoryLockTests
     }
 
     [Fact]
-    public void ReleasedLockDoesNotWaitForAnOldWriter()
+    public void ClearedWriterIsNotWaitedFor()
     {
         Assert.SkipUnless(WindowsOnly.IsWindows, "the writer is a Windows PowerShell child");
         var name = Unique();
         using var writer = PowerShell("Start-Sleep -Seconds 20");
         try
         {
-            using (var first = RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name)) first.RecordWriter(writer);
+            using (var first = RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name))
+            {
+                first.RecordWriter(writer);
+                first.ClearWriter();
+            }
             var sw = Stopwatch.StartNew();
             using var second = RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name);
             Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3));
         }
         finally { writer.Kill(); }
     }
+
+    [Fact]
+    public void ReleasedLockWithAWriterStillRunningMakesTheNextHolderWait()
+    {
+        // a RepTool that could not be stopped after a timeout stays recorded, also when its holder released normally
+        Assert.SkipUnless(WindowsOnly.IsWindows, "the writer is a Windows PowerShell child");
+        var name = Unique();
+        using var writer = PowerShell("Start-Sleep -Seconds 20");
+        try
+        {
+            using (var first = RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name)) first.RecordWriter(writer);
+            var e = Assert.Throws<IECodeException>(() => RepositoryLock.Acquire(Log(), TimeSpan.FromMilliseconds(500), name));
+            Assert.Equal(ExitCodes.Timeout, e.ExitCode);
+        }
+        finally { writer.Kill(); }
+    }
+
+    [Fact]
+    public void AWaiterThatTimesOutKeepsTheRecordForTheNext()
+    {
+        Assert.SkipUnless(WindowsOnly.IsWindows, "abandoned named mutexes are a Windows notion");
+        var name = Unique();
+        using var writer = PowerShell("Start-Sleep -Seconds 20");
+        try
+        {
+            var th = new Thread(() => RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name).RecordWriter(writer));
+            th.Start();
+            th.Join();
+            Assert.Throws<IECodeException>(() => RepositoryLock.Acquire(Log(), TimeSpan.FromMilliseconds(500), name));
+            var e = Assert.Throws<IECodeException>(() => RepositoryLock.Acquire(Log(), TimeSpan.FromMilliseconds(500), name));
+            Assert.Equal(ExitCodes.Timeout, e.ExitCode);
+        }
+        finally { writer.Kill(); }
+    }
+
+    [Fact]
+    public void WaitsForAFileThatIsStillBeingWritten()
+    {
+        Assert.SkipUnless(WindowsOnly.IsWindows, "only Windows keeps a file open for writing from exclusive opens");
+        var file = Path.Combine(Path.GetTempPath(), "iecode-ready-" + Guid.NewGuid().ToString("N") + ".library");
+        var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.Read);
+        try
+        {
+            stream.Write(new byte[100]);
+            var closer = new Thread(() => { Thread.Sleep(600); stream.Dispose(); });
+            var sw = Stopwatch.StartNew();
+            closer.Start();
+            FileReady.Wait(file, TimeSpan.FromSeconds(10));
+            Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(500));
+            closer.Join();
+        }
+        finally { stream.Dispose(); File.Delete(file); }
+    }
+
+    [Fact]
+    public void AFileThatNeverAppearsTimesOut()
+    {
+        var e = Assert.Throws<IECodeException>(() => FileReady.Wait(Path.Combine(Path.GetTempPath(), "iecode-missing-" + Guid.NewGuid().ToString("N")), TimeSpan.FromMilliseconds(300)));
+        Assert.Equal(ExitCodes.LibraryFailed, e.ExitCode);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(60, 60)]
+    public void TimeoutSecondsAreTaken(int? given, int? seconds) =>
+        Assert.Equal(seconds is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null, TimeoutSetting.FromSeconds(given));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(int.MaxValue)]
+    public void TimeoutOutsideTheRangeIsAUsageError(int given) =>
+        Assert.Equal(ExitCodes.Usage, Assert.Throws<IECodeException>(() => TimeoutSetting.FromSeconds(given)).ExitCode);
 
     [Fact]
     public void AnotherProcessHoldsTheLockUntilItEnds()

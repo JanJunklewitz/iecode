@@ -127,7 +127,8 @@ internal static class LibraryCommands
                     ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
                     results.Add(new { unit = p.Unit.Id, file = written, ok = true });
                 }
-                catch (IECodeException e) when (!ctx.Get(failFast))
+                // a timeout (the repository lock or RepTool) would hit every following item too: stop instead of waiting N times
+                catch (IECodeException e) when (!ctx.Get(failFast) && e.ExitCode != ExitCodes.Timeout)
                 {
                     failed++;
                     ctx.Log.Error($"[{step}/{plan.Count}] {p.Unit.Id}: {e.Message}");
@@ -245,18 +246,23 @@ internal static class LibraryCommands
             // every version is resolved before the first file is written
             IReadOnlyList<InstalledLibrary>? installed = null;
             var resolved = new List<UpdateItem>();
+            var notInstalled = new List<string>();
             foreach (var item in items)
             {
                 var version = item.Version ?? fromVersion ?? ctx.Get(to);
                 if (version is null or "latest")
                 {
                     installed ??= LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)));
-                    version = LibraryRepository.Newest(installed, item.Library, ctx.Get(vendor))?.Version
-                        ?? throw new IECodeException(ExitCodes.NotFound, $"{item.Library} is not installed in the library repository; nothing was changed.", "Pass --to <version> or <name>=<version>.");
+                    version = LibraryRepository.Newest(installed, item.Library, ctx.Get(vendor))?.Version;
+                    if (version is null) { notInstalled.Add(item.Library); continue; }
                     ctx.Log.Step($"Newest installed {item.Library}: {version}");
                 }
                 resolved.Add(item with { Version = version });
             }
+            // all of them at once, so one run shows every library to name or install
+            if (notInstalled.Count > 0)
+                throw new IECodeException(ExitCodes.NotFound, $"Not installed in the library repository: {string.Join(", ", notInstalled)}; nothing was changed.",
+                    "Pass --to <version>, or name the libraries with --lib <name>=<version>.");
 
             var changes = LibrarySelection.ApplyUpdate(resolved, projects, ctx.Get(vendor), ctx.Get(dryRun));
             foreach (var ch in changes) ctx.Log.Info($"  {ch.Project,-24} {ch.Library} {ch.From} → {ch.To}");
@@ -421,7 +427,7 @@ internal static class LibraryCommands
     private static Command Install()
     {
         var path = new Argument<string>("path") { Description = ".library / .compiled-library file, or a folder (installs all below it)" };
-        var overwrite = new Option<bool>("--overwrite") { Description = "Replace versions that are already installed" };
+        var overwrite = new Option<bool>("--overwrite") { Description = "Folders: replace versions that are already installed (a single file is always installed over an existing version)" };
         var profile = ProfileOption();
         var cmd = new Command("install", "Install libraries into the local library repository (RepTool)") { path, overwrite, profile };
         Action(cmd, ctx =>
@@ -500,18 +506,24 @@ internal static class LibraryCommands
         {
             var given = ctx.Get(names) ?? [];
             string? repoPath = null;
-            IReadOnlyList<string> libs = given;
+            List<string> items;
             if (ctx.Get(all))
             {
                 LibrarySelection.CheckUninstallAll(given, ctx.Get(vendor), ctx.Get(version));
                 repoPath = LibrarySelection.SingleRepository(ctx.Get(repo), DefaultRepositories().Where(Directory.Exists).ToList());
                 ctx.Log.Step($"Library repository: {repoPath}");
-                libs = LibrarySelection.UninstallAll(LibraryRepository.Scan(repoPath), given, ctx.Get(vendor), ctx.Get(version));
+                // the version as installed (1.3.1.0), not as typed (1.3.1), so RepTool finds it
+                items = [.. LibrarySelection.UninstallAll(LibraryRepository.Scan(repoPath), given, ctx.Get(vendor), ctx.Get(version))
+                    .Select(i => $"{i.Name},{i.Version}({ctx.Get(vendor)})")];
             }
-            else if (given.Length == 0)
-                throw new IECodeException(ExitCodes.Usage, "No library named.", "Name the libraries, or use --all --vendor <vendor> --version <version>.");
-
-            var items = libs.Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})").ToList();
+            else
+            {
+                if (given.Length == 0)
+                    throw new IECodeException(ExitCodes.Usage, "No library named.", "Name the libraries, or use --all --vendor <vendor> --version <version>.");
+                if (ctx.Get(repo) is not null)
+                    throw new IECodeException(ExitCodes.Usage, "--repository only applies with --all.", "RepTool's profile (--tc, --profile) decides which repository changes.");
+                items = [.. given.Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})")];
+            }
             if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
             var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             var code = tool.Uninstall(items, ctx.Log);

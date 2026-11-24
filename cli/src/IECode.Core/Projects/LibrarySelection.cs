@@ -25,9 +25,9 @@ public static class LibrarySelection
         if (libs.Count == 0)
         {
             if (vendor is null) throw new IECodeException(ExitCodes.Usage, "No library selected.", BulkHint);
-            if (to is not (null or "latest"))
-                throw new IECodeException(ExitCodes.Usage, $"--vendor without --lib sets each library to its newest installed version; --to {to} would pin independent libraries to one version.",
-                    "Use --to latest, or name the libraries with --lib <name>=<version>.");
+            if (to is not (null or "latest" or "*"))
+                throw new IECodeException(ExitCodes.Usage, $"--vendor without --lib sets each library to its newest installed version (latest) or to * (always newest); --to {to} would pin independent libraries to one version.",
+                    "Use --to latest or --to *, or name the libraries with --lib <name>=<version>.");
             var names = projects.SelectMany(p => p.References)
                 .Where(r => r.Effective.Vendor.Equals(vendor, StringComparison.OrdinalIgnoreCase))
                 .Select(r => r.Effective.Name)
@@ -113,10 +113,13 @@ public static class LibrarySelection
     /// <paramref name="version"/>. Needs a vendor and an explicit version (never <c>all</c>, so a slip does not wipe
     /// every version) and no names; matching nothing is exit 3.
     /// </summary>
-    public static IReadOnlyList<string> UninstallAll(IEnumerable<InstalledLibrary> installed, IReadOnlyList<string> names, string? vendor, string version)
+    /// <remarks>Returns the installed entries: RepTool gets the version as installed (1.3.1.0), not as typed (1.3.1).</remarks>
+    public static IReadOnlyList<InstalledLibrary> UninstallAll(IEnumerable<InstalledLibrary> installed, IReadOnlyList<string> names, string? vendor, string version)
     {
         CheckUninstallAll(names, vendor, version);
-        var hits = Select(installed, null, vendor, version).Select(i => i.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var hits = Select(installed, null, vendor, version)
+            .DistinctBy(i => (i.Name.ToLowerInvariant(), i.Version))
+            .ToList();
         if (hits.Count == 0) throw new IECodeException(ExitCodes.NotFound, $"There is no installed library of vendor {vendor} at version {version}.");
         return hits;
     }
@@ -128,6 +131,8 @@ public static class LibrarySelection
         if (vendor is null) throw new IECodeException(ExitCodes.Usage, "--all needs --vendor.");
         if (version is "all")
             throw new IECodeException(ExitCodes.Usage, "--all needs one --version, not all.", "Remove every version of a library by naming it: iecode lib uninstall <name> --vendor <vendor>.");
+        if (!Regex.IsMatch(version, @"^\d+(\.\d+){0,3}$"))
+            throw new IECodeException(ExitCodes.Usage, $"'{version}' is not a library version.", "Use a version like 1.3.1.0.");
     }
 
     /// <summary>

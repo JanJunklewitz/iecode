@@ -114,7 +114,7 @@ internal static class Runner
     /// <summary>RepTool for a version, with <c>--timeout</c> as the limit for the repository lock and the run.</summary>
     [SupportedOSPlatform("windows")]
     public static RepTool RepToolFor(Context ctx, TwinCatVersion version, string? profile = null) =>
-        RepTool.Find(version, profile, ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : null);
+        RepTool.Find(version, profile, TimeoutSetting.FromSeconds(ctx.Get(Globals.Timeout)));
 
     /// <summary>
     /// Installs a library XAE has just saved. XAE saves with install off and RepTool installs the file in a fresh process
@@ -125,6 +125,8 @@ internal static class Runner
     public static void InstallSaved(Context ctx, string file, TwinCatVersion version)
     {
         var tool = RepToolFor(ctx, version);
+        // XAE may still write the file when SaveAsLibrary returns; RepTool must not install half of it
+        FileReady.Wait(file, TimeSpan.FromMinutes(2));
         ctx.Log.Step($"Installing {Path.GetFileName(file)} (RepTool profile: {tool.Profile})…");
         var code = tool.Install(file, overwrite: true, ctx.Log);
         if (code != 0)
@@ -135,7 +137,7 @@ internal static class Runner
     [SupportedOSPlatform("windows")]
     private static XaeShell StartShell(Context ctx, TwinCatVersion request)
     {
-        var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
+        var timeout = TimeoutSetting.FromSeconds(ctx.Get(Globals.Timeout));
         var shell = XaeShell.Start(new ShellOptions(request, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
         try
         {
