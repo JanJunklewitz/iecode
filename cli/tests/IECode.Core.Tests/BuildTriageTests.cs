@@ -18,6 +18,28 @@ public class BuildTriageTests
     public void LibraryManagerWarningIsNotARootCause() =>
         Assert.DoesNotContain(T(BuildOutputTests.Output).RootCauses, d => d.Severity == Severity.Warning);
 
+    // TcXaeShell 4024.66, a used type of a library that is not installed: the library manager only warns
+    private const string WarningOnlyLog =
+        "------ Build started: Project: PLC, Configuration: Debug TwinCAT RT (x64) ------\r\n" +
+        "PLC.Library Manager : warning: Library tc3_motorlib, 1.2.0.0 (example) has not been added to the Library Manager, or no valid license could be found\r\n" +
+        "MAIN(15) : error: Unknown type: 'Tc3_MotorLib.FB_Motor'\r\n" +
+        "Fehler: Der Vorgang konnte nicht abgeschlossen werden. Unbekannter Fehler\r\n";
+
+    [Fact]
+    public void LibraryManagerWarningIsTheRootCauseWhenNoErrorNamesOne()
+    {
+        var t = T(WarningOnlyLog);
+        var root = Assert.Single(t.RootCauses);
+        Assert.Equal(Severity.Warning, root.Severity);
+        Assert.Contains("tc3_motorlib, 1.2.0.0 (example)", root.Message);
+        Assert.Equal(1, t.Errors);
+        Assert.Equal([new FollowUpGroup("project PLC", 1)], t.FollowUps);
+    }
+
+    [Fact]
+    public void LibraryManagerWarningOfABuildWithoutErrorsIsNoRootCause() =>
+        Assert.Empty(T(WarningOnlyLog.Replace("MAIN(15) : error:", "MAIN(15) : warning:").Replace("Fehler: Der Vorgang", "Info")).RootCauses);
+
     [Fact]
     public void RootCauseFromTextWithoutOrigin()
     {
@@ -45,6 +67,9 @@ public class BuildTriageTests
     [Theory]
     [InlineData("Error: The operation could not be completed. Unbekannter Fehler")]
     [InlineData("Fehler: Der Vorgang konnte nicht abgeschlossen werden. Unbekannter Fehler")]
+    // TcXaeShell 4026.28 ends a failed build with this line instead
+    [InlineData("Fehler: Beim Aufruf einer COM-Komponente wurde ein HRESULT E_FAIL-Fehler zurückgegeben.")]
+    [InlineData("Error: Error HRESULT E_FAIL has been returned from a call to a COM component.")]
     public void GenericLineAloneStillFails(string line)
     {
         var t = T(line);

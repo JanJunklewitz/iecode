@@ -45,8 +45,10 @@ public static partial class BuildTriage
         RegexOptions.IgnoreCase)]
     private static partial Regex RootCauseText();
 
-    // The last line of every failed TcXaeShell build; it says nothing of its own
-    [GeneratedRegex(@"^(?:The operation could not be completed|Der Vorgang konnte nicht abgeschlossen werden)", RegexOptions.IgnoreCase)]
+    // The last line of every failed TcXaeShell build (4024: "operation could not be completed", 4026: a COM E_FAIL);
+    // it says nothing of its own
+    [GeneratedRegex(@"^(?:The operation could not be completed|Der Vorgang konnte nicht abgeschlossen werden|Error HRESULT E_FAIL has been returned from a call to a COM component|Beim Aufruf einer COM-Komponente wurde ein HRESULT E_FAIL-Fehler zurückgegeben)",
+        RegexOptions.IgnoreCase)]
     private static partial Regex GenericLine();
 
     // "… 'Tc3_MotorLib.FB_Motor' [tc3_axislib, 1.0.0.0 (example)]": the library the error was found in
@@ -82,6 +84,15 @@ public static partial class BuildTriage
             else order.Add(key);
         }
         var errors = all.Where(d => d.Severity == Severity.Error).ToList();
+
+        // TcXaeShell 4024 reports a library that is not installed only as a library manager warning ("has not been
+        // added to the Library Manager, or no valid license could be found"); in a failed build with no error that
+        // names a cause, that warning is the cause.
+        if (roots.Count == 0 && errors.Count > 0)
+            for (var i = 0; i < all.Count; i++)
+                if (all[i] is { Severity: Severity.Warning } w && LibraryManagerPrefix().IsMatch(w.Message) && RootCauseText().IsMatch(w.Message))
+                    roots.Add(all[i] = w with { RootCause = true });
+
         return new Triage(all, roots, [.. order.Select(k => new FollowUpGroup(k, groups[k]))],
             errors.Count > 0 && errors.All(d => d.Code?.StartsWith("SA", StringComparison.Ordinal) == true), errors.Count);
     }

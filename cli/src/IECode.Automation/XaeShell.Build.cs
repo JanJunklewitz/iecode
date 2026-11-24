@@ -92,7 +92,8 @@ public sealed partial class XaeShell
         var ok = BuildOutcome.Ok(failedProjects, diags, summary);
         var triage = BuildTriage.Classify(diags);
         _log.Report(triage, failed: !ok);
-        return new BuildResult(active, ok, failedProjects, diags.Count(d => d.Severity == Severity.Error),
+        // counts as shown (without the generic last line); ok and the exit code come from the raw signals above
+        return new BuildResult(active, ok, failedProjects, triage.Errors,
             diags.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds, triage.StaticAnalysisOnly);
     }
 
