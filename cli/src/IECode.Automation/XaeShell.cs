@@ -84,8 +84,12 @@ public sealed partial class XaeShell : IDisposable
         var shell = new XaeShell(log, filter, options, progId, dte) { _process = process };
         try
         {
-            // right after the PID is known: a dialog while configuring is watched too
-            if (process is not null) shell._watch = DialogWatch.Start(process, options.Visible || options.ShowUi, log);
+            // right after the PID is known: tie the shell to iecode, record it, and watch a dialog while configuring too
+            if (process is not null)
+            {
+                shell.Register();
+                shell._watch = DialogWatch.Start(process, options.Visible || options.ShowUi, log);
+            }
             shell.Configure();
             shell._processId = shell.ShellProcessId();
         }
@@ -98,6 +102,58 @@ public sealed partial class XaeShell : IDisposable
 
     private Process? _process;
     private DialogWatch? _watch;
+    private bool _tied;
+    private ShellRegistry? _registry;
+    private ShellEntry? _entry;
+
+    /// <summary>Puts the owned shell into the kill-on-close job and records it for <c>iecode shells</c>; failures only log.</summary>
+    private void Register()
+    {
+        _tied = JobObject.TryKillOnClose(_process!, _log);
+        try
+        {
+            using var me = Process.GetCurrentProcess();
+            var registry = new ShellRegistry(ShellRegistry.DefaultFolder());
+            var entry = new ShellEntry(_process!.Id, _process.StartTime.ToUniversalTime(), me.Id, me.StartTime.ToUniversalTime(), ProgId, null);
+            registry.Add(entry);
+            (_registry, _entry) = (registry, entry);
+            _log.Detail($"Shell process {entry.Pid}{(_tied ? " (ends with iecode)" : "")}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _log.Detail($"Shell not recorded for 'iecode shells': {e.Message}");
+        }
+    }
+
+    private void Record(string? solution)
+    {
+        if (_registry is null || _entry is null) return;
+        try { _registry.Add(_entry = _entry with { Solution = solution }); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not updated: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// After Quit: waits up to 30 s for the shell process to end (it still writes its settings), then drops its record.
+    /// An entry is removed only once the exit is confirmed.
+    /// </summary>
+    private void AwaitExit()
+    {
+        if (_process is null) return;
+        try
+        {
+            if (_process.WaitForExit(TimeSpan.FromSeconds(30)))
+            {
+                try { _registry?.Remove(_process.Id); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not removed: {e.Message}"); }
+            }
+            else if (_tied) _log.Detail($"Shell process {_process.Id} still runs 30 s after closing; it ends with iecode.");
+            else _log.Warn($"The XAE shell (PID {_process.Id}) still runs 30 s after closing. 'iecode shells kill' ends it.");
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _log.Detail($"Waiting for the shell to end failed: {e.Message}");
+        }
+    }
 
     /// <summary>The shell process iecode started, when it could be told apart from other shells; null otherwise (no watch).</summary>
     public int? ProcessId => _process?.Id;
@@ -324,6 +380,7 @@ public sealed partial class XaeShell : IDisposable
             Thread.Sleep(250);
         }
         SolutionPath = full;
+        Record(full);
         WaitUntilIdle();
         _loadOutputPending = true;
     }
@@ -412,6 +469,7 @@ public sealed partial class XaeShell : IDisposable
             ComCall.Release(_dte);
             _solution = null;
             _dte = null;
+            AwaitExit();
             // after Quit, so a dialog while closing is still handled; before Runner writes the result
             _watch?.Dispose();
             _process?.Dispose();

@@ -46,6 +46,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>] [--online --target <netid> --filter <text>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
 | `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
 | `mcp` | MCP stdio server for Claude Code: relays the ADS tools to the VS Code window that serves the working directory, until stdin closes (see [MCP bridge](#mcp-bridge-for-claude-code)) | VS Code with IECode |
+| `shells list` / `shells kill [--force]` | The XAE shells iecode started that still run (PID, solution, whether their iecode still runs) / end the ones a killed run left behind. Only recorded processes with the same PID and start time are touched; a shell whose iecode still runs is ended only with `--force`. `kill` asks first (`--yes` in scripts) | Windows |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
 
 ### Global options
@@ -57,7 +58,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `--userdb <file.tcudb>` | Select a user database before opening the project |
 | `--user <name>` | Log in to TwinCAT user management; password from `IECODE_PASSWORD` or a prompt |
 | `--credential <target>` | Log in with a generic credential from the Windows Credential Manager (asked and saved on first use) |
-| `--visible`, `--show-ui` | Show the XAE window / allow its message boxes (both off by default) |
+| `--visible`, `--show-ui` | Show the XAE window / allow its message boxes (both off by default). Without them, an unknown modal dialog of the hidden shell is cancelled after 10 s and the command fails with its title and text (exit 1); with them it is left for you to answer |
 | `--timeout <s>` | Abort build or activation after N seconds (default 1800). Also limits how long a library install waits for another one and how long one RepTool run may take (it is stopped after that). 1 to 2147483 |
 | `--max-errors <n>` | Print at most N errors (and N warnings) per build; `0` = all. Default 50 on a console, all when stderr is redirected to a file. Root causes are always printed, JSON always has every diagnostic |
 | `--json`, `-v/--verbose`, `--no-color`, `-y/--yes`, `--pause` | Output and interaction |
@@ -216,6 +217,9 @@ analysis finding (`SAxxxx`); the exit code stays 10.
   the TwinCAT Automation Interface with **COM late binding**. No Beckhoff or Microsoft interop assemblies are
   referenced or shipped; the components installed with TwinCAT are used. A COM message filter retries calls
   while the shell is busy, the shell runs hidden with silent mode, and it's always closed at the end.
+  The shell process iecode started is watched for modal dialogs (known ones are confirmed, others cancelled after
+  10 s, then closed, then the shell is ended), put into a kill-on-close job so it ends with iecode, and recorded in
+  `%LOCALAPPDATA%\iecode\shells` for `iecode shells`.
   RepTool is used for library install/uninstall, `Beckhoff.TwinCAT.Ads` (MIT) for ADS.
 - `IECode.Cli`: `iecode` command line (System.CommandLine).
 
