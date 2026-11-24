@@ -66,7 +66,8 @@ internal static class LibraryCommands
         var file = Path.Combine(Path.GetFullPath(outDir ?? Path.GetDirectoryName(solution)!), baseName + (compiled ? ".compiled-library" : ".library"));
         if (meta is { IsLibrary: false }) ctx.Log.Warn($"{meta.Name} has no library properties (Title, Company, Version); TwinCAT may refuse to save it.");
 
-        var written = WithShell(ctx, solution, saves: true, shell => shell.SaveAsLibrary(plcName ?? meta?.Name, file, install));
+        var written = WithShell(ctx, solution, saves: true, shell => shell.SaveAsLibrary(plcName ?? meta?.Name, file, install: false));
+        if (install) InstallSaved(ctx, written, ChooseVersion(ctx, sln, saves: true, quiet: true).Request);
         ctx.Log.Success($"{written}{(install ? "  (installed)" : "")}");
         return Outcome.Ok(new { file = written, compiled, installed = install, title = meta?.Title, version = meta?.ProjectVersion });
     }
@@ -115,7 +116,8 @@ internal static class LibraryCommands
                         shell = session.Open(p.Unit.Solution.Path);
                         open = p.Unit.Solution.Path;
                     }
-                    var written = shell!.SaveAsLibrary(p.Unit.Plc.Name, p.File, ctx.Get(install));
+                    var written = shell!.SaveAsLibrary(p.Unit.Plc.Name, p.File, install: false);
+                    if (ctx.Get(install)) InstallSaved(ctx, written, session.Request);
                     ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
                     results.Add(new { unit = p.Unit.Id, file = written, ok = true });
                 }
@@ -358,7 +360,7 @@ internal static class LibraryCommands
             if (ctx.Get(dryRun)) return new Outcome(unresolved.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { missing });
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "Installing libraries needs Windows with TwinCAT (RepTool).", "Use --dry-run to check on any OS.");
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             foreach (var m in missing.Where(m => m.Source is not null))
             {
                 var code = tool.Install(m.Source!, overwrite: false, ctx.Log);
@@ -384,7 +386,7 @@ internal static class LibraryCommands
         var cmd = new Command("install", "Install libraries into the local library repository (RepTool)") { path, overwrite, profile };
         Action(cmd, ctx =>
         {
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             ctx.Log.Step($"RepTool profile: {tool.Profile}");
             var code = tool.Install(ctx.Get(path), ctx.Get(overwrite), ctx.Log);
             if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"RepTool failed with exit code {code}.", "Run with --verbose to see its output.");
@@ -428,7 +430,7 @@ internal static class LibraryCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "Installing libraries needs Windows with TwinCAT (RepTool).", "Use --dry-run to check on any OS.");
 
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             ctx.Log.Step($"RepTool profile: {tool.Profile}");
             var done = 0;
             foreach (var l in plan)
@@ -456,7 +458,7 @@ internal static class LibraryCommands
         {
             var items = ctx.Get(names).Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})").ToList();
             if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             var code = tool.Uninstall(items, ctx.Log);
             if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"RepTool failed with exit code {code}.", "Run with --verbose to see its output.");
             ctx.Log.Success($"Uninstalled {items.Count} item(s)");

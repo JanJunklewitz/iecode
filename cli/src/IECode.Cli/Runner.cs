@@ -111,6 +111,26 @@ internal static class Runner
         return choice;
     }
 
+    /// <summary>RepTool for a version, with <c>--timeout</c> as the limit for the repository lock and the run.</summary>
+    [SupportedOSPlatform("windows")]
+    public static RepTool RepToolFor(Context ctx, TwinCatVersion version, string? profile = null) =>
+        RepTool.Find(version, profile, ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : null);
+
+    /// <summary>
+    /// Installs a library XAE has just saved. XAE saves with install off and RepTool installs the file in a fresh process
+    /// under the repository lock, so a shell that read the repository at start cannot write a stale copy. Use the version
+    /// the shell was started with (<see cref="ChooseVersion"/>), not <c>--tc</c>.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static void InstallSaved(Context ctx, string file, TwinCatVersion version)
+    {
+        var tool = RepToolFor(ctx, version);
+        ctx.Log.Step($"Installing {Path.GetFileName(file)} (RepTool profile: {tool.Profile})…");
+        var code = tool.Install(file, overwrite: true, ctx.Log);
+        if (code != 0)
+            throw new IECodeException(ExitCodes.LibraryFailed, $"Installing {Path.GetFileName(file)} failed (RepTool exit {code}).", "Run with --verbose to see its output.");
+    }
+
     /// <summary>Starts a shell with the given version, user database and login; the caller opens solutions and disposes it.</summary>
     [SupportedOSPlatform("windows")]
     private static XaeShell StartShell(Context ctx, TwinCatVersion request)
@@ -163,6 +183,9 @@ internal static class Runner
             Ensure(SolutionFile.Load(solution), quiet: false);
             _preparedFor = Path.GetFullPath(solution);
         }
+
+        /// <summary>The version the open shell was started with (for RepTool after a save).</summary>
+        public TwinCatVersion Request => _request ?? ctx.Version;
 
         /// <summary>Opens a solution, in a new shell when it needs another version than the open one.</summary>
         public XaeShell Open(string solution)

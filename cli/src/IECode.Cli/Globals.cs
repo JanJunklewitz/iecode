@@ -21,7 +21,7 @@ internal static class Globals
     public static readonly Option<string?> ProgId = new("--prog-id") { Description = "DTE ProgID of the shell, e.g. TcXaeShell.DTE.17.0 (default: picked from --tc)", Recursive = true };
     public static readonly Option<bool> Visible = new("--visible") { Description = "Show the XAE shell window", Recursive = true };
     public static readonly Option<bool> ShowUi = new("--show-ui") { Description = "Allow XAE message boxes (default: suppressed)", Recursive = true };
-    public static readonly Option<int?> Timeout = new("--timeout") { Description = "Abort build/activation after N seconds (default 1800)", Recursive = true };
+    public static readonly Option<int?> Timeout = new("--timeout") { Description = "Abort build/activation, or a library install waiting for the repository, after N seconds (default 1800)", Recursive = true };
 
     public static readonly Option<int?> MaxErrors = new("--max-errors")
     {

@@ -145,7 +145,8 @@ internal static class WorkspaceCommands
                 foreach (var lib in stages.First(s => s.Solution.Equals(u.Solution.Path, StringComparison.OrdinalIgnoreCase)).Exports)
                 {
                     var file = Path.Combine(Path.GetDirectoryName(u.Solution.Path)!, "dist", $"{lib.Plc.Title}_{lib.Plc.ProjectVersion}.library");
-                    shell.SaveAsLibrary(lib.Plc.Name, file, install: true);
+                    shell.SaveAsLibrary(lib.Plc.Name, file, install: false);
+                    InstallSaved(ctx, file, session.Request);
                     ctx.Log.Success($"        {lib.Plc.Title} {lib.Plc.ProjectVersion} saved and installed for its users");
                 }
             }
@@ -219,6 +220,8 @@ internal static class WorkspaceCommands
         using var session = new ShellSession(ctx, saves: true);
         session.Prepare(solution);
         writeVersion();
-        return session.Open(solution).SaveAsLibrary(plcName, target, install: true);
+        var file = session.Open(solution).SaveAsLibrary(plcName, target, install: false);
+        InstallSaved(ctx, file, session.Request);
+        return file;
     }
 }
