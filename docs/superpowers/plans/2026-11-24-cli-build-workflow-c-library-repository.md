@@ -18,6 +18,8 @@ The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-
 - **Task 3 (R26):** `uninstall --all` prints the repository folder it read the names from.
 - **Task 4 (R24, R26):** the `dist/` default also applies to `encrypt --compiled-library`; update its `--out` help. `*` resolution and the stray warning use `RepositoryPath` (one repository, as `lib outdated`), not the merged scan.
 
+**Second opinion (R34, R41, R43, R44):** RepTool gets the build `TcLineGuard` chose, `RepTool.Run` honours `--timeout` and kills its child, the lock file records the RepTool PID and an acquirer of an abandoned lock waits for it, `uninstall --all` needs `--repository` when several repositories exist; Task 1 install switch only after Plan B; Windows-only two-process lock tests with a handshake; `lib update` validates all items before the first write, `--from-project` with `name=version` is exit 2; drop the stray rule (show "highest installed: x"), drop R24 (`encrypt` keeps its default).
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). Plan A's `lib check` is in `LibraryCommands.cs`; keep it.

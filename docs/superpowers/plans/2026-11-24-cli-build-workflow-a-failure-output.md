@@ -20,6 +20,8 @@ The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-
 - **Task 4 (R28):** generate the exit code help line from the `ExitCodes` constants (reflection) plus a description table; test `EveryExitCodeHasADescription`.
 - **Task 5 (R21):** add a 4026 run (Error List path) to steps 1 and 2.
 
+**Second opinion (R36 to R39, R43, R44):** exit code and `ok` from the raw signals, triage only for display (Task 3 test `CheckWithOnlyTheGenericLineStillFails`); print root causes before the list, merge by (project, message without origin prefix) with tests `SameLineFromTwoSourcesOnce` and `SameTextInTwoProjectsTwice` (Tasks 1, 3); `Restore.Check` groups by name, version and vendor, `ws build` skips exact identities only, a failed scan says "not checked" (Tasks 2, 3); new Task 6 for the extension (root causes first, static-analysis text, keep Problems when the CLI stopped before building); Task 4 keeps the literal help text plus a reflection test; CI smoke for `lib check --json`; Task 5 on 4026 builds two platforms, the first failing.
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). In short: public repo, example names only; `dotnet build` and `dotnet test` as separate PowerShell calls; additive JSON; CHANGELOG and README rows.
@@ -191,10 +193,9 @@ git commit -s -m "Add iecode lib check for missing library versions" -m "lib res
 
 **Files:**
 - Modify: `cli/src/IECode.Core/Reporter.cs` (print limit and `Triage` summary)
-- Modify: `cli/src/IECode.Core/Errors.cs` (`public const int StaticAnalysisFailed = 21;`)
 - Modify: `cli/src/IECode.Automation/XaeShell.Build.cs` (`Build` and `CheckAllObjects` classify before `_log.Add`)
 - Modify: `cli/src/IECode.Cli/Globals.cs` (`--max-errors`, `Option<int>`, default 50, recursive)
-- Modify: `cli/src/IECode.Cli/Commands/ProjectCommands.cs`, `WorkspaceCommands.cs` (exit 21, pre-flight call, summary)
+- Modify: `cli/src/IECode.Cli/Commands/ProjectCommands.cs`, `WorkspaceCommands.cs` (exit 10 with `staticAnalysisOnly`, pre-flight call, summary)
 - Test: `cli/tests/IECode.Core.Tests/ReporterTests.cs` (new)
 
 **Interfaces:**
@@ -244,7 +245,7 @@ Expected: build error, `MaxErrors` not defined.
 - `Reporter.Add` keeps every diagnostic, prints errors only while the printed error count is below `MaxErrors` (warnings follow the same limit separately).
 - `Reporter.Summarize`: when there are root causes, print a block `Root causes:` with each one (`✖`), then `Follow-up errors:` with one line per `FollowUpGroup` (`  12  tc3_axislib, 1.0.0.0 (example)`), then the "more not shown" line. With `StaticAnalysisOnly` print `Build failed only on static analysis: <n> finding(s) (<codes, distinct, comma-separated>).` With zero errors after triage on a failed build print `No compiler errors; see the shell output (-v).`
 - In `XaeShell.Build` / `CheckAllObjects`: `var triage = BuildTriage.Classify(diags); foreach (var d in triage.All) _log.Add(d);` and use `triage.Errors` for the counts and `ok`. Keep `ok` false when `failedProjects > 0`.
-- `ProjectCommands.Build`: before `WithShell`, load the solution's PLC projects (`SolutionFile.Load(path).PlcProjects`), run `Restore.Check` against `LibraryRepository.ScanAll(LibraryRepository.Candidates(TWINCAT3DIR, ProgramData))` and print each problem as a warning plus the hint `iecode lib check` (never fail; skip silently when no repository exists). After the build call `ctx.Log.Summarize(...)`. Exit code: `ExitCodes.StaticAnalysisFailed` when every failed result has `StaticAnalysisOnly`, else as before. Same summary in `check` and `ws build`.
+- `ProjectCommands.Build`: before `WithShell`, load the solution's PLC projects (`SolutionFile.Load(path).PlcProjects`), run `Restore.Check` against `LibraryRepository.ScanAll(LibraryRepository.Candidates(TWINCAT3DIR, ProgramData))` and print each problem as a warning plus the hint `iecode lib check` (never fail; skip silently when no repository exists). After the build call `ctx.Log.Summarize(...)`. Exit code: as before (10); `staticAnalysisOnly` goes into JSON (R2). Same summary in `check` and `ws build`.
 - `Globals`: add `MaxErrors` and set `log.MaxErrors` in `Runner.Run`.
 
 - [ ] **Step 4: Run all Core tests**
@@ -263,7 +264,7 @@ git commit -s -m "Show root causes first and limit printed build errors" -m "The
 
 **Files:**
 - Modify: `cli/src/IECode.Cli/Program.cs` (root description)
-- Modify: `cli/README.md` (command table: `lib check`; global options: `--max-errors`; exit codes: 21)
+- Modify: `cli/README.md` (command table: `lib check`; global options: `--max-errors`)
 - Modify: `extension/CHANGELOG.md` (`## Unreleased`)
 - Test: none (text only); verified by step 2.
 
@@ -277,7 +278,7 @@ Expected: the exit code line is shown; `iecode lib check --help` lists `--reposi
 - [ ] **Step 3: Commit**
 
 ```bash
-git add cli/src/IECode.Cli/Program.cs cli/src/IECode.Core/Errors.cs cli/README.md extension/CHANGELOG.md
+git add cli/src/IECode.Cli/Program.cs cli/README.md extension/CHANGELOG.md
 git commit -s -m "Document exit codes in --help and the new check options" -m "Exit code 10 for a failed build was only in the README; scripts are written from --help."
 ```
 

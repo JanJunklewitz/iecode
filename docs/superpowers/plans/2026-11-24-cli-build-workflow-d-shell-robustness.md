@@ -18,6 +18,8 @@ The [master plan table](2026-11-24-cli-build-workflow-master-plan.md#eng-review-
 - **Task 3 (R9, R10, R11):** `shells kill` skips entries with a live owner unless `--force`; `Dispose` waits up to 30 s for the shell process to exit after `Quit`; manual step adds an `iecode activate` run that triggers "Potential symbol type change detected" and checks which process owns it.
 - **Known limits (R29):** a dialog during `CreateInstance` (before the PID is known) is not watched.
 
+**Second opinion (R31, R32, R42):** PID by process diff under `Localiecode-shell-start` (measured: `MainWindow.HWnd` is empty through late binding, each `CreateInstance` starts its own process); keep the process handle for job, watch and kill; exact creation time from the handle; remove a registry entry only after the exit is confirmed; the watcher thread terminates the owned shell itself on `GiveUp` and the stored reason maps every later COM error; child text by `SendMessage(WM_GETTEXT)`, re-check the window before each action, stop the watcher before `Finish`, start it before `Configure`; Windows-only harness test with a real modal message box in a second process.
+
 ## Global Constraints
 
 See the [master plan](2026-11-24-cli-build-workflow-master-plan.md#global-constraints). Runs after Plan B (both edit `XaeShell.Build.cs`). Interop code is not unit-testable; every decision it makes goes through a Core function with tests.
@@ -146,7 +148,7 @@ git commit -s -m "Fail with the text of a dialog a hidden shell shows" -m "A hid
 - Produces: `internal static class JobObject { public static bool TryKillOnClose(int pid, Reporter log); }` (one process-wide job handle, created once, kept open for the process lifetime); CLI `iecode shells list` (entries whose process is alive and `IsSame`, plus stale ones marked `stale`, which are removed from the registry) and `iecode shells kill [--yes]` (asks, kills only `IsSame` entries, exit 0).
 
 - [ ] **Step 1: Implement** `JobObject` (`CreateJobObject`, `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, `OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE)`, `AssignProcessToJobObject`), the registry calls and `ShellCommands`.
-- [ ] **Step 2 (TwinCAT PC, 20 min):** start `iecode build <sln> --tc 4024`, kill the `iecode` process in Task Manager during the build. Expected: the `TcXaeShell` process ends within a few seconds. Then start a build, run `iecode shells list` in a second terminal: the shell is listed with its solution. If the job assignment failed (log line with `-v`), `iecode shells kill --yes` ends it.
+- [ ] **Step 2 (TwinCAT PC, 20 min):** start `iecode build <sln> --tc 4024`, kill the `iecode` process in Task Manager during the build. Expected: the `TcXaeShell` process ends within a few seconds. Then start a build, run `iecode shells list` in a second terminal: the shell is listed with its solution. If the job assignment failed (log line with `-v`), `iecode shells kill --yes --force` ends it (the owner is the killed iecode, so `--force` is not needed then; it is needed only while the owner still runs).
 - [ ] **Step 3:** Build the solution: `dotnet build cli/IECode.slnx`. Expected: no errors.
 - [ ] **Step 4:** README (`shells list | kill` row), CHANGELOG line, commit:
 
