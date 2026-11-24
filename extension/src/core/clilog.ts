@@ -33,10 +33,19 @@ export function rootCausesFirst(ds: CliDiagnostic[]): CliDiagnostic[] {
 /** Message for a failed build: the first root cause, the static-analysis-only case, or the error count. */
 export function buildFailureText(unit: string, ds: CliDiagnostic[], data: { builds?: { staticAnalysisOnly?: boolean }[] } | undefined): string {
   const errors = ds.filter(d => d.severity === 'error');
-  const root = errors.find(d => d.rootCause);
-  if (root) return `${unit} build failed: ${root.message}${errors.length > 1 ? ` (and ${errors.length - 1} more error(s))` : ''}`;
+  // TwinCAT 4024 reports a library that is not installed as a warning; the CLI marks it as the root cause
+  const root = ds.find(d => d.rootCause);
+  if (root) {
+    const others = errors.filter(d => d !== root).length;
+    return `${unit} build failed: ${root.message}${others ? ` (and ${others}${root.severity === 'error' ? ' more' : ''} error(s))` : ''}`;
+  }
   if (data?.builds?.some(b => b.staticAnalysisOnly)) return `${unit} build failed only on static analysis (${errors.length} finding(s)).`;
   return `${unit} build failed with ${errors.length} error(s).`;
+}
+
+/** Compiler errors in a result; the CLI reports the generic last line of a failed build as info, so it does not count. */
+export function compilerErrors(ds: CliDiagnostic[]): number {
+  return ds.filter(d => d.severity === 'error').length;
 }
 
 /** False when the CLI stopped before it built anything (no result data, e.g. exit 2 or 15): the old problems stay. */

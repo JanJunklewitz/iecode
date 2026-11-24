@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFailureText, countLine, diagnosticLine, progressLine, ranBuild, rootCausesFirst, tcVersionHint } from '../src/core/clilog';
+import { buildFailureText, compilerErrors, countLine, diagnosticLine, progressLine, ranBuild, rootCausesFirst, tcVersionHint } from '../src/core/clilog';
 import { CliDiagnostic } from '../src/core/diagnostics';
 
 test('progress markers become log levels', () => {
@@ -53,4 +53,15 @@ test('version errors point to the TwinCAT version setting', () => {
   assert.match(tcVersionHint(15) ?? '', /iecode\.tcVersion/);
   assert.match(tcVersionHint(2) ?? '', /iecode\.tcVersion/);
   assert.equal(tcVersionHint(10), undefined);
+});
+
+test('a root cause that is a warning is named too (TwinCAT 4024)', () => {
+  const root: CliDiagnostic = { severity: 'warning', message: 'PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager', rootCause: true };
+  assert.equal(buildFailureText('PLC', [root, { severity: 'error', message: 'Unknown type' }], undefined),
+    'PLC build failed: PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager (and 1 error(s))');
+});
+
+test('only the generic line left counts as no compiler error', () => {
+  assert.equal(compilerErrors([{ severity: 'info', message: 'The operation could not be completed.' }]), 0);
+  assert.equal(compilerErrors([{ severity: 'error', message: 'e' }, { severity: 'warning', message: 'w' }]), 1);
 });

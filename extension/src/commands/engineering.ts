@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { WorkspaceState } from '../state';
 import { Unit, affected, buildOrder, unitOfFile } from '../core/workspace';
 import { CliDiagnostic, mapToView } from '../core/diagnostics';
-import { buildFailureText, ranBuild } from '../core/clilog';
+import { buildFailureText, compilerErrors, ranBuild } from '../core/clilog';
 import { decode } from '../model';
 import { CliResult, cliAvailable, installCli, output, reportFailure, runCli } from '../cli/iecode';
 import { Node } from '../views/tree';
@@ -108,12 +108,11 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
       diagnostics.clear();
       await publish(res, u.solution.file);
     }
-    const errors = res.diagnostics.filter(d => d.severity === 'error').length;
     const warnings = res.diagnostics.filter(d => d.severity === 'warning').length;
     if (res.ok) {
       changed.delete(u.id);
       vscode.window.setStatusBarMessage(`$(check) ${u.id}: build ok · ${warnings} warning(s)`, 8000);
-    } else if (errors) {
+    } else if (compilerErrors(res.diagnostics) || res.diagnostics.some(d => d.rootCause)) {
       const pick = await vscode.window.showErrorMessage(`IECode: ${buildFailureText(u.id, res.diagnostics, res.data)}`, 'Show Problems');
       if (pick) vscode.commands.executeCommand('workbench.actions.view.problems');
     } else {
@@ -159,7 +158,8 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
       await publish(res, u.solution.file);
     }
     if (res.ok) vscode.window.setStatusBarMessage(`$(check) ${u.id}: check ok`, 8000);
-    else if (!res.diagnostics.length) await reportFailure(res, 'Check');
+    // the generic last line of a failed check arrives as info: without a compiler error, say that it failed
+    else if (!compilerErrors(res.diagnostics)) await reportFailure(res, 'Check');
   });
 
   reg('iecode.clean', async (n?: Node) => {

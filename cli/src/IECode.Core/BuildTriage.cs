@@ -99,15 +99,19 @@ public static partial class BuildTriage
 
     /// <summary>
     /// Adds the library manager lines of the Build pane to the Error List items: the lines written while the
-    /// project opens can be missing from the Error List. One line per (project, message without the origin prefix).
+    /// project opens can be missing from the Error List. One line per (project, message without the origin prefix);
+    /// a duplicate keeps the pane text, whose origin prefix the triage uses to find root causes.
     /// </summary>
     public static IReadOnlyList<Diagnostic> Merge(IReadOnlyList<Diagnostic> errorList, IReadOnlyList<Diagnostic> pane)
     {
-        var seen = new HashSet<(string, string)>();
+        (string, string) Key(Diagnostic d) => ((d.Project ?? "").ToUpperInvariant(), LibraryManagerPrefix().Replace(d.Message, "").Trim());
+        var index = new Dictionary<(string, string), int>();
         var merged = new List<Diagnostic>(errorList.Count);
-        foreach (var d in errorList.Concat(pane.Where(d => LibraryManagerPrefix().IsMatch(d.Message))))
-            if (seen.Add(((d.Project ?? "").ToUpperInvariant(), LibraryManagerPrefix().Replace(d.Message, "").Trim())))
-                merged.Add(d);
+        foreach (var d in errorList)
+            if (index.TryAdd(Key(d), merged.Count)) merged.Add(d);
+        foreach (var d in pane.Where(d => LibraryManagerPrefix().IsMatch(d.Message)))
+            if (index.TryGetValue(Key(d), out var at)) merged[at] = merged[at] with { Message = d.Message };
+            else { index.Add(Key(d), merged.Count); merged.Add(d); }
         return merged;
     }
 }

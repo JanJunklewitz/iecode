@@ -103,7 +103,22 @@ public class BuildTriageTests
         const string text = "Could not open library '#Tc3_MotorLib'.";
         var errorList = new List<Diagnostic> { new(Severity.Error, text, Project: "PLC1") };
         var pane = new List<Diagnostic> { new(Severity.Error, $"PLC1.Library Manager: {text}", Project: "PLC1") };
-        Assert.Single(BuildTriage.Merge(errorList, pane));
+        var kept = Assert.Single(BuildTriage.Merge(errorList, pane));
+        Assert.StartsWith("PLC1.Library Manager:", kept.Message);   // the pane copy keeps the origin the triage needs
+        Assert.Single(BuildTriage.Classify(BuildTriage.Merge(errorList, pane)).RootCauses);
+    }
+
+    [Fact]
+    public void LibraryManagerWarningFromThePaneIsPromotedOnTheErrorListPath()
+    {
+        const string text = "Library tc3_motorlib, 1.2.0.0 (example) has not been added to the Library Manager, or no valid license could be found";
+        var errorList = new List<Diagnostic>
+        {
+            new(Severity.Warning, text, Project: "PLC"),
+            new(Severity.Error, "Unknown type: 'Tc3_MotorLib.FB_Motor'", "C0077", Project: "PLC"),
+        };
+        var pane = new List<Diagnostic> { new(Severity.Warning, $"PLC.Library Manager: {text}", Project: "PLC") };
+        Assert.Single(BuildTriage.Classify(BuildTriage.Merge(errorList, pane)).RootCauses);
     }
 
     [Fact]
