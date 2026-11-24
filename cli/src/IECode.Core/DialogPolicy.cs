@@ -37,8 +37,12 @@ public enum DialogAction
 /// </summary>
 public static class DialogPolicy
 {
-    /// <summary>Titles confirmed with OK. Confirming keeps the mapping information on type changes. English XAE titles only so far.</summary>
-    public static readonly string[] KnownTitles = ["Potential symbol type change detected"];
+    /// <summary>
+    /// Titles confirmed with OK. Confirming keeps the mapping information on type changes. From the resources of
+    /// TwinCAT System ManagerUI.dll: 4024 uses the English title in every language, 4026 translates it in German;
+    /// the Japanese and Chinese titles of 4026 are not known.
+    /// </summary>
+    public static readonly string[] KnownTitles = ["Potential symbol type change detected", "Mögliche Typänderung des Symbols erkannt"];
 
     /// <summary>Process names of XAE shells (TwinCAT 4024, 4026, Visual Studio). Their dialogs are never touched unless the shell is the one iecode started.</summary>
     public static readonly string[] ShellProcessNames = ["TcXaeShell", "TcXaeShell64", "devenv"];

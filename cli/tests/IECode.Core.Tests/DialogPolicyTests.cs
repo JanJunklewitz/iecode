@@ -187,3 +187,16 @@ public class DialogReviewFixTests
     [InlineData("powershell", false)]
     public void ShellProcessNames(string name, bool shell) => Assert.Equal(shell, DialogPolicy.IsShellProcess(name));
 }
+
+public class DialogTitleTests
+{
+    private static readonly DateTime T0 = new(2026, 11, 24, 8, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void GermanTitleOfTheActivationDialogIsConfirmed()
+    {
+        // TwinCAT 4026 with German resources (TwinCAT System ManagerUI.dll, 1031) translates the title; 4024 keeps the English one
+        var d = new SeenDialog(1, 42, "#32770", "Mögliche Typänderung des Symbols erkannt", "", T0, true, true, null, null);
+        Assert.Equal(DialogAction.ConfirmOk, DialogPolicy.Decide(d, 42, false, T0));
+    }
+}
