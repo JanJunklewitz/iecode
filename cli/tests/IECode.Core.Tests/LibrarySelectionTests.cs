@@ -117,4 +117,69 @@ public sealed class LibrarySelectionTests : IDisposable
         Assert.Equal(2, LibrarySelection.ApplyUpdate([new("Tc3_MotorLib", "1.3.0"), new("Tc3_Logging", "1.0.0")], [Plc1], null, dryRun: true).Count);
         Assert.Equal(before, File.ReadAllText(Plc1Path));
     }
+
+    // ------------------------------------------------------------------ NameMatches / Select / uninstall --all
+
+    private static readonly InstalledLibrary[] Repo =
+    [
+        new("tc3_axislib", "1.3.1.0", "example", "r/a/1"),
+        new("tc3_motorlib", "1.3.1.0", "example", "r/m/1"),
+        new("tc3_motorlib", "1.4.0.0", "example", "r/m/2"),
+        new("tc2_system", "1.3.1.0", "beckhoff automation gmbh", "r/s/1"),
+    ];
+
+    [Theory]
+    [InlineData("Tc3_*", "Tc3_MotorLib", true)]
+    [InlineData("tc3_motor?ib", "Tc3_MotorLib", true)]
+    [InlineData("Tc2_*", "Tc3_MotorLib", false)]
+    [InlineData("Tc3_MotorLib", "tc3_motorlib", true)]
+    [InlineData("MotorLib", "Tc3_MotorLib", false)]
+    public void Wildcards(string p, string n, bool m) => Assert.Equal(m, LibrarySelection.NameMatches(p, n));
+
+    [Fact]
+    public void DotIsLiteral() => Assert.False(LibrarySelection.NameMatches("Tc3_Motor.Lib", "Tc3_MotorXLib"));
+
+    [Fact]
+    public void SelectByVendorAndVersion() =>
+        Assert.Equal(["tc3_axislib", "tc3_motorlib"], LibrarySelection.Select(Repo, null, "Example", "1.3.1.0").Select(i => i.Name).Order());
+
+    [Fact]
+    public void SelectByPatternAnyVersion() =>
+        Assert.Equal(2, LibrarySelection.Select(Repo, "Tc3_Motor*", null, "all").Count);
+
+    [Fact]
+    public void SelectNothingIsEmpty() => Assert.Empty(LibrarySelection.Select(Repo, null, "example", "9.9.9.9"));
+
+    [Fact]
+    public void UninstallAllTakesTheNamesFromTheRepository() =>
+        Assert.Equal(["tc3_axislib", "tc3_motorlib"], LibrarySelection.UninstallAll(Repo, [], "example", "1.3.1.0").Order());
+
+    [Fact]
+    public void UninstallAllMatchingNothingIsNotFound()
+    {
+        var e = Assert.Throws<IECodeException>(() => LibrarySelection.UninstallAll(Repo, [], "example", "9.9.9.9"));
+        Assert.Equal(ExitCodes.NotFound, e.ExitCode);
+        Assert.Contains("no installed library of vendor example at version 9.9.9.9", e.Message);
+    }
+
+    [Theory]
+    [InlineData("Tc3_MotorLib", "example", "1.3.1.0")]   // names and --all
+    [InlineData(null, null, "1.3.1.0")]                  // no vendor
+    [InlineData(null, "example", "all")]                 // every version by accident
+    public void UninstallAllUsageErrors(string? name, string? vendor, string version) =>
+        Assert.Equal(ExitCodes.Usage, UsageOf(() => LibrarySelection.UninstallAll(Repo, name is null ? [] : [name], vendor, version)));
+
+    [Fact]
+    public void OneRepositoryIsTaken() => Assert.Equal("A", LibrarySelection.SingleRepository(null, ["A"]));
+
+    [Fact]
+    public void AnExplicitRepositoryWins() => Assert.Equal("X", LibrarySelection.SingleRepository("X", ["A", "B"]));
+
+    [Fact]
+    public void SeveralRepositoriesNeedAChoice() =>
+        Assert.Equal(ExitCodes.Usage, UsageOf(() => LibrarySelection.SingleRepository(null, ["A", "B"])));
+
+    [Fact]
+    public void NoRepositoryIsNotFound() =>
+        Assert.Equal(ExitCodes.NotFound, UsageOf(() => LibrarySelection.SingleRepository(null, [])));
 }

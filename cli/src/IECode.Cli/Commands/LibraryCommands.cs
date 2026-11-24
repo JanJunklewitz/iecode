@@ -277,13 +277,13 @@ internal static class LibraryCommands
 
     private static Command Installed()
     {
-        var filter = new Option<string?>("--lib", "-l") { Description = "Only this library" };
+        var filter = new Option<string?>("--lib", "-l") { Description = "Only libraries matching this name (* and ? as wildcards, e.g. Tc3_*)" };
+        var vendor = new Option<string?>("--vendor") { Description = "Only libraries of this vendor" };
         var repo = new Option<string?>("--repository") { Description = "Library repository folder (default: TwinCAT's Managed Libraries)" };
-        var cmd = new Command("installed", "List libraries installed in the local library repository") { filter, repo };
+        var cmd = new Command("installed", "List libraries installed in the local library repository") { filter, vendor, repo };
         Action(cmd, ctx =>
         {
-            var all = LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)))
-                .Where(i => ctx.Get(filter) is not { } f || i.Name.Equals(f, StringComparison.OrdinalIgnoreCase))
+            var all = LibrarySelection.Select(LibraryRepository.Scan(RepositoryPath(ctx.Get(repo))), ctx.Get(filter), ctx.Get(vendor), null)
                 .OrderBy(i => i.Vendor).ThenBy(i => i.Name).ThenByDescending(i => i.Version, Comparer<string>.Create(LibraryRepository.Compare))
                 .ToList();
             foreach (var i in all) ctx.Log.Info($"  {i.Name,-30} {i.Version,-12} {i.Vendor}");
@@ -460,20 +460,35 @@ internal static class LibraryCommands
 
     private static Command Uninstall()
     {
-        var names = new Argument<string[]>("libraries") { Description = "Library names", Arity = ArgumentArity.OneOrMore };
+        var names = new Argument<string[]>("libraries") { Description = "Library names (none with --all)", Arity = ArgumentArity.ZeroOrMore };
         var version = new Option<string>("--version") { Description = "Version to remove, or 'all'", DefaultValueFactory = _ => "all" };
         var vendor = new Option<string>("--vendor") { Description = "Vendor as shown in the library repository", Required = true };
+        var all = new Option<bool>("--all") { Description = "Every library of --vendor installed at --version (one version, not 'all'); names come from the library repository" };
+        var repo = new Option<string?>("--repository") { Description = "With --all: library repository to read the names from (needed when there are several)" };
         var profile = ProfileOption();
-        var cmd = new Command("uninstall", "Remove libraries from the local library repository (RepTool)") { names, version, vendor, profile };
+        var cmd = new Command("uninstall", "Remove libraries from the local library repository (RepTool)") { names, version, vendor, all, repo, profile };
         Action(cmd, ctx =>
         {
-            var items = ctx.Get(names).Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})").ToList();
+            var given = ctx.Get(names) ?? [];
+            string? repoPath = null;
+            IReadOnlyList<string> libs = given;
+            if (ctx.Get(all))
+            {
+                LibrarySelection.CheckUninstallAll(given, ctx.Get(vendor), ctx.Get(version));
+                repoPath = LibrarySelection.SingleRepository(ctx.Get(repo), DefaultRepositories().Where(Directory.Exists).ToList());
+                ctx.Log.Step($"Library repository: {repoPath}");
+                libs = LibrarySelection.UninstallAll(LibraryRepository.Scan(repoPath), given, ctx.Get(vendor), ctx.Get(version));
+            }
+            else if (given.Length == 0)
+                throw new IECodeException(ExitCodes.Usage, "No library named.", "Name the libraries, or use --all --vendor <vendor> --version <version>.");
+
+            var items = libs.Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})").ToList();
             if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
             var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             var code = tool.Uninstall(items, ctx.Log);
             if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"RepTool failed with exit code {code}.", "Run with --verbose to see its output.");
             ctx.Log.Success($"Uninstalled {items.Count} item(s)");
-            return Outcome.Ok(new { uninstalled = items });
+            return Outcome.Ok(new { uninstalled = items, repository = repoPath });
         }, windowsOnly: true);
         return cmd;
     }

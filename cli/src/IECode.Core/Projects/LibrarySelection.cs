@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace IECode.Core.Projects;
 
 /// <summary>One library of a <c>lib update</c>; <see cref="Version"/> null = take <c>--to</c>, else the newest installed.</summary>
@@ -91,6 +93,55 @@ public static class LibrarySelection
         }
         return done;
     }
+
+    /// <summary>Library name against a pattern: case-insensitive, only <c>*</c> and <c>?</c> are wildcards (a dot is a dot).</summary>
+    public static bool NameMatches(string pattern, string name) =>
+        Regex.IsMatch(name, "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>Installed libraries by name pattern, vendor and version; null filters (and version <c>all</c>) match everything.</summary>
+    public static IReadOnlyList<InstalledLibrary> Select(IEnumerable<InstalledLibrary> installed, string? namePattern, string? vendor, string? version) =>
+    [
+        .. installed.Where(i =>
+            (namePattern is null || NameMatches(namePattern, i.Name))
+            && (vendor is null || i.Vendor.Equals(vendor, StringComparison.OrdinalIgnoreCase))
+            && (version is null or "all" || LibraryRepository.Compare(i.Version, version) == 0)),
+    ];
+
+    /// <summary>
+    /// The library names for <c>lib uninstall --all</c>: every library of <paramref name="vendor"/> installed at
+    /// <paramref name="version"/>. Needs a vendor and an explicit version (never <c>all</c>, so a slip does not wipe
+    /// every version) and no names; matching nothing is exit 3.
+    /// </summary>
+    public static IReadOnlyList<string> UninstallAll(IEnumerable<InstalledLibrary> installed, IReadOnlyList<string> names, string? vendor, string version)
+    {
+        CheckUninstallAll(names, vendor, version);
+        var hits = Select(installed, null, vendor, version).Select(i => i.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (hits.Count == 0) throw new IECodeException(ExitCodes.NotFound, $"There is no installed library of vendor {vendor} at version {version}.");
+        return hits;
+    }
+
+    /// <summary>The usage rules of <see cref="UninstallAll"/>, to check before the repository is read.</summary>
+    public static void CheckUninstallAll(IReadOnlyList<string> names, string? vendor, string version)
+    {
+        if (names.Count > 0) throw new IECodeException(ExitCodes.Usage, "--all takes the names from the library repository; leave out the library names.");
+        if (vendor is null) throw new IECodeException(ExitCodes.Usage, "--all needs --vendor.");
+        if (version is "all")
+            throw new IECodeException(ExitCodes.Usage, "--all needs one --version, not all.", "Remove every version of a library by naming it: iecode lib uninstall <name> --vendor <vendor>.");
+    }
+
+    /// <summary>
+    /// The one repository a command reads names from: the explicit one, else the only one that exists. With several
+    /// (4024 and 4026 on one PC) the caller must choose, since RepTool's profile decides which one it changes.
+    /// </summary>
+    public static string SingleRepository(string? explicitPath, IReadOnlyList<string> existing) =>
+        explicitPath ?? existing.Count switch
+        {
+            0 => throw new IECodeException(ExitCodes.NotFound, "No library repository found.", "Pass the folder with --repository."),
+            1 => existing[0],
+            _ => throw new IECodeException(ExitCodes.Usage, "Several library repositories exist: " + string.Join("; ", existing),
+                "Choose the one RepTool changes with --repository."),
+        };
 
     private static string Resolved(UpdateItem item) =>
         item.Version ?? throw new ArgumentException($"{item.Library} has no resolved version.", nameof(item));
