@@ -106,10 +106,10 @@ internal static class ProjectCommands
         {
             var path = SolutionFile.Find(ctx.Get(sln));
             LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects, []);
-            var (errors, warnings) = WithShell(ctx, path, shell => shell.CheckAllObjects());
-            if (errors == 0) ctx.Log.Success($"Check ok · {warnings} warning(s)");
-            else ctx.Log.Error($"Check found {errors} error(s), {warnings} warning(s)");
-            return new Outcome(errors == 0 ? ExitCodes.Ok : ExitCodes.BuildFailed, new { solution = path, errors, warnings });
+            var (errors, warnings, ok) = WithShell(ctx, path, shell => shell.CheckAllObjects());
+            if (ok) ctx.Log.Success($"Check ok · {warnings} warning(s)");
+            else ctx.Log.Error($"Check failed · {errors} error(s) · {warnings} warning(s)");
+            return new Outcome(BuildOutcome.ExitCode([ok]), new { solution = path, errors, warnings });
         }, windowsOnly: true);
         return cmd;
     }

@@ -37,6 +37,34 @@ public class BuildTriageTests
     }
 
     [Fact]
+    public void LibraryManagerWarningIsTheRootCauseWhenOnlyTheGenericLineFails()
+    {
+        var t = T(WarningOnlyLog.Replace("MAIN(15) : error: Unknown type: 'Tc3_MotorLib.FB_Motor'\r\n", ""));
+        Assert.Equal(0, t.Errors);
+        Assert.Single(t.RootCauses);
+    }
+
+    [Fact]
+    public void PaneOnlyLinesAreShownButDoNotDecideTheResult()
+    {
+        var errorList = new List<Diagnostic> { new(Severity.Warning, "w", Project: "PLC1") };
+        var pane = new List<Diagnostic> { new(Severity.Error, "PLC1.Library Manager: Could not open library 'X'.", Project: "PLC1") };
+        var d = BuildTriage.Combine(errorList, pane);
+        Assert.Equal(errorList, d.Raw);
+        Assert.Equal(2, d.Shown.Count);
+        Assert.True(BuildOutcome.Ok(0, d.Raw, null));
+    }
+
+    [Fact]
+    public void WithoutAnErrorListThePaneIsBothRawAndShown()
+    {
+        var pane = BuildOutput.Parse(BuildOutputTests.Output);
+        var d = BuildTriage.Combine(null, pane);
+        Assert.Same(pane, d.Raw);
+        Assert.Same(pane, d.Shown);
+    }
+
+    [Fact]
     public void LibraryManagerWarningOfABuildWithoutErrorsIsNoRootCause() =>
         Assert.Empty(T(WarningOnlyLog.Replace("MAIN(15) : error:", "MAIN(15) : warning:").Replace("Fehler: Der Vorgang", "Info")).RootCauses);
 

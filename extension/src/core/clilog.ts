@@ -48,14 +48,19 @@ export function compilerErrors(ds: CliDiagnostic[]): number {
   return ds.filter(d => d.severity === 'error').length;
 }
 
-/** False when the CLI stopped before it built anything (no result data, e.g. exit 2 or 15): the old problems stay. */
-export function ranBuild(res: { data?: unknown }): boolean {
-  return res.data !== undefined && res.data !== null;
+/**
+ * False when the CLI stopped before it built anything (no result data and no diagnostics, e.g. exit 2 or 15): the old
+ * problems stay. A run that broke off mid-build (timeout) has diagnostics and replaces them.
+ */
+export function ranBuild(res: { data?: unknown; diagnostics?: CliDiagnostic[] }): boolean {
+  return (res.data !== undefined && res.data !== null) || (res.diagnostics?.length ?? 0) > 0;
 }
 
-/** A pointer to the version setting for exit codes that come from the TwinCAT version choice. */
-export function tcVersionHint(exitCode: number): string | undefined {
-  return exitCode === 2 || exitCode === 15
-    ? 'Check the TwinCAT version (setting iecode.tcVersion, command "IECode: Select TwinCAT Version…").'
-    : undefined;
+/**
+ * A pointer to the version setting: always for exit 15 (version not installed), for a usage error (exit 2) only when
+ * its message is about the TwinCAT version.
+ */
+export function tcVersionHint(exitCode: number, error?: string): string | undefined {
+  const aboutVersion = exitCode === 15 || (exitCode === 2 && /--tc\b|TwinCAT (version|40\d\d)/i.test(error ?? ''));
+  return aboutVersion ? 'Check the TwinCAT version (setting iecode.tcVersion, command "IECode: Select TwinCAT Version…").' : undefined;
 }

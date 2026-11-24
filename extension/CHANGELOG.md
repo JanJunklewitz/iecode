@@ -13,7 +13,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - A failed build prints its **root causes first**: the library manager errors (a library that is not installed or cannot be opened), then the other errors, then the follow-up errors counted per library. In `--json` these diagnostics carry `rootCause: true`.
 - **`--max-errors <n>`** limits the printed errors and warnings per build (default 50 on a console, all when stderr goes to a file; `0` = all). JSON always has every diagnostic.
 - A build that fails only on static analysis (`SAxxxx`) says so, and its `builds[]` entry in JSON has `staticAnalysisOnly: true`; the exit code stays 10.
-- The generic last line of a failed build ("The operation could not be completed" on 4024, "HRESULT E_FAIL" on 4026) no longer counts as a compiler error: in `--json` it has `severity: "info"` and `builds[].errors` leaves it out. A build with no other error still fails (exit 10) and says "No compiler errors; see the shell output (-v)".
+- The generic last line of a failed build ("The operation could not be completed" on 4024, "HRESULT E_FAIL" on 4026) no longer counts as a compiler error: in `--json` it has `severity: "info"` and `builds[].errors` leaves it out. A build with no other error still fails (exit 10) and says "No compiler errors; see the shell output (-v)". `check` counts the same way (`errors` in its JSON) and still fails on that line alone.
 - `iecode --help` lists the exit codes.
 
 ## 0.2.23

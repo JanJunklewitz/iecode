@@ -51,7 +51,7 @@ test('a run that stopped before building keeps the old problems', () => {
 
 test('version errors point to the TwinCAT version setting', () => {
   assert.match(tcVersionHint(15) ?? '', /iecode\.tcVersion/);
-  assert.match(tcVersionHint(2) ?? '', /iecode\.tcVersion/);
+  assert.equal(tcVersionHint(2), undefined);
   assert.equal(tcVersionHint(10), undefined);
 });
 
@@ -64,4 +64,12 @@ test('a root cause that is a warning is named too (TwinCAT 4024)', () => {
 test('only the generic line left counts as no compiler error', () => {
   assert.equal(compilerErrors([{ severity: 'info', message: 'The operation could not be completed.' }]), 0);
   assert.equal(compilerErrors([{ severity: 'error', message: 'e' }, { severity: 'warning', message: 'w' }]), 1);
+});
+
+test('diagnostics from a run that broke off mid-build replace the old problems', () =>
+  assert.equal(ranBuild({ diagnostics: [{ severity: 'error', message: 'e' }] }), true));
+
+test('exit 2 points to the version setting only when the error is about the version', () => {
+  assert.equal(tcVersionHint(2, 'Several .sln files found; pass one.'), undefined);
+  assert.match(tcVersionHint(2, 'Both TwinCAT 4024 and 4026 are installed; pass --tc.') ?? '', /iecode\.tcVersion/);
 });

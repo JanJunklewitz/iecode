@@ -110,7 +110,7 @@ export async function runCli<T = unknown>(args: string[], title: string, cwd?: s
 /** Shows the CLI's error with its hint; offers the output channel. */
 export async function reportFailure(res: CliResult, what: string) {
   const msg = res.error ?? `${what} failed (exit ${res.exitCode})`;
-  const hint = [res.hint, tcVersionHint(res.exitCode)].filter(Boolean).join(' ');
+  const hint = [res.hint, tcVersionHint(res.exitCode, res.error)].filter(Boolean).join(' ');
   const pick = await vscode.window.showErrorMessage(`IECode: ${msg}${hint ? ' — ' + hint : ''}`, 'Show Output');
   if (pick) output.show();
 }

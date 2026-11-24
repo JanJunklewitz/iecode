@@ -2,6 +2,9 @@ using System.Text.RegularExpressions;
 
 namespace IECode.Core;
 
+/// <summary>Raw diagnostics decide whether a build failed; shown ones (raw plus pane lines) are triaged and printed.</summary>
+public sealed record BuildDiagnostics(IReadOnlyList<Diagnostic> Raw, IReadOnlyList<Diagnostic> Shown);
+
 /// <summary>Follow-up errors of one library (bracket suffix of the message) or one project.</summary>
 public sealed record FollowUpGroup(string Key, int Errors);
 
@@ -87,8 +90,8 @@ public static partial class BuildTriage
 
         // TcXaeShell 4024 reports a library that is not installed only as a library manager warning ("has not been
         // added to the Library Manager, or no valid license could be found"); in a failed build with no error that
-        // names a cause, that warning is the cause.
-        if (roots.Count == 0 && errors.Count > 0)
+        // names a cause, that warning is the cause. "Failed" counts the generic last line too.
+        if (roots.Count == 0 && diagnostics.Any(d => d.Severity == Severity.Error))
             for (var i = 0; i < all.Count; i++)
                 if (all[i] is { Severity: Severity.Warning } w && LibraryManagerPrefix().IsMatch(w.Message) && RootCauseText().IsMatch(w.Message))
                     roots.Add(all[i] = w with { RootCause = true });
@@ -96,6 +99,13 @@ public static partial class BuildTriage
         return new Triage(all, roots, [.. order.Select(k => new FollowUpGroup(k, groups[k]))],
             errors.Count > 0 && errors.All(d => d.Code?.StartsWith("SA", StringComparison.Ordinal) == true), errors.Count);
     }
+
+    /// <summary>
+    /// The diagnostics of one build: <see cref="BuildDiagnostics.Raw"/> (the Error List, else the Build pane) decides
+    /// the result as before; <see cref="BuildDiagnostics.Shown"/> adds the library manager lines of the pane for display.
+    /// </summary>
+    public static BuildDiagnostics Combine(IReadOnlyList<Diagnostic>? errorList, IReadOnlyList<Diagnostic> pane) =>
+        errorList is null ? new BuildDiagnostics(pane, pane) : new BuildDiagnostics(errorList, Merge(errorList, pane));
 
     /// <summary>
     /// Adds the library manager lines of the Build pane to the Error List items: the lines written while the

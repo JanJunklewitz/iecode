@@ -87,28 +87,21 @@ public sealed partial class XaeShell
 
         var failedProjects = ComCall.Retry(() => (int)b.LastBuildInfo);
         var output = ReadOutputPane("Build");
-        var diags = ReadDiagnostics(output);
+        var diags = BuildTriage.Combine(ReadErrorList(), BuildOutput.Parse(output));
         var summary = BuildSummary.TryParse(output);
-        var ok = BuildOutcome.Ok(failedProjects, diags, summary);
-        var triage = BuildTriage.Classify(diags);
+        var ok = BuildOutcome.Ok(failedProjects, diags.Raw, summary);
+        var triage = BuildTriage.Classify(diags.Shown);
         _log.Report(triage, failed: !ok);
         // counts as shown (without the generic last line); ok and the exit code come from the raw signals above
         return new BuildResult(active, ok, failedProjects, triage.Errors,
-            diags.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds, triage.StaticAnalysisOnly);
+            triage.All.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds, triage.StaticAnalysisOnly);
     }
 
     /// <summary>
-    /// The Error List items plus the library manager lines of the Build pane (they can be missing from the Error
-    /// List), or the parsed Build pane when the Error List is not readable.
+    /// Runs "Check all objects" on every PLC project (faster than a full build, no output files). Errors and warnings
+    /// are counted as shown; <c>Ok</c> comes from the raw diagnostics, so the generic last line alone still fails.
     /// </summary>
-    private IReadOnlyList<Diagnostic> ReadDiagnostics(string output)
-    {
-        var pane = BuildOutput.Parse(output);
-        return ReadErrorList() is { } errorList ? BuildTriage.Merge(errorList, pane) : pane;
-    }
-
-    /// <summary>Runs "Check all objects" on every PLC project (faster than a full build, no output files).</summary>
-    public (int Errors, int Warnings) CheckAllObjects()
+    public (int Errors, int Warnings, bool Ok) CheckAllObjects()
     {
         ClearErrorList();
         foreach (var plc in PlcProjects())
@@ -122,10 +115,11 @@ public sealed partial class XaeShell
             }
         }
         WaitUntilIdle();
-        var diags = ReadDiagnostics(ReadOutputPane("Build"));
-        var errors = diags.Count(d => d.Severity == Severity.Error);
-        _log.Report(BuildTriage.Classify(diags), failed: errors > 0);
-        return (errors, diags.Count(d => d.Severity == Severity.Warning));
+        var diags = BuildTriage.Combine(ReadErrorList(), BuildOutput.Parse(ReadOutputPane("Build")));
+        var ok = BuildOutcome.Ok(0, diags.Raw, null);
+        var triage = BuildTriage.Classify(diags.Shown);
+        _log.Report(triage, failed: !ok);
+        return (triage.Errors, triage.All.Count(d => d.Severity == Severity.Warning), ok);
     }
 
     // EnvDTE.Constants.vsWindowKindErrorList / vsWindowKindOutput
