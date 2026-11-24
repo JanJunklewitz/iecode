@@ -120,7 +120,7 @@ public class BuildSummaryTests
 public class BuildOutputTests
 {
     // Line formats of the TcXaeShell 15 (TwinCAT 3.1.4024) Build pane
-    private const string Output =
+    internal const string Output =
         "------ Build started: Project: PLC1, Configuration: Debug TwinCAT RT (x64) ------\r\n" +
         "------ Build started: Application: MachineX.PLC1 -------\r\n" +
         "typify code ...\r\n" +
