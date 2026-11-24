@@ -97,6 +97,39 @@ The single branches below are still the stacked pull requests of the same conten
 - Deferred by their plans, not gaps: the plot break in the ADS Scope, keep-alive after the last AI call, a CLI `iecode lint`, unused variables, object moves in the history, the log viewer's AI question, source tree filter, custom format editor and Restricted Mode.
 - Manual checks of all of these: see [docs/open-tests.md](docs/open-tests.md).
 
+## CLI: build and library workflow at scale
+
+Feedback from building, saving and re-pinning about 20 libraries and 12 PLC repositories with the CLI (2026-11). Every item was checked against the code; details, verdicts and the open questions: [docs/research/cli-build-workflow.md](docs/research/cli-build-workflow.md). Ranked by value for the effort.
+
+Top 3 named by the user of the run (2026-11-24): pre-flight check, root causes first, build without side effects.
+
+Small:
+- [ ] **Pre-flight reference check**: `lib restore --dry-run` already finds missing pinned versions, also fixed `PlaceholderResolution` entries (it would have found the missing versions of the run; nobody knew it). Run it before `build` and hint at it after a failed build, maybe a `lib check` alias; also report `*` references without any installed version.
+- [ ] **Root causes first**: mark library manager diagnostics (also in `--json`), print them in a "Root causes" block at the end of a failed build, count follow-up errors per `[library, version]`, `--max-errors N`.
+- [ ] **`build --no-save`** plus `changed files: N` at the end: `XaeShell.Build()` calls `SaveAll()` before every build, which writes the `.sln` configuration lines, `Target64Bit` and the visualization `DevId`. First check whether that is the only source (build once without `SaveAll()`, Q1).
+- [ ] **`--tc auto` must not change the line**: with no stamp `auto` prefers the 4026 shell; in the run three projects were saved by 4026 and could no longer be opened in 4024. Stop with exit 2 and ask for `--tc` when the line would change.
+- [ ] **Repository mutex**: one named mutex around every command that writes the library repository (`lib save --install`, `install`, `install-project`, `restore`, `uninstall`, `ws build`, `ws release`). A library install was lost; parallel installs or a bulk uninstall of 20 libraries in between are both possible causes (Q4).
+- [ ] **Static analysis only**: when every error is `SAxxxx`, say so and use its own exit code. No switch to turn it off (Q6).
+- [ ] **`lib save` default output `dist/`** like `save-all` (behaviour change, CHANGELOG).
+- [ ] **Generic last error**: do not count "The operation could not be completed" / "Der Vorgang konnte nicht abgeschlossen werden" as an error.
+- [ ] **`lib update` for several libraries**: repeatable `--lib name=version`, and `--vendor X --to V` for all of a vendor.
+- [ ] **`lib uninstall --vendor V --version X --all`**: names from the repository scan.
+- [ ] **Show the resolved `*` version** in `lib list` and `info`, and warn about a stray far-higher version (e.g. `10.0.0.0`).
+- [ ] **`lib installed`**: wildcards for `--lib`, `--vendor` filter.
+- [ ] **Exit codes in `--help`**; warn on long paths (over ~200 characters); `changed files: N` after a build in a git tree.
+
+Medium:
+- [ ] **`build --isolate`**: build in a short temp copy so the working tree stays clean (also fixes long paths). Copy the folder as it is, including ignored files: `git archive HEAD` failed in the run because a git-ignored folder of generated files was needed (Q2).
+- [ ] **Modal dialog watcher during open / build / save**: reuse `DialogConfirmer`, fail with the dialog text instead of hanging.
+- [ ] **Orphaned shells**: record started shell PIDs, job object with kill-on-close, `iecode shells list | kill`.
+- [ ] **Build without the test project**: `build --exclude-plc <name>` / `--no-tests` (test PLC projects in `*.Test` / `UnitTest` folders pin the library version that is being built, Q7). Open: whether the Automation Interface can build a subset.
+- [ ] **`--tc 4024,4026` matrix**, **`lib project-folder sync [--prune]`**, **`lib verify`** (only after the lost install is reproduced, Q4).
+
+Large:
+- [ ] **`ws build --parallel N`** (needs isolation and the mutex) and **`iecode test`** for `Tc3_PlcTestFramework` over ADS.
+
+Already there (documentation only): `lib save -o <dir>`, `ws release --bump --no-save` raises a `ProjectVersion`, `lib installed --lib`, global `--json`.
+
 ## Open
 
 - [x] **MCP server for the ADS watch**: Claude Code reaches the five ADS tools through a user-scope stdio bridge (`iecode mcp`) to the window that serves its folder.
