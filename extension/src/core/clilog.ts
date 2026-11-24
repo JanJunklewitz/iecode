@@ -24,3 +24,29 @@ export function countLine(ds: CliDiagnostic[]): string {
   const part = (k: number, word: string) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
   return [part(n('error'), 'error'), part(n('warning'), 'warning'), part(n('info'), 'message')].filter(Boolean).join(', ');
 }
+
+/** The diagnostics with the CLI's root causes first; the rest keeps its order. */
+export function rootCausesFirst(ds: CliDiagnostic[]): CliDiagnostic[] {
+  return [...ds.filter(d => d.rootCause), ...ds.filter(d => !d.rootCause)];
+}
+
+/** Message for a failed build: the first root cause, the static-analysis-only case, or the error count. */
+export function buildFailureText(unit: string, ds: CliDiagnostic[], data: { builds?: { staticAnalysisOnly?: boolean }[] } | undefined): string {
+  const errors = ds.filter(d => d.severity === 'error');
+  const root = errors.find(d => d.rootCause);
+  if (root) return `${unit} build failed: ${root.message}${errors.length > 1 ? ` (and ${errors.length - 1} more error(s))` : ''}`;
+  if (data?.builds?.some(b => b.staticAnalysisOnly)) return `${unit} build failed only on static analysis (${errors.length} finding(s)).`;
+  return `${unit} build failed with ${errors.length} error(s).`;
+}
+
+/** False when the CLI stopped before it built anything (no result data, e.g. exit 2 or 15): the old problems stay. */
+export function ranBuild(res: { data?: unknown }): boolean {
+  return res.data !== undefined && res.data !== null;
+}
+
+/** A pointer to the version setting for exit codes that come from the TwinCAT version choice. */
+export function tcVersionHint(exitCode: number): string | undefined {
+  return exitCode === 2 || exitCode === 15
+    ? 'Check the TwinCAT version (setting iecode.tcVersion, command "IECode: Select TwinCAT Version…").'
+    : undefined;
+}

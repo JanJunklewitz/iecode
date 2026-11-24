@@ -4,6 +4,10 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 
 ## Unreleased
 
+### Build
+- **Build and Check name the cause:** a failed build reports its first root cause (e.g. a library that is not installed) in the message, a build that fails only on static analysis says so, and the IECode output lists root causes before the other errors.
+- When the CLI stops before it builds (for example the TwinCAT version is not installed), the Problems view keeps the last results and the message points to the TwinCAT version setting.
+
 ### CLI
 - **`iecode lib check`** finds library references that cannot resolve before a build: pinned versions that are not installed and `*` references with no version installed, in every library repository of the PC. `build`, `check` and `ws build` run the same check first and warn (they never stop on it).
 - A failed build prints its **root causes first**: the library manager errors (a library that is not installed or cannot be opened), then the other errors, then the follow-up errors counted per library. In `--json` these diagnostics carry `rootCause: true`.

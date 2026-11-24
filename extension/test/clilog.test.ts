@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countLine, diagnosticLine, progressLine } from '../src/core/clilog';
+import { buildFailureText, countLine, diagnosticLine, progressLine, ranBuild, rootCausesFirst, tcVersionHint } from '../src/core/clilog';
+import { CliDiagnostic } from '../src/core/diagnostics';
 
 test('progress markers become log levels', () => {
   assert.deepEqual(progressLine('● Opening solution'), { level: 'info', text: 'Opening solution' });
@@ -21,4 +22,35 @@ test('counts name only the kinds that occur', () => {
   assert.equal(countLine([]), '');
   assert.equal(countLine([{ severity: 'error', message: 'a' }, { severity: 'error', message: 'b' }, { severity: 'warning', message: 'c' }]), '2 errors, 1 warning');
   assert.equal(countLine([{ severity: 'info', message: 'a' }]), '1 message');
+});
+
+test('root causes come first, the rest keeps its order', () => {
+  const ds: CliDiagnostic[] = [
+    { severity: 'error', message: 'a' },
+    { severity: 'error', message: 'PLC1.Library Manager: library not installed', rootCause: true },
+    { severity: 'warning', message: 'b' },
+  ];
+  assert.deepEqual(rootCausesFirst(ds).map(d => d.message), ['PLC1.Library Manager: library not installed', 'a', 'b']);
+});
+
+test('build failure text names the root cause or static analysis', () => {
+  const root: CliDiagnostic = { severity: 'error', message: "Library 'X' is not installed", rootCause: true };
+  assert.equal(buildFailureText('PLC1', [root, { severity: 'error', message: 'e' }], undefined),
+    "PLC1 build failed: Library 'X' is not installed (and 1 more error(s))");
+  assert.equal(buildFailureText('PLC1', [{ severity: 'error', code: 'SA0027', message: 's' }], { builds: [{ staticAnalysisOnly: true }] }),
+    'PLC1 build failed only on static analysis (1 finding(s)).');
+  assert.equal(buildFailureText('PLC1', [{ severity: 'error', message: 'e' }, { severity: 'error', message: 'f' }], { builds: [{}] }),
+    'PLC1 build failed with 2 error(s).');
+});
+
+test('a run that stopped before building keeps the old problems', () => {
+  assert.equal(ranBuild({ data: { builds: [] } }), true);
+  assert.equal(ranBuild({ data: { solution: 'x.sln', errors: 0, warnings: 0 } }), true);
+  assert.equal(ranBuild({}), false);
+});
+
+test('version errors point to the TwinCAT version setting', () => {
+  assert.match(tcVersionHint(15) ?? '', /iecode\.tcVersion/);
+  assert.match(tcVersionHint(2) ?? '', /iecode\.tcVersion/);
+  assert.equal(tcVersionHint(10), undefined);
 });

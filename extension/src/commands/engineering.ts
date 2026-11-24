@@ -7,6 +7,7 @@ import { promises as fs } from 'fs';
 import { WorkspaceState } from '../state';
 import { Unit, affected, buildOrder, unitOfFile } from '../core/workspace';
 import { CliDiagnostic, mapToView } from '../core/diagnostics';
+import { buildFailureText, ranBuild } from '../core/clilog';
 import { decode } from '../model';
 import { CliResult, cliAvailable, installCli, output, reportFailure, runCli } from '../cli/iecode';
 import { Node } from '../views/tree';
@@ -96,21 +97,24 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     for (const [k, list] of byUri) diagnostics.set(vscode.Uri.parse(k), list);
   }
 
-  type BuildData = { builds: { platform: string; ok: boolean; errors: number; warnings: number }[] };
+  type BuildData = { builds: { platform: string; ok: boolean; errors: number; warnings: number; staticAnalysisOnly?: boolean }[] };
 
   async function build(u: Unit & { solution: NonNullable<Unit['solution']> }, extra: string[] = []): Promise<boolean> {
     const cfg = vscode.workspace.getConfiguration('iecode');
     const args = ['build', u.solution.file, ...cfg.get<string[]>('platforms', []).flatMap(p => ['-p', p]), ...extra];
     const res = await runCli<BuildData>(args, `Building ${u.id}`);
-    diagnostics.clear();
-    await publish(res, u.solution.file);
+    // a run that stopped before building (e.g. TwinCAT version not installed) says nothing about the code
+    if (ranBuild(res)) {
+      diagnostics.clear();
+      await publish(res, u.solution.file);
+    }
     const errors = res.diagnostics.filter(d => d.severity === 'error').length;
     const warnings = res.diagnostics.filter(d => d.severity === 'warning').length;
     if (res.ok) {
       changed.delete(u.id);
       vscode.window.setStatusBarMessage(`$(check) ${u.id}: build ok · ${warnings} warning(s)`, 8000);
     } else if (errors) {
-      const pick = await vscode.window.showErrorMessage(`IECode: ${u.id} build failed with ${errors} error(s).`, 'Show Problems');
+      const pick = await vscode.window.showErrorMessage(`IECode: ${buildFailureText(u.id, res.diagnostics, res.data)}`, 'Show Problems');
       if (pick) vscode.commands.executeCommand('workbench.actions.view.problems');
     } else {
       await reportFailure(res, 'Build');
@@ -150,8 +154,10 @@ export function register(ctx: vscode.ExtensionContext, state: WorkspaceState) {
     const u = unitFrom(n);
     if (!need(u)) return;
     const res = await runCli(['check', u.solution.file], `Checking ${u.id}`);
-    diagnostics.clear();
-    await publish(res, u.solution.file);
+    if (ranBuild(res)) {
+      diagnostics.clear();
+      await publish(res, u.solution.file);
+    }
     if (res.ok) vscode.window.setStatusBarMessage(`$(check) ${u.id}: check ok`, 8000);
     else if (!res.diagnostics.length) await reportFailure(res, 'Check');
   });

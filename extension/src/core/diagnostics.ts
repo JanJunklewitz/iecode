@@ -14,6 +14,8 @@ export interface CliDiagnostic {
   project?: string;
   line?: number;
   column?: number;
+  /** Set by the CLI on the errors that cause the others (a library that is not installed or cannot be opened). */
+  rootCause?: boolean;
 }
 
 export interface ViewPosition { line: number; column: number; section: string }
