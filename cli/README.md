@@ -13,7 +13,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | Command | What it does | Needs |
 |---|---|---|
 | `info [sln] [--installed]` | TwinCAT and PLC projects, saved TwinCAT version, library metadata; `--installed` lists installed TwinCAT versions | files (`--installed`: XAE) |
-| `build [sln] [-p <platform>]… [--clean] [-c <config>]` | Build one or more target platforms; compiler messages with file and line | XAE |
+| `build [sln] [-p <platform>]… [--clean] [-c <config>] [--no-save] [--isolate [--keep-isolated] [--isolate-dir <dir>] [--copy-tmc]]` | Build one or more target platforms; compiler messages with file and line. Prints how many files changed in `git status` (`-v` lists them, JSON `changedFiles`). `--no-save` skips the save before the build and closes the solution without saving (XAE may still save a project it changes while building). `--isolate` builds in a temporary copy of the repository (ignored files included; `.git`, `.vs`, `_CompileInfo`, `_Boot` left out), so the working tree stays as it is; diagnostics point at the original files. It stops when the solution references files outside the repository or by absolute path. `--copy-tmc` copies the `.tmc` files the build wrote back, `--keep-isolated` keeps the copy | XAE |
 | `check [sln]` | "Check all objects" on every PLC project | XAE |
 | `clean [sln]` | Clean the solution in XAE | XAE |
 | `clean [folder] --artifacts [--boot] [--dry-run]` | Delete generated `_CompileInfo` (and `_Boot`) folders | files |
@@ -35,7 +35,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `lib uninstall <name>… --vendor <vendor> [--version all]` | Remove libraries (RepTool) | TwinCAT |
 | `ws list [folder]` | Libraries, applications and standalone PLC projects in a workspace folder | files |
 | `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |
-| `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run]` | Build in dependency order with one XAE shell; workspace libraries are saved + installed before their users | XAE (`--dry-run`: files) |
+| `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run] [--no-save]` | Build in dependency order with one XAE shell per TwinCAT line; workspace libraries are saved + installed before their users. `--no-save` as in `build` | XAE (`--dry-run`: files) |
 | `ws release <library> [--bump major\|minor\|patch\|<ver>] [--update-dependents] [--include-pinned] [--no-save]` | Bump the library version, save + install it, set the new version in the projects that use it | XAE (`--no-save`: files) |
 | `io links [tsproj\|sln\|folder] [--at <ref>] [--csv <file>] [--full] [--yaml]` | IO links (variable ↔ channel) of TwinCAT projects, from the `.tsproj` and the `.xti` files it references; working copy or any git commit. `--yaml` shows them as a hardware tree (device › box › terminal › channel) as YAML | files + git |
 | `io diff [path] --from <ref> [--to <ref>] [--csv <file>] [--fail-on-change]` | Compare IO links between two versions: added, removed, moved (other channel), changed (size / offsets). `--fail-on-change` exits with 18 for CI checks | files + git |
@@ -51,7 +51,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 
 | Option | |
 |---|---|
-| `--tc 4024 \| 4026 \| 4024.66 \| 3.1.4024.66 \| auto` | TwinCAT version. `auto` uses the version the project was saved with if it's installed, otherwise the shell's default. Selected through the TwinCAT Remote Manager |
+| `--tc 4024 \| 4026 \| 4024.66 \| 3.1.4024.66 \| auto` | TwinCAT version. `auto` uses the build the project was saved with, else the newest installed build of that line, and never moves a project to another line: a command that saves (`build` without `--no-save`, `activate`, `encrypt`, `lib save`, `lib save-all`, `ws build`, `ws release`) stops with exit 15 when that line is not installed, and with exit 2 when the projects carry no version or different lines while 4024 and 4026 are both installed; `check`, `clean` and `build --no-save` warn and go on. Installed builds come from the `Components\Plc\Build_*` folders. Selected through the TwinCAT Remote Manager |
 | `--prog-id` | DTE ProgID, e.g. `TcXaeShell.DTE.17.0`; default is picked from `--tc` |
 | `--userdb <file.tcudb>` | Select a user database before opening the project |
 | `--user <name>` | Log in to TwinCAT user management; password from `IECODE_PASSWORD` or a prompt |

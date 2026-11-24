@@ -7,6 +7,7 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 ### Build
 - **Build and Check name the cause:** a failed build reports its first root cause (e.g. a library that is not installed) in the message, a build that fails only on static analysis (on every platform that failed) says so, a failed Check shows the same notification with a link to Problems, and the IECode output lists root causes before the other errors.
 - When the CLI stops before it builds (for example the TwinCAT version is not installed), the Problems view keeps the last results and the message points to the TwinCAT version setting.
+- **Behaviour change with `iecode.tcVersion: auto` (the default):** Build no longer opens a project in another TwinCAT line than the one it was saved with. When the projects carry no TwinCAT version and both 4024 and 4026 are installed, Build stops and asks you to set the TwinCAT version (setting `iecode.tcVersion` or "IECode: Select TwinCAT Versionâ€¦"). Before, the newest line opened and saved the projects, and the older shell could not open them again.
 
 ### CLI
 - **`iecode lib check`** finds library references that cannot resolve before a build: pinned versions that are not installed and `*` references with no version installed, in every library repository of the PC (a version counts as installed when its folder holds a library file; a `--repository` that cannot be read fails the command). `build`, `check` and `ws build` run the same check first and warn (they never stop on it).
@@ -15,6 +16,11 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - A build that fails only on static analysis (`SAxxxx`) says so, and its `builds[]` entry in JSON has `staticAnalysisOnly: true`; the exit code stays 10.
 - The generic last line of a failed build ("The operation could not be completed" on 4024, "HRESULT E_FAIL" on 4026) no longer counts as a compiler error: in `--json` it has `severity: "info"` and `builds[].errors` leaves it out. A build with no other error still fails (exit 10) and says "No compiler errors; see the shell output (-v)". `check` counts the same way (`errors` in its JSON) and still fails on that line alone.
 - `iecode --help` lists the exit codes.
+- **`--tc auto` never moves a project to another TwinCAT line:** it uses the build the project was saved with, else the newest build of that line. A command that saves stops with exit 15 when that line is not installed and with exit 2 when the projects carry no version (or different lines) and both lines are installed; `check`, `clean` and `build --no-save` warn and go on. Installed builds come from the `Components\Plc\Build_*` folders, so a Visual Studio 2022 install no longer counts as TwinCAT 4026. `ws build` and `lib save-all` decide per solution and start one shell per line.
+- `build` prints how many files changed in `git status` (`-v` lists them; JSON `changedFiles`), also after a failed build.
+- **`build --no-save`** skips the save before the build and closes the solution without saving. XAE may still save a project it changes while building (for example `Target64Bit` in a `.tspproj`), so the default keeps saving; `--isolate` is the way to a clean working tree.
+- **`build --isolate`** builds in a temporary copy of the repository (ignored files included) and leaves the working tree as it is; diagnostics point at the original files. It stops when the solution references files outside the repository or by absolute path. `--copy-tmc` copies the `.tmc` files back, `--keep-isolated` keeps the copy, `--isolate-dir` sets where it goes.
+- `build` warns about project file paths of 200 characters or more, which can make the hidden shell show dialogs.
 
 ## 0.2.23
 
