@@ -18,7 +18,8 @@ internal static class LibraryCommands
         return lib;
     }
 
-    internal static object ToJson(LibraryReference r) => new
+    /// <param name="resolvedVersion">For a <c>*</c> reference: the highest installed version (lib list); omitted when null.</param>
+    internal static object ToJson(LibraryReference r, string? resolvedVersion = null) => new
     {
         placeholder = r.Placeholder,
         kind = r.Kind,
@@ -28,6 +29,7 @@ internal static class LibraryCommands
         pinned = r.IsPinned,
         defaultResolution = r.Default.ToString(),
         resolution = r.PinnedResolution?.ToString(),
+        resolvedVersion,
     };
 
     private static Argument<string[]> PathsArg(string what) => new("paths")
@@ -51,9 +53,13 @@ internal static class LibraryCommands
         var plc = new Option<string?>("--plc") { Description = "PLC project to save when the solution has several" };
         var compiled = new Option<bool>("--compiled") { Description = "Save as .compiled-library (no source code)" };
         var install = new Option<bool>("--install") { Description = "Also install it in the local library repository" };
-        var outDir = new Option<string?>("--out", "-o") { Description = "Output folder (default: next to the solution)" };
+        var outDir = new Option<string?>("--out", "-o") { Description = "Output folder (default: dist next to the solution)" };
         var cmd = new Command("save", "Save a PLC project as .library or .compiled-library") { sln, plc, compiled, install, outDir };
-        Action(cmd, ctx => SaveLibrary(ctx, SolutionFile.Find(ctx.Get(sln)), ctx.Get(plc), ctx.Get(compiled), ctx.Get(install), ctx.Get(outDir)), windowsOnly: true);
+        Action(cmd, ctx =>
+        {
+            var solution = SolutionFile.Find(ctx.Get(sln));
+            return SaveLibrary(ctx, solution, ctx.Get(plc), ctx.Get(compiled), ctx.Get(install), ctx.Get(outDir) ?? LibraryExport.DistFolder(solution));
+        }, windowsOnly: true);
         return cmd;
     }
 
@@ -146,15 +152,21 @@ internal static class LibraryCommands
     {
         var paths = PathsArg("Projects to read");
         var csv = new Option<string?>("--csv") { Description = "Also write the list to a CSV file" };
-        var cmd = new Command("list", "List library references with the version that applies (reads the .plcproj, no TwinCAT needed)") { paths, csv };
+        var repo = new Option<string?>("--repository") { Description = "Library repository folder for the highest installed version of * references (default: TwinCAT's Managed Libraries)" };
+        var cmd = new Command("list", "List library references with the version that applies (reads the .plcproj, no TwinCAT needed)") { paths, csv, repo };
         Action(cmd, ctx =>
         {
             var projects = LoadProjects(ctx.Get(paths));
+            var installed = StarRepository(ctx, ctx.Get(repo));
+            string? Highest(LibraryReference r) => installed is null ? null : LibraryRepository.HighestFor(installed, r);
             foreach (var p in projects)
             {
                 ctx.Log.Info($"{p.Name}  ({p.Path})");
                 foreach (var r in p.References)
-                    ctx.Log.Info($"  {r.Effective.Name,-28} {r.Effective.Version,-12} {r.Effective.Vendor,-28} {(r.IsPinned ? "pinned" : "newest (*)")}");
+                {
+                    var how = r.IsPinned ? "pinned" : Highest(r) is { } h ? $"newest (*), highest installed: {h}" : "newest (*)";
+                    ctx.Log.Info($"  {r.Effective.Name,-28} {r.Effective.Version,-12} {r.Effective.Vendor,-28} {how}");
+                }
             }
             if (ctx.Get(csv) is { } file)
             {
@@ -167,9 +179,26 @@ internal static class LibraryCommands
             }
             var unpinned = projects.SelectMany(p => p.References).Count(r => !r.IsPinned);
             if (unpinned > 0) ctx.Log.Warn($"{unpinned} reference(s) resolve to the newest installed version (*); builds aren't reproducible.");
-            return Outcome.Ok(projects.Select(p => new { project = p.Name, path = p.Path, references = p.References.Select(ToJson) }));
+            return Outcome.Ok(projects.Select(p => new { project = p.Name, path = p.Path, references = p.References.Select(r => ToJson(r, Highest(r))) }));
         });
         return cmd;
+    }
+
+    /// <summary>
+    /// The one repository <c>*</c> references are shown against (as <c>lib outdated</c>): the explicit one, else TwinCAT's
+    /// default when it exists; null (no versions shown) when there is none or it cannot be read.
+    /// </summary>
+    private static IReadOnlyList<InstalledLibrary>? StarRepository(Context ctx, string? explicitPath)
+    {
+        if (explicitPath is not null) return LibraryRepository.Scan(explicitPath);
+        var path = LibraryRepository.DefaultPath(Environment.GetEnvironmentVariable("TWINCAT3DIR"));
+        if (path is null || !Directory.Exists(path)) return null;
+        try { return LibraryRepository.Scan(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            ctx.Log.Detail($"Installed versions not shown: {e.Message}");
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ info

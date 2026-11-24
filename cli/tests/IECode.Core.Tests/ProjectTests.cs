@@ -222,4 +222,29 @@ public sealed class LibraryRepositoryTests : IDisposable
     [Fact]
     public void RepositoryCandidatesSkipUnknownFolders() =>
         Assert.Equal([Path.Combine("TC", "Components", "Plc", "Managed Libraries")], LibraryRepository.Candidates("TC", null));
+
+    private IReadOnlyDictionary<string, LibraryReference> Plc1References() =>
+        PlcProjectFile.Load(_ws["Machine/Machine/PLC1/PLC1.plcproj"]).References.ToDictionary(r => r.Effective.Name);
+
+    [Fact]
+    public void StarReferenceShowsTheHighestInstalledVersion()
+    {
+        foreach (var v in new[] { "3.3.3.0", "3.3.10.0" }) _ws.Touch($"Repo/beckhoff automation gmbh/tc2_standard/{v}/tc2_standard.library");
+        Assert.Equal("3.3.10.0", LibraryRepository.HighestFor(LibraryRepository.Scan(Repo()), Plc1References()["Tc2_Standard"]));
+    }
+
+    [Fact]
+    public void PinnedReferenceHasNoHighestVersion() =>
+        Assert.Null(LibraryRepository.HighestFor(LibraryRepository.Scan(Repo()), Plc1References()["Tc3_MotorLib"]));
+
+    [Fact]
+    public void StarReferenceWithNothingInstalledHasNoHighestVersion() =>
+        Assert.Null(LibraryRepository.HighestFor(LibraryRepository.Scan(Repo()), Plc1References()["Tc2_Standard"]));
+
+    [Fact]
+    public void LibrarySaveDefaultsToDistNextToTheSolution()
+    {
+        var sln = Path.Combine(_ws.Root, "Machine", "Machine.sln");
+        Assert.Equal(Path.Combine(_ws.Root, "Machine", "dist"), LibraryExport.DistFolder(sln));
+    }
 }

@@ -10,6 +10,9 @@ public sealed record LibraryExportItem(Unit Unit, string File);
 /// </summary>
 public static class LibraryExport
 {
+    /// <summary>Default output folder of <c>lib save</c>: <c>dist</c> next to the solution, as <c>save-all</c> (git can ignore one folder).</summary>
+    public static string DistFolder(string solution) => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(solution))!, "dist");
+
     public static IReadOnlyList<LibraryExportItem> Plan(Workspace w, bool compiled, string? outDir, bool librariesOnly, string dist = "dist")
     {
         var ext = compiled ? ".compiled-library" : ".library";

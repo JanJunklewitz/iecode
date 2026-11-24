@@ -81,6 +81,13 @@ public static class LibraryRepository
             .OrderByDescending(i => VersionKey(i.Version))
             .FirstOrDefault();
 
+    /// <summary>
+    /// For a <c>*</c> reference the highest installed version of its library and vendor, which TwinCAT will pick in this
+    /// repository; null for a pinned reference or when none is installed.
+    /// </summary>
+    public static string? HighestFor(IEnumerable<InstalledLibrary> installed, LibraryReference reference) =>
+        reference.IsPinned ? null : Newest(installed, reference.Effective.Name, reference.Effective.Vendor)?.Version;
+
     /// <summary>Compares dotted versions numerically: 3.3.10.0 &gt; 3.3.9.0.</summary>
     public static int Compare(string a, string b) => VersionKey(a).CompareTo(VersionKey(b));
 

@@ -32,7 +32,9 @@ internal static class ProjectCommands
                 foreach (var plc in tc.PlcProjects)
                 {
                     var lib = plc.IsLibrary ? $"  · library {plc.Title} {plc.ProjectVersion} ({plc.Company})" : "";
-                    ctx.Log.Info(plc.IsEncrypted ? $"    PLC {plc.Name}  · encrypted" : $"    PLC {plc.Name}{lib}  · {plc.References.Count} references");
+                    var stars = plc.References.Count(r => !r.IsPinned);
+                    ctx.Log.Info(plc.IsEncrypted ? $"    PLC {plc.Name}  · encrypted"
+                        : $"    PLC {plc.Name}{lib}  · {plc.References.Count} references{(stars > 0 ? $" ({stars} resolve with *)" : "")}");
                 }
             }
 
@@ -58,7 +60,7 @@ internal static class ProjectCommands
                     plc = tc.PlcProjects.Select(p => new
                     {
                         name = p.Name, path = p.Path, encrypted = p.IsEncrypted, isLibrary = p.IsLibrary, title = p.Title, company = p.Company, version = p.ProjectVersion,
-                        references = p.References.Select(LibraryCommands.ToJson),
+                        references = p.References.Select(r => LibraryCommands.ToJson(r)),
                     }),
                 }),
                 installedVersions = versions,
