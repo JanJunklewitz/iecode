@@ -78,7 +78,16 @@ internal static class ProjectCommands
         {
             var path = SolutionFile.Find(ctx.Get(sln));
             LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
-            var results = WithShell(ctx, path, saves: true, shell =>
+            var folder = Path.GetDirectoryName(path)!;
+            var before = WorkingTreeSnapshot.Take(folder);
+            IReadOnlyList<string>? changed = null;
+            List<BuildResult> results;
+            // also after a failed or broken-off build: its side effects are in the tree all the same
+            try { results = WithShell(ctx, path, saves: true, BuildAll); }
+            finally { changed = ReportChanges(ctx, before, folder); }
+            return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results, changedFiles = changed });
+
+            List<BuildResult> BuildAll(XaeShell shell)
             {
                 if (ctx.Get(configuration) is { } c) shell.SelectConfiguration(c);
                 var list = new List<BuildResult>();
@@ -92,10 +101,19 @@ internal static class ProjectCommands
                     else ctx.Log.Error($"{r.Platform}: build failed{(r.StaticAnalysisOnly ? " on static analysis only" : "")} · {r.Errors} error(s) · {r.Warnings} warning(s)");
                 }
                 return list;
-            });
-            return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results });
+            }
         }, windowsOnly: true);
         return cmd;
+    }
+
+    /// <summary>Prints how many files the build changed in git status (the list with -v); null without git or a repository.</summary>
+    private static IReadOnlyList<string>? ReportChanges(Context ctx, WorkingTreeSnapshot? before, string folder)
+    {
+        if (before is null || WorkingTreeSnapshot.Take(folder) is not { } after) return null;
+        var changed = after.ChangedSince(before);
+        ctx.Log.Info($"Git status changes: {changed.Count} file(s){(changed.Count > 0 && !ctx.Log.Verbose ? " (-v lists them)" : "")}");
+        foreach (var f in changed) ctx.Log.Detail($"  {f}");
+        return changed;
     }
 
     private static Command Check()
