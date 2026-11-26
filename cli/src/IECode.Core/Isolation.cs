@@ -14,11 +14,19 @@ public sealed class IsolatedCopy(string sourceRoot, string copyRoot, string solu
     /// <summary>The solution inside the copy.</summary>
     public string Solution { get; } = solution;
     public int Files { get; } = files;
-    public bool Keep { get; set; }
+    private bool keep;
+
+    /// <summary>Keep the copy on dispose. Recorded in its marker: a later run never removes a kept copy.</summary>
+    public bool Keep
+    {
+        get => keep;
+        set { keep = value; Isolation.MarkKept(CopyRoot, value); }
+    }
 
     /// <summary>
     /// Deletes the copy, retrying while files are still open (the shell process lives on for a few seconds after
-    /// Quit); false when it is still there after <paramref name="wait"/>. A later isolated build of the same repository removes it after 24 h.
+    /// Quit); false when it is still there after <paramref name="wait"/>. A later isolated build of the same repository
+    /// removes it once its owner is gone and it is 24 h old.
     /// </summary>
     public bool TryDelete(TimeSpan wait)
     {
@@ -66,7 +74,10 @@ public static partial class Isolation
         catch (IECodeException) { return folder; }
     }
 
-    /// <summary>The copy folder of one run: <c>&lt;dir&gt;\&lt;hash of the source root&gt;-&lt;pid&gt;</c>.</summary>
+    /// <summary>
+    /// The preferred copy folder of one run: <c>&lt;dir&gt;\&lt;hash of the source root&gt;-&lt;pid&gt;</c>. <see cref="Create"/> takes
+    /// the first of this name and <c>...-2</c>, <c>...-3</c>, ... that does not exist yet, so the real path may differ.
+    /// </summary>
     public static string CopyRootFor(string root, string isolateDir, int pid)
     {
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(root).ToLowerInvariant())))[..8].ToLowerInvariant();
@@ -149,19 +160,22 @@ public static partial class Isolation
     private static bool Inside(string full, string root) =>
         full.Equals(root, PathComparison) || full.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, PathComparison);
 
-    /// <summary>Copies the solution's root folder (see <see cref="RootOf"/>) into a new folder below <paramref name="isolateDir"/>.</summary>
+    /// <summary>
+    /// Copies the solution's root folder (see <see cref="RootOf"/>) into a new folder below <paramref name="isolateDir"/>.
+    /// The folder is allocated, never replaced: one that already exists is left alone and the next free name is taken.
+    /// </summary>
     public static IsolatedCopy Create(string solution, string isolateDir, int? pid = null)
     {
         solution = Path.GetFullPath(solution);
         var root = RootOf(solution);
         var dir = Path.GetFullPath(isolateDir);
-        if (Inside(dir, root))
+        // junctions and symbolic links hide where a path really is: compare the physical locations
+        if (Inside(PhysicalPath(dir), PhysicalPath(root)))
             throw new IECodeException(ExitCodes.Usage, $"The copy folder '{dir}' is inside the folder to copy '{root}'.", "Pass an --isolate-dir outside of it.");
 
         var id = pid ?? Environment.ProcessId;
-        var copyRoot = CopyRootFor(root, dir, id);
-        RemoveStaleCopies(root, dir, id);
-        if (Directory.Exists(copyRoot)) DeleteFolder(copyRoot);
+        RemoveStaleCopies(root, dir);
+        var copyRoot = Allocate(root, dir, id);
         int files;
         try { files = CopyTree(root, copyRoot); }
         catch
@@ -172,6 +186,77 @@ public static partial class Isolation
         // %TEMP% may be an 8.3 short path; XAE reports long ones
         copyRoot = LongPath(copyRoot);
         return new IsolatedCopy(root, copyRoot, Path.Combine(copyRoot, Path.GetRelativePath(root, solution)), files);
+    }
+
+    /// <summary>The path with every link or junction on the way resolved; the parts that do not exist yet stay as they are.</summary>
+    internal static string PhysicalPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var rootPart = Path.GetPathRoot(full)!;
+        var current = rootPart;
+        foreach (var seg in full[rootPart.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var next = Path.Combine(current, seg);
+            FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+            string? target = null;
+            try { if (info.Exists) target = info.ResolveLinkTarget(true)?.FullName; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            current = target is null ? next : Path.GetFullPath(target);
+        }
+        return current;
+    }
+
+    /// <summary>
+    /// What a copy folder says about itself. Only folders with this file are ever deleted by a later run, so a folder
+    /// that merely has a matching name (or was made by something else) is never touched.
+    /// </summary>
+    internal sealed record Marker(int Pid, long StartTicks, string Root, bool Kept);
+
+    internal const string MarkerName = ".iecode-isolated";
+
+    private static string MarkerPath(string dir) => Path.Combine(dir, MarkerName);
+
+    private static string Format(Marker m) => $"pid={m.Pid}\nstart={m.StartTicks}\nroot={m.Root}\nkept={(m.Kept ? 1 : 0)}\n";
+
+    /// <summary>The marker of a copy folder; null when there is none or it cannot be read.</summary>
+    internal static Marker? ReadMarker(string dir)
+    {
+        try
+        {
+            var values = File.ReadAllLines(MarkerPath(dir)).Select(l => l.Split('=', 2)).Where(p => p.Length == 2).ToDictionary(p => p[0], p => p[1]);
+            return new Marker(int.Parse(values["pid"], System.Globalization.CultureInfo.InvariantCulture),
+                long.Parse(values["start"], System.Globalization.CultureInfo.InvariantCulture), values["root"], values["kept"] == "1");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or KeyNotFoundException or FormatException or ArgumentException) { return null; }
+    }
+
+    internal static void WriteMarker(string dir, Marker m) => File.WriteAllText(MarkerPath(dir), Format(m));
+
+    internal static void MarkKept(string dir, bool kept)
+    {
+        try { if (ReadMarker(dir) is { } m) WriteMarker(dir, m with { Kept = kept }); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Creates the next free <c>&lt;hash&gt;-&lt;pid&gt;[-n]</c> folder; its marker file is created exclusively, which claims it.</summary>
+    private static string Allocate(string root, string dir, int pid)
+    {
+        var preferred = CopyRootFor(root, dir, pid);
+        Directory.CreateDirectory(dir);
+        long start = 0;
+        if (pid == Environment.ProcessId)
+            try { start = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks; } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
+        var marker = new Marker(pid, start, root, false);
+        for (var n = 1; n <= 1000; n++)
+        {
+            var candidate = n == 1 ? preferred : $"{preferred}-{n}";
+            if (Directory.Exists(candidate) || File.Exists(candidate)) continue;
+            Directory.CreateDirectory(candidate);
+            try { using var s = new FileStream(MarkerPath(candidate), FileMode.CreateNew, FileAccess.Write, FileShare.None); s.Write(Encoding.UTF8.GetBytes(Format(marker))); }
+            catch (IOException) when (ReadMarker(candidate) is not null) { continue; }   // another run claimed it first
+            return candidate;
+        }
+        throw new IECodeException(ExitCodes.Failed, $"No free copy folder below '{dir}'.", "Delete old copies there or pass another --isolate-dir.");
     }
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, EntryPoint = "GetLongPathNameW")]
@@ -186,23 +271,33 @@ public static partial class Isolation
         return n > 0 && n < sb.Capacity ? sb.ToString() : path;
     }
 
-    /// <summary>Deletes copies of the same source whose run has ended more than 24 h ago; never one of a live process.</summary>
-    private static void RemoveStaleCopies(string root, string dir, int ownPid)
+    /// <summary>
+    /// Deletes copies of the same source that carry a marker, are not kept, belong to a process that is gone and are
+    /// more than 24 h old. Anything else in the folder (no marker, other source, live owner) is left alone.
+    /// </summary>
+    private static void RemoveStaleCopies(string root, string dir)
     {
         if (!Directory.Exists(dir)) return;
         var prefix = Path.GetFileName(CopyRootFor(root, dir, 0))[..9];   // "<hash>-"
         foreach (var d in Directory.EnumerateDirectories(dir, prefix + "*"))
         {
-            if (!int.TryParse(Path.GetFileName(d)[prefix.Length..], out var pid) || pid == ownPid || Alive(pid)) continue;
+            if (ReadMarker(d) is not { Kept: false } m || !m.Root.Equals(root, PathComparison) || OwnerAlive(m)) continue;
             if (Directory.GetLastWriteTimeUtc(d) > DateTime.UtcNow.AddHours(-24)) continue;
             try { DeleteFolder(d); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
     }
 
-    private static bool Alive(int pid)
+    /// <summary>Whether the recorded process still runs: same id and, when recorded, the same start time (ids are reused). Unsure counts as alive.</summary>
+    private static bool OwnerAlive(Marker m)
     {
-        try { using var p = Process.GetProcessById(pid); return !p.HasExited; }
+        try
+        {
+            using var p = Process.GetProcessById(m.Pid);
+            if (p.HasExited) return false;
+            return m.StartTicks == 0 || Math.Abs(p.StartTime.ToUniversalTime().Ticks - m.StartTicks) <= TimeSpan.FromSeconds(2).Ticks;
+        }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException) { return false; }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or NotSupportedException) { return true; }
     }
 
     private static int CopyTree(string from, string to)
@@ -213,7 +308,7 @@ public static partial class Isolation
         foreach (var f in Directory.EnumerateFiles(from, "*", options))
         {
             // a .git file (worktree, submodule) would make the copy part of the original repository
-            if (Excluded.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)) continue;
+            if (Excluded.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase) || Path.GetFileName(f).Equals(MarkerName, StringComparison.OrdinalIgnoreCase)) continue;
             File.Copy(f, Path.Combine(to, Path.GetFileName(f)));
             count++;
         }

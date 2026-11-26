@@ -170,6 +170,8 @@ public sealed class IsolationTests : IDisposable
         Assert.Equal(ExitCodes.Usage, e.ExitCode);
     }
 
+    private static Isolation.Marker Owner(string root, int pid, long startTicks = 0, bool kept = false) => new(pid, startTicks, root, kept);
+
     [Fact] public void ConcurrentCopiesDoNotCollide()
     {
         var root = Isolation.RootOf(ws["src/sln/Machine.sln"]);
@@ -177,6 +179,9 @@ public sealed class IsolationTests : IDisposable
         var deadOld = Isolation.CopyRootFor(root, TempBase, 999_991);
         var deadNew = Isolation.CopyRootFor(root, TempBase, 999_992);
         foreach (var d in new[] { live, deadOld, deadNew }) Directory.CreateDirectory(d);
+        Isolation.WriteMarker(live, Owner(root, Environment.ProcessId));
+        Isolation.WriteMarker(deadOld, Owner(root, 999_991));
+        Isolation.WriteMarker(deadNew, Owner(root, 999_992));
         Directory.SetLastWriteTimeUtc(deadOld, DateTime.UtcNow.AddDays(-2));
 
         using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase, pid: 999_993);
@@ -184,6 +189,81 @@ public sealed class IsolationTests : IDisposable
         Assert.True(Directory.Exists(live));        // another run still uses it
         Assert.False(Directory.Exists(deadOld));    // its run ended long ago
         Assert.True(Directory.Exists(deadNew));     // ended recently: may still be looked at
+    }
+
+    [Fact] public void ExistingFolderAtTheCopyPathIsNeverReplaced()
+    {
+        var root = Isolation.RootOf(ws["src/sln/Machine.sln"]);
+        var taken = Isolation.CopyRootFor(root, TempBase, 999_994);
+        Directory.CreateDirectory(taken);
+        File.WriteAllText(Path.Combine(taken, "precious.txt"), "x");
+
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase, pid: 999_994);
+        Assert.NotEqual(taken, copy.CopyRoot, StringComparer.OrdinalIgnoreCase);
+        Assert.True(File.Exists(Path.Combine(taken, "precious.txt")));
+        Assert.True(File.Exists(Path.Combine(copy.CopyRoot, "Machine.sln")));
+    }
+
+    [Fact] public void UnmarkedFoldersSurviveTheStaleSweep()
+    {
+        var root = Isolation.RootOf(ws["src/sln/Machine.sln"]);
+        var lookalike = Isolation.CopyRootFor(root, TempBase, 999_991);
+        Directory.CreateDirectory(lookalike);
+        File.WriteAllText(Path.Combine(lookalike, "precious.txt"), "x");
+        Directory.SetLastWriteTimeUtc(lookalike, DateTime.UtcNow.AddDays(-30));
+
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        Assert.True(File.Exists(Path.Combine(lookalike, "precious.txt")));
+    }
+
+    [Fact] public void KeptCopiesAndCopiesOfOtherSourcesSurviveTheStaleSweep()
+    {
+        var root = Isolation.RootOf(ws["src/sln/Machine.sln"]);
+        var kept = Isolation.CopyRootFor(root, TempBase, 999_991);
+        var other = Isolation.CopyRootFor(root, TempBase, 999_992);
+        foreach (var d in new[] { kept, other }) { Directory.CreateDirectory(d); Directory.SetLastWriteTimeUtc(d, DateTime.UtcNow.AddDays(-30)); }
+        Isolation.WriteMarker(kept, Owner(root, 999_991, kept: true));
+        Isolation.WriteMarker(other, Owner(ws["elsewhere"], 999_992));
+
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        Assert.True(Directory.Exists(kept));
+        Assert.True(Directory.Exists(other));
+    }
+
+    [Fact] public void ReusedProcessIdDoesNotKeepADeadCopyAlive()
+    {
+        var root = Isolation.RootOf(ws["src/sln/Machine.sln"]);
+        var stale = Isolation.CopyRootFor(root, TempBase, Environment.ProcessId) + "-2";
+        Directory.CreateDirectory(stale);
+        // the recorded owner started long before this process: same id, another process
+        Isolation.WriteMarker(stale, Owner(root, Environment.ProcessId, DateTime.UtcNow.AddDays(-9).Ticks));
+        Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        Assert.False(Directory.Exists(stale));
+    }
+
+    [Fact] public void KeepingACopyMarksItSoNoLaterRunReapsIt()
+    {
+        var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        copy.Keep = true;
+        Assert.True(Isolation.ReadMarker(copy.CopyRoot)!.Kept);
+        copy.Keep = false;
+        Assert.False(Isolation.ReadMarker(copy.CopyRoot)!.Kept);
+        copy.Dispose();
+    }
+
+    [Fact] public void IsolateDirBehindAJunctionIntoTheSourceIsRefused()
+    {
+        var link = ws["junction-to-source"];
+        Assert.SkipUnless(WindowsOnly.IsWindows, "junctions are a Windows feature");
+        using (var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{ws["src/sln"]}\"")
+            { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true })!)
+            p.WaitForExit();
+        if (!Directory.Exists(link)) Assert.Skip("creating a junction failed");
+        var e = Assert.Throws<IECodeException>(() => Isolation.Create(ws["src/sln/Machine.sln"], Path.Combine(link, "tmp")));
+        Assert.Equal(ExitCodes.Usage, e.ExitCode);
+        Assert.False(Directory.Exists(ws["src/sln/tmp"]));
     }
 
     [Fact] public void CopiesOnlyTmcWrittenAfterTheBuildStarted()
