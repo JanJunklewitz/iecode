@@ -5,7 +5,7 @@ namespace IECode.Core;
 
 /// <summary>
 /// One XAE shell iecode started: its process (PID and exact creation time from the process handle, so a reused PID
-/// never matches) and the iecode process that owns it.
+/// never matches) and the iecode process that owns it. A record is identified by PID and creation time together.
 /// </summary>
 public sealed record ShellEntry(int Pid, DateTime StartedUtc, int OwnerPid, DateTime OwnerStartedUtc, string ProgId, string? Solution);
 
@@ -25,6 +25,8 @@ public enum ShellState
 {
     /// <summary>The recorded process is gone (or the PID now belongs to another process); the entry can be dropped.</summary>
     Stale,
+    /// <summary>A process with the recorded PID runs, but its creation time cannot be read (another user, elevated): the record stays, and nothing is killed on a guess.</summary>
+    Unknown,
     /// <summary>The shell runs and the iecode that started it is gone.</summary>
     Orphaned,
     /// <summary>The shell runs and its iecode still runs (a live command); killed only with --force.</summary>
@@ -32,7 +34,7 @@ public enum ShellState
 }
 
 /// <summary>
-/// The XAE shells iecode started, one JSON file <c>&lt;pid&gt;.json</c> per shell (default
+/// The XAE shells iecode started, one JSON file <c>&lt;pid&gt;-&lt;creation ticks&gt;.json</c> per shell (default
 /// <c>%LOCALAPPDATA%\iecode\shells</c>). Backs <c>iecode shells list | kill</c>: only recorded processes are touched.
 /// </summary>
 public sealed class ShellRegistry(string folder)
@@ -45,15 +47,19 @@ public sealed class ShellRegistry(string folder)
     public void Add(ShellEntry e)
     {
         Directory.CreateDirectory(Folder);
-        var file = FileOf(e.Pid);
+        var file = FileOf(e);
         var temp = file + "." + Guid.NewGuid().ToString("N") + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(e, Reporter.JsonOptions));
         File.Move(temp, file, overwrite: true);
     }
 
-    public void Remove(int pid)
+    /// <summary>
+    /// Drops the record of exactly this process (PID and creation time). A newer record written for a reused PID has
+    /// another creation time, so it has another file and is never removed with the stale one.
+    /// </summary>
+    public void Remove(ShellEntry e)
     {
-        try { File.Delete(FileOf(pid)); }
+        try { File.Delete(FileOf(e)); }
         catch (DirectoryNotFoundException) { }
     }
 
@@ -80,8 +86,10 @@ public sealed class ShellRegistry(string folder)
     public static bool OwnerAlive(ShellEntry e, DateTime? ownerActualStartUtc) => ownerActualStartUtc == e.OwnerStartedUtc;
 
     /// <param name="ownerUnreadable">The owner PID exists but its start time cannot be read: counted as alive, so a live run's shell is never ended without --force.</param>
-    public static ShellState State(ShellEntry e, DateTime? shellStartUtc, DateTime? ownerStartUtc, bool ownerUnreadable = false) =>
-        !IsSame(e, shellStartUtc) ? ShellState.Stale
+    /// <param name="shellUnreadable">The shell PID exists but its creation time cannot be read: <see cref="ShellState.Unknown"/>, never stale and never killable.</param>
+    public static ShellState State(ShellEntry e, DateTime? shellStartUtc, DateTime? ownerStartUtc, bool ownerUnreadable = false, bool shellUnreadable = false) =>
+        shellUnreadable && shellStartUtc is null ? ShellState.Unknown
+        : !IsSame(e, shellStartUtc) ? ShellState.Stale
         : OwnerAlive(e, ownerStartUtc) || ownerUnreadable ? ShellState.Owned
         : ShellState.Orphaned;
 
@@ -129,5 +137,5 @@ public sealed class ShellRegistry(string folder)
         }
     }
 
-    private string FileOf(int pid) => Path.Combine(Folder, pid + ".json");
+    private string FileOf(ShellEntry e) => Path.Combine(Folder, $"{e.Pid}-{e.StartedUtc.Ticks}.json");
 }

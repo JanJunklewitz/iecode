@@ -22,17 +22,21 @@ internal static class ShellCommands
 
     private sealed record Row(ShellEntry Entry, ShellState State);
 
-    /// <summary>Every recorded shell with its state; stale records (process gone or PID reused) are removed.</summary>
+    /// <summary>
+    /// Every recorded shell with its state; stale records (process gone or PID reused) are removed, each only as the
+    /// process generation that was read. A shell that cannot be inspected (elevated) stays recorded as unknown.
+    /// </summary>
     private static List<Row> Read(ShellRegistry registry, Reporter log)
     {
         var rows = new List<Row>();
         foreach (var e in registry.All())
         {
             var (ownerStart, ownerUnreadable) = ShellRegistry.Probe(e.OwnerPid);
-            var state = ShellRegistry.State(e, ShellRegistry.StartTimeOf(e.Pid), ownerStart, ownerUnreadable);
+            var (shellStart, shellUnreadable) = ShellRegistry.Probe(e.Pid);
+            var state = ShellRegistry.State(e, shellStart, ownerStart, ownerUnreadable, shellUnreadable);
             if (state == ShellState.Stale)
             {
-                registry.Remove(e.Pid);
+                registry.Remove(e);
                 log.Detail($"Removed the record of PID {e.Pid} (process gone)");
                 continue;
             }
@@ -54,7 +58,12 @@ internal static class ShellCommands
 
     private static string Describe(Row r) =>
         $"PID {r.Entry.Pid}  {r.Entry.ProgId}  started {r.Entry.StartedUtc.ToLocalTime():yyyy-MM-dd HH:mm}  " +
-        (r.State == ShellState.Owned ? $"iecode PID {r.Entry.OwnerPid} still runs" : "orphaned") +
+        (r.State switch
+        {
+            ShellState.Owned => $"iecode PID {r.Entry.OwnerPid} still runs",
+            ShellState.Unknown => "cannot be inspected (another user or elevated); run elevated to end it",
+            _ => "orphaned",
+        }) +
         (r.Entry.Solution is { } s ? $"  {s}" : "");
 
     private static Command List()
@@ -78,7 +87,9 @@ internal static class ShellCommands
         {
             var registry = new ShellRegistry(ShellRegistry.DefaultFolder());
             var rows = Read(registry, ctx.Log);
-            foreach (var r in rows.Where(r => !ShellRegistry.MayKill(r.State, ctx.Get(force))))
+            foreach (var r in rows.Where(r => r.State == ShellState.Unknown))
+                ctx.Log.Warn($"Skipped PID {r.Entry.Pid}: it cannot be inspected from this process (another user or elevated); run iecode elevated.");
+            foreach (var r in rows.Where(r => r.State == ShellState.Owned && !ShellRegistry.MayKill(r.State, ctx.Get(force))))
                 ctx.Log.Warn($"Skipped PID {r.Entry.Pid}: its iecode (PID {r.Entry.OwnerPid}) still runs. --force ends it anyway.");
             var targets = rows.Where(r => ShellRegistry.MayKill(r.State, ctx.Get(force))).ToList();
             if (targets.Count == 0)
@@ -97,12 +108,12 @@ internal static class ShellCommands
                 switch (End(r.Entry, ctx.Log))
                 {
                     case EndResult.Ended:
-                        registry.Remove(r.Entry.Pid);
+                        registry.Remove(r.Entry);
                         killed.Add(r.Entry.Pid);
                         ctx.Log.Success($"Ended PID {r.Entry.Pid}");
                         break;
                     case EndResult.Gone:
-                        registry.Remove(r.Entry.Pid);
+                        registry.Remove(r.Entry);
                         gone.Add(r.Entry.Pid);
                         ctx.Log.Info($"PID {r.Entry.Pid} had already ended");
                         break;

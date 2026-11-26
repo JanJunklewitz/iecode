@@ -16,7 +16,7 @@ public class ShellRegistryTests
         var e = Entry();
         r.Add(e);
         Assert.Equal(e, Assert.Single(r.All()));
-        r.Remove(1234);
+        r.Remove(e);
         Assert.Empty(r.All());
     }
 
@@ -48,7 +48,32 @@ public class ShellRegistryTests
         using var ws = new TempWorkspace();
         var r = new ShellRegistry(ws["nothing-here"]);
         Assert.Empty(r.All());
-        r.Remove(1);
+        r.Remove(Entry(1));
+    }
+
+    [Fact]
+    public void RemovingTheStaleRecordKeepsTheNewerOneOfAReusedPid()
+    {
+        using var ws = new TempWorkspace();
+        var r = new ShellRegistry(ws["shells"]);
+        var stale = Entry(1234);
+        var newer = Entry(1234) with { StartedUtc = stale.StartedUtc.AddHours(2), Solution = "new.sln" };
+        r.Add(stale);
+        r.Add(newer);   // the PID was reused after the stale check read the old process
+        Assert.Equal(2, r.All().Count);
+        r.Remove(stale);
+        Assert.Equal(newer, Assert.Single(r.All()));
+    }
+
+    [Fact]
+    public void AShellThatCannotBeInspectedIsUnknownAndNeverKilled()
+    {
+        var e = Entry();
+        Assert.Equal(ShellState.Unknown, ShellRegistry.State(e, null, Owner0, shellUnreadable: true));
+        Assert.False(ShellRegistry.MayKill(ShellState.Unknown, force: false));
+        Assert.False(ShellRegistry.MayKill(ShellState.Unknown, force: true));
+        // readable and gone is still stale
+        Assert.Equal(ShellState.Stale, ShellRegistry.State(e, null, Owner0, shellUnreadable: false));
     }
 
     [Fact]

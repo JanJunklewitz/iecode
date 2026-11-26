@@ -180,7 +180,7 @@ public sealed partial class XaeShell : IDisposable
             // a shell that did not take Quit has no settings to write; do not hold a failed run for 30 s
             if (_process.WaitForExit(TimeSpan.FromSeconds(quitReturned ? 30 : 5)))
             {
-                try { _registry?.Remove(_process.Id); }
+                try { if (_entry is not null) _registry?.Remove(_entry); }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not removed: {e.Message}"); }
             }
             else if (_tied) _log.Detail($"Shell process {_process.Id} still runs 30 s after closing; it ends with iecode.");
