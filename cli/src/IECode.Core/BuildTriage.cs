@@ -103,25 +103,35 @@ public static partial class BuildTriage
     /// <summary>
     /// The diagnostics of one build: <see cref="BuildDiagnostics.Raw"/> (the Error List, else the Build pane) decides
     /// the result as before; <see cref="BuildDiagnostics.Shown"/> adds the library manager lines of the pane for display.
+    /// The generic last line of the pane also counts for the result when the Error List is readable: it is the only
+    /// failure signal of a build that left no error in the Error List (and a check has no other one).
     /// </summary>
-    public static BuildDiagnostics Combine(IReadOnlyList<Diagnostic>? errorList, IReadOnlyList<Diagnostic> pane) =>
-        errorList is null ? new BuildDiagnostics(pane, pane) : new BuildDiagnostics(errorList, Merge(errorList, pane));
+    public static BuildDiagnostics Combine(IReadOnlyList<Diagnostic>? errorList, IReadOnlyList<Diagnostic> pane)
+    {
+        if (errorList is null) return new BuildDiagnostics(pane, pane);
+        var generic = pane.Where(IsGenericLine).ToList();
+        return new BuildDiagnostics(generic.Count == 0 ? errorList : [.. errorList, .. generic], Merge(errorList, pane));
+    }
 
     /// <summary>
     /// Adds the library manager lines of the Build pane to the Error List items: the lines written while the
-    /// project opens can be missing from the Error List. One line per (project, message without the origin prefix);
-    /// a duplicate keeps the pane text, whose origin prefix the triage uses to find root causes.
+    /// project opens can be missing from the Error List. Every Error List item is kept (the same message at two
+    /// locations is two findings); only a pane line that repeats an Error List item (same project, severity and
+    /// message without the origin prefix) is not added again, and replaces the text of the items it repeats because
+    /// its origin prefix is what the triage uses to find root causes.
     /// </summary>
     public static IReadOnlyList<Diagnostic> Merge(IReadOnlyList<Diagnostic> errorList, IReadOnlyList<Diagnostic> pane)
     {
-        (string, string) Key(Diagnostic d) => ((d.Project ?? "").ToUpperInvariant(), LibraryManagerPrefix().Replace(d.Message, "").Trim());
-        var index = new Dictionary<(string, string), int>();
-        var merged = new List<Diagnostic>(errorList.Count);
-        foreach (var d in errorList)
-            if (index.TryAdd(Key(d), merged.Count)) merged.Add(d);
+        (string, Severity, string) Key(Diagnostic d) => ((d.Project ?? "").ToUpperInvariant(), d.Severity, LibraryManagerPrefix().Replace(d.Message, "").Trim());
+        var merged = new List<Diagnostic>(errorList);
+        var seen = new HashSet<(string, Severity, string)>(merged.Select(Key));
         foreach (var d in pane.Where(d => LibraryManagerPrefix().IsMatch(d.Message)))
-            if (index.TryGetValue(Key(d), out var at)) merged[at] = merged[at] with { Message = d.Message };
-            else { index.Add(Key(d), merged.Count); merged.Add(d); }
+        {
+            var key = Key(d);
+            if (seen.Add(key)) { merged.Add(d); continue; }
+            for (var i = 0; i < merged.Count; i++)
+                if (Key(merged[i]) == key) merged[i] = merged[i] with { Message = d.Message };
+        }
         return merged;
     }
 }

@@ -150,6 +150,32 @@ public class BuildTriageTests
     }
 
     [Fact]
+    public void GenericPaneLineFailsEvenWhenTheErrorListHasNoError()
+    {
+        var pane = BuildOutput.Parse("Error: The operation could not be completed. Unbekannter Fehler\r\n");
+        foreach (var errorList in new[] { new List<Diagnostic>(), [new Diagnostic(Severity.Warning, "w", Project: "PLC1")] })
+        {
+            var d = BuildTriage.Combine(errorList, pane);
+            Assert.False(BuildOutcome.Ok(0, d.Raw, null));
+            Assert.Equal(0, BuildTriage.Classify(d.Shown).Errors);
+        }
+    }
+
+    [Fact]
+    public void SameMessageAtTwoLocationsStaysTwice()
+    {
+        var errorList = new List<Diagnostic>
+        {
+            new(Severity.Error, "Unknown type: 'X'", "C0077", "A.TcPOU", "PLC1", 3),
+            new(Severity.Error, "Unknown type: 'X'", "C0077", "B.TcPOU", "PLC1", 9),
+            new(Severity.Warning, "Unknown type: 'X'", "C0077", "C.TcPOU", "PLC1", 1),
+        };
+        var merged = BuildTriage.Merge(errorList, []);
+        Assert.Equal(errorList, merged);
+        Assert.Equal(2, BuildTriage.Classify(merged).Errors);
+    }
+
+    [Fact]
     public void SameTextInTwoProjectsTwice()
     {
         const string text = "Could not open library '#Tc3_MotorLib'.";
