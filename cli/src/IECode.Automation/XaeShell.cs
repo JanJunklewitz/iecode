@@ -64,7 +64,7 @@ public sealed partial class XaeShell : IDisposable
         var sw = Stopwatch.StartNew();
         log.Step($"Starting {progId}{(options.Visible ? "" : " (hidden)")}…");
         object dte;
-        Process? process = null;
+        Process? candidate = null;
         using (var gate = StartGate.Enter(log))
         {
             var before = gate is null ? null : ShellPids();
@@ -78,24 +78,24 @@ public sealed partial class XaeShell : IDisposable
                 filter.Dispose();
                 throw new IECodeException(ExitCodes.Failed, $"Starting {progId} failed: {e.Message}", inner: e);
             }
-            if (before is not null) process = Owned(before, log);
+            if (before is not null) candidate = Candidate(before, log);
         }
 
-        var shell = new XaeShell(log, filter, options, progId, dte) { _process = process };
+        var shell = new XaeShell(log, filter, options, progId, dte);
         try
         {
-            // right after the PID is known: tie the shell to iecode, record it, and watch a dialog while configuring too
-            if (process is not null)
-            {
-                shell.Register();
-                shell._watch = DialogWatch.Start(process, options.Visible || options.ShowUi, log);
-            }
+            // a new process is only the shell's once the DTE object proves it: right then tie it to iecode, record it,
+            // and watch a dialog while configuring too
+            shell.Adopt(ref candidate);
             // a dialog while configuring fails Start with its text, not with the COM error of the cancelled call
             shell.Watched(shell.Configure);
+            // the window may not have been readable before Configure
+            shell.Adopt(ref candidate);
             shell._processId = shell.ShellProcessId();
         }
         catch { shell.Dispose(); throw; }
-        if (process is null) log.Warn("The started XAE shell could not be told apart from other shells: its dialogs are not watched and it is not ended with iecode in this run (details with -v).");
+        finally { candidate?.Dispose(); }
+        if (shell._process is null) log.Warn("The started XAE shell could not be told apart from other shells: its dialogs are not watched and it is not ended with iecode in this run (details with -v).");
         log.Detail($"Shell ready after {sw.Elapsed.TotalSeconds:0.0} s");
         return shell;
     }
@@ -107,6 +107,40 @@ public sealed partial class XaeShell : IDisposable
     private bool _tied;
     private ShellRegistry? _registry;
     private ShellEntry? _entry;
+
+    /// <summary>
+    /// Makes the new process the owned shell when the DTE object proves it is the COM server behind it: the process that
+    /// owns the shell's main window is the new one, in this session. A process that is merely new (another program started a
+    /// shell between the snapshots, or the activation reused a running server) is never tied to iecode, recorded, watched
+    /// or killed. Stays undecided (no change) while the window cannot be read, so it can be tried again.
+    /// </summary>
+    private void Adopt(ref Process? candidate)
+    {
+        if (candidate is null || _process is not null) return;
+        using var me = Process.GetCurrentProcess();
+        int? server = ShellProcessId() is var w and not 0 ? w : null;
+        switch (ShellRegistry.Verify(candidate.Id, SessionOf(candidate), me.SessionId, server))
+        {
+            case ShellOwnership.Unknown:
+                _log.Detail($"Could not read which process the shell {candidate.Id} belongs to yet.");
+                return;
+            case ShellOwnership.Foreign:
+                _log.Detail($"The new process {candidate.Id} is not the COM server behind this shell (window of PID {server?.ToString() ?? "?"}); leaving it alone.");
+                candidate.Dispose();
+                candidate = null;
+                return;
+        }
+        _process = candidate;
+        candidate = null;
+        Register();
+        _watch = DialogWatch.Start(_process, _options.Visible || _options.ShowUi, _log);
+    }
+
+    private static int SessionOf(Process p)
+    {
+        try { return p.SessionId; }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { return -1; }
+    }
 
     /// <summary>Puts the owned shell into the kill-on-close job and records it for <c>iecode shells</c>; failures only log.</summary>
     private void Register()
@@ -172,8 +206,8 @@ public sealed partial class XaeShell : IDisposable
         .. DialogPolicy.ShellProcessNames.SelectMany(Process.GetProcessesByName).Select(p => { using (p) return p.Id; }),
     ];
 
-    /// <summary>The one shell process CreateInstance started, opened now so its handle stays valid; null when it is not exactly one.</summary>
-    private static Process? Owned(int[] before, Reporter log)
+    /// <summary>The one new shell process after CreateInstance, opened now so its handle stays valid; null when it is not exactly one. Only a candidate: <see cref="Adopt"/> proves it.</summary>
+    private static Process? Candidate(int[] before, Reporter log)
     {
         var after = ShellPids();
         if (ShellRegistry.Started(before, after) is not { } pid)

@@ -9,6 +9,17 @@ namespace IECode.Core;
 /// </summary>
 public sealed record ShellEntry(int Pid, DateTime StartedUtc, int OwnerPid, DateTime OwnerStartedUtc, string ProgId, string? Solution);
 
+/// <summary>Whether a new process is the COM server behind a DTE object.</summary>
+public enum ShellOwnership
+{
+    /// <summary>The window of the DTE object belongs to the new process, in iecode's session.</summary>
+    Proven,
+    /// <summary>The DTE object could not say which process serves it (yet).</summary>
+    Unknown,
+    /// <summary>The DTE object is served by another process than the new one: the activation reused a running server, or the new process is unrelated.</summary>
+    Foreign,
+}
+
 /// <summary>What <c>iecode shells</c> may do with a recorded shell.</summary>
 public enum ShellState
 {
@@ -86,6 +97,16 @@ public sealed class ShellRegistry(string folder)
         var fresh = after.Except(before).Distinct().ToList();
         return fresh.Count == 1 ? fresh[0] : null;
     }
+
+    /// <summary>
+    /// Whether <paramref name="candidatePid"/> (the one new shell process) is the server behind the DTE object, whose
+    /// main window belongs to <paramref name="serverPid"/> (null when it could not be read). A process that is only new
+    /// is not proof: another program may have started a shell meanwhile, or the object may be served by a reused one.
+    /// </summary>
+    public static ShellOwnership Verify(int candidatePid, int candidateSession, int ownSession, int? serverPid) =>
+        serverPid is not { } s || s <= 0 ? ShellOwnership.Unknown
+        : s != candidatePid || candidateSession != ownSession ? ShellOwnership.Foreign
+        : ShellOwnership.Proven;
 
     /// <summary>Creation time (UTC) of a running process, or null when there is none with that PID.</summary>
     public static DateTime? StartTimeOf(int pid) => Probe(pid).StartUtc;

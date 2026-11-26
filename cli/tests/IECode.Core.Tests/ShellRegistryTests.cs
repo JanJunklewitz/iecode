@@ -116,3 +116,25 @@ public class ShellRegistryReviewFixTests
         Assert.Equal((null, false), ShellRegistry.Probe(int.MaxValue));
     }
 }
+
+public class ShellOwnershipTests
+{
+    [Fact]
+    public void TheNewProcessThatServesTheDteObjectIsProven() =>
+        Assert.Equal(ShellOwnership.Proven, ShellRegistry.Verify(100, candidateSession: 1, ownSession: 1, serverPid: 100));
+
+    [Fact]
+    public void ANewProcessThatIsNotTheServerIsForeign() =>
+        // a user started Visual Studio while the activation reused a running server
+        Assert.Equal(ShellOwnership.Foreign, ShellRegistry.Verify(100, 1, 1, serverPid: 55));
+
+    [Fact]
+    public void AProcessOfAnotherSessionIsForeign() =>
+        Assert.Equal(ShellOwnership.Foreign, ShellRegistry.Verify(100, candidateSession: 2, ownSession: 1, serverPid: 100));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    public void AnUnreadableWindowLeavesItUndecided(int? server) =>
+        Assert.Equal(ShellOwnership.Unknown, ShellRegistry.Verify(100, 1, 1, server));
+}
