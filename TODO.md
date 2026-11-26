@@ -103,6 +103,8 @@ Feedback from building, saving and re-pinning about 20 libraries and 12 PLC repo
 
 Top 3 named by the user of the run (2026-11-24): pre-flight check, root causes first, build without side effects.
 
+Plan: [CLI build workflow master plan](docs/superpowers/plans/2026-11-24-cli-build-workflow-master-plan.md) with sub-plans A (failure output, pre-flight), B (side-effect-free build), C (library repository), D (shell robustness). It covers every "Small" item and the first three "Medium" items below; the rest stays open.
+
 Small:
 - [ ] **Pre-flight reference check**: `lib restore --dry-run` already finds missing pinned versions, also fixed `PlaceholderResolution` entries (it would have found the missing versions of the run; nobody knew it). Run it before `build` and hint at it after a failed build, maybe a `lib check` alias; also report `*` references without any installed version.
 - [ ] **Root causes first**: mark library manager diagnostics (also in `--json`), print them in a "Root causes" block at the end of a failed build, count follow-up errors per `[library, version]`, `--max-errors N`.
