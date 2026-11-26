@@ -499,7 +499,7 @@ internal static class LibraryCommands
         var version = new Option<string>("--version") { Description = "Version to remove, or 'all'", DefaultValueFactory = _ => "all" };
         var vendor = new Option<string>("--vendor") { Description = "Vendor as shown in the library repository", Required = true };
         var all = new Option<bool>("--all") { Description = "Every library of --vendor installed at --version (one version, not 'all'); names come from the library repository" };
-        var repo = new Option<string?>("--repository") { Description = "With --all: library repository to read the names from (needed when there are several)" };
+        var repo = new Option<string?>("--repository") { Description = "With --all: must be the repository RepTool's profile changes (shown in the output); only needed for an old installation without per-build RepTool folders" };
         var profile = ProfileOption();
         var cmd = new Command("uninstall", "Remove libraries from the local library repository (RepTool)") { names, version, vendor, all, repo, profile };
         Action(cmd, ctx =>
@@ -507,11 +507,16 @@ internal static class LibraryCommands
             var given = ctx.Get(names) ?? [];
             string? repoPath = null;
             List<string> items;
+            RepTool tool;
+            var twinCatDir = Environment.GetEnvironmentVariable("TWINCAT3DIR");
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             if (ctx.Get(all))
             {
                 LibrarySelection.CheckUninstallAll(given, ctx.Get(vendor), ctx.Get(version));
-                repoPath = LibrarySelection.SingleRepository(ctx.Get(repo), DefaultRepositories().Where(Directory.Exists).ToList());
-                ctx.Log.Step($"Library repository: {repoPath}");
+                // RepTool's profile decides which repository it deletes from: scan that one, not the one --repository names
+                tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
+                repoPath = LibrarySelection.UninstallRepository(tool.Line, tool.Profile, ctx.Get(repo), twinCatDir, programData, DefaultRepositories().Where(Directory.Exists).ToList());
+                ctx.Log.Step($"RepTool profile: {tool.Profile} · library repository: {repoPath}");
                 // the version as installed (1.3.1.0), not as typed (1.3.1), so RepTool finds it
                 items = [.. LibrarySelection.UninstallAll(LibraryRepository.Scan(repoPath), given, ctx.Get(vendor), ctx.Get(version))
                     .Select(i => $"{i.Name},{i.Version}({ctx.Get(vendor)})")];
@@ -523,13 +528,14 @@ internal static class LibraryCommands
                 if (ctx.Get(repo) is not null)
                     throw new IECodeException(ExitCodes.Usage, "--repository only applies with --all.", "RepTool's profile (--tc, --profile) decides which repository changes.");
                 items = [.. given.Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})")];
+                tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
+                repoPath = tool.Line is { } line ? LibraryRepository.ForLine(line, twinCatDir, programData) : null;
             }
-            if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
-            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
+            if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}{(repoPath is null ? "" : $" from {repoPath}")} (RepTool profile {tool.Profile})?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
             var code = tool.Uninstall(items, ctx.Log);
             if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"RepTool failed with exit code {code}.", "Run with --verbose to see its output.");
             ctx.Log.Success($"Uninstalled {items.Count} item(s)");
-            return Outcome.Ok(new { uninstalled = items, repository = repoPath });
+            return Outcome.Ok(new { uninstalled = items, repository = repoPath, profile = tool.Profile });
         }, windowsOnly: true);
         return cmd;
     }

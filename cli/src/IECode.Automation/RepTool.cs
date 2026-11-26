@@ -17,6 +17,9 @@ public sealed class RepTool
     /// <summary>Limit for waiting on the repository lock and for one RepTool run; the run is stopped after it.</summary>
     public TimeSpan Timeout { get; }
 
+    /// <summary>The TwinCAT line this RepTool and profile belong to (decides which library repository it changes); null when unknown.</summary>
+    public int? Line => TwinCatVersion.LineOfRepTool(Exe, Profile);
+
     private RepTool(string exe, string profile, TimeSpan timeout)
     {
         Exe = exe;

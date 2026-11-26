@@ -31,6 +31,12 @@ public static class LibraryRepository
         return list;
     }
 
+    /// <summary>The repository the TwinCAT <paramref name="line"/> uses: 4026 and later share the ProgramData one, 4024 keeps its own below the install folder.</summary>
+    public static string? ForLine(int line, string? twinCatDir, string? programData) =>
+        line >= 4026
+            ? (string.IsNullOrEmpty(programData) ? null : Candidates(null, programData)[0])
+            : (string.IsNullOrEmpty(twinCatDir) ? null : Candidates(twinCatDir, null)[0]);
+
     public static IReadOnlyList<InstalledLibrary> Scan(string root)
     {
         if (!Directory.Exists(root))

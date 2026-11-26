@@ -70,5 +70,17 @@ public sealed partial record TwinCatVersion(int? Build, int? Revision)
         : fileName.EndsWith(".profile", StringComparison.OrdinalIgnoreCase) ? fileName[..^".profile".Length]
         : null;
 
+    [GeneratedRegex(@"Build_(?<line>\d{4})")]
+    private static partial Regex BuildFolder();
+
+    /// <summary>
+    /// The TwinCAT line (4024 / 4026) a RepTool belongs to: from its profile name ("…_Build_4026.28") or its install
+    /// folder ("…\Build_4026.28\Common"); null for the default profile of an old single-folder installation.
+    /// </summary>
+    public static int? LineOfRepTool(string exe, string profile) =>
+        BuildFolder().Match(profile) is { Success: true } p ? int.Parse(p.Groups["line"].Value)
+        : BuildFolder().Match(exe) is { Success: true } e ? int.Parse(e.Groups["line"].Value)
+        : null;
+
     public override string ToString() => IsAuto ? "auto" : Revision is null ? $"3.1.{Build}" : $"3.1.{Build}.{Revision}";
 }

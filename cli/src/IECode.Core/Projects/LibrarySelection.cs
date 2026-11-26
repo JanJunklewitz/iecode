@@ -150,6 +150,26 @@ public static class LibrarySelection
                 "Choose the one RepTool changes with --repository."),
         };
 
+    /// <summary>
+    /// The repository <c>lib uninstall --all</c> reads its names from, and RepTool deletes from. RepTool's profile decides
+    /// which repository changes (<see cref="LibraryRepository.ForLine"/>), so that one is scanned; a different
+    /// <paramref name="explicitPath"/> is a usage error instead of a list from one repository deleted from another.
+    /// Without a known line (the default profile of an old installation) the explicit or only existing repository is taken.
+    /// </summary>
+    public static string UninstallRepository(int? toolLine, string profile, string? explicitPath, string? twinCatDir, string? programData, IReadOnlyList<string> existing)
+    {
+        if (toolLine is not { } line) return SingleRepository(explicitPath, existing);
+        var target = LibraryRepository.ForLine(line, twinCatDir, programData)
+            ?? throw new IECodeException(ExitCodes.NotFound, $"The library repository of TwinCAT {line} is unknown.", "TWINCAT3DIR or the ProgramData folder is not set on this machine.");
+        if (explicitPath is not null && !SamePath(explicitPath, target))
+            throw new IECodeException(ExitCodes.Usage, $"--repository {explicitPath} is not the repository RepTool changes: its profile '{profile}' (TwinCAT {line}) changes {target}.",
+                "Select the RepTool of that repository with --tc or --profile, or leave out --repository.");
+        return target;
+    }
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)), StringComparison.OrdinalIgnoreCase);
+
     private static string Resolved(UpdateItem item) =>
         item.Version ?? throw new ArgumentException($"{item.Library} has no resolved version.", nameof(item));
 }

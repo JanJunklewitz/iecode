@@ -211,4 +211,45 @@ public sealed class LibrarySelectionTests : IDisposable
     [Fact]
     public void NoRepositoryIsNotFound() =>
         Assert.Equal(ExitCodes.NotFound, UsageOf(() => LibrarySelection.SingleRepository(null, [])));
+
+    // ------------------------------------------------------------------ the repository RepTool changes
+
+    private const string TcDir = @"C:\TwinCAT\3.1";
+    private const string ProgData = @"C:\ProgramData";
+    private static readonly string Repo4026 = @"C:\ProgramData\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries";
+    private static readonly string Repo4024 = @"C:\TwinCAT\3.1\Components\Plc\Managed Libraries";
+
+    [Theory]
+    [InlineData(4026, true)]
+    [InlineData(4024, false)]
+    public void TheLineDecidesTheRepository(int line, bool is4026) =>
+        Assert.Equal(is4026 ? Repo4026 : Repo4024, LibraryRepository.ForLine(line, TcDir, ProgData));
+
+    [Fact]
+    public void UninstallTargetsTheRepositoryOfRepToolsLineNotTheNamedOne()
+    {
+        // both repositories hold the same libraries; 4026's RepTool must not be told it deletes from 4024
+        var e = Assert.Throws<IECodeException>(() => LibrarySelection.UninstallRepository(4026, "TwinCAT PLC Control_Build_4026.28", Repo4024, TcDir, ProgData, [Repo4026, Repo4024]));
+        Assert.Equal(ExitCodes.Usage, e.ExitCode);
+        Assert.Contains(Repo4026, e.Message);
+        Assert.Contains(Repo4024, e.Message);
+    }
+
+    [Fact]
+    public void UninstallTakesRepToolsRepositoryWhenNoneIsNamed() =>
+        Assert.Equal(Repo4024, LibrarySelection.UninstallRepository(4024, "p", null, TcDir, ProgData, [Repo4026, Repo4024]));
+
+    [Fact]
+    public void UninstallAcceptsAnExplicitRepositoryThatIsRepTools() =>
+        Assert.Equal(Repo4026, LibrarySelection.UninstallRepository(4026, "p", Repo4026.ToUpperInvariant() + @"\", TcDir, ProgData, [Repo4026, Repo4024]));
+
+    [Fact]
+    public void UninstallWithoutAKnownLineFallsBackToTheOnlyRepository() =>
+        Assert.Equal("A", LibrarySelection.UninstallRepository(null, "TwinCAT PLC Control", null, null, null, ["A"]));
+
+    [Theory]
+    [InlineData(@"C:\x\Build_4026.28\Common\RepTool.exe", "TwinCAT PLC Control", 4026)]
+    [InlineData(@"C:\x\Common\RepTool.exe", "TwinCAT PLC Control_Build_4024.66", 4024)]
+    [InlineData(@"C:\x\Common\RepTool.exe", "TwinCAT PLC Control", null)]
+    public void LineOfARepTool(string exe, string profile, int? line) => Assert.Equal(line, TwinCatVersion.LineOfRepTool(exe, profile));
 }
