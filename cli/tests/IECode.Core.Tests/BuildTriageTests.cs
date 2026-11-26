@@ -65,6 +65,17 @@ public class BuildTriageTests
     }
 
     [Fact]
+    public void LibraryManagerWarningIsNoCauseOfAStaticAnalysisOnlyFailure()
+    {
+        var warning = new Diagnostic(Severity.Warning, "PLC.Library Manager: Library tc3_unused, 1.0.0.0 (example) has not been added to the Library Manager, or no valid license could be found", Project: "PLC");
+        var sa = new Diagnostic(Severity.Error, "object name already used in a referenced library", "SA0027", Project: "PLC");
+        var t = BuildTriage.Classify([warning, sa]);
+        Assert.Empty(t.RootCauses);
+        Assert.True(t.StaticAnalysisOnly);
+        Assert.Single(BuildTriage.Classify([warning, sa, sa with { Code = "C0077", Message = "Unknown type" }]).RootCauses);
+    }
+
+    [Fact]
     public void LibraryManagerWarningOfABuildWithoutErrorsIsNoRootCause() =>
         Assert.Empty(T(WarningOnlyLog.Replace("MAIN(15) : error:", "MAIN(15) : warning:").Replace("Fehler: Der Vorgang", "Info")).RootCauses);
 

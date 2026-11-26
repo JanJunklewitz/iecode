@@ -90,14 +90,16 @@ public static partial class BuildTriage
 
         // TcXaeShell 4024 reports a library that is not installed only as a library manager warning ("has not been
         // added to the Library Manager, or no valid license could be found"); in a failed build with no error that
-        // names a cause, that warning is the cause. "Failed" counts the generic last line too.
-        if (roots.Count == 0 && diagnostics.Any(d => d.Severity == Severity.Error))
+        // names a cause, that warning is the cause. "Failed" counts the generic last line too. A build whose errors
+        // are all static analysis findings is explained by them, not by an unrelated library warning.
+        var staticAnalysisOnly = errors.Count > 0 && errors.All(d => d.Code?.StartsWith("SA", StringComparison.Ordinal) == true);
+        if (roots.Count == 0 && !staticAnalysisOnly && diagnostics.Any(d => d.Severity == Severity.Error))
             for (var i = 0; i < all.Count; i++)
                 if (all[i] is { Severity: Severity.Warning } w && LibraryManagerPrefix().IsMatch(w.Message) && RootCauseText().IsMatch(w.Message))
                     roots.Add(all[i] = w with { RootCause = true });
 
         return new Triage(all, roots, [.. order.Select(k => new FollowUpGroup(k, groups[k]))],
-            errors.Count > 0 && errors.All(d => d.Code?.StartsWith("SA", StringComparison.Ordinal) == true), errors.Count);
+            staticAnalysisOnly, errors.Count);
     }
 
     /// <summary>
