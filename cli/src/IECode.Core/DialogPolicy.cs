@@ -49,16 +49,30 @@ public static class DialogPolicy
 
     public static bool IsShellProcess(string processName) => ShellProcessNames.Contains(processName, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A process whose known dialogs may be confirmed during an activation although it is not the owned shell: a program
+    /// of the TwinCAT installation (its executable lies under <paramref name="twinCatDir"/>) in iecode's own session, and no
+    /// XAE shell. Anything that cannot be attributed this way (unknown install folder, unreadable path) is not a helper:
+    /// a dialog with a matching title in some unrelated program is never answered.
+    /// </summary>
+    public static bool IsTwinCatHelper(string processName, string? exePath, string? twinCatDir, bool sameSession)
+    {
+        if (!sameSession || IsShellProcess(processName) || string.IsNullOrEmpty(exePath) || string.IsNullOrEmpty(twinCatDir)) return false;
+        // plain string comparison of Windows paths (the image path of a process is already absolute), so it behaves the same on every OS
+        static string Normal(string p) => p.Replace('/', '\\').TrimEnd('\\');
+        return Normal(exePath).StartsWith(Normal(twinCatDir) + '\\', StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>The standard dialog class (message boxes, Save As, …).</summary>
     public const string DialogClass = "#32770";
 
-    /// <param name="shellPid">The owned shell process; null when it is not known: then only known titles, of any process (today's activation handling).</param>
+    /// <param name="shellPid">The owned shell process; null for the watch of verified TwinCAT helper processes: then only visible dialogs with a known title are answered (the caller has verified the process).</param>
     /// <param name="userCanAnswer">The shell is visible (<c>--visible</c> or <c>--show-ui</c>): unknown dialogs are left to the user.</param>
     public static DialogAction Decide(SeenDialog d, int? shellPid, bool userCanAnswer, DateTime nowUtc, DialogTimings? timings = null)
     {
         var (cancelAfter, escalateAfter) = timings ?? DialogTimings.Default;
         if (shellPid is { } pid && d.Pid != pid) return DialogAction.None;
-        if (KnownTitles.Contains(d.Title, StringComparer.Ordinal)) return DialogAction.ConfirmOk;
+        if (KnownTitles.Contains(d.Title, StringComparer.Ordinal)) return shellPid is null && !d.Visible ? DialogAction.None : DialogAction.ConfirmOk;
         if (shellPid is null || userCanAnswer) return DialogAction.None;
         if (d.ClassName != DialogClass || !d.Visible || !d.OwnerDisabled || d.Progress) return DialogAction.None;
         if (d.CloseSentUtc is { } close) return nowUtc - close >= escalateAfter ? DialogAction.GiveUp : DialogAction.None;

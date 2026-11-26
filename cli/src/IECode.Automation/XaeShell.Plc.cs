@@ -169,8 +169,11 @@ public sealed partial class XaeShell
         SaveAll();
 
         // the shell's own watch confirms known dialogs of the shell; this one also confirms them in a TwinCAT helper
-        // process. Without an owned shell it is the former global title match; with one, other XAE shells are left alone.
-        using var known = DialogWatch.Start(null, userCanAnswer: false, _log, skipShells: _watch is not null);
+        // process, verified by its executable (under the TwinCAT install folder) and session. A dialog with a known
+        // title in any other program, or in a shell iecode does not own, is left alone.
+        var twinCatDir = RepTool.TwinCatDir;
+        if (twinCatDir is null) _log.Detail("TWINCAT3DIR is not set: dialogs of TwinCAT helper processes are not confirmed.");
+        using var known = DialogWatch.Start(null, userCanAnswer: false, _log, isHelper: twinCatDir is null ? null : pid => HelperProcess.Verify(pid, twinCatDir));
         _log.Step($"Activating configuration on {(target.IsLocal ? "local system" : target.ToString())}…");
         try
         {

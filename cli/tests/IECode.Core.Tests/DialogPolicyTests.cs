@@ -45,11 +45,34 @@ public class DialogPolicyTests
     }
 
     [Fact]
-    public void WithoutAnOwnedShellOnlyKnownTitlesOfAnyProcess()
+    public void ForHelperProcessesOnlyVisibleKnownTitlesAreAnswered()
     {
         Assert.Equal(DialogAction.ConfirmOk, Decide(D(Known, pid: 7), T0, shellPid: null));
+        Assert.Equal(DialogAction.None, Decide(D(Known, pid: 7, visible: false), T0, shellPid: null));
         Assert.Equal(DialogAction.None, Decide(D("Save As", pid: 7), T0.AddMinutes(1), shellPid: null));
     }
+
+    private const string TcDir = @"C:\Program Files (x86)\Beckhoff\TwinCAT\3.1";
+
+    [Fact]
+    public void AProgramOfTheTwinCatInstallationIsAHelper()
+    {
+        Assert.True(DialogPolicy.IsTwinCatHelper("TcHelper", TcDir + @"\Components\Base\TcHelper.exe", TcDir, sameSession: true));
+        Assert.True(DialogPolicy.IsTwinCatHelper("TcHelper", TcDir.ToLowerInvariant() + @"\x.exe", TcDir + @"\", sameSession: true));
+    }
+
+    [Theory]
+    [InlineData(@"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", "powershell", true)]   // unrelated program
+    [InlineData(@"C:\Program Files (x86)\Beckhoff\TwinCAT\3.1-other\x.exe", "x", true)]             // sibling folder with the same prefix
+    [InlineData(@"C:\Program Files (x86)\Beckhoff\TwinCAT\3.1\Common\devenv.exe", "devenv", true)]  // XAE shells have their own watch
+    [InlineData(@"C:\Program Files (x86)\Beckhoff\TwinCAT\3.1\x.exe", "x", false)]                  // another session
+    [InlineData(null, "x", true)]                                                                       // unreadable path
+    public void NothingElseIsAHelper(string? exe, string name, bool sameSession) =>
+        Assert.False(DialogPolicy.IsTwinCatHelper(name, exe, TcDir, sameSession));
+
+    [Fact]
+    public void WithoutAnInstallFolderNothingIsAHelper() =>
+        Assert.False(DialogPolicy.IsTwinCatHelper("x", TcDir + @"\x.exe", null, sameSession: true));
 
     [Fact]
     public void FailureCarriesTitleAndText()

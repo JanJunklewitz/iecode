@@ -126,18 +126,58 @@ public class DialogWatchTests
     }
 
     [Fact]
-    public void KnownTitleOfAProcessThatIsNoShellIsConfirmedDuringActivation()
+    public void KnownTitleOfAVerifiedHelperIsConfirmedDuringActivation()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows dialogs");
-        // the activation dialog may belong to a TwinCAT helper instead of the shell; other shells are skipped
+        // the activation dialog may belong to a TwinCAT helper instead of the shell; here the helper check vouches for the test process
         var p = ShowBox(DialogPolicy.KnownTitles[0], "OKCancel");
         try
         {
-            using var watch = DialogWatch.Start(null, userCanAnswer: false, Log(new StringWriter()), Fast, skipShells: true);
+            using var watch = DialogWatch.Start(null, userCanAnswer: false, Log(new StringWriter()), Fast, isHelper: pid => pid == p.Id);
             Assert.True(p.WaitForExit(30000));
             Assert.Equal("OK", p.StandardOutput.ReadToEnd().Trim());
         }
         finally { End(p); }
+    }
+
+    [Fact]
+    public void KnownTitleInAnUnrelatedProcessIsNotConfirmedDuringActivation()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows dialogs");
+        var p = ShowBox(DialogPolicy.KnownTitles[0], "OKCancel");
+        try
+        {
+            // the helper check refuses the process (it is not a TwinCAT program): the dialog stays as it is
+            using var watch = DialogWatch.Start(null, userCanAnswer: false, Log(new StringWriter()), Fast, isHelper: _ => false);
+            Assert.False(p.WaitForExit(4000), "the dialog of an unrelated process was answered");
+            Assert.Null(watch.Cancelled);
+        }
+        finally { End(p); }
+    }
+
+    [Fact]
+    public void WithoutAHelperCheckNothingIsConfirmed()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows dialogs");
+        var p = ShowBox(DialogPolicy.KnownTitles[0], "OKCancel");
+        try
+        {
+            using var watch = DialogWatch.Start(null, userCanAnswer: false, Log(new StringWriter()), Fast);
+            Assert.False(p.WaitForExit(4000), "the dialog was answered without any attribution");
+        }
+        finally { End(p); }
+    }
+
+    [Fact]
+    public void ARealProcessIsAHelperOnlyUnderTheInstallFolder()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows processes");
+        using var me = Process.GetCurrentProcess();
+        // the test host does not live under a TwinCAT folder, and nothing without an install folder is attributed
+        Assert.False(HelperProcess.Verify(me.Id, @"C:\Program Files (x86)\Beckhoff\TwinCAT\3.1"));
+        Assert.False(HelperProcess.Verify(me.Id, null));
+        // the host is neither one of the XAE shells, so only its folder decides
+        Assert.True(HelperProcess.Verify(me.Id, Path.GetDirectoryName(me.MainModule!.FileName)));
     }
 
     [Fact]

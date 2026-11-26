@@ -10,8 +10,8 @@ namespace IECode.Automation.Interop;
 /// Watches the windows of the XAE shell process while iecode drives it (decisions in <see cref="DialogPolicy"/> and
 /// <see cref="DialogTracker"/>): known dialogs are confirmed with OK; an unknown modal dialog is cancelled after 10 s,
 /// then closed, then the shell is ended, so the blocked COM call returns and the command fails with the dialog's text.
-/// Without a shell process (its PID was not known) only known titles are confirmed, in any process (the former
-/// activation handling). Polls on its own thread every 300 ms.
+/// Without a shell process only the known titles are confirmed, and only in processes the caller verified as TwinCAT
+/// helpers (<see cref="DialogPolicy.IsTwinCatHelper"/>); with neither, nothing is touched. Polls on its own thread every 300 ms.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class DialogWatch : IDisposable
@@ -24,17 +24,17 @@ internal sealed class DialogWatch : IDisposable
     private readonly ManualResetEventSlim _stop = new();
     private readonly Thread _thread;
     private readonly HashSet<nint> _confirmed = [];
-    private readonly bool _skipShells;
+    private readonly Func<int, bool>? _isHelper;
     private readonly Lock _sync = new();
     private volatile SeenDialog? _cancelled;
     private volatile bool _gaveUp;
     private IECodeException? _failure;
 
-    private DialogWatch(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings, bool skipShells)
+    private DialogWatch(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings, Func<int, bool>? isHelper)
     {
         _shell = shell;
         _pid = shell?.Id;
-        _skipShells = skipShells;
+        _isHelper = isHelper;
         _log = log;
         _timings = timings ?? DialogTimings.Default;
         _tracker = new DialogTracker(_pid, userCanAnswer, _timings);
@@ -42,11 +42,11 @@ internal sealed class DialogWatch : IDisposable
         _thread.Start();
     }
 
-    /// <param name="shell">The owned shell process (kept open for the kill on give-up), or null: known titles of any process only.</param>
+    /// <param name="shell">The owned shell process (kept open for the kill on give-up), or null: then only <paramref name="isHelper"/> processes are looked at.</param>
     /// <param name="userCanAnswer">The shell is visible: unknown dialogs are left to the user.</param>
-    /// <param name="skipShells">Without a shell process: leave XAE shell processes alone (the owned one has its own watch), confirm known titles of other processes only.</param>
-    public static DialogWatch Start(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings = null, bool skipShells = false) =>
-        new(shell, userCanAnswer, log, timings, skipShells);
+    /// <param name="isHelper">Without a shell process: whether a process is a verified TwinCAT helper whose known dialogs may be confirmed. Null: none is.</param>
+    public static DialogWatch Start(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings = null, Func<int, bool>? isHelper = null) =>
+        new(shell, userCanAnswer, log, timings, isHelper);
 
     /// <summary>The first dialog that was cancelled (or that made the watcher give up).</summary>
     public SeenDialog? Cancelled => _cancelled;
@@ -116,9 +116,12 @@ internal sealed class DialogWatch : IDisposable
         GetWindowThreadProcessId(h, out var pid);
         if (_pid is { } own && (int)pid != own) return null;
         var title = Title(h);
-        // without an owned shell only the known titles matter; other processes' windows are not read further
-        if (_pid is null && !DialogPolicy.KnownTitles.Contains(title, StringComparer.Ordinal)) return null;
-        if (_pid is null && _skipShells && IsShell((int)pid)) return null;
+        if (_pid is null)
+        {
+            // without an owned shell only the known titles of verified helpers matter; no other window is read further
+            if (_isHelper is null || !DialogPolicy.KnownTitles.Contains(title, StringComparer.Ordinal)) return null;
+            if (!IsVerifiedHelper((int)pid)) return null;
+        }
         var cls = ClassOf(h);
         var owner = GetWindow(h, GW_OWNER);
         var visible = IsWindowVisible(h);
@@ -127,17 +130,16 @@ internal sealed class DialogWatch : IDisposable
         return new WindowSnapshot(h, (int)pid, cls, title, text, visible, ownerDisabled, progress);
     }
 
-    private static bool IsShell(int pid)
+    private readonly HashSet<int> _refused = [];
+
+    /// <summary>The helper check runs once per refused process, so an unrelated program's window does not cost a lookup every poll.</summary>
+    private bool IsVerifiedHelper(int pid)
     {
-        try
-        {
-            using var p = Process.GetProcessById(pid);
-            return DialogPolicy.IsShellProcess(p.ProcessName);
-        }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
-        {
-            return true; // gone or unreadable: do not touch it
-        }
+        if (_refused.Contains(pid)) return false;
+        if (_isHelper!(pid)) return true;
+        _refused.Add(pid);
+        _log.Detail($"Dialog with a known title in PID {pid} is not a TwinCAT helper; left alone.");
+        return false;
     }
 
     /// <summary>Re-checks that the handle is still the same window (handles are reused) and posts; a failed post is logged, not retried.</summary>
