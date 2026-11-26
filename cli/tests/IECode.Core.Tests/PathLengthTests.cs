@@ -4,11 +4,12 @@ public class PathLengthTests
 {
     static string Deep(int levels) => string.Join('/', Enumerable.Repeat("folder_name_x", levels));
 
-    [Fact] public void ShortTreeGivesNull()
+    [Fact] public void ShortTreeGivesItsLongestPath()
     {
         using var ws = new TempWorkspace();
-        ws.Touch("t/a/b.TcPOU");
-        Assert.Null(PathLength.Longest(ws["t"]));
+        var file = ws.Touch("t/a/b.TcPOU");
+        // no cutoff: the caller judges the length, an isolated copy may make a short path long
+        Assert.Equal(file, PathLength.Longest(ws["t"]));
     }
 
     [Fact] public void ReportsThePathAtTheLimit()
@@ -35,6 +36,15 @@ public class PathLengthTests
         var file = root + @"\PLC\" + new string('x', 200) + ".TcPOU";
         Assert.Contains("--isolate", PathLength.Warning(file, root, @"C:\t\b\1234abcd-42"));
         Assert.DoesNotContain("--isolate", PathLength.Warning(file, root, root + @"\even\longer\copy\root"));
+    }
+
+    [Fact] public void ShortSourcePathThatBecomesLongInTheCopyIsWarnedAbout()
+    {
+        var root = @"C:\r";
+        var file = root + @"\PLC\" + new string('x', 180) + ".TcPOU";
+        Assert.True(file.Length < PathLength.WarnAt);
+        Assert.Null(PathLength.Warning(file, root, @"C:\r", isolating: false));
+        Assert.Contains("--isolate-dir", PathLength.Warning(file, root, @"C:\temp\some\isolate\dir\b\abcd1234-42", isolating: true));
     }
 
     [Fact] public void IsolatedBuildIsJudgedByThePathInTheCopy()

@@ -169,7 +169,8 @@ internal static class ProjectCommands
     /// <summary>Warns about a project file path long enough to make the hidden shell show dialogs.</summary>
     internal static void WarnLongPath(Context ctx, string folder, string root, string copyRoot, bool isolating)
     {
-        if (PathLength.Longest(folder) is not { } longest) return;
+        // an isolated build copies the whole root, so that is what to scan then
+        if (PathLength.Longest(isolating ? root : folder) is not { } longest) return;
         if (PathLength.Warning(longest, root, copyRoot, isolating) is { } warning) ctx.Log.Warn(warning);
     }
 

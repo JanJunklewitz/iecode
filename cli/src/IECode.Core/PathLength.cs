@@ -17,12 +17,12 @@ public static class PathLength
         return ProjectExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase) || ext.StartsWith(".Tc", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>The longest full path of a project file below <paramref name="root"/>, or null if none reaches <see cref="WarnAt"/>.</summary>
+    /// <summary>The longest full path of a project file below <paramref name="root"/>, or null without one; judged by <see cref="Warning"/>.</summary>
     public static string? Longest(string root)
     {
         string? longest = null;
         foreach (var f in ProjectFiles(root))
-            if (f.Length >= WarnAt && (longest is null || f.Length > longest.Length)) longest = f;
+            if (longest is null || f.Length > longest.Length) longest = f;
         return longest;
     }
 
@@ -42,13 +42,14 @@ public static class PathLength
     }
 
     /// <summary>
-    /// The warning for a long path below <paramref name="root"/>; suggests <c>--isolate</c> only when the same file in the
+    /// The warning for a long path below <paramref name="root"/> (null below <see cref="WarnAt"/>); suggests <c>--isolate</c> only when the same file in the
     /// copy at <paramref name="copyRoot"/> would be shorter. When <paramref name="isolating"/>, the build runs in that copy:
     /// null unless the path there is still long.
     /// </summary>
     public static string? Warning(string longest, string root, string copyRoot, bool isolating = false)
     {
         var inCopy = longest.Length - root.TrimEnd('\\', '/').Length + copyRoot.TrimEnd('\\', '/').Length;
+        if (!isolating && longest.Length < WarnAt) return null;
         const string Risk = "Hidden shells may show dialogs for long paths";
         if (isolating)
             return inCopy < WarnAt ? null : $"Path of {inCopy} characters in the isolated copy (from {longest}). {Risk}; pass a shorter --isolate-dir.";
