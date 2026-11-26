@@ -319,12 +319,15 @@ internal static class LibraryCommands
         Action(cmd, ctx =>
         {
             var projects = LoadProjects(ctx.Get(paths));
-            var roots = ctx.Get(repos) is { Length: > 0 } r ? r : DefaultRepositories();
+            var explicitRoots = ctx.Get(repos) is { Length: > 0 } r ? r : null;
+            var roots = explicitRoots ?? DefaultRepositories();
             var existing = roots.Where(Directory.Exists).ToList();
             foreach (var root in roots) ctx.Log.Detail($"{(Directory.Exists(root) ? "Scanning" : "Not found")}: {root}");
             if (existing.Count == 0)
                 throw new IECodeException(ExitCodes.NotFound, "No library repository found; references not checked.", "Pass the folder with --repository.");
-            var problems = Core.Projects.Restore.Check(projects, LibraryRepository.ScanAll(existing));
+            // named folders must all be scanned; only the automatic candidates may be absent
+            var installed = explicitRoots is null ? LibraryRepository.ScanAll(existing) : LibraryRepository.ScanExplicit(explicitRoots);
+            var problems = Core.Projects.Restore.Check(projects, installed);
             foreach (var p in problems) ctx.Log.Error(Describe(p));
             if (problems.Count == 0) ctx.Log.Success($"All library references of {projects.Count} project(s) are installed (file check; XAE may still fail to resolve them)");
             return new Outcome(problems.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { problems, repositories = existing });

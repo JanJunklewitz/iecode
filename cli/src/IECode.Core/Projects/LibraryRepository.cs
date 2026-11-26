@@ -55,6 +55,24 @@ public static class LibraryRepository
     public static IReadOnlyList<InstalledLibrary> ScanAll(IEnumerable<string> roots) =>
         [.. roots.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(Scan)];
 
+    /// <summary>
+    /// Every library of repositories the user named: unlike <see cref="ScanAll"/> a folder that is missing or cannot be
+    /// read fails with its path, because skipping it would report a check against a set that was not scanned.
+    /// </summary>
+    public static IReadOnlyList<InstalledLibrary> ScanExplicit(IEnumerable<string> roots)
+    {
+        var list = new List<InstalledLibrary>();
+        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try { list.AddRange(Scan(root)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                throw new IECodeException(ExitCodes.NotFound, $"Library repository '{root}' cannot be read: {e.Message}", "Check the --repository path.");
+            }
+        }
+        return list;
+    }
+
     /// <summary>Newest installed version of a library (name/vendor compared case-insensitively), or null.</summary>
     public static InstalledLibrary? Newest(IEnumerable<InstalledLibrary> installed, string name, string? vendor) =>
         installed

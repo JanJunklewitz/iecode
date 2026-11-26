@@ -76,6 +76,16 @@ public sealed class ReferenceCheckTests : IDisposable
     [Fact]
     public void ScanAllWithoutAnyRepositoryIsEmpty() =>
         Assert.Empty(LibraryRepository.ScanAll([_ws["nope1"], _ws["nope2"]]));
+
+    [Fact]
+    public void ExplicitRepositoryThatIsMissingFailsWithItsPath()
+    {
+        _ws.Touch("Good/example/tc3_axislib/1.0.0.0/tc3_axislib.library");
+        var ex = Assert.Throws<IECodeException>(() => LibraryRepository.ScanExplicit([_ws["Good"], _ws["typo"]]));
+        Assert.Equal(ExitCodes.NotFound, ex.ExitCode);
+        Assert.Contains(_ws["typo"], ex.Message);
+        Assert.Single(LibraryRepository.ScanExplicit([_ws["Good"], _ws["Good"]]));
+    }
 }
 
 public sealed class PreflightTests : IDisposable
