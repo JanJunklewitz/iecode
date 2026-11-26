@@ -35,6 +35,8 @@ public sealed partial class XaeShell : IDisposable
     private readonly ShellOptions _options;
     private dynamic? _dte;
     private dynamic? _solution;
+    private int _processId;
+    private bool _openAttempted;
 
     public string ProgId { get; }
     public string? SolutionPath { get; private set; }
@@ -75,6 +77,7 @@ public sealed partial class XaeShell : IDisposable
 
         var shell = new XaeShell(log, filter, options, progId, dte);
         shell.Configure();
+        shell._processId = shell.ShellProcessId();
         log.Detail($"Shell ready after {sw.Elapsed.TotalSeconds:0.0} s");
         return shell;
     }
@@ -177,9 +180,11 @@ public sealed partial class XaeShell : IDisposable
 
     private void CloseWithoutSaving()
     {
-        if (!DiscardChanges || _solution is null || SolutionPath is null) return;
+        // an Open that failed half-way can leave a solution loaded although SolutionPath was never set
+        if (!DiscardChanges || _solution is null || (SolutionPath is null && !_openAttempted)) return;
         ComCall.Retry(() => { Solution.Close(false); });
-        _log.Detail($"Closed {Path.GetFileName(SolutionPath)} without saving");
+        _log.Detail($"Closed {(SolutionPath is null ? "the solution" : Path.GetFileName(SolutionPath))} without saving");
+        _openAttempted = false;
         SolutionPath = null;
     }
 
@@ -189,6 +194,7 @@ public sealed partial class XaeShell : IDisposable
         CloseWithoutSaving();
         _log.Step($"Opening {Path.GetFileName(full)}…");
         _solution = ComCall.Retry(() => (object)Dte.Solution);
+        _openAttempted = true;
         ComCall.Retry(() => { Solution.Open(full); });
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
         while (!ComCall.Retry(() => (bool)Solution.IsOpen))
@@ -257,9 +263,16 @@ public sealed partial class XaeShell : IDisposable
         try
         {
             _log.Detail("Closing shell…");
+            var discarded = true;
             try { CloseWithoutSaving(); }
-            catch (Exception e) { _log.Detail($"Closing the solution without saving failed: {e.Message}"); }
-            ComCall.Retry(() => { Dte.Quit(); }, attempts: 5);
+            catch (Exception e)
+            {
+                discarded = false;
+                _log.Warn($"Closing the solution without saving failed: {e.Message}");
+            }
+            // Quit saves a dirty project (spike): after a failed discard it would write what the command promised not to
+            if (discarded) ComCall.Retry(() => { Dte.Quit(); }, attempts: 5);
+            else TerminateWithoutSaving();
         }
         catch (Exception e)
         {
@@ -272,6 +285,41 @@ public sealed partial class XaeShell : IDisposable
             _solution = null;
             _dte = null;
             _filter.Dispose();
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    /// <summary>The process of the shell this object started (its main window's owner); 0 when it cannot be told.</summary>
+    private int ShellProcessId()
+    {
+        try
+        {
+            var hwnd = ComCall.Retry(() => (int)Dte.MainWindow.HWnd);
+            return GetWindowThreadProcessId(new IntPtr(hwnd), out var pid) != 0 ? (int)pid : 0;
+        }
+        catch (Exception) { return 0; }
+    }
+
+    /// <summary>Ends the shell process without a Quit, which would save; the shell is this object's own, started for one command.</summary>
+    private void TerminateWithoutSaving()
+    {
+        if (_processId == 0) _processId = ShellProcessId();
+        if (_processId == 0)
+        {
+            _log.Warn("The shell was left running: it could not be closed without saving, and a normal exit would save the project. Close it yourself without saving.");
+            return;
+        }
+        try
+        {
+            using var p = Process.GetProcessById(_processId);
+            p.Kill(entireProcessTree: true);
+            _log.Warn("The shell was ended without saving because the solution could not be closed without saving.");
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _log.Warn($"The shell could not be ended ({e.Message}); close it yourself without saving.");
         }
     }
 
