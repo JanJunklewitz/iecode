@@ -108,12 +108,15 @@ internal static class LibraryCommands
 
             var results = new List<object>();
             var failed = 0;
+            IECodeException? stopped = null;
+            var notStarted = new List<string>();
             using var session = new ShellSession(ctx, saves: true);
             XaeShell? shell = null;
             string? open = null;
             var step = 0;
             foreach (var p in plan)
             {
+                if (stopped is not null) { notStarted.Add(p.Unit.Id); continue; }
                 step++;
                 try
                 {
@@ -127,15 +130,22 @@ internal static class LibraryCommands
                     ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
                     results.Add(new { unit = p.Unit.Id, file = written, ok = true });
                 }
-                // a timeout (the repository lock or RepTool) would hit every following item too: stop instead of waiting N times
-                catch (IECodeException e) when (!ctx.Get(failFast) && e.ExitCode != ExitCodes.Timeout)
+                catch (IECodeException e)
                 {
                     failed++;
                     ctx.Log.Error($"[{step}/{plan.Count}] {p.Unit.Id}: {e.Message}");
                     results.Add(new { unit = p.Unit.Id, file = p.File, ok = false, error = e.Message });
+                    // a timeout (the repository lock or RepTool) would hit every following item too: stop instead of waiting N times,
+                    // but hand back what was done so the caller knows where to resume
+                    if (ctx.Get(failFast) || e.ExitCode == ExitCodes.Timeout) stopped = e;
                 }
             }
-            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = plan.Count - failed, failed, results };
+            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = results.Count - failed, failed, stopped = stopped is not null, notStarted, results };
+            if (stopped is not null)
+            {
+                ctx.Log.Warn($"Stopped after {results.Count} of {plan.Count} project(s); not started: {(notStarted.Count == 0 ? "none" : string.Join(", ", notStarted))}.");
+                return new Outcome(stopped.ExitCode, data);
+            }
             if (failed > 0)
             {
                 ctx.Log.Warn($"{failed} of {plan.Count} project(s) could not be saved; library projects need Title, Company and Version and must compile.");
