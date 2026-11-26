@@ -88,6 +88,22 @@ public static class LibraryRepository
     public static string? HighestFor(IEnumerable<InstalledLibrary> installed, LibraryReference reference) =>
         reference.IsPinned ? null : Newest(installed, reference.Effective.Name, reference.Effective.Vendor)?.Version;
 
+    /// <summary>
+    /// A dotted version of one to four numeric components, each within int range; omitted components count as 0.
+    /// Unlike the lenient ordering key this never turns an unreadable component into 0, so it is safe to decide a match on.
+    /// </summary>
+    public static bool TryParseVersion(string text, out Version version)
+    {
+        version = new Version(0, 0, 0, 0);
+        var parts = text.Split('.');
+        if (parts.Length is < 1 or > 4) return false;
+        var n = new int[4];
+        for (var i = 0; i < parts.Length; i++)
+            if (parts[i].Length == 0 || !parts[i].All(char.IsAsciiDigit) || !int.TryParse(parts[i], out n[i])) return false;
+        version = new Version(n[0], n[1], n[2], n[3]);
+        return true;
+    }
+
     /// <summary>Compares dotted versions numerically: 3.3.10.0 &gt; 3.3.9.0.</summary>
     public static int Compare(string a, string b) => VersionKey(a).CompareTo(VersionKey(b));
 

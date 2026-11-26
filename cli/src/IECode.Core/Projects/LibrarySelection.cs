@@ -105,7 +105,9 @@ public static class LibrarySelection
         .. installed.Where(i =>
             (namePattern is null || NameMatches(namePattern, i.Name))
             && (vendor is null || i.Vendor.Equals(vendor, StringComparison.OrdinalIgnoreCase))
-            && (version is null or "all" || LibraryRepository.Compare(i.Version, version) == 0)),
+            // strict: an unreadable version on either side is no match, never "0"
+            && (version is null or "all" || (LibraryRepository.TryParseVersion(version, out var want)
+                && LibraryRepository.TryParseVersion(i.Version, out var have) && have == want))),
     ];
 
     /// <summary>
@@ -131,7 +133,7 @@ public static class LibrarySelection
         if (vendor is null) throw new IECodeException(ExitCodes.Usage, "--all needs --vendor.");
         if (version is "all")
             throw new IECodeException(ExitCodes.Usage, "--all needs one --version, not all.", "Remove every version of a library by naming it: iecode lib uninstall <name> --vendor <vendor>.");
-        if (!Regex.IsMatch(version, @"^\d+(\.\d+){0,3}$"))
+        if (!LibraryRepository.TryParseVersion(version, out _))
             throw new IECodeException(ExitCodes.Usage, $"'{version}' is not a library version.", "Use a version like 1.3.1.0.");
     }
 

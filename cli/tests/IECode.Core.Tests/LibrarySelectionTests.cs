@@ -169,6 +169,20 @@ public sealed class LibrarySelectionTests : IDisposable
     public void UninstallAllNeedsANumericVersion(string version) =>
         Assert.Equal(ExitCodes.Usage, UsageOf(() => LibrarySelection.UninstallAll(Repo, [], "example", version)));
 
+    [Theory]
+    [InlineData("1.3.1.2147483648")]   // overflows int: must not read as 1.3.1.0
+    [InlineData("99999999999")]
+    public void UninstallAllRejectsAVersionComponentOutOfRange(string version) =>
+        Assert.Equal(ExitCodes.Usage, UsageOf(() => LibrarySelection.UninstallAll(Repo, [], "example", version)));
+
+    [Fact]
+    public void AMalformedInstalledVersionIsNeverAMatch()
+    {
+        InstalledLibrary[] repo = [.. Repo, new("tc3_bad", "1.3.1.99999999999", "example", "r/b/1"), new("tc3_bad2", "1.x", "example", "r/b/2")];
+        Assert.DoesNotContain(LibrarySelection.Select(repo, null, "example", "1.3.1.0"), i => i.Name.StartsWith("tc3_bad"));
+        Assert.DoesNotContain(LibrarySelection.UninstallAll(repo, [], "example", "1.3.1.0"), i => i.Name.StartsWith("tc3_bad"));
+    }
+
     [Fact]
     public void UninstallAllMatchingNothingIsNotFound()
     {
