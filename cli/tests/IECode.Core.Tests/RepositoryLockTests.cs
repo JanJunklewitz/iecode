@@ -61,14 +61,86 @@ public class RepositoryLockTests
     {
         Assert.SkipUnless(WindowsOnly.IsWindows, "abandoned named mutexes are a Windows notion");
         var name = Unique();
-        using var writer = PowerShell("Start-Sleep -Milliseconds 1500");
-        var th = new Thread(() => RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name).RecordWriter(writer));
-        th.Start();
-        th.Join();
-        var err = new StringWriter();
-        using var second = RepositoryLock.Acquire(Log(err), TimeSpan.FromSeconds(10), name);
-        Assert.True(writer.HasExited);
-        Assert.Contains($"PID {writer.Id}", err.ToString());
+        using var writer = Holder("$null");   // runs until the test releases it: no timing assumption
+        try
+        {
+            var th = new Thread(() => RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(5), name).RecordWriter(writer));
+            th.Start();
+            th.Join();
+            var err = new StringWriter();
+            var second = new OnThread<bool>(() => { using var _ = RepositoryLock.Acquire(Log(err), TimeSpan.FromSeconds(30), name); return true; });
+            Assert.True(SpinWait.SpinUntil(() => err.ToString().Contains($"PID {writer.Id}"), TimeSpan.FromSeconds(20)));   // it is waiting for the writer
+            Assert.False(second.IsCompleted);
+            writer.StandardInput.WriteLine();
+            Assert.True(second.Result);
+            Assert.True(writer.WaitForExit(10000));
+        }
+        finally { if (!writer.HasExited) writer.Kill(); }
+    }
+
+    [Fact]
+    public void ARecordThatCannotBeUnderstoodFailsClosed()
+    {
+        var name = Unique();
+        var file = RepositoryLock.WriterFilePath(name);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "not a record");
+        try
+        {
+            var e = Assert.Throws<IECodeException>(() => RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(2), name));
+            Assert.Equal(ExitCodes.Failed, e.ExitCode);
+            Assert.Contains(file, e.Message);
+            Assert.True(File.Exists(file));   // not silently discarded
+        }
+        finally { File.Delete(file); }
+    }
+
+    [Fact]
+    public void ARecordThatCannotBeReadFailsClosed()
+    {
+        Assert.SkipUnless(WindowsOnly.IsWindows, "an exclusive open blocks reading only on Windows");
+        var name = Unique();
+        var file = RepositoryLock.WriterFilePath(name);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "1 2");
+        try
+        {
+            using var exclusive = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            Assert.Equal(ExitCodes.Failed, Assert.Throws<IECodeException>(() => RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(2), name)).ExitCode);
+        }
+        finally { File.Delete(file); }
+    }
+
+    [Fact]
+    public void AMissingRecordMeansNoWriterAndAGoneProcessIsNotWaitedFor()
+    {
+        var name = Unique();
+        var file = RepositoryLock.WriterFilePath(name);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.Delete(file);
+        using (RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(2), name)) { }
+        File.WriteAllText(file, $"{int.MaxValue - 7} 1");   // no such process
+        try { using var _ = RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(2), name); }
+        finally { File.Delete(file); }
+    }
+
+    [Fact]
+    public void TheRecordIsPublishedWholeAndLeavesNoTempFile()
+    {
+        var name = Unique();
+        var file = RepositoryLock.WriterFilePath(name);
+        try
+        {
+            using (var held = RepositoryLock.Acquire(Log(), TimeSpan.FromSeconds(2), name))
+            {
+                held.RecordWriter(4242, 99);
+                Assert.Equal("4242 99", File.ReadAllText(file));
+                held.RecordWriter(4243, 100);   // replaces the previous record
+                Assert.Equal("4243 100", File.ReadAllText(file));
+            }
+            Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(file)!, Path.GetFileName(file) + ".*.tmp"));
+        }
+        finally { File.Delete(file); }
     }
 
     [Fact]
@@ -186,12 +258,9 @@ public class RepositoryLockTests
     {
         Assert.SkipUnless(WindowsOnly.IsWindows, "the child holds the mutex through Windows PowerShell");
         var name = Unique();
-        using var child = PowerShell(
-            $"$m = [System.Threading.Mutex]::new($false, '{name}'); [void]$m.WaitOne(); [Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); [void][Console]::In.ReadLine()",
-            redirectInput: true);
+        using var child = Holder($"$m = [System.Threading.Mutex]::new($false, '{name}'); [void]$m.WaitOne()");   // returns once the child owns the mutex
         try
         {
-            Assert.Equal("ready", child.StandardOutput.ReadLine()); // handshake: the child owns the mutex now
             var e = Assert.Throws<IECodeException>(() => RepositoryLock.Acquire(Log(), TimeSpan.FromMilliseconds(300), name));
             Assert.Equal(ExitCodes.Timeout, e.ExitCode);
 
@@ -228,6 +297,22 @@ public class RepositoryLockTests
                 return _result!;
             }
         }
+    }
+
+    /// <summary>
+    /// A PowerShell child that has run <paramref name="body"/>, reported "ready" (bounded wait) and then waits for a line on its
+    /// input, so a test decides when it ends instead of guessing with a sleep. It is killed when the handshake fails.
+    /// </summary>
+    private static Process Holder(string body)
+    {
+        var child = PowerShell($"{body}; [Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); [void][Console]::In.ReadLine()", redirectInput: true);
+        var line = child.StandardOutput.ReadLineAsync();
+        if (!line.Wait(TimeSpan.FromSeconds(30)) || line.Result != "ready")
+        {
+            try { child.Kill(); } catch (InvalidOperationException) { }
+            throw new TimeoutException("the child process did not report ready");
+        }
+        return child;
     }
 
     private static Process PowerShell(string script, bool redirectInput = false) =>

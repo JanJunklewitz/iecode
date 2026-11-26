@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace IECode.Core;
 
@@ -9,6 +10,8 @@ namespace IECode.Core;
 /// A file next to the mutex records the PID of the RepTool the holder started. When a holder dies without releasing
 /// (the mutex is abandoned), or a RepTool cannot be stopped after a timeout, it may still write; the next holder
 /// waits for that process to end. The record is per user (local application data), like the session-wide mutex.
+/// RepTool itself runs suspended in a kill-on-close job and is recorded before its first instruction, so a holder
+/// that dies takes it along; the record is the second line of defence. A record that cannot be read fails closed.
 /// </summary>
 public sealed class RepositoryLock : IDisposable
 {
@@ -75,10 +78,31 @@ public sealed class RepositoryLock : IDisposable
     }
 
     /// <summary>Records the process that writes to the repository under this lock (RepTool).</summary>
-    public void RecordWriter(Process writer)
+    public void RecordWriter(Process writer) => RecordWriter(writer.Id, writer.StartTime.ToUniversalTime().Ticks);
+
+    /// <summary>
+    /// Records the writer's PID and start time. The file is published atomically (written beside, then moved over), so a reader
+    /// sees the old or the new record, never a partial one. Throws when it cannot be written: a caller must not let a writer
+    /// run that no later holder could wait for.
+    /// </summary>
+    public void RecordWriter(int pid, long startTicksUtc)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_writerFile)!);
-        File.WriteAllText(_writerFile, $"{writer.Id} {writer.StartTime.ToUniversalTime().Ticks}");
+        var temp = _writerFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                file.Write(Encoding.ASCII.GetBytes($"{pid} {startTicksUtc}"));
+                file.Flush(flushToDisk: true);
+            }
+            File.Move(temp, _writerFile, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            throw;
+        }
     }
 
     /// <summary>Forgets the writer once it has ended.</summary>
@@ -100,13 +124,20 @@ public sealed class RepositoryLock : IDisposable
         ClearWriter();
     }
 
-    /// <summary>The recorded writer when it still runs (same PID and start time, so a reused PID does not count).</summary>
+    /// <summary>
+    /// The recorded writer when it still runs (same PID and start time, so a reused PID does not count); null when there is no
+    /// record or its process is gone. A record that cannot be read or understood fails closed: it may name a RepTool that still
+    /// writes, and starting another one next to it is what the lock exists to prevent.
+    /// </summary>
     private Process? Writer()
     {
-        string[] parts;
-        try { parts = File.ReadAllText(_writerFile).Split(' '); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
-        if (parts.Length != 2 || !int.TryParse(parts[0], out var pid) || !long.TryParse(parts[1], out var ticks)) return null;
+        string content;
+        try { content = File.ReadAllText(_writerFile); }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { throw Unreadable(e.Message, e); }
+        var parts = content.Split(' ');
+        if (parts.Length != 2 || !int.TryParse(parts[0], out var pid) || !long.TryParse(parts[1], out var ticks))
+            throw Unreadable("it does not hold a PID and a start time", null);
         Process p;
         try { p = Process.GetProcessById(pid); }
         catch (ArgumentException) { return null; }
@@ -118,6 +149,13 @@ public sealed class RepositoryLock : IDisposable
         p.Dispose();
         return null;
     }
+
+    private IECodeException Unreadable(string why, Exception? inner) =>
+        new(ExitCodes.Failed, $"The record of the RepTool that writes to the library repository cannot be read ('{_writerFile}'): {why}.",
+            "Check in the Task Manager that no RepTool.exe is running, then delete that file.", inner);
+
+    /// <summary>Where the record of the writer for the named lock lives (public for the tests of other assemblies).</summary>
+    public static string WriterFilePath(string name) => WriterFile(name);
 
     private static string WriterFile(string name) =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "iecode", "locks", string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_')) + ".writer");
