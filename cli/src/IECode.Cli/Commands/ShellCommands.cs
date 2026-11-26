@@ -1,5 +1,5 @@
 using System.CommandLine;
-using System.Diagnostics;
+using IECode.Automation;
 using IECode.Core;
 using static IECode.Cli.Runner;
 
@@ -119,27 +119,24 @@ internal static class ShellCommands
 
     private enum EndResult { Ended, Gone, Failed }
 
-    /// <summary>Ends a recorded shell; the creation time is checked on the same handle that is killed, so a reused PID is never hit.</summary>
+    /// <summary>
+    /// Ends a recorded shell. The creation-time check, the termination and the wait all go through one process handle
+    /// (<see cref="ProcessTermination"/>), so a PID that Windows reuses meanwhile is never hit; a process that cannot be
+    /// opened is a failure, not permission to go on.
+    /// </summary>
     private static EndResult End(ShellEntry e, Reporter log)
     {
-        try
+        if (!OperatingSystem.IsWindows()) return EndResult.Gone;   // only Windows records shells
+        switch (ProcessTermination.End(e.Pid, e.StartedUtc, TimeSpan.FromSeconds(10), out var detail))
         {
-            using var p = Process.GetProcessById(e.Pid);
-            if (!ShellRegistry.IsSame(e, p.StartTime.ToUniversalTime()))
-            {
-                log.Detail($"PID {e.Pid} is another process now; not touched.");
+            case ProcessEnd.Ended:
+                return EndResult.Ended;
+            case ProcessEnd.Gone:
+                if (detail is not null) log.Detail($"PID {e.Pid}: {detail}; not touched.");
                 return EndResult.Gone;
-            }
-            p.Kill();
-            if (p.WaitForExit(TimeSpan.FromSeconds(10))) return EndResult.Ended;
-            log.Error($"PID {e.Pid} did not end within 10 s.");
-            return EndResult.Failed;
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return EndResult.Gone; }
-        catch (System.ComponentModel.Win32Exception ex)
-        {
-            log.Error($"Ending PID {e.Pid} failed: {ex.Message}");
-            return EndResult.Failed;
+            default:
+                log.Error($"Ending PID {e.Pid} failed: {detail}");
+                return EndResult.Failed;
         }
     }
 }
