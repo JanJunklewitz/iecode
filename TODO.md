@@ -107,9 +107,7 @@ Plan: [CLI build workflow master plan](docs/superpowers/plans/2026-11-24-cli-bui
 
 Status (2026-11-26): sub-plans A to D are implemented on `feature/cli-build-workflow-master` (stacked A, B, C, D, plus a second independent review per layer with its findings fixed). Not merged to `main` yet. Parts that need a real TwinCAT PC to verify are listed in [docs/open-tests.md](docs/open-tests.md), section "CLI build workflow".
 
-Round 2: [CLI build workflow master plan, round 2](docs/superpowers/plans/2026-11-26-cli-build-workflow-2-master-plan.md) with sub-plans E (`ws build --parallel`), F (`--tc` matrix), G (`build --exclude-plc` / `--no-tests`), H (`lib project-folder sync`), I (`lib verify`), J (`iecode test`). It covers the remaining "Medium" and "Large" items; each plan starts with a spike on a TwinCAT PC. Not reviewed yet.
-
-Known limit found while planning round 2: `ws build` builds a solution once and skips its further units (`WorkspaceCommands.cs`, `continue` before the install block), so a second library PLC project in the same solution is never installed for its users. Plan E fixes it.
+Round 2: [CLI build workflow master plan, round 2](docs/superpowers/plans/2026-11-26-cli-build-workflow-2-master-plan.md) with sub-plans E (`ws build --parallel`), F (`--tc` matrix), G (`build --exclude-plc` / `--no-tests`), H (`lib project-folder sync`), I (`lib verify`), J (`iecode test`). It covers the remaining "Medium" and "Large" items; each plan starts with a spike on a TwinCAT PC. Based on and re-checked against `feature/cli-build-workflow-master` (2026-11-26); not reviewed yet.
 
 Small:
 - [x] **Pre-flight reference check**: `lib restore --dry-run` already finds missing pinned versions, also fixed `PlaceholderResolution` entries (it would have found the missing versions of the run; nobody knew it). Run it before `build` and hint at it after a failed build, maybe a `lib check` alias; also report `*` references without any installed version.

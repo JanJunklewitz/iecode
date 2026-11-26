@@ -23,24 +23,24 @@
 - Plan-specific: a single `--tc` value (`4024`, `4026.28`, `auto`) behaves byte-for-byte as before (output, JSON, exit code). The VS Code extension never sends a list and needs no code change.
 - Plan-specific: a matrix run never writes the original working tree: every entry builds in its own fresh `Isolation.Create` copy with `saves: false`.
 
-## Premises checked (tree `iecode-cli-build`, branch `feature/cli-build-workflow-d`)
+## Premises checked (branch `feature/cli-build-workflow-master`, tip `0515a61`)
 
 1. `--tc` is a global recursive `Option<string>`, default `"auto"`: `cli/src/IECode.Cli/Globals.cs:15-20`.
-2. The only reader is `Context.Version => TwinCatVersion.Parse(Parse.GetValue(Globals.Tc))`: `Globals.cs:46`; `Context` is a `sealed record`, so `with { … }` works: `Globals.cs:44`. Users of `ctx.Version`: `Runner.cs:102,157,176`, `ProjectCommands.cs:46,325`, `LibraryCommands.cs:403,429,473,522`, `DoctorCommand.cs:31`, `WorkspaceCommands.cs:178`.
+2. The only reader is `Context.Version => TwinCatVersion.Parse(Parse.GetValue(Globals.Tc))`: `Globals.cs:46`; `Context` is a `sealed record`, so `with { … }` works: `Globals.cs:44`. Users of `ctx.Version`: `Runner.cs:125,222,253`, `ProjectCommands.cs:46,342`, `LibraryCommands.cs:419,445,489,527,541`, `DoctorCommand.cs:31`.
 3. `TwinCatVersion.Parse("4024,4026")` throws `IECodeException(Usage, "Invalid TwinCAT version …")` today (regex `^(?:3\.1\.)?\d{4}(?:\.\d+)?$`): `TwinCatVersion.cs:18-30`. So every command already rejects a list with exit 2; the plan only improves the message.
-4. An explicit version is never second-guessed: `TcLineGuard.Choose` returns it with no note: `TcLineGuard.cs:27`. The exact-build fallback in `Runner.SelectVersion` applies only to `auto`: `Runner.cs:157`.
-5. `TwinCatInstall.Builds(string?)` lists installed builds oldest first, empty when unknown: `TcLineGuard.cs:88-102`; `RepTool.TwinCatDir` is its input: `Runner.cs:102`.
-6. `build --isolate`: `OutsideRoot` check, `Isolation.Create`, `MapDiagnostic = d => Isolation.MapBack(d, copy)`, `WithShell(ctx, copy.Solution, saves: false, …)`, `TryDelete(15 s)` in `finally`: `ProjectCommands.cs:117-150`. Without `--isolate`, build counts as saving (`saves: true`): `ProjectCommands.cs:113`.
-7. The copy folder is `<hash>-<pid>`: `Isolation.cs:70-74`, and `Create` deletes an existing folder of that name first: `Isolation.cs:164`. One process can therefore hold only one copy at a time, which fits a sequential matrix and rules out `--keep-isolated` for more than one entry.
+4. An explicit version is never second-guessed: `TcLineGuard.Choose` returns it with no note: `TcLineGuard.cs:48`. The exact-build fallback in `Runner.SelectVersion` applies only to `auto`: `Runner.cs:222`.
+5. `TwinCatInstall.Builds(string?)` lists installed builds oldest first, empty when unknown: `TcLineGuard.cs:109-123`; `RepTool.TwinCatDir` is its input: `Runner.cs:125`.
+6. `build --isolate`: `OutsideRoot` check, `Isolation.Create`, `MapDiagnostic = d => Isolation.MapBack(d, copy)`, `WithShell(ctx, copy.Solution, saves: false, …)`, `TryDelete(15 s)` in `finally`: `ProjectCommands.cs:126-166`. Without `--isolate`, build counts as saving (`saves: true`, with `beforeOpen` and `Reporter.PartialData` for the changed-files report): `ProjectCommands.cs:115-124`. `OutsideRoot` now also refuses projects of an unsupported type (only `.plcproj`, `.tsproj`, `.tspproj` are accepted in a copy): `ProjectCommands.cs:128-131`.
+7. The copy folder is `<hash>-<pid>` (`Isolation.cs:81-85`), but `Create` no longer deletes it: `Allocate` claims the first free `<hash>-<pid>`, `<hash>-<pid>-2`, … with a marker file (`Isolation.cs:177-199,252-270`). One process can therefore hold several copies at once; a kept copy of one entry does not block the next.
 8. `BuildOutcome.ExitCode(IEnumerable<bool>)` gives 0 or 10: `BuildTriage.cs:33`. Exit codes: `Usage = 2`, `BuildFailed = 10`, `VersionNotInstalled = 15`, `Cancelled = 130`: `Errors.cs:8-21`.
-9. `Reporter.TwinCatVersion` (JSON `twinCat`) is set by `XaeShell.SelectVersion`: `XaeShell.cs:302`, `Reporter.cs:29,152`. `Reporter.MapDiagnostic` is applied to every recorded diagnostic, also root causes: `Reporter.cs:65-67,107,111`. `Reporter.Diagnostics` is the flat list: `Reporter.cs:30`.
-10. `Diagnostic` is a positional record with trailing optional members; `RootCause` is the last: `Diagnostics.cs:8-16`. JSON omits nulls: `Reporter.cs:164`.
-11. `check` opens with `saves: false` and returns `{ solution, errors, warnings }`: `ProjectCommands.cs:188-202`.
+9. `Reporter.TwinCatVersion` (JSON `twinCat`) is set by `XaeShell.SelectVersion` together with the new `XaeShell.SelectedVersion`: `XaeShell.cs:43,353-354`, `Reporter.cs:29,158`. `TwinCatVersion.UsedBy(string? selected, TwinCatVersion requested)` turns it into a version: `TwinCatVersion.cs:90`. `Reporter.PartialData` is written as `data` of an error result: `Reporter.cs:147,159`. `Reporter.MapDiagnostic` is applied to every recorded diagnostic, also root causes: `Reporter.cs:65-67,107,111`. `Reporter.Diagnostics` is the flat list: `Reporter.cs:30`.
+10. `Diagnostic` is a positional record with trailing optional members; `RootCause` is the last: `Diagnostics.cs:8-16`. JSON omits nulls: `Reporter.cs:170`.
+11. `check` opens with `saves: false` and returns `{ solution, errors, warnings }`: `ProjectCommands.cs:205-218`.
 12. Extension: `globalArgs()` passes `--tc <value>` only when `iecode.tcVersion` is not `auto`: `extension/src/cli/iecode.ts:58-59`; the input box rejects a list (`/^(auto|(3\.1\.)?\d{4}(\.\d+)?)$/`): `extension/src/commands/engineering.ts:145`; it reads only `builds[]`: `engineering.ts:100`.
-13. **Unverified (TwinCAT PC):** opening a 4024-stamped project with an explicit `--tc 4026` in a hidden shell raises no modal upgrade dialog (or one `DialogWatch` cancels cleanly, `DialogPolicy.cs:57-61`), and the build then runs. Spike Task 1 (a).
+13. **Unverified (TwinCAT PC):** opening a 4024-stamped project with an explicit `--tc 4026` in a hidden shell raises no modal upgrade dialog (or one `DialogWatch` cancels cleanly, `DialogPolicy.cs:82-86`), and the build then runs. Spike Task 1 (a).
 14. **Unverified:** opening a 4026-saved project with `--tc 4024` fails fast with a readable error (exit 1 or a dialog), not a hang. Spike Task 1 (b).
 15. **Unverified:** `--tc <line not installed>` with `Builds()` empty (old install layout) fails in `SelectVersion` with exit 15 within seconds. Spike Task 1 (c).
-16. **Unverified:** two isolated builds of different lines one after the other in one `iecode` process work (shell quit, copy delete within 15 s, second shell start). `ShellSession` already switches lines in code (`Runner.cs:183-195`), but not with copy deletion in between. Spike Task 1 (d).
+16. **Unverified:** two isolated builds of different lines one after the other in one `iecode` process work (shell quit, copy delete within 15 s, second shell start). `ShellSession` already switches lines in code (`Runner.cs:235-290`), but not with copy deletion in between. Spike Task 1 (d).
 
 ## Depends on (round-1 symbols, real signatures)
 
@@ -49,27 +49,29 @@
 - `public static IsolatedCopy Isolation.Create(string solution, string isolateDir, int? pid = null)`, `Isolation.OutsideRoot(string solution, string root)`, `Isolation.RootOf(string)`, `Isolation.CopyRootFor(string root, string isolateDir, int pid)`, `Isolation.MapBack(Diagnostic d, IsolatedCopy copy)`, `Isolation.DefaultDir`, `IsolatedCopy.TryDelete(TimeSpan)`
 - `public static int BuildOutcome.ExitCode(IEnumerable<bool> buildsOk)`
 - `Reporter.MapDiagnostic`, `Reporter.TwinCatVersion`, `Reporter.Diagnostics`, `Reporter.Info/Step/Warn`
-- `Runner.WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false)`
-- `LibraryCommands.Preflight(Context, IEnumerable<PlcProjectFile>, IReadOnlyCollection<LibraryId>)`, `ProjectCommands.WarnLongPath(...)`
+- `Runner.WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)` (`Runner.cs:85`)
+- `XaeShell.SelectedVersion` (`string?`, `XaeShell.cs:43`), `TwinCatVersion.UsedBy(string? selected, TwinCatVersion requested)` (`TwinCatVersion.cs:90`), `Reporter.PartialData` (`object?`, `Reporter.cs:147`)
+- `LibraryCommands.Preflight(Context ctx, IEnumerable<PlcProjectFile> projects)` (`LibraryCommands.cs:355`), `ProjectCommands.WarnLongPath(Context ctx, string folder, string root, string copyRoot, bool isolating)` (`ProjectCommands.cs:188`)
 - `BuildResult(string Platform, bool Ok, int FailedProjects, int Errors, int Warnings, BuildSummary? Summary, double Seconds, bool StaticAnalysisOnly = false)`
 
 ## Touches
 
 - Create: `cli/src/IECode.Core/TcMatrix.cs`, `cli/tests/IECode.Core.Tests/TcMatrixTests.cs`
 - Modify: `cli/src/IECode.Cli/Globals.cs` (`--tc` description, `Context.TcOverride`, `Context.Versions`), `cli/src/IECode.Core/Diagnostics.cs` (`Diagnostic.Tc`), `cli/src/IECode.Cli/Commands/ProjectCommands.cs` (`Build`, `Check`; `BuildIsolated` extracted), `cli/README.md` (`--tc` row, build section), `extension/CHANGELOG.md`, `docs/research/cli-build-workflow.md` (spike results under Q3).
-- Conflict watch: plan G also edits `ProjectCommands.Build` (options, `BuildAll`); plan E may edit `Runner`/`Context` for `ws build --parallel`. F does not touch `Runner.cs` or `WorkspaceCommands.cs`. Any plan adding a member to `Diagnostic` must append after `Tc` (or rebase on it).
+- Conflict watch: plan G also edits `ProjectCommands.Build` (options, `BuildAll`); per master plan M4, G lands first and does not restructure `BuildIsolated`, F moves it afterwards. Plan E may edit `Runner`/`Context` for `ws build --parallel`. F does not touch `Runner.cs`, `Isolation.cs` or `WorkspaceCommands.cs`. Per M5, `Diagnostic.Tc` is the trailing field and any later field goes after it.
 
 ## Decisions
 
 1. **A list implies `--isolate`, one fresh copy per entry.** A 4026 open can upgrade files even without saving (R35), so `--no-save` is not enough; a shared copy would let 4026 leave upgraded files for the next entry. Rejected: requiring the user to type `--isolate` (no other safe mode exists, so asking adds nothing). An info line says so.
-2. **Sequential only.** Rejected: parallel per line (two shells double memory, one copy folder per PID, plan E owns parallelism).
+2. **Sequential only.** Rejected: parallel per line (two shells double memory, plan E owns parallelism and its spike U1, M8).
 3. **`build` and `check` only.** Every other command keeps a single version; a list gives exit 2 "`--tc` takes a list only for build and check". Rejected: `ws build` matrix (combines with E, too large).
 4. **Entries are explicit versions:** `auto` in a list, empty entries and duplicates (same `ToString()`) are exit 2. `4024,4024.66` is allowed (two builds of one line). Separators: comma, optional spaces.
 5. **Line not installed: entry fails with 15, others still run.** Pre-checked with `TwinCatInstall.Builds` when it is not empty (no copy, no shell); when it is empty the shell decides. Rejected: skip with exit 0 (a CI matrix that silently drops a line goes falsely green).
 6. **Exit code:** all 0 gives 0; any code other than 0 and 10 gives the first such code in matrix order (an environment failure is more actionable than a compile error); else 10. Exit 2 and 130 from an entry stop the matrix at once.
-7. **`--keep-isolated` and `--copy-tmc` with a list are exit 2** (one copy folder per process; which line's `.tmc` would win is ambiguous). Use a single `--tc` for those.
-8. **JSON, additive:** `builds[]` stays (all builds of all entries, in order), new `matrix[]` (`tc`, `twinCat`, `status`, `errors`, `warnings`, `rootCauses`, `exitCode`, `error`, `seconds`, `builds`), and each diagnostic of a matrix run gets `tc` (omitted otherwise). Top-level `twinCat` is the last entry's build. Rejected: index ranges into `diagnostics` (hard to consume).
+7. **`--copy-tmc` with a list is exit 2** (which line's `.tmc` would win is ambiguous); use a single `--tc` for it. **`--keep-isolated` works with a list**: each entry keeps its own copy (`Allocate` gives each its own folder, Premise 7) and `matrix[].isolatedCopy` names it. (Changed on the `0515a61` re-check; it was exit 2 while one process could hold only one copy.)
+8. **JSON, additive:** `builds[]` stays (all builds of all entries, in order), new `matrix[]` (`tc`, `twinCat`, `status`, `errors`, `warnings`, `rootCauses`, `exitCode`, `error`, `seconds`, `builds`, `isolatedCopy` only with `--keep-isolated`), and each diagnostic of a matrix run gets `tc` (omitted otherwise). Top-level `twinCat` is the last entry's build. Rejected: index ranges into `diagnostics` (hard to consume).
 9. **Extension unchanged.** Its setting validator already rejects lists; the CHANGELOG line names the CLI feature only.
+10. **A matrix accepts only what `--isolate` accepts.** Because a list always isolates, a solution with a project type `OutsideRoot` refuses (Premise 6) cannot run a matrix; the exit-2 message from `OutsideRoot` is kept and the README says so. Rejected: a non-isolated matrix for such solutions (it would write the original with each line).
 
 ## Review Focus
 
@@ -136,7 +138,7 @@ The duplicate message names the entry (`"--tc lists 3.1.4024 twice."`); the auto
   - `public enum MatrixStatus { Ok, Failed, NotInstalled, Error }` (JSON camelCase: `ok`, `failed`, `notInstalled`, `error`)
   - `public sealed record MatrixEntry(string Tc, string? TwinCat, MatrixStatus Status, int Errors, int Warnings, int RootCauses, int ExitCode, string? Error, double Seconds)`
   - `public static bool TcMatrix.NotInstalled(TwinCatVersion entry, IReadOnlyList<string> installedBuilds)`: false when the list is empty (unknown), else true when no build `Matches` the entry.
-  - `public static string? TcMatrix.OptionError(int entries, bool keepIsolated, bool copyTmc)`: null for one entry; for 2+ with either flag `"--keep-isolated and --copy-tmc work with a single --tc version only."`
+  - `public static string? TcMatrix.OptionError(int entries, bool copyTmc)`: null for one entry; for 2+ with `copyTmc` `"--copy-tmc works with a single --tc version only."`
   - `public static bool TcMatrix.StopsMatrix(int exitCode)`: true for `Usage` and `Cancelled`.
   - `public static int TcMatrix.ExitCode(IEnumerable<int> entryCodes)` (Decision 6).
   - `public static string? TcMatrix.LineChangeNote(TwinCatVersion entry, IReadOnlyList<string?> savedStamps)`: when the first stamp has another line, `"TwinCAT {entry} differs from the saved line {stamp.Line}; built in an isolated copy only."`, else null.
@@ -147,7 +149,7 @@ The duplicate message names the entry (`"--tc lists 3.1.4024 twice."`); the auto
 
 ```csharp
 [Fact] public void NotInstalledOnlyWhenListKnown() { Assert.False(TcMatrix.NotInstalled(new(4026, null), [])); Assert.True(TcMatrix.NotInstalled(new(4026, null), ["3.1.4024.66"])); Assert.False(TcMatrix.NotInstalled(new(4024, null), ["3.1.4024.66"])); Assert.True(TcMatrix.NotInstalled(new(4024, 47), ["3.1.4024.66"])); }
-[Fact] public void OptionErrorOnlyForLists() { Assert.Null(TcMatrix.OptionError(1, true, true)); Assert.NotNull(TcMatrix.OptionError(2, true, false)); Assert.NotNull(TcMatrix.OptionError(2, false, true)); Assert.Null(TcMatrix.OptionError(2, false, false)); }
+[Fact] public void OptionErrorOnlyForCopyTmcWithLists() { Assert.Null(TcMatrix.OptionError(1, true)); Assert.NotNull(TcMatrix.OptionError(2, true)); Assert.Null(TcMatrix.OptionError(2, false)); }
 [Fact] public void StopsMatrixOnCancelAndUsage() { Assert.True(TcMatrix.StopsMatrix(130)); Assert.True(TcMatrix.StopsMatrix(2)); Assert.False(TcMatrix.StopsMatrix(10)); Assert.False(TcMatrix.StopsMatrix(15)); Assert.False(TcMatrix.StopsMatrix(1)); }
 [Fact] public void ExitCodeAllOkIsZero() => Assert.Equal(0, TcMatrix.ExitCode([0, 0]));
 [Fact] public void ExitCodeBuildFailedIsTen() => Assert.Equal(10, TcMatrix.ExitCode([0, 10]));
@@ -173,24 +175,24 @@ The duplicate message names the entry (`"--tc lists 3.1.4024 twice."`); the auto
 ### Task 4: `build --tc <list>` (4 h `[estimated]`, gated by Task 1)
 
 **Files:**
-- Modify: `cli/src/IECode.Cli/Commands/ProjectCommands.cs:72-169`, `cli/README.md` (`--tc` row at line 56, build section near line 72), `extension/CHANGELOG.md`
+- Modify: `cli/src/IECode.Cli/Commands/ProjectCommands.cs:72-186`, `cli/README.md` (`--tc` row at line 56, build section near line 72), `extension/CHANGELOG.md`
 
 **Interfaces:**
 - Consumes: `Context.Versions`, `Context.TcOverride` (Task 2); all `TcMatrix` members, `MatrixEntry`, `Diagnostic.Tc` (Task 3); Depends-on symbols above.
 - Produces: `private static Outcome BuildIsolated(Context ctx, string path, string root, string dir, Func<XaeShell, List<BuildResult>> buildAll, bool keep, bool copyTmc, string? tcLabel)` extracted from the local function (behaviour for a single version unchanged); `private static Outcome BuildMatrix(Context ctx, string path, IReadOnlyList<TwinCatVersion> versions, string root, string dir, Func<XaeShell, List<BuildResult>> buildAll)`. JSON `matrix[]` element: `{ tc, twinCat, status, errors, warnings, rootCauses, exitCode, error, seconds, builds }`.
 
-- [ ] **Step 1:** Add to the `build` validator: parse `--tc` with `TcMatrix.Parse` (on `IECodeException` add its message as the error) and add `TcMatrix.OptionError(count, keepIsolated, copyTmc)` when not null.
+- [ ] **Step 1:** Add to the `build` validator: parse `--tc` with `TcMatrix.Parse` (on `IECodeException` add its message as the error) and add `TcMatrix.OptionError(count, copyTmc)` when not null.
 - [ ] **Step 2:** Extract `BuildIsolated` as in Interfaces; when `tcLabel` is set, `MapDiagnostic = d => Isolation.MapBack(d, copy) with { Tc = tcLabel }`. Single-version path calls it with `tcLabel: null`.
-- [ ] **Step 3:** In the action, after `Preflight` and `WarnLongPath(…, isolating: true)` for a list: when `ctx.Versions.Count > 1` call `BuildMatrix`. It runs the `OutsideRoot` check once (exit 2 before any entry), logs `"Building for {n} TwinCAT versions, each in its own isolated copy"`, then per entry: `ctx.Log.Step($"TwinCAT {v}")`, warn `LineChangeNote`, skip with `MatrixStatus.NotInstalled` / 15 when `TcMatrix.NotInstalled(v, TwinCatInstall.Builds(RepTool.TwinCatDir))`, else reset `ctx.Log.TwinCatVersion = null`, call `BuildIsolated(ctx with { TcOverride = v }, …, tcLabel: v.ToString())` inside `try`; an `IECodeException` or `COMException` becomes `MatrixStatus.Error` with its message and code (`ExitCodes.Failed` for COM), rethrown when `TcMatrix.StopsMatrix(code)`. Root causes = diagnostics recorded during the entry with `RootCause == true`. Afterwards print `TcMatrix.Table` through `ctx.Log.Info` and return `new Outcome(TcMatrix.ExitCode(codes), new { solution, builds = all, matrix })`.
+- [ ] **Step 3:** In the action, after `Preflight` and `WarnLongPath(…, isolating: true)` for a list: when `ctx.Versions.Count > 1` call `BuildMatrix`. It runs the `OutsideRoot` check once (exit 2 before any entry), logs `"Building for {n} TwinCAT versions, each in its own isolated copy"`, then per entry: `ctx.Log.Step($"TwinCAT {v}")`, warn `LineChangeNote`, skip with `MatrixStatus.NotInstalled` / 15 when `TcMatrix.NotInstalled(v, TwinCatInstall.Builds(RepTool.TwinCatDir))`, else call `BuildIsolated(ctx with { TcOverride = v }, …, tcLabel: v.ToString())` inside `try`, the build-used column taken from `XaeShell.SelectedVersion` inside the shell body (via `TwinCatVersion.UsedBy`, null when the shell never selected one; not from `Reporter.TwinCatVersion`, which keeps the previous entry's value); an `IECodeException` or `COMException` becomes `MatrixStatus.Error` with its message and code (`ExitCodes.Failed` for COM), rethrown when `TcMatrix.StopsMatrix(code)` after setting `ctx.Log.PartialData = new { solution, matrix }` with the entries so far (so an error result still carries them). Root causes = diagnostics recorded during the entry with `RootCause == true`. Afterwards print `TcMatrix.Table` through `ctx.Log.Info` and return `new Outcome(TcMatrix.ExitCode(codes), new { solution, builds = all, matrix })`.
 - [ ] **Step 4:** `dotnet build cli/src/IECode.Cli`; expected: 0 errors, 0 new warnings. Then the full test command; expected: all green.
-- [ ] **Step 5:** README: `--tc` row gains the list form; build section gets one example `iecode build Machine.sln --tc 4024,4026` with a two-row sample table and one sentence each on Decisions 1, 5, 6 and 7. CHANGELOG under `## Unreleased`: "`iecode build` and `iecode check` take `--tc 4024,4026`: one isolated build per TwinCAT version and a result table (JSON `matrix`)."
-- [ ] **Step 6 (manual, TwinCAT PC, 15 min):** (1) `iecode build <4024-sln> --tc 4024,4026`: table with two rows, original `git status --porcelain` empty, no folder left in `%TEMP%\iecode\b`. (2) Same on the 4026-saved clone: 4024 row `error`, 4026 row runs, exit 1. (3) `iecode build <4024-sln> --tc 4024 --json` before and after this branch: identical apart from `durationMs`. (4) `iecode build <sln> --tc 4024,4026 --keep-isolated`: exit 2.
+- [ ] **Step 5:** README: `--tc` row gains the list form; build section gets one example `iecode build Machine.sln --tc 4024,4026` with a two-row sample table and one sentence each on Decisions 1, 5, 6, 7 and 10. CHANGELOG under `## Unreleased`: "`iecode build` and `iecode check` take `--tc 4024,4026`: one isolated build per TwinCAT version and a result table (JSON `matrix`)."
+- [ ] **Step 6 (manual, TwinCAT PC, 15 min):** (1) `iecode build <4024-sln> --tc 4024,4026`: table with two rows, original `git status --porcelain` empty, no folder left in `%TEMP%\iecode\b`. (2) Same on the 4026-saved clone: 4024 row `error`, 4026 row runs, exit 1. (3) `iecode build <4024-sln> --tc 4024 --json` before and after this branch: identical apart from `durationMs`. (4) `iecode build <sln> --tc 4024,4026 --copy-tmc`: exit 2; with `--keep-isolated` instead: two kept folders, both named in `matrix[].isolatedCopy`.
 - [ ] **Step 7:** Commit `Build once per TwinCAT version with --tc 4024,4026` (body: a 4026 open makes a project unreadable for 4024, so each version gets its own throwaway copy; parallel shells were rejected for memory and the one-copy-per-process folder rule).
 
 ### Task 5: `check --tc <list>` (2 h `[estimated]`, gated by Task 1)
 
 **Files:**
-- Modify: `cli/src/IECode.Cli/Commands/ProjectCommands.cs:188-202`, `cli/README.md` (check row), `extension/CHANGELOG.md` (same line as Task 4, no new line)
+- Modify: `cli/src/IECode.Cli/Commands/ProjectCommands.cs:205-218`, `cli/README.md` (check row), `extension/CHANGELOG.md` (same line as Task 4, no new line)
 
 **Interfaces:**
 - Consumes: Task 3 members; `Isolation.Create`, `MapBack`, `TryDelete`.

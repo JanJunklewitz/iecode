@@ -23,7 +23,9 @@
 - All sizes tagged `[estimated]`.
 - Sync never writes outside `<project>/_Libraries`, never creates a `_Libraries` folder that does not exist, and never deletes anything that is not a library version folder (see decision 5).
 
-## Premises checked (tree `iecode-cli-build`)
+## Premises checked (branch `feature/cli-build-workflow-master`, tip `0515a61`)
+
+Re-checked against `0515a61`: every file cited below is byte-identical to the earlier base (`FileReady.cs` differs only in line endings), so all line numbers hold. Exit codes live in `cli/src/IECode.Core/Errors.cs` (`NotFound = 3` `:9`, `LibraryFailed = 12` `:12`, `Timeout = 17` `:17`). New for this plan: `Isolation.DeleteFolder(string dir)` (`cli/src/IECode.Core/Isolation.cs:400-406`, `internal static`, clears read-only, skips reparse points) is reused by Task 2.
 
 1. `_Libraries` layout is `<vendor>/<library>/<version>/<file>` next to the .plcproj: `cli/src/IECode.Core/Projects/ProjectLibraries.cs:7-10`, `FolderOf` `:17-18`, `FolderName` `:14`.
 2. A project-folder version counts only when its folder name starts with a digit and holds a library file (`.library`, `.compiled-library*`): `ProjectLibraries.cs:30-32`, `IsLibraryFile` `:39-44`; pinned by `WorkspaceTests.cs:100,106` (`Tc3_Empty/1.0.0/readme.txt` skipped). This is "the round-1 rule". Fixtures mix case (`Acme/Tc3_MotorLib` and `acme/tc3_motorlib`): `WorkspaceTests.cs:98-99`.
@@ -48,13 +50,14 @@
 - `LibraryRepository.Scan(string root) -> IReadOnlyList<InstalledLibrary>`, `HighestFor(IEnumerable<InstalledLibrary>, LibraryReference) -> string?`, `Compare(string, string) -> int`.
 - `record InstalledLibrary(string Name, string Version, string Vendor, string Path)`, `PlcProjectFile` (`Name`, `Path`, `References`), `LibraryReference.Effective`, `IsPinned`.
 - `RepositoryLock.Acquire(Reporter, TimeSpan, string = Name)`, `RepositoryLock.DefaultTimeout`, `TimeoutSetting.FromSeconds(int?) -> TimeSpan?`.
+- `Isolation.DeleteFolder(string dir)` (`internal static`, same assembly): removes old version folders and stage folders, read-only files included.
 - Round-2 neighbours: none. Plan I (`lib verify`) may tighten what counts as installed; sync keeps its own "version folder needs a library file" check and does not wait for I.
 
 ## Touches
 
 - Create: `cli/src/IECode.Core/Projects/ProjectFolderSync.cs`, `cli/tests/IECode.Core.Tests/ProjectFolderSyncTests.cs`.
 - Modify: `cli/src/IECode.Cli/Commands/LibraryCommands.cs` (line 10 summary, line 16 subcommand list, one new method after `InstallProject`), `cli/README.md` (one row after line 34), `extension/CHANGELOG.md` (one line under `## Unreleased`).
-- Conflict note for the master plan: G and I also likely edit `LibraryCommands.cs:16` and the README command table; the edits are one-line insertions, merge order free.
+- Conflict note for the master plan: only I also edits `LibraryCommands.cs:10,16` and the README command table (G does not touch `LibraryCommands.cs`); one-line insertions, master lane order H then I.
 
 ## Decisions (delegated)
 
@@ -150,7 +153,7 @@ Gate: same file set as the repository → keep "all files". Only the library fil
 ```
 
 - [ ] **Step 2:** build, expected: build error.
-- [ ] **Step 3: Implement `Apply`:** remove `*.iecode-sync` stage folders two levels below `_Libraries` first; per Add/Update copy selected files into `.<version>.iecode-sync` (clear read-only), delete the old version folder (clear read-only recursively), `Directory.Move` stage to target; per Prune assert `Path.GetFullPath(target)` starts with the folder plus separator and is not a reparse point, then delete, then delete the library and vendor folder when empty. (Reparse-point exclusion also goes into `Plan`, Task 1 code, tested here.)
+- [ ] **Step 3: Implement `Apply`:** remove `*.iecode-sync` stage folders two levels below `_Libraries` first; per Add/Update copy selected files into `.<version>.iecode-sync` (clear read-only), delete the old version folder with `Isolation.DeleteFolder`, `Directory.Move` stage to target; per Prune assert `Path.GetFullPath(target)` starts with the folder plus separator and is not a reparse point, then `Isolation.DeleteFolder`, then delete the library and vendor folder when empty. (Reparse-point exclusion also goes into `Plan`, Task 1 code, tested here.)
 - [ ] **Step 4:** run the filter-class command, expected: all pass (the read-only and link tests skipped on ubuntu where noted).
 - [ ] **Step 5: Commit** `Apply project library folder sync with staged copies` (body: why stage folders and why prune re-checks the path).
 

@@ -21,20 +21,20 @@
 - All sizes `[estimated]`. Steps that need a TwinCAT PC (4024 and 4026 installed) are marked **manual**.
 - Plain `build` / `check` without the new options behave exactly as before (no selection object, no filter, same COM calls).
 
-## Premises checked (static read of `iecode-cli-build`, branch `feature/cli-build-workflow-d`)
+## Premises checked (static read of `iecode-cli-master`, branch `feature/cli-build-workflow-master` at `0515a61`; re-checked 2026-11-26, no `cli/` change up to `8834930`)
 
 1. `XaeShell.BuildCore` builds the whole solution with `Solution.SolutionBuild.Build(false)` and polls `BuildState`; failure comes from `LastBuildInfo`, raw diagnostics and the summary line (`cli/src/IECode.Automation/XaeShell.Build.cs:91-108`).
-2. `build` saves first unless `--no-save` (`XaeShell.Build.cs:84-85`); no-save sets `DiscardChanges`, which closes the solution with `Close(false)` before another open and before quit (`XaeShell.cs:358-366`).
+2. `build` saves first unless `--no-save` (`XaeShell.Build.cs:84-85`); no-save sets `DiscardChanges`, which closes the solution with `Close(false)` before another open and before quit (`XaeShell.cs:410-420`; `Runner.WithShell` also sets `DiscardChanges = !saves || discard`, `Runner.cs:90`).
 3. `check` runs `nested.CheckAllObjects()` once per PLC handle from `PlcProjects()` (`XaeShell.Build.cs:122-134`), so a per-PLC skip needs no spike.
 4. `PlcProjects()` walks `TIPC` children of every `.tsproj` / `.tspproj` and yields `PlcHandle(Name, NestedName, TreePath, …)` (`XaeShell.Plc.cs:8-34`); `FindPlc` matches `Name` or `NestedName` case-insensitively (`XaeShell.Plc.cs:45`).
 5. File side: `SolutionFile.Load` keeps only `.tsproj` / `.tspproj` from the `.sln` (`cli/src/IECode.Core/Projects/SolutionFile.cs:26-32`); each `TwinCatProjectFile` lists its `.plcproj` files, inline and through `_Config\PLC\*.xti` (`SolutionFile.cs:78-93`). `PlcProjectFile.Name` is the `<Name>` property, else the file name (`PlcProjectFile.cs:72`).
-6. The first build after opening also reports what opening wrote to the Build pane (`_loadOutputPending`, `XaeShell.Build.cs:188-208`, `XaeShell.cs:387`): the test project's "library not found" lines land in the build's raw diagnostics and fail it even when the test PLC is not compiled. So a diagnostics filter is needed on every path.
+6. The first build after opening also reports what opening wrote to the Build pane (`_loadOutputPending`, `XaeShell.Build.cs:188-208`, `XaeShell.cs:442`): the test project's "library not found" lines land in the build's raw diagnostics and fail it even when the test PLC is not compiled. So a diagnostics filter is needed on every path.
 7. Pane diagnostics carry the owner: `"<plc>.Library Manager"` origin sets `Project` to the PLC name, otherwise the last `Build started: Project: X` line (`cli/src/IECode.Core/Diagnostics.cs:62-81`). Error List items carry `item.Project` (`XaeShell.Build.cs:181`).
 8. `BuildOutcome.Ok(failedProjects, raw, summary)` (`cli/src/IECode.Core/BuildTriage.cs:29-30`); exit 10 aggregation in `BuildOutcome.ExitCode` (`BuildTriage.cs:33`).
-9. `build` and `check` run the pre-flight on all PLC projects of the solution (`cli/src/IECode.Cli/Commands/ProjectCommands.cs:99`, `:195`); the test project's pinned, not yet installed library version would be warned about.
-10. `--isolate` copies the repository and builds `copy.Solution` with `save: false` (`ProjectCommands.cs:117-150`, `Isolation.Create` at `cli/src/IECode.Core/Isolation.cs:153`).
-11. `lib save` calls only `shell.SaveAsLibrary(plcName ?? meta?.Name, …)` on the chosen PLC's nested project, no solution build (`cli/src/IECode.Cli/Commands/LibraryCommands.cs:66-75`, `XaeShell.Plc.cs:53-62`); `meta` picks the first project with library metadata, which a test project normally lacks.
-12. `ws build` builds whole solutions with `shell.Build(null, save)` (`cli/src/IECode.Cli/Commands/WorkspaceCommands.cs:135`); it has the same problem, but is out of scope here (Decision 6).
+9. `build` and `check` run the pre-flight on all PLC projects of the solution (`cli/src/IECode.Cli/Commands/ProjectCommands.cs:99`, `:212`); the test project's pinned, not yet installed library version would be warned about.
+10. `--isolate` copies the repository and builds `copy.Solution` with `save: false` (`ProjectCommands.cs:126-166`, `Isolation.Create` at `cli/src/IECode.Core/Isolation.cs:177`).
+11. `lib save` only exports the chosen PLC through `Runner.StageExport` -> `shell.SaveAsLibrary(plcName ?? meta?.Name, …)` on its nested project, no solution build (`cli/src/IECode.Cli/Commands/LibraryCommands.cs:66-79`, `Runner.cs:145-150`, `XaeShell.Plc.cs:53-62`); `meta` picks the first project with library metadata, which a test project normally lacks.
+12. `ws build` builds whole solutions with `shell.Build(null, save)` (`cli/src/IECode.Cli/Commands/WorkspaceCommands.cs:136`); it has the same problem, but is out of scope here (Decision 6).
 
 **Unverified (TwinCAT PC only) -> Task 1:** (U1) whether `SolutionBuild.BuildProject` accepts a `.tsproj` and/or a nested PLC project unique name and builds only that; (U2) whether `SolutionContexts` list PLC projects and `ShouldBuild = false` skips them, and whether the change reaches the `.sln` on disk; (U3) whether removing the excluded PLC's `.Build.0` lines from the `.sln` (in a copy) skips it; (U4) which names appear in Error List `Project` and in `Build started: Project:` for each PLC project (tree name, nested name, `.plcproj` name); (U5) whether `lib save` succeeds while the test project cannot resolve its pinned library.
 
@@ -42,20 +42,20 @@
 
 - `public BuildResult XaeShell.Build(string? platform, bool save = true)` (`XaeShell.Build.cs:75`); `public (int Errors, int Warnings, bool Ok) XaeShell.CheckAllObjects()` (`:120`).
 - `internal IEnumerable<PlcHandle> XaeShell.PlcProjects()`, `internal sealed record PlcHandle(string Name, string NestedName, string TreePath, object SysManager, object Project, object Nested)` (`XaeShell.Plc.cs:8-12`).
-- `internal IEnumerable<(dynamic Project, dynamic SysManager, string File)> XaeShell.TwinCatProjects(bool includePlcOnly = true)` (`XaeShell.cs:391`); `public bool DiscardChanges { get; set; }` (`XaeShell.cs:358`).
-- `public static BuildDiagnostics BuildTriage.Combine(IReadOnlyList<Diagnostic>? errorList, IReadOnlyList<Diagnostic> pane)`; `public sealed record BuildDiagnostics(IReadOnlyList<Diagnostic> Raw, IReadOnlyList<Diagnostic> Shown)` (`BuildTriage.cs:6`, `:107`).
+- `internal IEnumerable<(dynamic Project, dynamic SysManager, string File)> XaeShell.TwinCatProjects(bool includePlcOnly = true)` (`XaeShell.cs:446`); `public bool DiscardChanges { get; set; }` (`XaeShell.cs:410`).
+- `public static BuildDiagnostics BuildTriage.Combine(IReadOnlyList<Diagnostic>? errorList, IReadOnlyList<Diagnostic> pane)`; `public sealed record BuildDiagnostics(IReadOnlyList<Diagnostic> Raw, IReadOnlyList<Diagnostic> Shown)` (`BuildTriage.cs:6`, `:111`; with a readable Error List, `Raw` now also holds the pane's generic last line, which has no `Project`).
 - `public static bool BuildOutcome.Ok(int failedProjects, IReadOnlyList<Diagnostic> raw, BuildSummary? summary)`, `public static int BuildOutcome.ExitCode(IEnumerable<bool> buildsOk)` (`BuildTriage.cs:29-33`).
 - `public static SolutionFile SolutionFile.Load(string path)`, `TwinCatProjectFile.PlcProjects`, `PlcProjectFile.Name` / `.Path`.
-- `public static IsolatedCopy Isolation.Create(string solution, string isolateDir, int? pid = null)`, `IsolatedCopy.Solution` (`Isolation.cs:10-15`, `:153`).
-- `public static T Runner.WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false)` (`cli/src/IECode.Cli/Runner.cs:84`).
-- `internal static void LibraryCommands.Preflight(Context ctx, IEnumerable<PlcProjectFile> projects, IReadOnlyCollection<LibraryId> willInstall)` (`LibraryCommands.cs:345`).
+- `public static IsolatedCopy Isolation.Create(string solution, string isolateDir, int? pid = null)`, `IsolatedCopy.Solution` (`Isolation.cs:10-15`, `:177`).
+- `public static T Runner.WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)` (`cli/src/IECode.Cli/Runner.cs:85`).
+- `internal static void LibraryCommands.Preflight(Context ctx, IEnumerable<PlcProjectFile> projects)` (`LibraryCommands.cs:354`; the stage overload `Preflight(Context, IReadOnlyList<BuildStage>)` at `:358` is for `ws build`).
 
 ## Touches
 
-- Create: `cli/src/IECode.Core/Projects/PlcSelection.cs`, `cli/tests/IECode.Core.Tests/PlcSelectionTests.cs`.
+- Create: `cli/src/IECode.Core/Projects/PlcSelection.cs`, `cli/tests/IECode.Core.Tests/PlcSelectionTests.cs`; create or reuse `cli/src/IECode.Core/Projects/TestProjects.cs` (shared with J, M3: first lane creates it).
 - Modify: `cli/src/IECode.Automation/XaeShell.Build.cs` (`Build`, `CheckAllObjects` get an optional selection; path B/C helpers), `cli/src/IECode.Cli/Commands/ProjectCommands.cs` (`Build`, `Check`: options, pre-flight input, JSON), `cli/README.md`, `extension/CHANGELOG.md`, `docs/research/cli-build-workflow.md` (spike result under Q7).
 - Only on spike path C: `cli/src/IECode.Core/Projects/PlcProjectFile.cs` (read `<ProjectGuid>`).
-- Conflict notes: F (`--tc` matrix) and J (`iecode test`) also edit `ProjectCommands.Build`; E may edit `XaeShell.Build.cs` around `Build`. G keeps `Build(string? platform, bool save = true, PlcSelection? only = null)` as a trailing optional parameter, so callers in E/F compile unchanged. `LibraryCommands.cs`, `WorkspaceCommands.cs`, `Runner.cs` are **not** touched.
+- Conflict notes: F (`--tc` matrix) and J (`iecode test`) also edit `ProjectCommands.Build`; per master plan M4 G lands first and does not restructure `BuildIsolated` (path C adds one call between `Isolation.Create` and `WithShell`), F moves it later; E may edit `XaeShell.Build.cs` around `Build`. G keeps `Build(string? platform, bool save = true, PlcSelection? only = null)` as a trailing optional parameter, so callers in E/F compile unchanged. `LibraryCommands.cs`, `WorkspaceCommands.cs`, `Runner.cs` are **not** touched.
 
 ## Decisions (planner; the user delegated design decisions)
 
@@ -165,7 +165,7 @@ public void TestFolderRule(string relative, bool expected) => Assert.Equal(expec
 Run: `dotnet build cli/tests/IECode.Core.Tests` then `dotnet test --project cli/tests/IECode.Core.Tests --filter-class "*PlcSelectionTests"`
 Expected: build error, `PlcSelection` not defined.
 
-- [ ] **Step 3: Implement `PlcSelection`** in `PlcSelection.cs`. Paths are compared with `OrdinalIgnoreCase` on Windows, `Ordinal` elsewhere (as `Isolation.PathComparison`); the `Testbench` case pins whole-segment matching. `Filter` applies to `Raw` and `Shown` alike.
+- [ ] **Step 3: Implement `PlcSelection`** in `PlcSelection.cs`. Paths are compared with `OrdinalIgnoreCase` on Windows, `Ordinal` elsewhere (the same rule as the private `Isolation.PathComparison`, `Isolation.cs:67`; repeat it, do not make it public); the `Testbench` case pins whole-segment matching. `Filter` applies to `Raw` and `Shown` alike.
 
 - [ ] **Step 4: Run to verify they pass** (commands of step 2). Expected: all green, also on ubuntu (no drive-letter test runs there: guard the `C:\` theory with `Assert.SkipUnless(WindowsOnly.IsWindows, …)` or build the paths from `Path.GetTempPath()`).
 
@@ -212,7 +212,7 @@ Dropped when Task 1 chose path D.
 
 - [ ] **Step 1: Write the failing test** for the Core part of the chosen path. Path C: `DisableBuildRemovesOnlyBuildLinesOfTheGuid` (input `.sln` text with `ActiveCfg` and `Build.0` lines for two GUIDs; output keeps both `ActiveCfg` lines and the other GUID's `Build.0`), `DisableBuildIgnoresGuidCase`. Paths A / B: `UniqueNamesOfIncludedProjects` (A-ts: `FullyExcluded` maps to the `.sln`-relative `.tsproj` paths that are left out, the rest stay, `/` and `\` normalised) as a pure `public IReadOnlyList<string> PlcSelection.BuildUnits(string solutionDir)`.
 - [ ] **Step 2:** run, see it fail (`--filter-class "*PlcSelectionTests"`).
-- [ ] **Step 3:** implement the Core part, then the Automation part; `diags` go through `only.Filter` before `BuildOutcome.Ok` in every path (premise 6). For path A, a shared-layout `PartlyExcluded` entry that path A cannot split throws exit 2 (Decision 7) unless path B also passed in Task 1 for that layout, then B handles it.
+- [ ] **Step 3:** implement the Core part, then the Automation part; `diags` go through `only.Filter` before `BuildOutcome.Ok` in every path (premise 6). For path A, a shared-layout `PartlyExcluded` entry that path A cannot split throws exit 2 (Decision 7) unless path B also passed in Task 1 for that layout, then B handles it. The selection is resolved before `WithShell` (exit 2 needs no shell); `excludedPlc` also goes into the `ctx.Log.PartialData` object of the normal path (`ProjectCommands.cs:121`), so an error result still names what was left out.
 - [ ] **Step 4:** run the class, green; `dotnet build cli/IECode.slnx`, no warnings.
 - [ ] **Step 5 (manual, TwinCAT PC, 20 min):** on layouts a and b, 4024 and 4026: `iecode build <sln> --no-tests --json` exits 0 with `excludedPlc: ["PLC"]` and no `PLC` diagnostics; `--exclude-plc Tc3_MotorLib` alone exits 10 (test PLC still fails); `git status` after a default (saving) build shows no `.sln` change from the selection (path B); `--isolate --no-tests` gives the same result.
 - [ ] **Step 6: Commit** (`git commit -s`, subject "Let build leave out PLC projects", body: why plus the path Task 1 chose and the rejected ones in one sentence).
