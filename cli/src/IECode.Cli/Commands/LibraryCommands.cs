@@ -326,7 +326,7 @@ internal static class LibraryCommands
                 throw new IECodeException(ExitCodes.NotFound, "No library repository found; references not checked.", "Pass the folder with --repository.");
             var problems = Core.Projects.Restore.Check(projects, LibraryRepository.ScanAll(existing));
             foreach (var p in problems) ctx.Log.Error(Describe(p));
-            if (problems.Count == 0) ctx.Log.Success($"All library references of {projects.Count} project(s) resolve");
+            if (problems.Count == 0) ctx.Log.Success($"All library references of {projects.Count} project(s) are installed (file check; XAE may still fail to resolve them)");
             return new Outcome(problems.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { problems, repositories = existing });
         });
         return cmd;

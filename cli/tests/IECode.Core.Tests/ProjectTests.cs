@@ -194,6 +194,18 @@ public sealed class LibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void VersionFolderWithoutALibraryFileIsNotInstalled()
+    {
+        var repo = Repo();
+        Directory.CreateDirectory(Path.Combine(repo, "example machines ltd", "tc3_motorlib", "2.0.0"));   // interrupted install or removal
+        _ws.Touch("Repo/example machines ltd/tc3_motorlib/2.1.0/readme.txt");
+        _ws.Touch("Repo/beckhoff automation gmbh/tc2_system/3.4.27.0/Tc2_System.compiled-library-ge33");
+        var all = LibraryRepository.Scan(repo);
+        Assert.DoesNotContain(all, l => l.Version is "2.0.0" or "2.1.0");
+        Assert.Contains(all, l => l.Version == "3.4.27.0");
+    }
+
+    [Fact]
     public void NewestComparesNumerically() =>
         Assert.Equal("1.10.0", LibraryRepository.Newest(LibraryRepository.Scan(Repo()), "Tc3_MotorLib", "Example Machines Ltd")!.Version);
 

@@ -5,7 +5,8 @@ public sealed record InstalledLibrary(string Name, string Version, string Vendor
 
 /// <summary>
 /// Reads a TwinCAT library repository folder ("Managed Libraries"), laid out as
-/// <c>&lt;vendor&gt;/&lt;library&gt;/&lt;version&gt;/</c>. Names are stored lower-case on disk.
+/// <c>&lt;vendor&gt;/&lt;library&gt;/&lt;version&gt;/</c>. Names are stored lower-case on disk. A version counts as installed
+/// when its folder holds a library file; that says the files are there, not that XAE can resolve the library.
 /// </summary>
 public static class LibraryRepository
 {
@@ -41,6 +42,7 @@ public static class LibraryRepository
         {
             var version = System.IO.Path.GetFileName(ver);
             if (!char.IsDigit(version.FirstOrDefault())) continue;
+            if (!Directory.EnumerateFiles(ver).Any(ProjectLibraries.IsLibraryFile)) continue;   // an empty folder is what an interrupted install or removal leaves
             list.Add(new InstalledLibrary(System.IO.Path.GetFileName(lib), version, System.IO.Path.GetFileName(vendor), ver));
         }
         return list;
