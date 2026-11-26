@@ -72,7 +72,7 @@ internal sealed class SupervisedProcess : IDisposable
             started = true;
 
             // the child holds no instruction yet: tie it to the job first, so nothing it does can outlive iecode
-            if (!AssignProcessToJobObject(job, info.hProcess)) throw Win32("putting the process into its job");
+            if (!JobNative.AssignProcessToJobObject(job, info.hProcess)) throw Win32("putting the process into its job");
 
             var childStart = ProcessStartTicks(info.hProcess);
             // the pipes' write ends belong to the child now; closing ours lets the readers see the end of the output
@@ -123,7 +123,7 @@ internal sealed class SupervisedProcess : IDisposable
     /// </summary>
     public bool Terminate(TimeSpan wait)
     {
-        TerminateJobObject(_job, 1);
+        JobNative.TerminateJobObject(_job, 1);
         return WaitForExit(wait);
     }
 
@@ -173,24 +173,8 @@ internal sealed class SupervisedProcess : IDisposable
 
     private static IntPtr CreateJob()
     {
-        var job = CreateJobObject(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) throw Win32("creating the job object");
-        var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        var size = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
-        var ptr = Marshal.AllocHGlobal(size);
-        try
-        {
-            Marshal.StructureToPtr(limits, ptr, false);
-            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ptr, (uint)size))
-            {
-                var error = Win32("limiting the job object");
-                CloseHandle(job);
-                throw error;
-            }
-            return job;
-        }
-        finally { Marshal.FreeHGlobal(ptr); }
+        var job = JobNative.CreateKillOnClose(breakawayOk: false, out var step, out var error);
+        return job != IntPtr.Zero ? job : throw new Win32Exception(error, $"Windows failed {step}.");
     }
 
     /// <summary>An anonymous pipe whose write end the child inherits and whose read end stays ours.</summary>
@@ -212,8 +196,6 @@ internal sealed class SupervisedProcess : IDisposable
     private const uint HANDLE_FLAG_INHERIT = 1;
     private const uint GENERIC_READ = 0x80000000, FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, OPEN_EXISTING = 3, WAIT_OBJECT_0 = 0;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
-    private const int JobObjectExtendedLimitInformation = 9;
-    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SECURITY_ATTRIBUTES
@@ -240,37 +222,6 @@ internal sealed class SupervisedProcess : IDisposable
         public uint dwProcessId, dwThreadId;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
-    {
-        public long PerProcessUserTimeLimit;
-        public long PerJobUserTimeLimit;
-        public uint LimitFlags;
-        public UIntPtr MinimumWorkingSetSize;
-        public UIntPtr MaximumWorkingSetSize;
-        public uint ActiveProcessLimit;
-        public UIntPtr Affinity;
-        public uint PriorityClass;
-        public uint SchedulingClass;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct IO_COUNTERS
-    {
-        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-    {
-        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
-        public IO_COUNTERS IoInfo;
-        public UIntPtr ProcessMemoryLimit;
-        public UIntPtr JobMemoryLimit;
-        public UIntPtr PeakProcessMemoryUsed;
-        public UIntPtr PeakJobMemoryUsed;
-    }
-
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CreateProcessW(string? applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes,
@@ -287,21 +238,6 @@ internal sealed class SupervisedProcess : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateFile(string name, uint access, uint share, SECURITY_ATTRIBUTES attributes, uint disposition, uint flags, IntPtr template);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr CreateJobObject(IntPtr attributes, string? name);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
