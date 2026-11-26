@@ -54,44 +54,56 @@ public static class LibrarySelection
     }
 
     /// <summary>
-    /// Sets every item (with its resolved version) in every project. Everything is checked first (versions, encrypted
-    /// projects, files writable), so a bad item changes nothing; an I/O error during the writes reports what was
-    /// already changed.
+    /// Sets every item (with its resolved version) in every project. All edits of one project are planned together, and
+    /// everything is checked first (versions, encrypted projects, files writable, new files staged), so a bad item
+    /// changes nothing. Each project is then replaced in one step by its staged file, only if it did not change meanwhile;
+    /// when a replacement fails the error names the projects already changed.
     /// </summary>
-    public static IReadOnlyList<ReferenceChange> ApplyUpdate(IReadOnlyList<UpdateItem> items, IReadOnlyList<PlcProjectFile> projects, string? vendor, bool dryRun)
+    /// <param name="beforeReplace">Called with a project's path right before it is replaced (a test seam).</param>
+    public static IReadOnlyList<ReferenceChange> ApplyUpdate(IReadOnlyList<UpdateItem> items, IReadOnlyList<PlcProjectFile> projects, string? vendor, bool dryRun,
+        Action<string>? beforeReplace = null)
     {
-        var planned = new List<ReferenceChange>();
-        var touched = new List<PlcProjectFile>();
-        foreach (var item in items)
-        foreach (var p in projects)
-        {
-            var c = p.SetLibraryVersion(item.Library, Resolved(item), vendor, dryRun: true);
-            if (c.Count > 0 && !touched.Contains(p)) touched.Add(p);
-            planned.AddRange(c);
-        }
+        var pairs = items.Select(i => (i.Library, Resolved(i))).ToList();
+        var plans = projects.Select(p => p.PlanEdits(pairs, vendor)).Where(e => e.Changes.Count > 0).ToList();
+        var planned = plans.SelectMany(e => e.Changes).ToList();
         if (dryRun || planned.Count == 0) return planned;
 
-        foreach (var p in touched)
+        // read-only files cannot be replaced; ask before anything is staged
+        foreach (var e in plans)
         {
-            try { using var _ = File.Open(p.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            try { using var _ = File.Open(e.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                throw new IECodeException(ExitCodes.Failed, $"'{p.Path}' cannot be written: {e.Message}", "Nothing was changed.");
+                throw new IECodeException(ExitCodes.Failed, $"'{e.Path}' cannot be written: {ex.Message}", "Nothing was changed.");
             }
         }
 
-        var done = new List<ReferenceChange>();
-        foreach (var item in items)
-        foreach (var p in touched)
+        var staged = new List<(PlannedEdit Edit, string Temp)>();
+        try { foreach (var e in plans) staged.Add((e, e.Stage())); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            try { done.AddRange(p.SetLibraryVersion(item.Library, Resolved(item), vendor)); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            foreach (var (_, temp) in staged) PlannedEdit.Discard(temp);
+            throw new IECodeException(ExitCodes.Failed, $"Staging the new project file failed: {ex.Message}", "Nothing was changed.");
+        }
+
+        var done = new List<PlannedEdit>();
+        foreach (var (edit, temp) in staged)
+        {
+            try
             {
-                throw new IECodeException(ExitCodes.Failed, $"Writing '{p.Path}' failed after {done.Count} of {planned.Count} change(s): {e.Message}",
-                    done.Count == 0 ? "Nothing was changed." : "Already changed: " + string.Join(", ", done.Select(c => $"{c.Project} {c.Library} → {c.To}")));
+                beforeReplace?.Invoke(edit.Path);
+                edit.Commit(temp);
+                done.Add(edit);
+            }
+            catch (Exception ex) when (ex is IECodeException or IOException or UnauthorizedAccessException)
+            {
+                foreach (var (_, rest) in staged) PlannedEdit.Discard(rest);   // the committed ones are gone already
+                throw new IECodeException(ExitCodes.Failed,
+                    $"Replacing '{edit.Path}' failed after {done.Count} of {staged.Count} project(s): {(ex is IECodeException ie ? ie.Message : ex.Message)} "
+                    + (done.Count == 0 ? "Nothing was changed." : "Already changed: " + string.Join(", ", done.Select(d => d.Path)) + "."), inner: ex);
             }
         }
-        return done;
+        return [.. done.SelectMany(d => d.Changes)];
     }
 
     /// <summary>Library name against a pattern: case-insensitive, only <c>*</c> and <c>?</c> are wildcards (a dot is a dot).</summary>

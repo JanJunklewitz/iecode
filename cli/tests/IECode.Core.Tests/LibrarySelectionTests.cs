@@ -122,6 +122,65 @@ public sealed class LibrarySelectionTests : IDisposable
         Assert.Equal(before, File.ReadAllText(Plc1Path));
     }
 
+    [Fact]
+    public void AVendorWithEscapedCharactersIsUpdated()
+    {
+        // the XML holds "A &amp; B"; selection (decoded) and the editor must agree on it
+        File.WriteAllText(Plc1Path, File.ReadAllText(Plc1Path).Replace("Example Machines Ltd", "A &amp; B"));
+        var projects = new[] { Plc1 };
+        var items = LibrarySelection.ParseUpdate([], "*", "A & B", projects);
+        Assert.Equal(2, items.Count);
+        var changes = LibrarySelection.ApplyUpdate([.. items.Select(i => i with { Version = "*" })], projects, "A & B", dryRun: false);
+        Assert.Equal(2, changes.Count);
+        Assert.Contains("Tc3_MotorLib, * (A &amp; B)", File.ReadAllText(Plc1Path));
+    }
+
+    [Fact]
+    public void AUtf16FileKeepsItsEncodingAndBom()
+    {
+        var text = File.ReadAllText(Plc1Path).Replace("encoding=\"utf-8\"", "encoding=\"utf-16\"");
+        var utf16 = new System.Text.UnicodeEncoding(false, true);
+        File.WriteAllBytes(Plc1Path, [.. utf16.GetPreamble(), .. utf16.GetBytes(text)]);
+        LibrarySelection.ApplyUpdate([new("Tc3_MotorLib", "1.3.0")], [Plc1], null, dryRun: false);
+        var expected = text.Replace("Tc3_MotorLib, 1.2.0 (", "Tc3_MotorLib, 1.3.0 (");
+        Assert.Equal([.. utf16.GetPreamble(), .. utf16.GetBytes(expected)], File.ReadAllBytes(Plc1Path));
+    }
+
+    [Fact]
+    public void AnUnsupportedEncodingIsRefusedAndTheFileStaysUntouched()
+    {
+        var latin1 = File.ReadAllText(Plc1Path).Replace("encoding=\"utf-8\"", "encoding=\"iso-8859-1\"");
+        File.WriteAllBytes(Plc1Path, System.Text.Encoding.Latin1.GetBytes(latin1));
+        var before = File.ReadAllBytes(Plc1Path);
+        var e = Assert.Throws<IECodeException>(() => LibrarySelection.ApplyUpdate([new("Tc3_MotorLib", "1.3.0")], [Plc1], null, dryRun: false));
+        Assert.Contains("iso-8859-1", e.Message);
+        Assert.Equal(before, File.ReadAllBytes(Plc1Path));
+    }
+
+    [Fact]
+    public void AFailureWhileReplacingReportsWhatWasCommittedAndLeavesNoTempFile()
+    {
+        var lib = _ws["Machine/MotorLib/MotorLib/MotorLib.plcproj"];
+        var libBefore = File.ReadAllBytes(lib);
+        // the second file changes between planning and replacing: it must not be overwritten with a stale plan
+        var e = Assert.Throws<IECodeException>(() =>
+            LibrarySelection.ApplyUpdate([new("Tc3_MotorLib", "1.3.0"), new("Tc3_Logging", "1.1.0")], [Plc1, PlcProjectFile.Load(lib)], null, dryRun: false,
+                beforeReplace: path => { if (path == lib) File.AppendAllText(path, "<!-- edited elsewhere -->"); }));
+        Assert.Contains("PLC1.plcproj", e.Message);
+        Assert.Contains("changed since", e.Message);
+        Assert.Equal("1.3.0", Plc1.References.First(r => r.Effective.Name == "Tc3_MotorLib").Effective.Version);
+        Assert.Equal([.. libBefore, .. System.Text.Encoding.ASCII.GetBytes("<!-- edited elsewhere -->")], File.ReadAllBytes(lib));
+        Assert.Empty(Directory.EnumerateFiles(_ws.Root, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void SeveralItemsOfOneProjectAreWrittenOnce()
+    {
+        var writes = new List<string>();
+        LibrarySelection.ApplyUpdate([new("Tc3_MotorLib", "1.3.0"), new("Tc3_Logging", "1.1.0")], [Plc1], null, dryRun: false, beforeReplace: writes.Add);
+        Assert.Equal([Plc1Path], writes);
+    }
+
     // ------------------------------------------------------------------ NameMatches / Select / uninstall --all
 
     private static readonly InstalledLibrary[] Repo =
