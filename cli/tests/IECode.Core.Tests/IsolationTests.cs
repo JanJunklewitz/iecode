@@ -288,20 +288,50 @@ public sealed class IsolationTests : IDisposable
         Assert.False(Directory.Exists(ws["src/sln/tmp"]));
     }
 
-    [Fact] public void CopiesOnlyTmcWrittenAfterTheBuildStarted()
+    [Fact] public void CopiesBackOnlyTmcFilesTheBuildChangedOrCreated()
     {
+        File.WriteAllText(ws.Touch("src/sln/PLC1/Same.tmc"), "same");
+        File.WriteAllText(ws.Touch("src/sln/PLC1/Old.tmc"), "old");
         using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
-        var start = DateTime.UtcNow;
-        var fresh = Path.Combine(copy.CopyRoot, "PLC1", "PLC1.tmc");
-        File.WriteAllText(fresh, "new");
-        var stale = Path.Combine(copy.CopyRoot, "PLC1", "Gen", "Old.tmc");
-        File.WriteAllText(stale, "old");
-        File.SetLastWriteTimeUtc(stale, start.AddHours(-1));
+        var before = Isolation.TmcSnapshot(copy);
+        File.WriteAllText(Path.Combine(copy.CopyRoot, "PLC1", "Old.tmc"), "rebuilt");
+        File.WriteAllText(Path.Combine(copy.CopyRoot, "PLC1", "PLC1.tmc"), "new");
+        // rewritten with the same content and a fresh time, as a build that changed nothing may do
+        File.WriteAllText(Path.Combine(copy.CopyRoot, "PLC1", "Same.tmc"), "same");
 
-        var copied = Isolation.CopyTmcBack(copy, start);
-        Assert.Equal([ws["src/sln/PLC1/PLC1.tmc"]], copied);
+        var result = Isolation.CopyTmcBack(copy, before);
+        Assert.Equal([ws["src/sln/PLC1/Old.tmc"], ws["src/sln/PLC1/PLC1.tmc"]], result.Written);
+        Assert.Empty(result.Conflicts);
+        Assert.Equal("rebuilt", File.ReadAllText(ws["src/sln/PLC1/Old.tmc"]));
         Assert.Equal("new", File.ReadAllText(ws["src/sln/PLC1/PLC1.tmc"]));
-        Assert.False(File.Exists(ws["src/sln/PLC1/Gen/Old.tmc"]));
+    }
+
+    [Fact] public void UntouchedCopyOfAnOldTmcIsNotPublishedEvenWithinTheTimeTolerance()
+    {
+        File.WriteAllText(ws.Touch("src/sln/PLC1/Old.tmc"), "old");
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        var before = Isolation.TmcSnapshot(copy);
+        File.SetLastWriteTimeUtc(Path.Combine(copy.CopyRoot, "PLC1", "Old.tmc"), DateTime.UtcNow);   // a failed build can touch the time only
+        File.WriteAllText(ws["src/sln/PLC1/Old.tmc"], "newer in the original");
+        Assert.Empty(Isolation.CopyTmcBack(copy, before).Written);
+        Assert.Equal("newer in the original", File.ReadAllText(ws["src/sln/PLC1/Old.tmc"]));
+    }
+
+    [Fact] public void TmcThatChangedInTheOriginalMeanwhileIsNotOverwritten()
+    {
+        File.WriteAllText(ws.Touch("src/sln/PLC1/Old.tmc"), "old");
+        using var copy = Isolation.Create(ws["src/sln/Machine.sln"], TempBase);
+        var before = Isolation.TmcSnapshot(copy);
+        File.WriteAllText(Path.Combine(copy.CopyRoot, "PLC1", "Old.tmc"), "rebuilt here");
+        File.WriteAllText(Path.Combine(copy.CopyRoot, "PLC1", "PLC1.tmc"), "new here");
+        File.WriteAllText(ws["src/sln/PLC1/Old.tmc"], "rebuilt by a parallel build");
+        File.WriteAllText(ws["src/sln/PLC1/PLC1.tmc"], "appeared meanwhile");
+
+        var result = Isolation.CopyTmcBack(copy, before);
+        Assert.Empty(result.Written);
+        Assert.Equal([ws["src/sln/PLC1/Old.tmc"], ws["src/sln/PLC1/PLC1.tmc"]], result.Conflicts);
+        Assert.Equal("rebuilt by a parallel build", File.ReadAllText(ws["src/sln/PLC1/Old.tmc"]));
+        Assert.Equal("appeared meanwhile", File.ReadAllText(ws["src/sln/PLC1/PLC1.tmc"]));
     }
 
     [Fact] public void LinksAreNotFollowed()

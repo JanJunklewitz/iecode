@@ -348,25 +348,53 @@ public static partial class Isolation
             : d;
     }
 
+    /// <summary>What <see cref="CopyTmcBack"/> did: the source paths written, and those left alone because the original changed meanwhile.</summary>
+    public sealed record TmcCopyResult(IReadOnlyList<string> Written, IReadOnlyList<string> Conflicts);
+
+    /// <summary>The content hash of every .tmc file in the copy, by relative path; take it before the build.</summary>
+    public static IReadOnlyDictionary<string, string> TmcSnapshot(IsolatedCopy copy)
+    {
+        var snapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in TmcFiles(copy)) snapshot[Path.GetRelativePath(copy.CopyRoot, f)] = HashOf(f)!;
+        return snapshot;
+    }
+
+    private static IEnumerable<string> TmcFiles(IsolatedCopy copy) =>
+        Directory.EnumerateFiles(copy.CopyRoot, "*.tmc", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint });
+
+    private static string? HashOf(string file)
+    {
+        if (!File.Exists(file)) return null;
+        using var s = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Convert.ToHexString(SHA256.HashData(s));
+    }
+
     /// <summary>
-    /// Copies the .tmc files the build wrote (newer than <paramref name="sinceUtc"/>) to the same place in the source, so
-    /// <c>ads symbols</c> and the extension see them; returns the written source paths.
+    /// Copies the .tmc files whose content the build changed (or created) in the copy, compared with
+    /// <paramref name="before"/>, to the same place in the source, so <c>ads symbols</c> and the extension see them. A
+    /// file is left alone when the source's one is no longer what the copy started from (a parallel build or an edit
+    /// wrote it meanwhile). Times play no part: a build that fails before writing can still touch them.
     /// </summary>
-    public static IReadOnlyList<string> CopyTmcBack(IsolatedCopy copy, DateTime sinceUtc)
+    public static TmcCopyResult CopyTmcBack(IsolatedCopy copy, IReadOnlyDictionary<string, string> before)
     {
         var written = new List<string>();
-        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
-        foreach (var f in Directory.EnumerateFiles(copy.CopyRoot, "*.tmc", options))
+        var conflicts = new List<string>();
+        foreach (var f in TmcFiles(copy))
         {
-            // file times tick more coarsely than the clock; copied files keep their old times anyway
-            if (File.GetLastWriteTimeUtc(f) < sinceUtc.AddSeconds(-2)) continue;
-            var target = Path.Combine(copy.SourceRoot, Path.GetRelativePath(copy.CopyRoot, f));
+            var rel = Path.GetRelativePath(copy.CopyRoot, f);
+            var now = HashOf(f);
+            before.TryGetValue(rel, out var then);
+            if (now == then) continue;
+            var target = Path.Combine(copy.SourceRoot, rel);
+            // the copy began as a copy of the source: if the source's file differs from that, somebody else wrote it
+            if (HashOf(target) != then) { conflicts.Add(target); continue; }
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(f, target, overwrite: true);
             written.Add(target);
         }
         written.Sort(StringComparer.Ordinal);
-        return written;
+        conflicts.Sort(StringComparer.Ordinal);
+        return new TmcCopyResult(written, conflicts);
     }
 
     /// <summary>Deletes a folder, read-only files included.</summary>

@@ -122,21 +122,28 @@ internal static class ProjectCommands
                 var copy = Isolation.Create(path, dir);
                 copy.Keep = ctx.Get(keepIsolated);
                 ctx.Log.Step($"Isolated copy: {copy.CopyRoot} ({copy.Files} files, {sw.Elapsed.TotalSeconds:0.0} s)");
-                IReadOnlyList<string> tmc = [];
+                IReadOnlyList<string> tmc = [], tmcConflicts = [];
                 try
                 {
                     ctx.Log.MapDiagnostic = d => Isolation.MapBack(d, copy);
-                    var started = DateTime.UtcNow;
+                    var tmcBefore = ctx.Get(copyTmc) ? Isolation.TmcSnapshot(copy) : null;
                     // the copy is thrown away: nothing to save, and no line change can reach the working tree
                     var list = WithShell(ctx, copy.Solution, saves: false, shell => BuildAll(shell, save: false));
-                    if (ctx.Get(copyTmc))
+                    if (tmcBefore is not null)
                     {
-                        tmc = Isolation.CopyTmcBack(copy, started);
-                        ctx.Log.Info($"Copied {tmc.Count} .tmc file(s) back");
-                        foreach (var f in tmc) ctx.Log.Detail($"  {f}");
+                        // only the result of a successful build is published; a failed one may leave half-written files
+                        if (list.Any(r => !r.Ok)) ctx.Log.Warn("No .tmc file copied back: the build failed.");
+                        else
+                        {
+                            var copied = Isolation.CopyTmcBack(copy, tmcBefore);
+                            (tmc, tmcConflicts) = (copied.Written, copied.Conflicts);
+                            ctx.Log.Info($"Copied {tmc.Count} .tmc file(s) back");
+                            foreach (var f in tmc) ctx.Log.Detail($"  {f}");
+                            foreach (var f in tmcConflicts) ctx.Log.Warn($"Not copied back, it changed in the repository during the build: {f}");
+                        }
                     }
                     return new Outcome(BuildOutcome.ExitCode(list.Select(r => r.Ok)),
-                        new { solution = path, builds = list, isolatedCopy = copy.Keep ? copy.CopyRoot : null, tmcCopied = tmc });
+                        new { solution = path, builds = list, isolatedCopy = copy.Keep ? copy.CopyRoot : null, tmcCopied = tmc, tmcSkipped = tmcConflicts });
                 }
                 finally
                 {
