@@ -105,11 +105,20 @@ internal static class ProjectCommands
             var before = WorkingTreeSnapshot.Take(folder);
             IReadOnlyList<string>? changed = null;
             List<BuildResult> results;
-            var opened = false;
+            var opening = false;
             // a build counts as saving for the line guard even with --no-save: XAE writes a project it changed while
-            // building (spike, R35). The report also runs after a failed or broken-off build, once the shell opened it.
-            try { results = WithShell(ctx, path, saves: true, shell => { opened = true; return BuildAll(shell, save); }, discard: !save); }
-            finally { if (opened) changed = ReportChanges(ctx, before, folder); }
+            // building (spike, R35). The report also runs after a failed or broken-off build and after an open that
+            // failed half-way: from the start of the open on, the shell may have written files. An error result then
+            // carries the list as well (PartialData).
+            try { results = WithShell(ctx, path, saves: true, shell => BuildAll(shell, save), discard: !save, beforeOpen: () => opening = true); }
+            finally
+            {
+                if (opening)
+                {
+                    changed = ReportChanges(ctx, before, folder);
+                    ctx.Log.PartialData = new { solution = path, changedFiles = changed };
+                }
+            }
             return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results, changedFiles = changed });
 
             Outcome BuildIsolated(string root, string dir)

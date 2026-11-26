@@ -111,6 +111,27 @@ public class ReporterTests
         Assert.True(diags[2].GetProperty("rootCause").GetBoolean());
         Assert.False(diags[0].TryGetProperty("rootCause", out _));
     }
+
+    [Fact]
+    public void ErrorResultKeepsThePartialDataTheCommandRecorded()
+    {
+        var stdout = new StringWriter();
+        var r = new Reporter(json: true, verbose: false, stdout: stdout, stderr: new StringWriter()) { PartialData = new { changedFiles = new[] { "a.TcPOU" } } };
+        r.Finish("build", 17, null, "Timed out");
+        using var doc = JsonDocument.Parse(stdout.ToString());
+        Assert.Equal("a.TcPOU", doc.RootElement.GetProperty("data").GetProperty("changedFiles")[0].GetString());
+        Assert.Equal("Timed out", doc.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void PartialDataNeverReplacesTheResultOfASuccessfulCommand()
+    {
+        var stdout = new StringWriter();
+        var r = new Reporter(json: true, verbose: false, stdout: stdout, stderr: new StringWriter()) { PartialData = new { stale = 1 } };
+        r.Finish("build", 0, new { fresh = 1 });
+        using var doc = JsonDocument.Parse(stdout.ToString());
+        Assert.True(doc.RootElement.GetProperty("data").TryGetProperty("fresh", out _));
+    }
 }
 
 public class BuildOutcomeTests

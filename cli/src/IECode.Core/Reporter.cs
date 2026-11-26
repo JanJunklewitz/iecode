@@ -134,6 +134,12 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     }
 
     /// <summary>Writes the final JSON document (JSON mode only).</summary>
+    /// <summary>
+    /// Data a command records while it runs (e.g. the files a build changed), so that a failure or break-off still reports
+    /// it: the error result carries it when it has no data of its own.
+    /// </summary>
+    public object? PartialData { get; set; }
+
     public void Finish(string command, int exitCode, object? data, string? error = null, string? hint = null)
     {
         if (!Json) return;
@@ -143,7 +149,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
             ExitCode: exitCode,
             DurationMs: _clock.ElapsedMilliseconds,
             TwinCat: TwinCatVersion,
-            Data: data,
+            Data: data ?? (error is not null ? PartialData : null),
             Diagnostics: _diagnostics,
             Messages: _messages,
             Error: error,

@@ -80,14 +80,17 @@ internal static class Runner
     /// </summary>
     /// <param name="saves">The command writes project files: then <c>--tc auto</c> stops instead of moving a project to another line.</param>
     /// <param name="discard">Close the solution without saving at the end even though <paramref name="saves"/> is set (build --no-save).</param>
+    /// <param name="beforeOpen">Called right before the solution is opened, the point from which XAE can write to the project.</param>
     [SupportedOSPlatform("windows")]
-    public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false)
+    public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)
     {
         var slnFile = SolutionFile.Load(solution);
         using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request);
         // a command that does not save must not save at Quit either, also when it fails early
         shell.DiscardChanges = !saves || discard;
         if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
+        // from here on XAE may change files, also when the open or the command fails
+        beforeOpen?.Invoke();
         shell.OpenSolution(slnFile.Path);
         return body(shell);
     }
