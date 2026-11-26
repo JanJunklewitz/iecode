@@ -30,17 +30,27 @@ export function rootCausesFirst(ds: CliDiagnostic[]): CliDiagnostic[] {
   return [...ds.filter(d => d.rootCause), ...ds.filter(d => !d.rootCause)];
 }
 
-/** Message for a failed build: the first root cause, the static-analysis-only case, or the error count. */
-export function buildFailureText(unit: string, ds: CliDiagnostic[], data: { builds?: { staticAnalysisOnly?: boolean }[] } | undefined): string {
+/**
+ * Message for a failed build or check: the first root cause, the static-analysis-only case (builds only: every
+ * platform that failed failed on static analysis, so one platform's SA0027 does not label another's C0077), or the
+ * error count.
+ */
+export function buildFailureText(unit: string, ds: CliDiagnostic[], data: { builds?: { ok?: boolean; staticAnalysisOnly?: boolean }[] } | undefined, what: 'build' | 'check' = 'build'): string {
   const errors = ds.filter(d => d.severity === 'error');
   // TwinCAT 4024 reports a library that is not installed as a warning; the CLI marks it as the root cause
   const root = ds.find(d => d.rootCause);
   if (root) {
     const others = errors.filter(d => d !== root).length;
-    return `${unit} build failed: ${root.message}${others ? ` (and ${others}${root.severity === 'error' ? ' more' : ''} error(s))` : ''}`;
+    return `${unit} ${what} failed: ${root.message}${others ? ` (and ${others}${root.severity === 'error' ? ' more' : ''} error(s))` : ''}`;
   }
-  if (data?.builds?.some(b => b.staticAnalysisOnly)) return `${unit} build failed only on static analysis (${errors.length} finding(s)).`;
-  return `${unit} build failed with ${errors.length} error(s).`;
+  const failed = data?.builds?.filter(b => b.ok !== true) ?? [];
+  if (failed.length > 0 && failed.every(b => b.staticAnalysisOnly)) return `${unit} build failed only on static analysis (${errors.length} finding(s)).`;
+  return `${unit} ${what} failed with ${errors.length} error(s).`;
+}
+
+/** True when a failed run has something to show in Problems: a compiler error or a root cause (the generic last line does not count). */
+export function hasActionableDiagnostics(ds: CliDiagnostic[]): boolean {
+  return compilerErrors(ds) > 0 || ds.some(d => d.rootCause);
 }
 
 /** Compiler errors in a result; the CLI reports the generic last line of a failed build as info, so it does not count. */

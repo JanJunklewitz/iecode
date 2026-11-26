@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFailureText, compilerErrors, countLine, diagnosticLine, progressLine, ranBuild, rootCausesFirst, tcVersionHint } from '../src/core/clilog';
+import { buildFailureText, compilerErrors, countLine, hasActionableDiagnostics, diagnosticLine, progressLine, ranBuild, rootCausesFirst, tcVersionHint } from '../src/core/clilog';
 import { CliDiagnostic } from '../src/core/diagnostics';
 
 test('progress markers become log levels', () => {
@@ -72,4 +72,24 @@ test('diagnostics from a run that broke off mid-build replace the old problems',
 test('exit 2 points to the version setting only when the error is about the version', () => {
   assert.equal(tcVersionHint(2, 'Several .sln files found; pass one.'), undefined);
   assert.match(tcVersionHint(2, 'Both TwinCAT 4024 and 4026 are installed; pass --tc.') ?? '', /iecode\.tcVersion/);
+});
+
+test('static analysis is named only when every failed platform failed on it', () => {
+  const sa: CliDiagnostic = { severity: 'error', code: 'SA0027', message: 's' };
+  const c: CliDiagnostic = { severity: 'error', code: 'C0077', message: 'c' };
+  assert.equal(buildFailureText('PLC1', [sa, c], { builds: [{ ok: false, staticAnalysisOnly: true }, { ok: false, staticAnalysisOnly: false }] }),
+    'PLC1 build failed with 2 error(s).');
+  // a platform that built fine does not count
+  assert.equal(buildFailureText('PLC1', [sa], { builds: [{ ok: false, staticAnalysisOnly: true }, { ok: true, staticAnalysisOnly: false }] }),
+    'PLC1 build failed only on static analysis (1 finding(s)).');
+});
+
+test('a failed check names its root cause too', () => {
+  const root: CliDiagnostic = { severity: 'warning', message: 'PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager', rootCause: true };
+  const generic: CliDiagnostic = { severity: 'info', message: 'The operation could not be completed.' };
+  assert.equal(buildFailureText('PLC', [root, generic], undefined, 'check'),
+    'PLC check failed: PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager');
+  assert.equal(hasActionableDiagnostics([root, generic]), true);
+  assert.equal(hasActionableDiagnostics([generic]), false);
+  assert.equal(hasActionableDiagnostics([{ severity: 'warning', message: 'w' }]), false);
 });
