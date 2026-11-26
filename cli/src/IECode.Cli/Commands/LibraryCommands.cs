@@ -72,8 +72,10 @@ internal static class LibraryCommands
         var file = Path.Combine(Path.GetFullPath(outDir ?? Path.GetDirectoryName(solution)!), baseName + (compiled ? ".compiled-library" : ".library"));
         if (meta is { IsLibrary: false }) ctx.Log.Warn($"{meta.Name} has no library properties (Title, Company, Version); TwinCAT may refuse to save it.");
 
-        var written = WithShell(ctx, solution, saves: true, shell => shell.SaveAsLibrary(plcName ?? meta?.Name, file, install: false));
-        if (install) InstallSaved(ctx, written, ChooseVersion(ctx, sln, saves: true, quiet: true).Request);
+        var requested = ChooseVersion(ctx, sln, saves: true, quiet: true).Request;
+        // the build the shell ends up with can differ from the request; RepTool must install into the build XAE saved with
+        var (export, built) = WithShell(ctx, solution, saves: true, shell => (StageExport(shell, plcName ?? meta?.Name, file), TwinCatVersion.UsedBy(shell.SelectedVersion, requested)));
+        var written = FinishExport(ctx, export, install ? built : null);
         ctx.Log.Success($"{written}{(install ? "  (installed)" : "")}");
         return Outcome.Ok(new { file = written, compiled, installed = install, title = meta?.Title, version = meta?.ProjectVersion });
     }
@@ -125,8 +127,7 @@ internal static class LibraryCommands
                         shell = session.Open(p.Unit.Solution.Path);
                         open = p.Unit.Solution.Path;
                     }
-                    var written = shell!.SaveAsLibrary(p.Unit.Plc.Name, p.File, install: false);
-                    if (ctx.Get(install)) InstallSaved(ctx, written, session.Request);
+                    var written = FinishExport(ctx, StageExport(shell!, p.Unit.Plc.Name, p.File), ctx.Get(install) ? session.Request : null);
                     ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
                     results.Add(new { unit = p.Unit.Id, file = written, ok = true });
                 }

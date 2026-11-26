@@ -82,5 +82,16 @@ public sealed partial record TwinCatVersion(int? Build, int? Revision)
         : BuildFolder().Match(exe) is { Success: true } e ? int.Parse(e.Groups["line"].Value)
         : null;
 
+    /// <summary>
+    /// The build a shell actually works with: the one the Remote Manager selected (<c>3.1.4024.62</c>) when it is known,
+    /// else the <paramref name="requested"/> version. The request can differ from it (a line only, or a build the Remote
+    /// Manager rejected), and RepTool must install into the same build XAE saved with.
+    /// </summary>
+    public static TwinCatVersion UsedBy(string? selected, TwinCatVersion requested)
+    {
+        if (selected is not null && Pattern().IsMatch(selected.Trim())) return Parse(selected);
+        return requested;
+    }
+
     public override string ToString() => IsAuto ? "auto" : Revision is null ? $"3.1.{Build}" : $"3.1.{Build}.{Revision}";
 }

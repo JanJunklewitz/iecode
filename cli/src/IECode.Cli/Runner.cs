@@ -117,16 +117,58 @@ internal static class Runner
         RepTool.Find(version, profile, TimeoutSetting.FromSeconds(ctx.Get(Globals.Timeout)));
 
     /// <summary>
-    /// Installs a library XAE has just saved. XAE saves with install off and RepTool installs the file in a fresh process
-    /// under the repository lock, so a shell that read the repository at start cannot write a stale copy. Use the version
-    /// the shell was started with (<see cref="ChooseVersion"/>), not <c>--tc</c>.
+    /// Starts a library export: XAE saves the PLC project to a private path next to <paramref name="finalFile"/> (see
+    /// <see cref="StagedExport"/>), so nothing another invocation does to the final name can change this export.
+    /// <see cref="FinishExport"/> completes it.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static StagedExport StageExport(XaeShell shell, string? plcName, string finalFile)
+    {
+        var export = StagedExport.Begin(finalFile);
+        try { shell.SaveAsLibrary(plcName, export.Path, install: false); return export; }
+        catch { export.Dispose(); throw; }
+    }
+
+    /// <summary>
+    /// Completes an export: waits until XAE has finished writing the private file, installs that very file when
+    /// <paramref name="installAs"/> is given, and publishes it to its final name. The file is published also when the
+    /// install fails, so it can be installed later; the install error is then thrown.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static string FinishExport(Context ctx, StagedExport export, TwinCatVersion? installAs)
+    {
+        using (export)
+        {
+            // XAE may still write the file when SaveAsLibrary returns; RepTool must not install half of it
+            FileReady.Wait(export.Path, TimeSpan.FromMinutes(2));
+            IECodeException? failed = null;
+            if (installAs is { } version)
+            {
+                try { InstallSaved(ctx, export.Path, version); }
+                catch (IECodeException e) { failed = e; }
+            }
+            var published = export.Publish();
+            if (failed is not null)
+                throw new IECodeException(failed.ExitCode, $"{failed.Message} The library was saved as '{published}' but is not installed.", failed.Hint ?? "Install it with: iecode lib install <file>.", failed);
+            return published;
+        }
+    }
+
+    /// <summary>
+    /// Installs a library XAE has just saved (a complete file: <see cref="FinishExport"/> checks that). XAE saves with install
+    /// off and RepTool installs the file in a fresh process under the repository lock, so a shell that read the repository at
+    /// start cannot write a stale copy. <paramref name="version"/> is the build the shell worked with
+    /// (<see cref="TwinCatVersion.UsedBy"/>), not <c>--tc</c>.
     /// </summary>
     [SupportedOSPlatform("windows")]
     public static void InstallSaved(Context ctx, string file, TwinCatVersion version)
     {
-        var tool = RepToolFor(ctx, version);
-        // XAE may still write the file when SaveAsLibrary returns; RepTool must not install half of it
-        FileReady.Wait(file, TimeSpan.FromMinutes(2));
+        RepTool tool;
+        try { tool = RepToolFor(ctx, version); }
+        catch (IECodeException e) when (e.ExitCode == ExitCodes.VersionNotInstalled)
+        {
+            throw new IECodeException(e.ExitCode, $"XAE saved with TwinCAT {version}, but {e.Message}", e.Hint, e);
+        }
         ctx.Log.Step($"Installing {Path.GetFileName(file)} (RepTool profile: {tool.Profile})…");
         var code = tool.Install(file, overwrite: true, ctx.Log);
         if (code != 0)
@@ -186,8 +228,8 @@ internal static class Runner
             _preparedFor = Path.GetFullPath(solution);
         }
 
-        /// <summary>The version the open shell was started with (for RepTool after a save).</summary>
-        public TwinCatVersion Request => _request ?? ctx.Version;
+        /// <summary>The build the open shell works with, for RepTool after a save: what the Remote Manager selected, not what was asked for.</summary>
+        public TwinCatVersion Request => TwinCatVersion.UsedBy(_shell?.SelectedVersion, _request ?? ctx.Version);
 
         /// <summary>Opens a solution, in a new shell when it needs another version than the open one.</summary>
         public XaeShell Open(string solution)
