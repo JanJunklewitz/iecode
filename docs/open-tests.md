@@ -52,7 +52,7 @@ The 2026-11-20 simulation test ran an older build, which probably explains P1-6 
 
 ## CLI build workflow (`feature/cli-build-workflow-master`)
 
-Implemented and unit-tested; these parts need a real TwinCAT PC (ordered by risk).
+Implemented and unit-tested; these parts need a real TwinCAT PC (ordered by risk). Step by step: [cli-build-workflow-test-checklist.md](cli-build-workflow-test-checklist.md).
 
 - [ ] **Shell ownership (D)**: with a real TcXaeShell the running object table entry (`!TcXaeShell.DTE.x:<pid>`) must prove the new process is the COM server. If it does not, the shell runs without watcher and job (worse than before). Check `iecode shells list` after a build and that the job ends the shell when iecode is killed.
 - [ ] **Activation dialog (D)**: the known "possible symbol type change" dialog is confirmed only in helper processes under the TwinCAT folder. Check that an activation that shows it does not hang. The 4026 German title is covered by a title test only; the dialog could not be provoked live.
