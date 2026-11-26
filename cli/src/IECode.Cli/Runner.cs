@@ -152,17 +152,36 @@ internal static class Runner
     {
         private XaeShell? _shell;
         private TwinCatVersion? _request;
+        private string? _preparedFor;
+
+        /// <summary>
+        /// Starts the shell for a solution without opening it: the version is chosen and selected in the Remote Manager, so
+        /// a missing build or line fails here, before the caller changes anything. <see cref="Open"/> then reuses the shell.
+        /// </summary>
+        public void Prepare(string solution)
+        {
+            Ensure(SolutionFile.Load(solution), quiet: false);
+            _preparedFor = Path.GetFullPath(solution);
+        }
 
         /// <summary>Opens a solution, in a new shell when it needs another version than the open one.</summary>
         public XaeShell Open(string solution)
         {
             var slnFile = SolutionFile.Load(solution);
-            var request = ChooseVersion(ctx, slnFile, saves).Request;
+            Ensure(slnFile, quiet: string.Equals(_preparedFor, Path.GetFullPath(solution), StringComparison.OrdinalIgnoreCase));
+            _preparedFor = null;
+            _shell!.OpenSolution(slnFile.Path);
+            return _shell;
+        }
+
+        private void Ensure(SolutionFile slnFile, bool quiet)
+        {
+            var request = ChooseVersion(ctx, slnFile, saves, quiet).Request;
             if (_shell is null || request.Line != _request!.Line || (saves && request != _request))
             {
                 if (_shell is not null)
                 {
-                    ctx.Log.Step($"Switching to TwinCAT {request} for {Path.GetFileName(solution)}");
+                    ctx.Log.Step($"Switching to TwinCAT {request} for {Path.GetFileName(slnFile.Path)}");
                     _shell.Dispose();
                     _shell = null;
                 }
@@ -170,8 +189,6 @@ internal static class Runner
                 _shell.DiscardChanges = !saves || discard;
                 _request = request;
             }
-            _shell.OpenSolution(slnFile.Path);
-            return _shell;
         }
 
         public void Dispose() => _shell?.Dispose();

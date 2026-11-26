@@ -172,19 +172,21 @@ internal static class WorkspaceCommands
                     "Libraries: " + string.Join(", ", w.Units.Where(u => u.Plc.IsLibrary).Select(u => u.Plc.Title)));
             var from = unit.Plc.ProjectVersion!;
             var to = Workspace.Bump(from, ctx.Get(bump));
-            // a line change stops before the version is written, not after
-            if (!ctx.Get(noSave) && unit.Solution is not null) ChooseVersion(ctx, SolutionFile.Load(unit.Solution.Path), saves: true, quiet: true);
-            Workspace.SetProjectVersion(unit.Plc.Path, to);
-            ctx.Log.Success($"{unit.Plc.Title}: {from} → {to}");
+            void WriteVersion()
+            {
+                Workspace.SetProjectVersion(unit.Plc.Path, to);
+                ctx.Log.Success($"{unit.Plc.Title}: {from} → {to}");
+            }
 
             string? file = null;
-            if (!ctx.Get(noSave))
+            if (ctx.Get(noSave)) WriteVersion();
+            else
             {
                 if (!OperatingSystem.IsWindows())
                     throw new IECodeException(ExitCodes.NotSupportedPlatform, "Saving the library needs Windows with TwinCAT XAE.", "Use --no-save to only change versions.");
                 if (unit.Solution is null) throw new IECodeException(ExitCodes.NotFound, $"{unit.Id} has no .sln to save from.");
                 var target = Path.Combine(Path.GetDirectoryName(unit.Solution.Path)!, "dist", $"{unit.Plc.Title}_{to}.library");
-                file = WithShell(ctx, unit.Solution.Path, saves: true, shell => shell.SaveAsLibrary(unit.Plc.Name, target, install: true));
+                file = SaveReleased(ctx, unit.Solution.Path, unit.Plc.Name, target, WriteVersion);
                 ctx.Log.Success($"Saved and installed {file}");
             }
 
@@ -205,5 +207,18 @@ internal static class WorkspaceCommands
             return Outcome.Ok(new { library = unit.Plc.Title, from, to, file, changes });
         });
         return cmd;
+    }
+
+    /// <summary>
+    /// Starts the shell and has it select the TwinCAT version first, then writes the new version (<paramref name="writeVersion"/>)
+    /// and saves the library from the same shell: a version the Remote Manager rejects stops the release before the source changed.
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static string SaveReleased(Context ctx, string solution, string plcName, string target, Action writeVersion)
+    {
+        using var session = new ShellSession(ctx, saves: true);
+        session.Prepare(solution);
+        writeVersion();
+        return session.Open(solution).SaveAsLibrary(plcName, target, install: true);
     }
 }
