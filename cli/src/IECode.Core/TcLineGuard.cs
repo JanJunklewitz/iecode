@@ -1,5 +1,16 @@
 namespace IECode.Core;
 
+/// <summary>What <see cref="TcLineGuard.PlanFor"/> asks a shell session to do for a solution.</summary>
+public enum ShellPlan
+{
+    /// <summary>The healthy shell already has the solution open: use it as is.</summary>
+    Keep,
+    /// <summary>Open the solution in the shell at hand.</summary>
+    OpenHere,
+    /// <summary>Start a new shell (none yet, another version, or the last one stopped on a dialog), then open the solution.</summary>
+    Replace,
+}
+
 /// <summary>The TwinCAT version to start the shell with, and a warning to print when the choice was not the obvious one.</summary>
 public sealed record TcChoice(TwinCatVersion Request, string? Note);
 
@@ -16,6 +27,16 @@ public static class TcLineGuard
     /// </summary>
     public static bool NeedsNewShell(TwinCatVersion? open, TwinCatVersion request, bool saves, bool shellFailed) =>
         open is not { } o || shellFailed || request.Line != o.Line || (saves && request != o);
+
+    /// <summary>
+    /// What a session does to have <paramref name="solution"/> open: keep the shell that already has it, open it in the
+    /// shell at hand, or replace the shell (version change, or a dialog made it fail). The session decides this for every
+    /// item, so a failed shell is never handed to the next project of the same solution.
+    /// </summary>
+    public static ShellPlan PlanFor(TwinCatVersion? open, TwinCatVersion request, bool saves, bool shellFailed, string? openSolution, string solution) =>
+        NeedsNewShell(open, request, saves, shellFailed) ? ShellPlan.Replace
+        : openSolution is not null && string.Equals(Path.GetFullPath(openSolution), Path.GetFullPath(solution), StringComparison.OrdinalIgnoreCase) ? ShellPlan.Keep
+        : ShellPlan.OpenHere;
 
     private const string Hint = "Pass --tc <version>, e.g. --tc 4024 (VS Code: setting iecode.tcVersion, command \"IECode: Select TwinCAT Version…\").";
 

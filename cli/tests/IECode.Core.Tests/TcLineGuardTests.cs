@@ -124,3 +124,27 @@ public class ShellReuseTests
     }
     [Fact] public void AShellThatHadADialogIsReplaced() => Assert.True(TcLineGuard.NeedsNewShell(V("4024.66"), V("4024.66"), saves: false, shellFailed: true));
 }
+
+public class ShellPlanTests
+{
+    private static readonly TwinCatVersion V = TwinCatVersion.Parse("3.1.4026.20");
+
+    [Fact]
+    public void TheSecondProjectOfASolutionReusesAHealthyShell() =>
+        Assert.Equal(ShellPlan.Keep, TcLineGuard.PlanFor(V, V, saves: true, shellFailed: false, @"C:\W\M.sln", @"c:\w\m.sln"));
+
+    [Fact]
+    public void AnotherSolutionIsOpenedInTheShellAtHand() =>
+        Assert.Equal(ShellPlan.OpenHere, TcLineGuard.PlanFor(V, V, true, false, @"C:\W\A.sln", @"C:\W\B.sln"));
+
+    [Fact]
+    public void AShellThatStoppedOnADialogIsReplacedEvenForTheSameSolution()
+    {
+        // lib save-all: PLC A of a solution hits a dialog, PLC B of the same solution must get a fresh shell, not A's failed one
+        Assert.Equal(ShellPlan.Replace, TcLineGuard.PlanFor(V, V, true, shellFailed: true, @"C:\W\M.sln", @"C:\W\M.sln"));
+    }
+
+    [Fact]
+    public void NoShellYetStartsOne() =>
+        Assert.Equal(ShellPlan.Replace, TcLineGuard.PlanFor(null, V, true, false, null, @"C:\W\M.sln"));
+}

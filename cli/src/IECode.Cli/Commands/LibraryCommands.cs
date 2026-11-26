@@ -113,8 +113,6 @@ internal static class LibraryCommands
             IECodeException? stopped = null;
             var notStarted = new List<string>();
             using var session = new ShellSession(ctx, saves: true);
-            XaeShell? shell = null;
-            string? open = null;
             var step = 0;
             foreach (var p in plan)
             {
@@ -122,12 +120,9 @@ internal static class LibraryCommands
                 step++;
                 try
                 {
-                    if (!string.Equals(open, p.Unit.Solution!.Path, StringComparison.OrdinalIgnoreCase))
-                    {
-                        shell = session.Open(p.Unit.Solution.Path);
-                        open = p.Unit.Solution.Path;
-                    }
-                    var written = FinishExport(ctx, StageExport(shell!, p.Unit.Plc.Name, p.File), ctx.Get(install) ? session.Request : null);
+                    // for every item: the session reuses a healthy shell and replaces one that stopped on a dialog
+                    var shell = session.Open(p.Unit.Solution!.Path);
+                    var written = FinishExport(ctx, StageExport(shell, p.Unit.Plc.Name, p.File), ctx.Get(install) ? session.Request : null);
                     ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
                     results.Add(new { unit = p.Unit.Id, file = written, ok = true });
                 }

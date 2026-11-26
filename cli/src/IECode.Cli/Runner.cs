@@ -217,6 +217,7 @@ internal static class Runner
         private XaeShell? _shell;
         private TwinCatVersion? _request;
         private string? _preparedFor;
+        private string? _opened;
 
         /// <summary>
         /// Starts the shell for a solution without opening it: the version is chosen and selected in the Remote Manager, so
@@ -231,20 +232,31 @@ internal static class Runner
         /// <summary>The build the open shell works with, for RepTool after a save: what the Remote Manager selected, not what was asked for.</summary>
         public TwinCatVersion Request => TwinCatVersion.UsedBy(_shell?.SelectedVersion, _request ?? ctx.Version);
 
-        /// <summary>Opens a solution, in a new shell when it needs another version than the open one.</summary>
+        /// <summary>
+        /// Gives the shell that has the solution open: in a new shell when it needs another version than the open one or the
+        /// last one stopped on a dialog, the shell at hand when the solution is not open yet, and the same shell without
+        /// reopening when it is. Call it for every item of a run, not once per solution: the health check is here.
+        /// </summary>
         public XaeShell Open(string solution)
         {
             var slnFile = SolutionFile.Load(solution);
-            Ensure(slnFile, quiet: string.Equals(_preparedFor, Path.GetFullPath(solution), StringComparison.OrdinalIgnoreCase));
+            var full = Path.GetFullPath(solution);
+            // the notes of the version choice were printed when the solution was prepared or opened
+            var plan = Ensure(slnFile, quiet: string.Equals(_preparedFor, full, StringComparison.OrdinalIgnoreCase) || string.Equals(_opened, full, StringComparison.OrdinalIgnoreCase));
             _preparedFor = null;
-            _shell!.OpenSolution(slnFile.Path);
-            return _shell;
+            if (plan != ShellPlan.Keep)
+            {
+                _shell!.OpenSolution(slnFile.Path);
+                _opened = Path.GetFullPath(slnFile.Path);
+            }
+            return _shell!;
         }
 
-        private void Ensure(SolutionFile slnFile, bool quiet)
+        private ShellPlan Ensure(SolutionFile slnFile, bool quiet)
         {
             var request = ChooseVersion(ctx, slnFile, saves, quiet).Request;
-            if (TcLineGuard.NeedsNewShell(_shell is null ? null : _request, request, saves, _shell?.DialogFailed == true))
+            var plan = TcLineGuard.PlanFor(_shell is null ? null : _request, request, saves, _shell?.DialogFailed == true, _opened, slnFile.Path);
+            if (plan == ShellPlan.Replace)
             {
                 if (_shell is not null)
                 {
@@ -254,10 +266,12 @@ internal static class Runner
                     _shell.Dispose();
                     _shell = null;
                 }
+                _opened = null;
                 _shell = StartShell(ctx, request);
                 _shell.DiscardChanges = !saves || discard;
                 _request = request;
             }
+            return plan;
         }
 
         public void Dispose() => _shell?.Dispose();

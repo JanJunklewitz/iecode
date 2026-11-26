@@ -275,6 +275,8 @@ public sealed partial class XaeShell : IDisposable
     /// </summary>
     private T Watched<T>(Func<T> body)
     {
+        // a shell that already stopped on a dialog fails every later call with it, before the call can touch anything
+        ThrowIfDialogCancelled();
         T result;
         try { result = body(); }
         catch (Exception e) when (_watch?.Failure is { } f && !ReferenceEquals(e, f))
