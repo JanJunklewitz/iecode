@@ -87,6 +87,8 @@ public static partial class Isolation
     [GeneratedRegex(@"^Project\(""\{(?<type>[^}]+)\}""\)\s*=\s*""[^""]*""\s*,\s*""(?<path>[^""]+)""", RegexOptions.Multiline)]
     private static partial Regex ProjectLine();
 
+    private static readonly string[] Supported = [".plcproj", ".tsproj", ".tspproj"];
+
     private const string SolutionFolderType = "2150E333-8FDC-42A3-9474-1A3956D46DE8";
 
     /// <summary>
@@ -106,7 +108,11 @@ public static partial class Isolation
         {
             if (m.Groups["type"].Value.Equals(SolutionFolderType, StringComparison.OrdinalIgnoreCase)) continue;
             var value = m.Groups["path"].Value;
-            if (Check(solution, value, slnDir) is { } full && File.Exists(full)) scan.Add(full);
+            if (Check(solution, value, slnDir) is not { } full) continue;
+            // any other project type may build to an absolute path or run hooks: a copy of the tree does not contain that
+            if (!Supported.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
+                found.Add($"{Path.GetRelativePath(root, solution)}: {value} (project type {Path.GetExtension(full)} is not supported: its build could write outside the copy)");
+            else if (File.Exists(full)) scan.Add(full);
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -131,7 +137,11 @@ public static partial class Isolation
         // the resolved path when it stays inside the root; records it otherwise
         string? Check(string file, string value, string baseDir)
         {
-            if (value.Contains("$(", StringComparison.Ordinal)) return null;
+            if (value.Contains("$(", StringComparison.Ordinal))
+            {
+                found.Add($"{Path.GetRelativePath(root, file)}: {value} (contains a property or variable that cannot be resolved here)");
+                return null;
+            }
             var native = value.Replace('\\', Path.DirectorySeparatorChar);
             var full = Path.GetFullPath(Path.Combine(baseDir, native));
             if (Path.IsPathRooted(native) || !Inside(full, root))

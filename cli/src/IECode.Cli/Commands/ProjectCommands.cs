@@ -116,8 +116,8 @@ internal static class ProjectCommands
             {
                 if (Isolation.OutsideRoot(path, root) is { Count: > 0 } outside)
                     throw new IECodeException(ExitCodes.Usage,
-                        $"--isolate copies '{root}', but the solution references files outside of it or by absolute path:\n  " + string.Join("\n  ", outside),
-                        "Build without --isolate, or make the references relative and inside the repository.");
+                        $"--isolate copies '{root}', but the solution has references or projects a copy cannot contain (outside of it, absolute, unresolvable or of an unsupported type):\n  " + string.Join("\n  ", outside),
+                        "Build without --isolate, or make the references relative and inside the repository. A copy is no sandbox: only .plcproj, .tsproj and .tspproj projects are accepted.");
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var copy = Isolation.Create(path, dir);
                 copy.Keep = ctx.Get(keepIsolated);

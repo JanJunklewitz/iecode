@@ -139,6 +139,28 @@ public sealed class IsolationTests : IDisposable
         Assert.Single(Isolation.OutsideRoot(ws["src/sln/Machine.sln"], ws["src/sln"]));
     }
 
+    [Fact] public void ProjectTypeThatCouldWriteAnywhereIsReportedEvenInsideTheRoot()
+    {
+        // a helper project in the tree can build to an absolute OutputPath: the copy is no sandbox
+        File.WriteAllText(ws["src/sln/Machine.sln"], Sln(@"PLC1\PLC1.plcproj", @"Tool\Tool.csproj"));
+        ws.Touch("src/sln/Tool/Tool.csproj");
+        var found = Assert.Single(Isolation.OutsideRoot(ws["src/sln/Machine.sln"], ws["src/sln"]));
+        Assert.Contains("Tool.csproj", found);
+        Assert.Contains("not supported", found);
+    }
+
+    [Fact] public void UnresolvablePathIsReportedNotSkipped()
+    {
+        File.WriteAllText(ws["src/sln/Machine.sln"], Sln(@"$(Base)\PLC1.plcproj"));
+        var inSln = Assert.Single(Isolation.OutsideRoot(ws["src/sln/Machine.sln"], ws["src/sln"]));
+        Assert.Contains("$(Base)", inSln);
+
+        File.WriteAllText(ws["src/sln/Machine.sln"], Sln(@"PLC1\PLC1.plcproj"));
+        File.WriteAllText(ws["src/sln/PLC1/PLC1.plcproj"], Plcproj.Replace(@"POUs\MAIN.TcPOU", @"$(SolutionDir)MAIN.TcPOU"));
+        var inProject = Assert.Single(Isolation.OutsideRoot(ws["src/sln/Machine.sln"], ws["src/sln"]));
+        Assert.Contains("$(SolutionDir)", inProject);
+    }
+
     [Fact] public void SolutionFoldersAreNoPaths()
     {
         File.WriteAllText(ws["src/sln/Machine.sln"], Sln(@"PLC1\PLC1.plcproj") +
