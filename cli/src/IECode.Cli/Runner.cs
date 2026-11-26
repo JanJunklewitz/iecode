@@ -88,11 +88,31 @@ internal static class Runner
         using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request);
         // a command that does not save must not save at Quit either, also when it fails early
         shell.DiscardChanges = !saves || discard;
-        if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
-        // from here on XAE may change files, also when the open or the command fails
-        beforeOpen?.Invoke();
-        shell.OpenSolution(slnFile.Path);
-        return body(shell);
+        T result;
+        try
+        {
+            if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
+            // from here on XAE may change files, also when the open or the command fails
+            beforeOpen?.Invoke();
+            shell.OpenSolution(slnFile.Path);
+            result = body(shell);
+        }
+        catch { shell.Dispose(); throw; }   // the error of the command wins over anything the shutdown shows
+        // a dialog that stopped the shutdown makes a successful command fail, as it would have during the command
+        if (shell.Close() is { } shutdown)
+        {
+            DisposeResult(result);
+            throw shutdown;
+        }
+        return result;
+    }
+
+    /// <summary>Releases what a result that is dropped because the shutdown failed holds (a staged export and the like).</summary>
+    private static void DisposeResult(object? result)
+    {
+        if (result is IDisposable d) d.Dispose();
+        else if (result is System.Runtime.CompilerServices.ITuple tuple)
+            for (var i = 0; i < tuple.Length; i++) DisposeResult(tuple[i]);
     }
 
     /// <summary>
@@ -272,6 +292,14 @@ internal static class Runner
                 _request = request;
             }
             return plan;
+        }
+
+        /// <summary>Closes the shell and returns the dialog failure of its shutdown (null when there was none).</summary>
+        public IECodeException? Close()
+        {
+            var failure = _shell?.Close();
+            _shell = null;
+            return failure;
         }
 
         public void Dispose() => _shell?.Dispose();

@@ -136,7 +136,10 @@ internal static class LibraryCommands
                     if (ctx.Get(failFast) || e.ExitCode == ExitCodes.Timeout) stopped = e;
                 }
             }
-            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = results.Count - failed, failed, stopped = stopped is not null, notStarted, results };
+            // a dialog during the shutdown is one more failure of the run; the results stay
+            var shutdown = session.Close();
+            if (shutdown is not null) ctx.Log.Error($"Closing the shell: {shutdown.Message}");
+            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = results.Count - failed, failed, stopped = stopped is not null, notStarted, shutdownError = shutdown?.Message, results };
             if (stopped is not null)
             {
                 ctx.Log.Warn($"Stopped after {results.Count} of {plan.Count} project(s); not started: {(notStarted.Count == 0 ? "none" : string.Join(", ", notStarted))}.");
@@ -147,6 +150,7 @@ internal static class LibraryCommands
                 ctx.Log.Warn($"{failed} of {plan.Count} project(s) could not be saved; library projects need Title, Company and Version and must compile.");
                 return new Outcome(ExitCodes.LibraryFailed, data);
             }
+            if (shutdown is not null) return new Outcome(shutdown.ExitCode, data);
             ctx.Log.Success($"{plan.Count} project(s) saved");
             return Outcome.Ok(data);
         });

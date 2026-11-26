@@ -495,9 +495,25 @@ public sealed partial class XaeShell : IDisposable
         catch (Exception) { return ""; }
     }
 
-    public void Dispose()
+    /// <summary>Closes the shell without telling whether a dialog stopped the shutdown; for cleanup on an error path.</summary>
+    public void Dispose() => Close();
+
+    private IECodeException? _closed;
+
+    /// <summary>
+    /// Closes the shell. Returns the dialog failure when the watcher cancelled a dialog (or ended the shell) at any time,
+    /// also during the shutdown itself, so a command that otherwise succeeded can fail with it instead of reporting
+    /// success for a shell that was cancelled or killed while closing. Idempotent.
+    /// </summary>
+    public IECodeException? Close()
     {
-        if (_dte is null) return;
+        if (_dte is null) return _closed;
+        CloseCore();
+        return _closed = _watch?.Failure;
+    }
+
+    private void CloseCore()
+    {
         var quitReturned = false;
         try
         {

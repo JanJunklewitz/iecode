@@ -149,6 +149,8 @@ internal static class WorkspaceCommands
                     ctx.Log.Success($"        {lib.Plc.Title} {lib.Plc.ProjectVersion} saved and installed for its users");
                 }
             }
+            // a dialog during the shutdown fails the build as it would have during a build step
+            if (session.Close() is { } shutdown) throw shutdown;
             return Outcome.Ok(new { order = order.Select(u => u.Id), results });
         });
         return cmd;
@@ -220,6 +222,12 @@ internal static class WorkspaceCommands
         session.Prepare(solution);
         writeVersion();
         var export = StageExport(session.Open(solution), plcName, target);
-        return FinishExport(ctx, export, session.Request);
+        var version = session.Request;
+        if (session.Close() is { } shutdown)
+        {
+            export.Dispose();
+            throw shutdown;
+        }
+        return FinishExport(ctx, export, version);
     }
 }

@@ -59,7 +59,8 @@ public class DialogWatchTests
         try
         {
             var err = new StringWriter();
-            using (var watch = DialogWatch.Start(p, userCanAnswer: false, Log(err), Fast))
+            DialogWatch watch;
+            using (watch = DialogWatch.Start(p, userCanAnswer: false, Log(err), Fast))
             {
                 Assert.True(Until(() => watch.Cancelled is not null, TimeSpan.FromSeconds(30)), "no dialog cancelled: " + err);
                 Assert.Equal(Title, watch.Cancelled!.Title);
@@ -67,6 +68,8 @@ public class DialogWatchTests
                 Assert.False(watch.GaveUp);
                 Assert.Equal($"XAE showed a dialog and was stopped: {Title}: The path is too long.", watch.Failure?.Message);
             }
+            // XaeShell.Close reads the failure after it stopped the watcher: a dialog during the shutdown must still be visible then
+            Assert.NotNull(watch.Failure);
             Assert.True(p.WaitForExit(10000));
             Assert.Equal("Cancel", p.StandardOutput.ReadToEnd().Trim());
         }
