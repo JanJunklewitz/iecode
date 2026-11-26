@@ -24,7 +24,8 @@ public sealed class Git
     /// </summary>
     public IReadOnlyList<(string Code, string Path, string? OrigPath)> StatusEntries(string? folder = null)
     {
-        var spec = folder is null ? "." : Rel(folder) is "" or "." ? "." : Rel(folder);
+        // literal: "--" only ends option parsing, glob characters in a folder name would still match
+        var spec = folder is null ? "." : Rel(folder) is "" or "." ? "." : ":(literal)" + Rel(folder);
         var output = Run(Root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", spec)
             ?? throw new IECodeException(ExitCodes.Failed, $"git status failed in '{Root}'.");
         var parts = output.Split('\0');
