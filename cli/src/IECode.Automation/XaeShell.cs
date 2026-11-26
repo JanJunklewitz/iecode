@@ -86,11 +86,11 @@ public sealed partial class XaeShell : IDisposable
         {
             // a new process is only the shell's once the DTE object proves it: right then tie it to iecode, record it,
             // and watch a dialog while configuring too
-            shell.Adopt(ref candidate);
+            shell.Adopt(ref candidate, attempts: 3);
             // a dialog while configuring fails Start with its text, not with the COM error of the cancelled call
             shell.Watched(shell.Configure);
             // the window may not have been readable before Configure
-            shell.Adopt(ref candidate);
+            shell.Adopt(ref candidate, attempts: 1);
             shell._processId = shell.ShellProcessId();
         }
         catch { shell.Dispose(); throw; }
@@ -109,16 +109,17 @@ public sealed partial class XaeShell : IDisposable
     private ShellEntry? _entry;
 
     /// <summary>
-    /// Makes the new process the owned shell when the DTE object proves it is the COM server behind it: the process that
-    /// owns the shell's main window is the new one, in this session. A process that is merely new (another program started a
-    /// shell between the snapshots, or the activation reused a running server) is never tied to iecode, recorded, watched
-    /// or killed. Stays undecided (no change) while the window cannot be read, so it can be tried again.
+    /// Makes the new process the owned shell when the DTE object proves it is the COM server behind it: the running object
+    /// table entry that holds this very object (or, failing that, the owner of the main window) names the new process, in
+    /// this session. A process that is merely new (another program started a shell between the snapshots, or the activation
+    /// reused a running server) is never tied to iecode, recorded, watched or killed. Stays undecided (no change) while
+    /// the server cannot be told, so it can be tried again; then the shell runs unwatched.
     /// </summary>
-    private void Adopt(ref Process? candidate)
+    private void Adopt(ref Process? candidate, int attempts)
     {
         if (candidate is null || _process is not null) return;
         using var me = Process.GetCurrentProcess();
-        int? server = ShellProcessId() is var w and not 0 ? w : null;
+        var server = ServerPid(attempts);
         switch (ShellRegistry.Verify(candidate.Id, SessionOf(candidate), me.SessionId, server))
         {
             case ShellOwnership.Unknown:
@@ -134,6 +135,18 @@ public sealed partial class XaeShell : IDisposable
         candidate = null;
         Register();
         _watch = DialogWatch.Start(_process, _options.Visible || _options.ShowUi, _log);
+    }
+
+    /// <summary>The process serving the DTE object, from the running object table (the shell registers itself a moment after it starts), else from its main window.</summary>
+    private int? ServerPid(int attempts)
+    {
+        for (var i = 0; i < attempts; i++)
+        {
+            if (i > 0) Thread.Sleep(1000);
+            if (RunningObjects.ServerPidOf((object)Dte) is { } pid) return pid;
+            if (ShellProcessId() is var w and not 0) return w;
+        }
+        return null;
     }
 
     private static int SessionOf(Process p)
