@@ -291,14 +291,17 @@ internal static class LibraryCommands
 
     /// <summary>
     /// The library check before a build: warns, never fails. Libraries the command installs itself
-    /// (<paramref name="willInstall"/>) count as installed.
+    /// (the exports of <paramref name="stages"/>) count as installed for the stages after them.
     /// </summary>
-    internal static void Preflight(Context ctx, IEnumerable<PlcProjectFile> projects, IReadOnlyCollection<LibraryId> willInstall)
+    internal static void Preflight(Context ctx, IEnumerable<PlcProjectFile> projects) =>
+        Preflight(ctx, [new BuildStage([.. projects], [])]);
+
+    internal static void Preflight(Context ctx, IReadOnlyList<BuildStage> stages)
     {
         var roots = DefaultRepositories().Where(Directory.Exists).ToList();
         if (roots.Count == 0) { ctx.Log.Warn("Library references not checked: no library repository found."); return; }
         IReadOnlyList<ReferenceProblem> problems;
-        try { problems = Core.Projects.Preflight.Problems(projects, LibraryRepository.ScanAll(roots), willInstall); }
+        try { problems = Core.Projects.Preflight.Problems(stages, LibraryRepository.ScanAll(roots)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             ctx.Log.Warn($"Library references not checked: {e.Message}");

@@ -98,21 +98,63 @@ public sealed class PreflightTests : IDisposable
 
     [Fact]
     public void ReportsWhatTheCheckReports() =>
-        Assert.Single(Preflight.Problems([Project("Tc3_MotorLib, 1.2.0.0 (Example)")], [], []));
+        Assert.Single(Preflight.Problems([Project("Tc3_MotorLib, 1.2.0.0 (Example)")], []));
 
     [Fact]
     public void SkipsTheExactVersionTheWorkspaceInstalls() =>
-        Assert.Empty(Preflight.Problems([Project("Tc3_MotorLib, 1.2.0.0 (Example)")], [], [new LibraryId("tc3_motorlib", "1.2.0.0", "example")]));
+        Assert.Empty(Preflight.Problems([new BuildStage([], [new LibraryId("tc3_motorlib", "1.2.0.0", "example")]), new BuildStage([Project("Tc3_MotorLib, 1.2.0.0 (Example)")], [])], []));
 
     [Fact]
     public void AnotherVersionOrVendorFromTheWorkspaceDoesNotHide()
     {
         var project = Project("Tc3_MotorLib, 1.2.0.0 (Example)");
-        Assert.Single(Preflight.Problems([project], [], [new LibraryId("Tc3_MotorLib", "1.3.0.0", "Example")]));
-        Assert.Single(Preflight.Problems([project], [], [new LibraryId("Tc3_MotorLib", "1.2.0.0", "Other")]));
+        Assert.Single(Preflight.Problems([new BuildStage([], [new LibraryId("Tc3_MotorLib", "1.3.0.0", "Example")]), new BuildStage([project], [])], []));
+        Assert.Single(Preflight.Problems([new BuildStage([], [new LibraryId("Tc3_MotorLib", "1.2.0.0", "Other")]), new BuildStage([project], [])], []));
     }
 
     [Fact]
     public void StarReferenceIsSatisfiedByAnyWorkspaceVersion() =>
-        Assert.Empty(Preflight.Problems([Project("Tc3_MotorLib, * (Example)")], [], [new LibraryId("Tc3_MotorLib", "1.3.0.0", "Example")]));
+        Assert.Empty(Preflight.Problems([new BuildStage([], [new LibraryId("Tc3_MotorLib", "1.3.0.0", "Example")]), new BuildStage([Project("Tc3_MotorLib, * (Example)")], [])], []));
+}
+
+public sealed class StagedPreflightTests : IDisposable
+{
+    private readonly TempWorkspace _ws = new();
+    public void Dispose() => _ws.Dispose();
+
+    private PlcProjectFile Project(string name, string reference)
+    {
+        var path = _ws[$"Staged/{name}/{name}.plcproj"];
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <Project><PropertyGroup><Name>{name}</Name></PropertyGroup><ItemGroup>
+              <PlaceholderReference Include="{reference.Split(',')[0]}"><DefaultResolution>{reference}</DefaultResolution></PlaceholderReference>
+            </ItemGroup></Project>
+            """);
+        return PlcProjectFile.Load(path);
+    }
+
+    private static readonly LibraryId MotorLib = new("Tc3_MotorLib", "1.2.0.0", "Example");
+
+    [Fact]
+    public void AnExportOnlyHelpsTheStagesAfterIt()
+    {
+        var first = Project("First", "Tc3_MotorLib, 1.2.0.0 (Example)");
+        var second = Project("Second", "Tc3_MotorLib, 1.2.0.0 (Example)");
+        var problems = Preflight.Problems([new BuildStage([first], [MotorLib]), new BuildStage([second], [])], []);
+        // the library is installed after its own solution is built, so the project built with it still warns
+        Assert.Equal(["First"], Assert.Single(problems).Projects);
+
+        var later = Preflight.Problems([new BuildStage([Project("Lib", "Tc3_AxisLib, 1.0.0.0 (Example)")], [MotorLib]), new BuildStage([second], [])], [new InstalledLibrary("Tc3_AxisLib", "1.0.0.0", "Example", "")]);
+        Assert.Empty(later);
+    }
+
+    [Fact]
+    public void ALibraryNobodyExportsStaysMissing()
+    {
+        var user = Project("User", "Tc3_AxisLib, 1.0.0.0 (Example)");
+        var problems = Preflight.Problems([new BuildStage([Project("Lib", "Tc3_MotorLib, 1.2.0.0 (Example)")], [MotorLib]), new BuildStage([user], [])], []);
+        Assert.Contains(problems, p => p.Name == "Tc3_AxisLib");
+    }
 }

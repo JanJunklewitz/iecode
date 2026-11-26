@@ -8,6 +8,9 @@ public enum UnitGroup { Library, Application, Standalone }
 /// <summary>One PLC project in a workspace and the solution it belongs to (if any).</summary>
 public sealed record Unit(string Id, UnitGroup Group, PlcProjectFile Plc, SolutionFile? Solution);
 
+/// <summary>The units of one solution, and those of them whose library is installed after its build (see <see cref="Workspace.BuildStages"/>).</summary>
+public sealed record WorkspaceStage(string Solution, IReadOnlyList<Unit> Units, IReadOnlyList<Unit> Exports);
+
 /// <summary>A library reference from one unit to a library project in the same workspace.</summary>
 public sealed record Link(string From, string To, LibraryReference Reference, bool IsWorkspace);
 
@@ -98,6 +101,19 @@ public sealed partial class Workspace
         }
         foreach (var id in ids) Visit(id, []);
         return order;
+    }
+
+    /// <summary>
+    /// What <c>ws build</c> runs for an order: one stage per solution (built once, whole), in the order its first
+    /// unit appears. A library of the stage that a unit of the order uses through a workspace link is exported and
+    /// installed after the stage is built, so only later stages can rely on it.
+    /// </summary>
+    public IReadOnlyList<WorkspaceStage> BuildStages(IEnumerable<Unit> order)
+    {
+        var units = order.Where(u => u.Solution is not null).ToList();
+        return [.. units.GroupBy(u => u.Solution!.Path, StringComparer.OrdinalIgnoreCase).Select(g => new WorkspaceStage(
+            g.Key, [.. g],
+            [.. g.Where(u => u.Plc.IsLibrary && Links.Any(l => l.IsWorkspace && l.To == u.Id && units.Any(o => o.Id == l.From)))]))];
     }
 
     /// <summary>The changed units plus everything that uses them through a workspace link.</summary>

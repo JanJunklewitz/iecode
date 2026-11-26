@@ -135,4 +135,19 @@ public sealed class WorkspaceTests : IDisposable
         var files = LibraryExport.Plan(Load(), compiled: false, outDir: _ws["Out"], librariesOnly: false).Select(p => Path.GetFileName(p.File));
         Assert.Equal(["Machine_PLC1.library", "Machine_Tc3_MotorLib_1.3.0.library", "PLC1.library", "Tc3_MotorLib_1.3.0.library"], files.Order());
     }
+
+    [Fact]
+    public void BuildStagesInstallOnlyLibrariesTheOrderUses()
+    {
+        var w = Load();
+        var stage = Assert.Single(w.BuildStages(w.BuildOrder().Select(id => w[id])));
+        Assert.Equal(["Machine/MotorLib", "Machine/PLC1"], stage.Units.Select(u => u.Id));
+        Assert.Empty(stage.Exports);   // PLC1 pins 1.2.0, so it does not use the workspace library
+
+        File.WriteAllText(_ws["Machine/Machine/PLC1/PLC1.plcproj"], File.ReadAllText(_ws["Machine/Machine/PLC1/PLC1.plcproj"]).Replace("Tc3_MotorLib, 1.2.0 (", "Tc3_MotorLib, * ("));
+        w = Load();
+        Assert.Equal(["Machine/MotorLib"], Assert.Single(w.BuildStages(w.BuildOrder().Select(id => w[id]))).Exports.Select(u => u.Id));
+        // a library nobody in the order uses is not installed
+        Assert.Empty(Assert.Single(w.BuildStages([w["Machine/MotorLib"]])).Exports);
+    }
 }

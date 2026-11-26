@@ -77,7 +77,7 @@ internal static class ProjectCommands
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
-            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects, []);
+            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
             var results = WithShell(ctx, path, shell =>
             {
                 if (ctx.Get(configuration) is { } c) shell.SelectConfiguration(c);
@@ -105,7 +105,7 @@ internal static class ProjectCommands
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
-            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects, []);
+            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
             var (errors, warnings, ok) = WithShell(ctx, path, shell => shell.CheckAllObjects());
             if (ok) ctx.Log.Success($"Check ok · {warnings} warning(s)");
             else ctx.Log.Error($"Check failed · {errors} error(s) · {warnings} warning(s)");

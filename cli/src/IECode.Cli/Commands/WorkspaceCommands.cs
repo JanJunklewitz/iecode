@@ -117,9 +117,10 @@ internal static class WorkspaceCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode ws build' needs Windows with TwinCAT XAE.", "Use --dry-run to see the build order on any OS.");
 
-            // libraries built here are saved and installed before their users, so they are not missing
-            var willInstall = order.Where(u => u.Plc.IsLibrary).Select(u => new LibraryId(u.Plc.Title!, u.Plc.ProjectVersion!, u.Plc.Company!)).ToList();
-            LibraryCommands.Preflight(ctx, order.Select(u => u.Plc), willInstall);
+            // libraries built here are saved and installed after their solution is built, so only later solutions can rely on them
+            var stages = w.BuildStages(order);
+            LibraryCommands.Preflight(ctx, [.. stages.Select(s => new BuildStage([.. s.Units.Select(u => u.Plc)],
+                [.. s.Exports.Select(u => new LibraryId(u.Plc.Title!, u.Plc.ProjectVersion!, u.Plc.Company!))]))]);
 
             var results = new List<object>();
             using var shell = StartShell(ctx);
@@ -138,12 +139,12 @@ internal static class WorkspaceCommands
                     return new Outcome(ExitCodes.BuildFailed, new { order = order.Select(x => x.Id), results });
                 }
                 ctx.Log.Success($"[{step}/{order.Count}] {u.Id}: build ok · {r.Seconds:0.0} s");
-                var usedHere = w.Links.Any(l => l.To == u.Id && l.IsWorkspace && order.Any(o => o.Id == l.From));
-                if (u.Plc.IsLibrary && usedHere)
+                // every library of the solution that later solutions use, not only the unit at hand
+                foreach (var lib in stages.First(s => s.Solution.Equals(u.Solution.Path, StringComparison.OrdinalIgnoreCase)).Exports)
                 {
-                    var file = Path.Combine(Path.GetDirectoryName(u.Solution.Path)!, "dist", $"{u.Plc.Title}_{u.Plc.ProjectVersion}.library");
-                    shell.SaveAsLibrary(u.Plc.Name, file, install: true);
-                    ctx.Log.Success($"        {u.Plc.Title} {u.Plc.ProjectVersion} saved and installed for its users");
+                    var file = Path.Combine(Path.GetDirectoryName(u.Solution.Path)!, "dist", $"{lib.Plc.Title}_{lib.Plc.ProjectVersion}.library");
+                    shell.SaveAsLibrary(lib.Plc.Name, file, install: true);
+                    ctx.Log.Success($"        {lib.Plc.Title} {lib.Plc.ProjectVersion} saved and installed for its users");
                 }
             }
             return Outcome.Ok(new { order = order.Select(u => u.Id), results });
