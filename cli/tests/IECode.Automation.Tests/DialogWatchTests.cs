@@ -89,6 +89,42 @@ public class DialogWatchTests
             Assert.True(Until(() => watch.GaveUp, TimeSpan.FromSeconds(30)), "did not give up: " + err);
             Assert.True(p.WaitForExit(10000), "process still runs");
             Assert.StartsWith("XAE showed a dialog that did not close and the shell was ended", watch.Failure?.Message);
+            Assert.True(watch.ShellEnded);
+        }
+        finally { End(p); }
+    }
+
+    private static ShellOps Failing(List<uint> cancelled) => new()
+    {
+        Terminate = _ => (false, "Access is denied."),
+        CurrentThread = () => 4711,
+        EnableCallCancellation = () => { },
+        CancelCall = thread => { lock (cancelled) cancelled.Add(thread); return 0; },
+    };
+
+    [Fact]
+    public void ShellThatCannotBeEndedIsReportedAsNotEndedAndItsBlockedCallIsCancelled()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows dialogs");
+        var p = ShowBox(Title, "YesNo");
+        try
+        {
+            var err = new StringWriter();
+            var cancelledCalls = new List<uint>();
+            using var watch = DialogWatch.Start(p, userCanAnswer: false, Log(err), Fast, ops: Failing(cancelledCalls));
+            // read at the Cancel stage: the cached message must not outlive the escalation
+            Assert.True(Until(() => watch.Cancelled is not null, TimeSpan.FromSeconds(30)), "no dialog cancelled: " + err);
+            var early = watch.Failure;
+            Assert.True(Until(() => watch.GaveUp, TimeSpan.FromSeconds(30)), "did not give up: " + err);
+            Assert.False(watch.ShellEnded);
+            var late = watch.Failure!;
+            Assert.DoesNotContain("was ended", late.Message);
+            Assert.Contains("could not be ended (Access is denied.)", late.Message);
+            Assert.NotSame(early, late);
+            Assert.Same(late, watch.Failure);   // stable while nothing changes
+            // the bounded fallback: the call the command thread is blocked in is cancelled, not waited for
+            Assert.True(Until(() => { lock (cancelledCalls) return cancelledCalls.Contains(4711u); }, TimeSpan.FromSeconds(10)), "the blocked call was not cancelled: " + err);
+            Assert.Contains("could not be ended", err.ToString());   // surfaced as a warning, not only with -v
         }
         finally { End(p); }
     }

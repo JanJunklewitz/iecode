@@ -31,6 +31,17 @@ public enum DialogAction
     GiveUp,
 }
 
+/// <summary>What became of the shell after the watcher cancelled a dialog.</summary>
+public enum ShellEnd
+{
+    /// <summary>The dialog was cancelled (or closed); the shell was not ended.</summary>
+    Kept,
+    /// <summary>The dialog did not close and the shell process was ended: its exit is confirmed.</summary>
+    Ended,
+    /// <summary>The dialog did not close and ending the shell failed or its exit was not seen in time: it may still run, blocked.</summary>
+    NotEnded,
+}
+
 /// <summary>
 /// What the dialog watcher does with a window of the XAE shell. A blocked COM call returns only when the modal
 /// dialog closes, so an unattended run must close unknown dialogs itself to fail with their text instead of hanging.
@@ -80,13 +91,20 @@ public static class DialogPolicy
         return nowUtc - d.FirstSeenUtc >= cancelAfter ? DialogAction.Cancel : DialogAction.None;
     }
 
-    /// <summary>The error a command fails with after the watcher cancelled a dialog (or gave up and ended the shell).</summary>
-    public static IECodeException Failure(SeenDialog d, bool gaveUp, Exception? inner = null)
+    /// <summary>The error a command fails with after the watcher cancelled a dialog, ended the shell, or failed to.</summary>
+    /// <param name="detail">Why the shell could not be ended (<see cref="ShellEnd.NotEnded"/>).</param>
+    public static IECodeException Failure(SeenDialog d, ShellEnd end, string? detail = null, Exception? inner = null)
     {
         var what = d.Text.Length == 0 ? d.Title : $"{d.Title}: {d.Text}";
-        return new IECodeException(ExitCodes.Failed,
-            gaveUp ? $"XAE showed a dialog that did not close and the shell was ended: {what}" : $"XAE showed a dialog and was stopped: {what}",
-            "Run with --visible --show-ui to see and answer it.", inner);
+        const string Hint = "Run with --visible --show-ui to see and answer it.";
+        return end switch
+        {
+            ShellEnd.Ended => new IECodeException(ExitCodes.Failed, $"XAE showed a dialog that did not close and the shell was ended: {what}", Hint, inner),
+            ShellEnd.NotEnded => new IECodeException(ExitCodes.Failed,
+                $"XAE showed a dialog that did not close and the shell could not be ended{(detail is null ? "" : $" ({detail})")}: {what}",
+                "End the shell with 'iecode shells kill', and " + char.ToLowerInvariant(Hint[0]) + Hint[1..], inner),
+            _ => new IECodeException(ExitCodes.Failed, $"XAE showed a dialog and was stopped: {what}", Hint, inner),
+        };
     }
 }
 

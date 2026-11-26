@@ -517,8 +517,10 @@ public sealed partial class XaeShell : IDisposable
         var quitReturned = false;
         try
         {
-            // after a give-up the watcher has ended the shell; there is nothing to quit
-            if (_watch?.GaveUp != true)
+            // after a give-up the watcher has ended the shell (or tried to: then the COM calls would block on the dialog
+            // again, so the shell is ended here instead); there is nothing to quit either way
+            if (_watch is { GaveUp: true, ShellEnded: false }) TerminateWithoutSaving("a dialog stopped it and ending it failed before");
+            else if (_watch?.GaveUp != true)
             {
                 _log.Detail("Closing shell…");
                 var discarded = true;
@@ -530,7 +532,7 @@ public sealed partial class XaeShell : IDisposable
                 }
                 // Quit saves a dirty project (spike): after a failed discard it would write what the command promised not to
                 if (discarded) { ComCall.Retry(() => { Dte.Quit(); }, attempts: 5); quitReturned = true; }
-                else TerminateWithoutSaving();
+                else TerminateWithoutSaving("the solution could not be closed without saving");
             }
         }
         catch (Exception e)
@@ -566,8 +568,22 @@ public sealed partial class XaeShell : IDisposable
     }
 
     /// <summary>Ends the shell process without a Quit, which would save; the shell is this object's own, started for one command.</summary>
-    private void TerminateWithoutSaving()
+    private void TerminateWithoutSaving(string reason)
     {
+        // the owned process is ended through its own handle; only a shell that was not proven ours is found by PID
+        if (_process is not null)
+        {
+            try
+            {
+                _process.Kill(entireProcessTree: true);
+                _log.Warn($"The shell was ended without saving because {reason}.");
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                _log.Warn($"The shell could not be ended ({e.Message}); close it yourself without saving.");
+            }
+            return;
+        }
         if (_processId == 0) _processId = ShellProcessId();
         if (_processId == 0)
         {
@@ -578,7 +594,7 @@ public sealed partial class XaeShell : IDisposable
         {
             using var p = Process.GetProcessById(_processId);
             p.Kill(entireProcessTree: true);
-            _log.Warn("The shell was ended without saving because the solution could not be closed without saving.");
+            _log.Warn($"The shell was ended without saving because {reason}.");
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {

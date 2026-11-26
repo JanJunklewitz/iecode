@@ -28,11 +28,24 @@ internal sealed class DialogWatch : IDisposable
     private readonly Lock _sync = new();
     private volatile SeenDialog? _cancelled;
     private volatile bool _gaveUp;
+    private volatile bool _ended;
+    private string? _terminationError;
     private IECodeException? _failure;
+    private ShellEnd _failureEnd;
+    private readonly ShellOps _ops;
+    private readonly uint _callerThread;
+    private DateTime _lastCancelCall = DateTime.MinValue;
 
-    private DialogWatch(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings, Func<int, bool>? isHelper)
+    private DialogWatch(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings, Func<int, bool>? isHelper, ShellOps? ops)
     {
+        _ops = ops ?? ShellOps.Real;
         _shell = shell;
+        // the thread that drives the shell blocks in the COM call when a dialog stops it: remember it to cancel that call later
+        if (shell is not null)
+        {
+            _callerThread = _ops.CurrentThread();
+            _ops.EnableCallCancellation();
+        }
         _pid = shell?.Id;
         _isHelper = isHelper;
         _log = log;
@@ -45,22 +58,37 @@ internal sealed class DialogWatch : IDisposable
     /// <param name="shell">The owned shell process (kept open for the kill on give-up), or null: then only <paramref name="isHelper"/> processes are looked at.</param>
     /// <param name="userCanAnswer">The shell is visible: unknown dialogs are left to the user.</param>
     /// <param name="isHelper">Without a shell process: whether a process is a verified TwinCAT helper whose known dialogs may be confirmed. Null: none is.</param>
-    public static DialogWatch Start(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings = null, Func<int, bool>? isHelper = null) =>
-        new(shell, userCanAnswer, log, timings, isHelper);
+    public static DialogWatch Start(Process? shell, bool userCanAnswer, Reporter log, DialogTimings? timings = null, Func<int, bool>? isHelper = null, ShellOps? ops = null) =>
+        new(shell, userCanAnswer, log, timings, isHelper, ops);
 
     /// <summary>The first dialog that was cancelled (or that made the watcher give up).</summary>
     public SeenDialog? Cancelled => _cancelled;
 
-    /// <summary>A dialog did not close; the shell process was ended.</summary>
+    /// <summary>A dialog did not close and ending the shell was attempted; whether it worked is <see cref="ShellEnded"/>.</summary>
     public bool GaveUp => _gaveUp;
 
-    /// <summary>The error the command fails with once a dialog was cancelled; the same instance every time.</summary>
+    /// <summary>The shell process was ended and its exit confirmed. False after <see cref="GaveUp"/> means it may still run, blocked.</summary>
+    public bool ShellEnded => _ended;
+
+    /// <summary>
+    /// The error the command fails with once a dialog was cancelled: the same instance as long as nothing changed, a new one
+    /// when the watcher escalated since (cancelled, then ended or failed to end the shell). Waits for an escalation in progress.
+    /// </summary>
     public IECodeException? Failure
     {
         get
         {
-            if (_cancelled is not { } d) return null;
-            lock (_sync) return _failure ??= DialogPolicy.Failure(d, _gaveUp);
+            lock (_sync)
+            {
+                if (_cancelled is not { } d) return null;
+                var end = !_gaveUp ? ShellEnd.Kept : _ended ? ShellEnd.Ended : ShellEnd.NotEnded;
+                if (_failure is null || _failureEnd != end)
+                {
+                    _failure = DialogPolicy.Failure(d, end, _terminationError);
+                    _failureEnd = end;
+                }
+                return _failure;
+            }
         }
     }
 
@@ -68,7 +96,7 @@ internal sealed class DialogWatch : IDisposable
     {
         while (!_stop.IsSet)
         {
-            try { Poll(); }
+            try { Poll(); CancelBlockedCall(); }
             catch (Exception e) { _log.Detail($"Dialog watch: {e.Message}"); }
             _stop.Wait(300);
         }
@@ -101,15 +129,45 @@ internal sealed class DialogWatch : IDisposable
                     Post(d, WM_CLOSE, IntPtr.Zero);
                     break;
                 case DialogAction.GiveUp:
-                    _cancelled = d;
-                    _gaveUp = true;
-                    _log.Warn($"Dialog \"{d.Title}\" did not close; ending the shell (PID {d.Pid}).");
-                    try { _shell?.Kill(); }
-                    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { _log.Detail($"Ending PID {d.Pid} failed: {e.Message}"); }
+                    EndShell(d);
                     break;
             }
         }
     }
+
+    /// <summary>
+    /// Ends the shell and records what came of it, under the lock <see cref="Failure"/> takes, so a command that wakes up
+    /// from the dead shell reads the final outcome and not a half-finished one. A failure to end it is a warning, not
+    /// a verbose line: the shell may still run, blocked on the dialog.
+    /// </summary>
+    private void EndShell(SeenDialog d)
+    {
+        lock (_sync)
+        {
+            _cancelled = d;
+            _log.Warn($"Dialog \"{d.Title}\" did not close; ending the shell (PID {d.Pid}).");
+            var (ended, error) = _shell is null ? (false, "no shell process") : _ops.Terminate(_shell);
+            _ended = ended;
+            _terminationError = ended ? null : error;
+            _gaveUp = true;
+            if (!ended) _log.Warn($"The shell (PID {d.Pid}) could not be ended{(error is null ? "" : $": {error}")}; trying to cancel the blocked call. 'iecode shells kill' ends it.");
+        }
+    }
+
+    /// <summary>
+    /// The fallback when the shell could not be ended: a COM call blocked on the dialog is cancelled from here (call
+    /// cancellation of the thread that made it), so the command fails with the dialog's text instead of waiting forever. Repeated
+    /// every few seconds, since the cancel only hits a call that is in flight.
+    /// </summary>
+    private void CancelBlockedCall()
+    {
+        if (!_gaveUp || _ended || _callerThread == 0 || DateTime.UtcNow - _lastCancelCall < CancelCallEvery) return;
+        _lastCancelCall = DateTime.UtcNow;
+        var hr = _ops.CancelCall(_callerThread);
+        _log.Detail($"Cancelling the blocked call of thread {_callerThread}: 0x{hr:X8}");
+    }
+
+    private static readonly TimeSpan CancelCallEvery = TimeSpan.FromSeconds(3);
 
     private WindowSnapshot? Snapshot(IntPtr h)
     {
@@ -253,4 +311,46 @@ internal sealed class DialogWatch : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+}
+
+/// <summary>The process and COM operations the watcher uses on the shell; tests replace them to make ending the shell fail.</summary>
+[SupportedOSPlatform("windows")]
+internal sealed class ShellOps
+{
+    /// <summary>Ends the shell and waits for its exit through the same handle; <c>Ended</c> only when the exit was seen.</summary>
+    public required Func<Process, (bool Ended, string? Error)> Terminate { get; init; }
+    public required Func<uint> CurrentThread { get; init; }
+    public required Action EnableCallCancellation { get; init; }
+    /// <summary>Cancels the call the thread is blocked in; returns the HRESULT.</summary>
+    public required Func<uint, int> CancelCall { get; init; }
+
+    public static readonly ShellOps Real = new()
+    {
+        Terminate = KillAndWait,
+        CurrentThread = GetCurrentThreadId,
+        EnableCallCancellation = () => CoEnableCallCancellation(IntPtr.Zero),
+        CancelCall = thread => CoCancelCall(thread, 0),
+    };
+
+    private static (bool, string?) KillAndWait(Process p)
+    {
+        try
+        {
+            p.Kill();
+            return p.WaitForExit(TimeSpan.FromSeconds(5)) ? (true, null) : (false, "it did not end within 5 s");
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return (false, e.Message);
+        }
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("ole32.dll")]
+    private static extern int CoEnableCallCancellation(IntPtr reserved);
+
+    [DllImport("ole32.dll")]
+    private static extern int CoCancelCall(uint threadId, uint timeoutSeconds);
 }

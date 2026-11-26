@@ -78,13 +78,23 @@ public class DialogPolicyTests
     public void FailureCarriesTitleAndText()
     {
         var d = new SeenDialog(1, 42, "#32770", "Save As", "The path is too long.", T0, true, true, null, null);
-        var cancelled = DialogPolicy.Failure(d, gaveUp: false);
+        var cancelled = DialogPolicy.Failure(d, ShellEnd.Kept);
         Assert.Equal(ExitCodes.Failed, cancelled.ExitCode);
         Assert.Equal("XAE showed a dialog and was stopped: Save As: The path is too long.", cancelled.Message);
         Assert.Contains("--visible --show-ui", cancelled.Hint);
 
-        var ended = DialogPolicy.Failure(d with { Text = "" }, gaveUp: true);
+        var ended = DialogPolicy.Failure(d with { Text = "" }, ShellEnd.Ended);
         Assert.Equal("XAE showed a dialog that did not close and the shell was ended: Save As", ended.Message);
+    }
+
+    [Fact]
+    public void AShellThatCouldNotBeEndedIsNotReportedAsEnded()
+    {
+        var d = new SeenDialog(1, 42, "#32770", "Save As", "The path is too long.", T0, true, true, null, null);
+        var failed = DialogPolicy.Failure(d, ShellEnd.NotEnded, "Access is denied.");
+        Assert.DoesNotContain("was ended", failed.Message);
+        Assert.Equal("XAE showed a dialog that did not close and the shell could not be ended (Access is denied.): Save As: The path is too long.", failed.Message);
+        Assert.Contains("iecode shells kill", failed.Hint);
     }
 }
 
