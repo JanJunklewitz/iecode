@@ -12,7 +12,8 @@ public sealed record Diagnostic(
     string? File = null,
     string? Project = null,
     int? Line = null,
-    int? Column = null);
+    int? Column = null,
+    bool? RootCause = null);
 
 /// <summary>
 /// Compiler errors and warnings from the text of the XAE "Build" output pane. Used when the Error List can't be

@@ -32,7 +32,9 @@ internal static class ProjectCommands
                 foreach (var plc in tc.PlcProjects)
                 {
                     var lib = plc.IsLibrary ? $"  · library {plc.Title} {plc.ProjectVersion} ({plc.Company})" : "";
-                    ctx.Log.Info(plc.IsEncrypted ? $"    PLC {plc.Name}  · encrypted" : $"    PLC {plc.Name}{lib}  · {plc.References.Count} references");
+                    var stars = plc.References.Count(r => !r.IsPinned);
+                    ctx.Log.Info(plc.IsEncrypted ? $"    PLC {plc.Name}  · encrypted"
+                        : $"    PLC {plc.Name}{lib}  · {plc.References.Count} references{(stars > 0 ? $" ({stars} resolve with *)" : "")}");
                 }
             }
 
@@ -58,7 +60,7 @@ internal static class ProjectCommands
                     plc = tc.PlcProjects.Select(p => new
                     {
                         name = p.Name, path = p.Path, encrypted = p.IsEncrypted, isLibrary = p.IsLibrary, title = p.Title, company = p.Company, version = p.ProjectVersion,
-                        references = p.References.Select(LibraryCommands.ToJson),
+                        references = p.References.Select(r => LibraryCommands.ToJson(r)),
                     }),
                 }),
                 installedVersions = versions,
@@ -73,11 +75,97 @@ internal static class ProjectCommands
         var platforms = new Option<string[]>("--platform", "-p") { Description = "Target platform, e.g. \"TwinCAT RT (x64)\"; repeat for several (default: active platform)" };
         var clean = new Option<bool>("--clean") { Description = "Clean before building" };
         var configuration = new Option<string?>("--configuration", "-c") { Description = "Solution configuration, e.g. Release" };
-        var cmd = new Command("build", "Build the solution with TwinCAT XAE and report compiler messages") { sln, platforms, clean, configuration };
+        var noSave = new Option<bool>("--no-save")
+        {
+            Description = "Don't save the solution before building, and close it without saving (XAE may still save a project it changes while building)",
+        };
+        var isolate = new Option<bool>("--isolate")
+        {
+            Description = "Build in a temporary copy of the repository (ignored files included), so the working tree stays as it is",
+        };
+        var keepIsolated = new Option<bool>("--keep-isolated") { Description = "With --isolate: keep the copy and print its path" };
+        var isolateDir = new Option<string?>("--isolate-dir") { Description = "With --isolate: parent folder of the copy (default: %TEMP%\\iecode\\b)" };
+        var copyTmc = new Option<bool>("--copy-tmc") { Description = "With --isolate: copy the .tmc files the build wrote back next to the PLC projects" };
+        var cmd = new Command("build", "Build the solution with TwinCAT XAE and report compiler messages")
+            { sln, platforms, clean, configuration, noSave, isolate, keepIsolated, isolateDir, copyTmc };
+        cmd.Validators.Add(r =>
+        {
+            if (!r.GetValue(isolate) && (r.GetValue(keepIsolated) || r.GetValue(isolateDir) is not null || r.GetValue(copyTmc)))
+                r.AddError("--keep-isolated, --isolate-dir and --copy-tmc need --isolate.");
+        });
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
-            var results = WithShell(ctx, path, shell =>
+            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
+            var folder = Path.GetDirectoryName(path)!;
+            var root = Isolation.RootOf(path);
+            var dir = ctx.Get(isolateDir) ?? Isolation.DefaultDir;
+            WarnLongPath(ctx, folder, root, Isolation.CopyRootFor(root, dir, Environment.ProcessId), ctx.Get(isolate));
+            if (ctx.Get(isolate)) return BuildIsolated(root, dir);
+
+            var save = !ctx.Get(noSave);
+            var before = WorkingTreeSnapshot.Take(folder);
+            IReadOnlyList<string>? changed = null;
+            List<BuildResult> results;
+            var opening = false;
+            // a build counts as saving for the line guard even with --no-save: XAE writes a project it changed while
+            // building (spike, R35). The report also runs after a failed or broken-off build and after an open that
+            // failed half-way: from the start of the open on, the shell may have written files. An error result then
+            // carries the list as well (PartialData).
+            try { results = WithShell(ctx, path, saves: true, shell => BuildAll(shell, save), discard: !save, beforeOpen: () => opening = true); }
+            finally
+            {
+                if (opening)
+                {
+                    changed = ReportChanges(ctx, before, folder);
+                    ctx.Log.PartialData = new { solution = path, changedFiles = changed };
+                }
+            }
+            return new Outcome(BuildOutcome.ExitCode(results.Select(r => r.Ok)), new { solution = path, builds = results, changedFiles = changed });
+
+            Outcome BuildIsolated(string root, string dir)
+            {
+                if (Isolation.OutsideRoot(path, root) is { Count: > 0 } outside)
+                    throw new IECodeException(ExitCodes.Usage,
+                        $"--isolate copies '{root}', but the solution has references or projects a copy cannot contain (outside of it, absolute, unresolvable or of an unsupported type):\n  " + string.Join("\n  ", outside),
+                        "Build without --isolate, or make the references relative and inside the repository. A copy is no sandbox: only .plcproj, .tsproj and .tspproj projects are accepted.");
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var copy = Isolation.Create(path, dir);
+                copy.Keep = ctx.Get(keepIsolated);
+                ctx.Log.Step($"Isolated copy: {copy.CopyRoot} ({copy.Files} files, {sw.Elapsed.TotalSeconds:0.0} s)");
+                IReadOnlyList<string> tmc = [], tmcConflicts = [];
+                try
+                {
+                    ctx.Log.MapDiagnostic = d => Isolation.MapBack(d, copy);
+                    var tmcBefore = ctx.Get(copyTmc) ? Isolation.TmcSnapshot(copy) : null;
+                    // the copy is thrown away: nothing to save, and no line change can reach the working tree
+                    var list = WithShell(ctx, copy.Solution, saves: false, shell => BuildAll(shell, save: false));
+                    if (tmcBefore is not null)
+                    {
+                        // only the result of a successful build is published; a failed one may leave half-written files
+                        if (list.Any(r => !r.Ok)) ctx.Log.Warn("No .tmc file copied back: the build failed.");
+                        else
+                        {
+                            var copied = Isolation.CopyTmcBack(copy, tmcBefore);
+                            (tmc, tmcConflicts) = (copied.Written, copied.Conflicts);
+                            ctx.Log.Info($"Copied {tmc.Count} .tmc file(s) back");
+                            foreach (var f in tmc) ctx.Log.Detail($"  {f}");
+                            foreach (var f in tmcConflicts) ctx.Log.Warn($"Not copied back, it changed in the repository during the build: {f}");
+                        }
+                    }
+                    return new Outcome(BuildOutcome.ExitCode(list.Select(r => r.Ok)),
+                        new { solution = path, builds = list, isolatedCopy = copy.Keep ? copy.CopyRoot : null, tmcCopied = tmc, tmcSkipped = tmcConflicts });
+                }
+                finally
+                {
+                    ctx.Log.MapDiagnostic = null;
+                    if (copy.Keep) ctx.Log.Info($"Kept the isolated copy: {copy.CopyRoot}");
+                    else if (!copy.TryDelete(TimeSpan.FromSeconds(15)))
+                        ctx.Log.Warn($"Could not delete the isolated copy {copy.CopyRoot} (files still in use); a later --isolate build of the same repository removes it after 24 h, or delete it yourself.");
+                }
+            }
+
+            List<BuildResult> BuildAll(XaeShell shell, bool save)
             {
                 if (ctx.Get(configuration) is { } c) shell.SelectConfiguration(c);
                 var list = new List<BuildResult>();
@@ -85,16 +173,33 @@ internal static class ProjectCommands
                 foreach (var platform in requested)
                 {
                     if (ctx.Get(clean)) shell.Clean();
-                    var r = shell.Build(platform);
+                    var r = shell.Build(platform, save);
                     list.Add(r);
                     if (r.Ok) ctx.Log.Success($"{r.Platform}: build ok · {r.Warnings} warning(s) · {r.Seconds:0.0} s");
-                    else ctx.Log.Error($"{r.Platform}: build failed · {r.Errors} error(s) · {r.Warnings} warning(s)");
+                    else ctx.Log.Error($"{r.Platform}: build failed{(r.StaticAnalysisOnly ? " on static analysis only" : "")} · {r.Errors} error(s) · {r.Warnings} warning(s)");
                 }
                 return list;
-            });
-            return new Outcome(results.All(r => r.Ok) ? ExitCodes.Ok : ExitCodes.BuildFailed, new { solution = path, builds = results });
+            }
         }, windowsOnly: true);
         return cmd;
+    }
+
+    /// <summary>Warns about a project file path long enough to make the hidden shell show dialogs.</summary>
+    internal static void WarnLongPath(Context ctx, string folder, string root, string copyRoot, bool isolating)
+    {
+        // an isolated build copies the whole root, so that is what to scan then
+        if (PathLength.Longest(isolating ? root : folder) is not { } longest) return;
+        if (PathLength.Warning(longest, root, copyRoot, isolating) is { } warning) ctx.Log.Warn(warning);
+    }
+
+    /// <summary>Prints how many files the build changed in git status (the list with -v); null without git or a repository.</summary>
+    private static IReadOnlyList<string>? ReportChanges(Context ctx, WorkingTreeSnapshot? before, string folder)
+    {
+        if (before is null || WorkingTreeSnapshot.Take(folder) is not { } after) return null;
+        var changed = after.ChangedSince(before);
+        ctx.Log.Info($"Git status changes: {changed.Count} file(s){(changed.Count > 0 && !ctx.Log.Verbose ? " (-v lists them)" : "")}");
+        foreach (var f in changed) ctx.Log.Detail($"  {f}");
+        return changed;
     }
 
     private static Command Check()
@@ -104,10 +209,11 @@ internal static class ProjectCommands
         Action(cmd, ctx =>
         {
             var path = SolutionFile.Find(ctx.Get(sln));
-            var (errors, warnings) = WithShell(ctx, path, shell => shell.CheckAllObjects());
-            if (errors == 0) ctx.Log.Success($"Check ok · {warnings} warning(s)");
-            else ctx.Log.Error($"Check found {errors} error(s), {warnings} warning(s)");
-            return new Outcome(errors == 0 ? ExitCodes.Ok : ExitCodes.BuildFailed, new { solution = path, errors, warnings });
+            LibraryCommands.Preflight(ctx, SolutionFile.Load(path).PlcProjects);
+            var (errors, warnings, ok) = WithShell(ctx, path, saves: false, shell => shell.CheckAllObjects());
+            if (ok) ctx.Log.Success($"Check ok · {warnings} warning(s)");
+            else ctx.Log.Error($"Check failed · {errors} error(s) · {warnings} warning(s)");
+            return new Outcome(BuildOutcome.ExitCode([ok]), new { solution = path, errors, warnings });
         }, windowsOnly: true);
         return cmd;
     }
@@ -140,7 +246,7 @@ internal static class ProjectCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode clean' needs Windows with TwinCAT XAE.", "Use 'iecode clean --artifacts' on any OS.");
             var sln = SolutionFile.Find(ctx.Get(path));
-            WithShell(ctx, sln, shell => { shell.Clean(); return 0; });
+            WithShell(ctx, sln, saves: false, shell => { shell.Clean(); return 0; });
             ctx.Log.Success("Solution cleaned");
             return Outcome.Ok(new { solution = sln });
         });
@@ -165,7 +271,7 @@ internal static class ProjectCommands
                     $"Activate{(restart ? " and restart TwinCAT" : "")} on {string.Join(", ", remote)}?", ctx.Yes))
                 return new Outcome(ExitCodes.Cancelled, null);
 
-            var done = WithShell(ctx, path, shell =>
+            var done = WithShell(ctx, path, saves: true, shell =>
             {
                 if (!ctx.Get(noBuild))
                 {
@@ -216,7 +322,7 @@ internal static class ProjectCommands
             if (!ctx.Log.Confirm("Protected objects can only be opened by users of the user database afterwards. Keep a backup. Continue?", ctx.Yes))
                 return new Outcome(ExitCodes.Cancelled, null);
 
-            WithShell(ctx, path, shell =>
+            WithShell(ctx, path, saves: true, shell =>
             {
                 foreach (var s in specs) shell.SetProtection(s);
                 return 0;

@@ -15,6 +15,8 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly List<Diagnostic> _diagnostics = [];
     private readonly List<string> _messages = [];
+    // the dialog watcher logs from its own thread
+    private readonly Lock _sync = new();
     // ConsoleVt last: it switches the Windows console into ANSI mode, and only matters when colors are wanted.
     // Without that mode (old conhost), colors and the overwriting status line are dropped instead of printed raw.
     private bool _color = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && ConsoleVt.IsAvailable;
@@ -37,24 +39,93 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     /// <summary>Shows a status line that is overwritten by the next one (human mode, interactive only).</summary>
     public void Status(string text)
     {
+        using var _ = _sync.EnterScope();
         if (Json || !_color) return;
         _err.Write("\r\e[2K\e[2m  " + Truncate(text, Math.Max(20, SafeWidth() - 4)) + "\e[0m");
     }
 
     public void ClearStatus()
     {
+        using var _ = _sync.EnterScope();
         if (!Json && _color) _err.Write("\r\e[2K");
     }
 
+    /// <summary>Errors (and, counted separately, warnings) printed per build in human mode; 0 = all. JSON always has all.</summary>
+    public int MaxErrors { get; set; } = DefaultMaxErrors(Console.IsErrorRedirected);
+
+    /// <summary>50 on a console; unlimited when stderr goes to a file, so a log keeps every line for grep.</summary>
+    public static int DefaultMaxErrors(bool errorRedirected) => errorRedirected ? 0 : 50;
+
+    private int _printedErrors, _printedWarnings, _hiddenErrors, _hiddenWarnings;
+
+    /// <summary>Starts the print limit anew: each build of a command gets its own <see cref="MaxErrors"/>.</summary>
+    public void BeginBuild() { lock (_sync) _printedErrors = _printedWarnings = _hiddenErrors = _hiddenWarnings = 0; }
+
+    /// <summary>Applied to every diagnostic before it is recorded or printed, e.g. to point paths of an isolated copy back at the source.</summary>
+    public Func<Diagnostic, Diagnostic>? MapDiagnostic { get; set; }
+
+    private Diagnostic Mapped(Diagnostic d) => MapDiagnostic is { } map ? map(d) : d;
+
     public void Add(Diagnostic d)
     {
+        using var _ = _sync.EnterScope();
+        d = Mapped(d);
         _diagnostics.Add(d);
         if (Json) return;
+        if (d.Severity == Severity.Error && !Within(ref _printedErrors, ref _hiddenErrors)) return;
+        if (d.Severity == Severity.Warning && !Within(ref _printedWarnings, ref _hiddenWarnings)) return;
+        Print(d);
+    }
+
+    private bool Within(ref int printed, ref int hidden)
+    {
+        if (MaxErrors > 0 && printed >= MaxErrors) { hidden++; return false; }
+        printed++;
+        return true;
+    }
+
+    private void Print(Diagnostic d)
+    {
         var where = d.File is null ? "" : $"{Path.GetFileName(d.File)}{(d.Line is null ? "" : $"({d.Line}{(d.Column is null ? "" : $",{d.Column}")})")}  ";
         var text = $"{(d.Code is null ? "" : d.Code + "  ")}{where}{d.Message}";
         if (d.Severity == Severity.Error) Line(_err, "  ✖ " + text, "\e[31m");
         else if (d.Severity == Severity.Warning) Line(_err, "  ⚠ " + text, "\e[33m");
         else Detail(text);
+    }
+
+    /// <summary>
+    /// Records and prints the diagnostics of one build: root causes first (always, whatever the limit), then the
+    /// other messages up to <see cref="MaxErrors"/>, then follow-up counts per library and what was not shown.
+    /// </summary>
+    public void Report(Triage t, bool failed)
+    {
+        using var _ = _sync.EnterScope();
+        BeginBuild();
+        if (!Json && t.RootCauses.Count > 0)
+        {
+            Line(_err, "Root causes:", "\e[31m");
+            foreach (var d in t.RootCauses) Print(Mapped(d));
+        }
+        foreach (var d in t.All)
+        {
+            if (d.RootCause == true) _diagnostics.Add(Mapped(d));
+            else Add(d);
+        }
+        if (Json) return;
+
+        if (t.RootCauses.Count > 0 && t.FollowUps.Count > 0)
+        {
+            Line(_err, "Follow-up errors:", null);
+            foreach (var g in t.FollowUps) Line(_err, $"  {g.Errors,4}  {g.Key}", null);
+        }
+        if (_hiddenErrors > 0) Line(_err, $"{_hiddenErrors} more error(s) not shown (--max-errors 0 shows all)", "\e[2m");
+        if (_hiddenWarnings > 0) Line(_err, $"{_hiddenWarnings} more warning(s) not shown (--max-errors 0 shows all)", "\e[2m");
+        if (t.StaticAnalysisOnly)
+        {
+            var codes = t.All.Where(d => d.Severity == Severity.Error).Select(d => d.Code!).Distinct().Order(StringComparer.Ordinal);
+            Line(_err, $"Build failed only on static analysis: {t.Errors} finding(s) ({string.Join(", ", codes)}).", "\e[33m");
+        }
+        if (failed && t.Errors == 0) Line(_err, "No compiler errors; see the shell output (-v).", "\e[33m");
     }
 
     /// <summary>Asks a yes/no question. Non-interactive or JSON mode never assumes yes.</summary>
@@ -69,8 +140,15 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
     }
 
     /// <summary>Writes the final JSON document (JSON mode only).</summary>
+    /// <summary>
+    /// Data a command records while it runs (e.g. the files a build changed), so that a failure or break-off still reports
+    /// it: the error result carries it when it has no data of its own.
+    /// </summary>
+    public object? PartialData { get; set; }
+
     public void Finish(string command, int exitCode, object? data, string? error = null, string? hint = null)
     {
+        using var _ = _sync.EnterScope();
         if (!Json) return;
         var doc = new Result(
             Command: command,
@@ -78,7 +156,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
             ExitCode: exitCode,
             DurationMs: _clock.ElapsedMilliseconds,
             TwinCat: TwinCatVersion,
-            Data: data,
+            Data: data ?? (error is not null ? PartialData : null),
             Diagnostics: _diagnostics,
             Messages: _messages,
             Error: error,
@@ -101,6 +179,7 @@ public sealed class Reporter(bool json, bool verbose, TextWriter? stdout = null,
 
     private void Line(TextWriter w, string text, string? color)
     {
+        using var _ = _sync.EnterScope();
         if (Json)
         {
             _messages.Add(text);

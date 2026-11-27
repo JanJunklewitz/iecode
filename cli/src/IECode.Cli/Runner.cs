@@ -25,6 +25,7 @@ internal static class Runner
     {
         var log = new Reporter(!protocolStdout && parse.GetValue(Globals.Json), parse.GetValue(Globals.Verbose));
         if (parse.GetValue(Globals.NoColor)) log.DisableColor();
+        if (parse.GetValue(Globals.MaxErrors) is int max) log.MaxErrors = Math.Max(0, max);
         var name = FullName(command);
         int code;
         try
@@ -77,55 +78,244 @@ internal static class Runner
     /// Starts the XAE shell, selects version / user database / login, opens the solution, runs the body
     /// and always closes the shell again.
     /// </summary>
+    /// <param name="saves">The command writes project files: then <c>--tc auto</c> stops instead of moving a project to another line.</param>
+    /// <param name="discard">Close the solution without saving at the end even though <paramref name="saves"/> is set (build --no-save).</param>
+    /// <param name="beforeOpen">Called right before the solution is opened, the point from which XAE can write to the project.</param>
     [SupportedOSPlatform("windows")]
-    public static T WithShell<T>(Context ctx, string solution, Func<XaeShell, T> body)
+    public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)
     {
         var slnFile = SolutionFile.Load(solution);
-        var request = ctx.Version;
-        if (request.IsAuto && slnFile.TwinCatProjects.Select(p => p.TcVersion).FirstOrDefault(v => v is not null) is { } saved)
+        using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request, saves);
+        // a command that does not save must not save at Quit either, also when it fails early
+        shell.DiscardChanges = !saves || discard;
+        T result;
+        try
         {
-            // Prefer the exact version the project was saved with, if it's installed.
-            request = TwinCatVersion.Parse(saved);
-            ctx.Log.Detail($"Project was saved with TwinCAT {saved}");
+            if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
+            // from here on XAE may change files, also when the open or the command fails
+            beforeOpen?.Invoke();
+            shell.OpenSolution(slnFile.Path);
+            result = body(shell);
         }
-
-        var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
-        using var shell = XaeShell.Start(new ShellOptions(request, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
-
-        if (!request.IsAuto)
+        catch { shell.Dispose(); throw; }   // the error of the command wins over anything the shutdown shows
+        // a dialog that stopped the shutdown makes a successful command fail, as it would have during the command
+        if (shell.Close() is { } shutdown)
         {
-            try { shell.SelectVersion(request); }
-            catch (IECodeException e) when (ctx.Version.IsAuto && e.ExitCode == ExitCodes.VersionNotInstalled)
-            {
-                ctx.Log.Warn($"{e.Message} Using the shell's default version.");
-            }
+            DisposeResult(result);
+            throw shutdown;
         }
+        return result;
+    }
 
-        if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
-        if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
-        if (shell.ActiveUser() is { Length: > 0 } active) ctx.Log.Detail($"Active TwinCAT user: {active}");
-
-        shell.OpenSolution(slnFile.Path);
-        return body(shell);
+    /// <summary>Releases what a result that is dropped because the shutdown failed holds (a staged export and the like).</summary>
+    private static void DisposeResult(object? result)
+    {
+        if (result is IDisposable d) d.Dispose();
+        else if (result is System.Runtime.CompilerServices.ITuple tuple)
+            for (var i = 0; i < tuple.Length; i++) DisposeResult(tuple[i]);
     }
 
     /// <summary>
-    /// Starts one XAE shell for several solutions (version, user database, login applied); the caller opens
-    /// the solutions and disposes the shell. Starting XAE once saves ~5–10 s per solution.
+    /// The version to open a solution with (<see cref="TcLineGuard"/>); prints its note as a warning. Call it before the
+    /// first write of a command, so a stop happens before anything changed.
+    /// </summary>
+    public static TcChoice ChooseVersion(Context ctx, SolutionFile solution, bool saves, bool quiet = false)
+    {
+        var stamps = solution.TwinCatProjects.Select(p => p.TcVersion).ToList();
+        var choice = TcLineGuard.Choose(ctx.Version, stamps, TwinCatInstall.Builds(RepTool.TwinCatDir), saves);
+        if (!quiet)
+        {
+            if (stamps.FirstOrDefault(v => v is not null) is { } saved) ctx.Log.Detail($"Project was saved with TwinCAT {saved}");
+            if (choice.Note is { } note) ctx.Log.Warn(note);
+        }
+        return choice;
+    }
+
+    /// <summary>RepTool for a version, with <c>--timeout</c> as the limit for the repository lock and the run.</summary>
+    [SupportedOSPlatform("windows")]
+    public static RepTool RepToolFor(Context ctx, TwinCatVersion version, string? profile = null) =>
+        RepTool.Find(version, profile, TimeoutSetting.FromSeconds(ctx.Get(Globals.Timeout)));
+
+    /// <summary>
+    /// Starts a library export: XAE saves the PLC project to a private path next to <paramref name="finalFile"/> (see
+    /// <see cref="StagedExport"/>), so nothing another invocation does to the final name can change this export.
+    /// <see cref="FinishExport"/> completes it.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public static XaeShell StartShell(Context ctx)
+    public static StagedExport StageExport(XaeShell shell, string? plcName, string finalFile)
     {
-        var timeout = ctx.Get(Globals.Timeout) is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
-        var shell = XaeShell.Start(new ShellOptions(ctx.Version, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
+        var export = StagedExport.Begin(finalFile);
+        try { shell.SaveAsLibrary(plcName, export.Path, install: false); return export; }
+        catch { export.Dispose(); throw; }
+    }
+
+    /// <summary>
+    /// Completes an export: waits until XAE has finished writing the private file, installs that very file when
+    /// <paramref name="installAs"/> is given, and publishes it to its final name. The file is published also when the
+    /// install fails, so it can be installed later; the install error is then thrown.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static string FinishExport(Context ctx, StagedExport export, TwinCatVersion? installAs)
+    {
+        using (export)
+        {
+            // XAE may still write the file when SaveAsLibrary returns; RepTool must not install half of it
+            FileReady.Wait(export.Path, TimeSpan.FromMinutes(2));
+            IECodeException? failed = null;
+            if (installAs is { } version)
+            {
+                try { InstallSaved(ctx, export.Path, version); }
+                catch (IECodeException e) { failed = e; }
+            }
+            string published;
+            try { published = export.Publish(); }
+            catch (IECodeException moveFailed) when (failed is not null)
+            {
+                throw new IECodeException(failed.ExitCode, $"{failed.Message} {moveFailed.Message}", moveFailed.Hint, failed);
+            }
+            if (failed is not null)
+                throw new IECodeException(failed.ExitCode, $"{failed.Message} The library was saved as '{published}' but is not installed.", failed.Hint ?? "Install it with: iecode lib install <file>.", failed);
+            return published;
+        }
+    }
+
+    /// <summary>
+    /// Installs a library XAE has just saved (a complete file: <see cref="FinishExport"/> checks that). XAE saves with install
+    /// off and RepTool installs the file in a fresh process under the repository lock, so a shell that read the repository at
+    /// start cannot write a stale copy. <paramref name="version"/> is the build the shell worked with
+    /// (<see cref="TwinCatVersion.UsedBy"/>), not <c>--tc</c>.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static void InstallSaved(Context ctx, string file, TwinCatVersion version)
+    {
+        RepTool tool;
+        try { tool = RepToolFor(ctx, version); }
+        catch (IECodeException e) when (e.ExitCode == ExitCodes.VersionNotInstalled)
+        {
+            throw new IECodeException(e.ExitCode, $"XAE saved with TwinCAT {version}, but {e.Message}", e.Hint, e);
+        }
+        ctx.Log.Step($"Installing {Path.GetFileName(file)} (RepTool profile: {tool.Profile})…");
+        var code = tool.Install(file, overwrite: true, ctx.Log);
+        if (code != 0)
+            throw new IECodeException(ExitCodes.LibraryFailed, $"Installing {Path.GetFileName(file)} failed (RepTool exit {code}).", "Run with --verbose to see its output.");
+    }
+
+    /// <summary>Starts a shell with the given version, user database and login; the caller opens solutions and disposes it.</summary>
+    [SupportedOSPlatform("windows")]
+    private static XaeShell StartShell(Context ctx, TwinCatVersion request, bool saves)
+    {
+        var timeout = TimeoutSetting.FromSeconds(ctx.Get(Globals.Timeout));
+        var shell = XaeShell.Start(new ShellOptions(request, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
         try
         {
-            if (!ctx.Version.IsAuto) shell.SelectVersion(ctx.Version);
+            if (!request.IsAuto) SelectVersion(ctx, shell, request, saves);
             if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
             if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
             return shell;
         }
         catch { shell.Dispose(); throw; }
+    }
+
+    /// <summary>
+    /// Selects the version in the Remote Manager. The install folders are only a hint: when --tc auto chose an exact
+    /// build the Remote Manager does not know, the newest build of the same line is used; never another line. When the
+    /// Remote Manager does not know the line either, a command that does not save goes on with the shell's default
+    /// version (as before), a command that saves fails rather than write the projects with another line.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static void SelectVersion(Context ctx, XaeShell shell, TwinCatVersion request, bool saves)
+    {
+        try { shell.SelectVersion(request); }
+        catch (IECodeException e) when (ctx.Version.IsAuto && e.ExitCode == ExitCodes.VersionNotInstalled)
+        {
+            if (request.Revision is not null)
+            {
+                ctx.Log.Warn($"{e.Message} Using the newest build of TwinCAT {request.Line}.");
+                try { shell.SelectVersion(new TwinCatVersion(request.Build, null)); return; }
+                catch (IECodeException line) when (line.ExitCode == ExitCodes.VersionNotInstalled) { e = line; }
+            }
+            if (saves) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(e);
+            ctx.Log.Warn($"{e.Message} Using the shell's default version; this command does not save.");
+        }
+    }
+
+    /// <summary>
+    /// One XAE shell for several solutions (starting XAE once saves ~5–10 s per solution). The version is decided per
+    /// solution when it is opened; the shell is restarted when the TwinCAT line changes, and for a command that saves
+    /// also when the exact build changes (so a project is not saved with an older build of its line).
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public sealed class ShellSession(Context ctx, bool saves, bool discard = false) : IDisposable
+    {
+        private XaeShell? _shell;
+        private TwinCatVersion? _request;
+        private string? _preparedFor;
+        private string? _opened;
+
+        /// <summary>
+        /// Starts the shell for a solution without opening it: the version is chosen and selected in the Remote Manager, so
+        /// a missing build or line fails here, before the caller changes anything. <see cref="Open"/> then reuses the shell.
+        /// </summary>
+        public void Prepare(string solution)
+        {
+            Ensure(SolutionFile.Load(solution), quiet: false);
+            _preparedFor = Path.GetFullPath(solution);
+        }
+
+        /// <summary>The build the open shell works with, for RepTool after a save: what the Remote Manager selected, not what was asked for.</summary>
+        public TwinCatVersion Request => TwinCatVersion.UsedBy(_shell?.SelectedVersion, _request ?? ctx.Version);
+
+        /// <summary>
+        /// Gives the shell that has the solution open: in a new shell when it needs another version than the open one or the
+        /// last one stopped on a dialog, the shell at hand when the solution is not open yet, and the same shell without
+        /// reopening when it is. Call it for every item of a run, not once per solution: the health check is here.
+        /// </summary>
+        public XaeShell Open(string solution)
+        {
+            var slnFile = SolutionFile.Load(solution);
+            var full = Path.GetFullPath(solution);
+            // the notes of the version choice were printed when the solution was prepared or opened
+            var plan = Ensure(slnFile, quiet: string.Equals(_preparedFor, full, StringComparison.OrdinalIgnoreCase) || string.Equals(_opened, full, StringComparison.OrdinalIgnoreCase));
+            _preparedFor = null;
+            if (plan != ShellPlan.Keep)
+            {
+                _shell!.OpenSolution(slnFile.Path);
+                _opened = Path.GetFullPath(slnFile.Path);
+            }
+            return _shell!;
+        }
+
+        private ShellPlan Ensure(SolutionFile slnFile, bool quiet)
+        {
+            var request = ChooseVersion(ctx, slnFile, saves, quiet).Request;
+            var plan = TcLineGuard.PlanFor(_shell is null ? null : _request, request, saves, _shell?.DialogFailed == true, _opened, slnFile.Path);
+            if (plan == ShellPlan.Replace)
+            {
+                if (_shell is not null)
+                {
+                    ctx.Log.Step(_shell.DialogFailed
+                        ? $"Starting a new shell for {Path.GetFileName(slnFile.Path)} (the last one stopped on a dialog)"
+                        : $"Switching to TwinCAT {request} for {Path.GetFileName(slnFile.Path)}");
+                    _shell.Dispose();
+                    _shell = null;
+                }
+                _opened = null;
+                _shell = StartShell(ctx, request, saves);
+                _shell.DiscardChanges = !saves || discard;
+                _request = request;
+            }
+            return plan;
+        }
+
+        /// <summary>Closes the shell and returns the dialog failure of its shutdown (null when there was none).</summary>
+        public IECodeException? Close()
+        {
+            var failure = _shell?.Close();
+            _shell = null;
+            return failure;
+        }
+
+        public void Dispose() => _shell?.Dispose();
     }
 
     [SupportedOSPlatform("windows")]

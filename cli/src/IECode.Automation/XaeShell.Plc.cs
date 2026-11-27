@@ -48,7 +48,9 @@ public sealed partial class XaeShell
     }
 
     /// <summary>Saves a PLC project as .library or .compiled-library (and optionally installs it in the local repository).</summary>
-    public string SaveAsLibrary(string? plcName, string outFile, bool install)
+    public string SaveAsLibrary(string? plcName, string outFile, bool install) => Watched(() => SaveAsLibraryCore(plcName, outFile, install));
+
+    private string SaveAsLibraryCore(string? plcName, string outFile, bool install)
     {
         var plc = FindPlc(plcName);
         var full = Path.GetFullPath(outFile);
@@ -65,7 +67,11 @@ public sealed partial class XaeShell
         }
 
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
-        while (!File.Exists(full) && DateTime.UtcNow < deadline) Thread.Sleep(250);
+        while (!File.Exists(full) && DateTime.UtcNow < deadline)
+        {
+            ThrowIfDialogCancelled();
+            Thread.Sleep(250);
+        }
         if (!File.Exists(full)) throw new IECodeException(ExitCodes.LibraryFailed, $"TwinCAT reported success but '{full}' was not written.");
         return full;
     }
@@ -74,7 +80,9 @@ public sealed partial class XaeShell
     private static readonly TimeSpan ProtectionFileLockDelay = TimeSpan.FromSeconds(5);
 
     /// <summary>Applies object protection (encryption, signing, protection level) to one tree item and saves.</summary>
-    public void SetProtection(ProtectionSpec spec)
+    public void SetProtection(ProtectionSpec spec) => Watched(() => SetProtectionCore(spec));
+
+    private void SetProtectionCore(ProtectionSpec spec)
     {
         var hits = 0;
         foreach (var (project, sysMan, file) in TwinCatProjects())
@@ -125,6 +133,7 @@ public sealed partial class XaeShell
         {
             try { if (EqualityComparer<T>.Default.Equals(get(), value)) { _log.Detail($"{what} = {value}"); return; } }
             catch (COMException e) when (ComCall.IsBusy(e)) { }
+            ThrowIfDialogCancelled();
             _log.Status($"Waiting for {what}… {StatusText()}");
             Thread.Sleep(1000);
         }
@@ -135,7 +144,9 @@ public sealed partial class XaeShell
     /// Activates the configuration of a TwinCAT project on a target and optionally restarts TwinCAT in run mode.
     /// Known blocking dialogs (symbol type change) are confirmed automatically.
     /// </summary>
-    public void Activate(AmsNetId target, bool restart, string? projectName)
+    public void Activate(AmsNetId target, bool restart, string? projectName) => Watched(() => ActivateCore(target, restart, projectName));
+
+    private void ActivateCore(AmsNetId target, bool restart, string? projectName)
     {
         var candidates = TwinCatProjects(includePlcOnly: false).ToList();
         if (candidates.Count == 0) throw new IECodeException(ExitCodes.NotFound, "The solution has no TwinCAT system project (.tsproj) to activate.");
@@ -157,7 +168,21 @@ public sealed partial class XaeShell
         }
         SaveAll();
 
-        using var confirmer = DialogConfirmer.Start(_log);
+        // the shell's own watch confirms known dialogs of the shell; this one also confirms them in a TwinCAT helper
+        // process, verified by its executable (under the TwinCAT install folder) and session. Without an own watch (the
+        // shell could not be told apart at start) the process serving this DTE object is the one activating, so its
+        // known dialogs are confirmed here too. A dialog with a known title in any other program is left alone.
+        var twinCatDir = RepTool.TwinCatDir;
+        if (twinCatDir is null) _log.Detail("TWINCAT3DIR is not set: dialogs of TwinCAT helper processes are not confirmed.");
+        var unwatchedShell = _watch is null ? ServerPid(attempts: 1) : null;
+        if (_watch is null && unwatchedShell is null) _log.Detail("The shell serving this activation could not be told: its dialogs are not confirmed.");
+        Func<int, bool>? confirmable = (unwatchedShell, twinCatDir) switch
+        {
+            (null, null) => null,
+            ({ } shellPid, null) => pid => pid == shellPid,
+            (var shellPid, { } dir) => pid => pid == shellPid || HelperProcess.Verify(pid, dir),
+        };
+        using var known = DialogWatch.Start(null, userCanAnswer: false, _log, isHelper: confirmable);
         _log.Step($"Activating configuration on {(target.IsLocal ? "local system" : target.ToString())}…");
         try
         {

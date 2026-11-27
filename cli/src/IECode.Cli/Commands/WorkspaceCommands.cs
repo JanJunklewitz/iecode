@@ -95,7 +95,8 @@ internal static class WorkspaceCommands
         var since = new Option<string?>("--since") { Description = "With --affected: git ref to compare against, e.g. origin/main (default: uncommitted changes)" };
         var changed = new Option<string[]>("--changed") { Description = "With --affected: changed files or project ids instead of git" };
         var dryRun = new Option<bool>("--dry-run") { Description = "Only show what would be built" };
-        var cmd = new Command("build", "Build all (or affected) projects in dependency order; workspace libraries are saved + installed before their users") { folder, affected, since, changed, dryRun };
+        var noSave = new Option<bool>("--no-save") { Description = "Don't save the solutions before building (libraries installed for their users are still saved)" };
+        var cmd = new Command("build", "Build all (or affected) projects in dependency order; workspace libraries are saved + installed before their users") { folder, affected, since, changed, dryRun, noSave };
         Action(cmd, ctx =>
         {
             var w = Workspace.Load(ctx.Get(folder) ?? ".");
@@ -117,31 +118,39 @@ internal static class WorkspaceCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "'iecode ws build' needs Windows with TwinCAT XAE.", "Use --dry-run to see the build order on any OS.");
 
+            // libraries built here are saved and installed after their solution is built, so only later solutions can rely on them
+            var stages = w.BuildStages(order);
+            LibraryCommands.Preflight(ctx, [.. stages.Select(s => new BuildStage([.. s.Units.Select(u => u.Plc)],
+                [.. s.Exports.Select(u => new LibraryId(u.Plc.Title!, u.Plc.ProjectVersion!, u.Plc.Company!))]))]);
+
             var results = new List<object>();
-            using var shell = StartShell(ctx);
+            var save = !ctx.Get(noSave);
+            using var session = new ShellSession(ctx, saves: true, discard: !save);
             var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var step = 0;
             foreach (var u in order)
             {
                 step++;
                 if (!done.Add(u.Solution!.Path)) continue;
-                shell.OpenSolution(u.Solution.Path);
-                var r = shell.Build(null);
-                results.Add(new { unit = u.Id, r.Ok, r.Errors, r.Warnings, r.Seconds });
+                var shell = session.Open(u.Solution.Path);
+                var r = shell.Build(null, save);
+                results.Add(new { unit = u.Id, r.Ok, r.Errors, r.Warnings, r.Seconds, r.StaticAnalysisOnly });
                 if (!r.Ok)
                 {
                     ctx.Log.Error($"[{step}/{order.Count}] {u.Id}: build failed ({r.Errors} error(s)); stopping.");
                     return new Outcome(ExitCodes.BuildFailed, new { order = order.Select(x => x.Id), results });
                 }
                 ctx.Log.Success($"[{step}/{order.Count}] {u.Id}: build ok · {r.Seconds:0.0} s");
-                var usedHere = w.Links.Any(l => l.To == u.Id && l.IsWorkspace && order.Any(o => o.Id == l.From));
-                if (u.Plc.IsLibrary && usedHere)
+                // every library of the solution that later solutions use, not only the unit at hand
+                foreach (var lib in stages.First(s => s.Solution.Equals(u.Solution.Path, StringComparison.OrdinalIgnoreCase)).Exports)
                 {
-                    var file = Path.Combine(Path.GetDirectoryName(u.Solution.Path)!, "dist", $"{u.Plc.Title}_{u.Plc.ProjectVersion}.library");
-                    shell.SaveAsLibrary(u.Plc.Name, file, install: true);
-                    ctx.Log.Success($"        {u.Plc.Title} {u.Plc.ProjectVersion} saved and installed for its users");
+                    var file = Path.Combine(Path.GetDirectoryName(u.Solution.Path)!, "dist", $"{lib.Plc.Title}_{lib.Plc.ProjectVersion}.library");
+                    FinishExport(ctx, StageExport(shell, lib.Plc.Name, file), session.Request);
+                    ctx.Log.Success($"        {lib.Plc.Title} {lib.Plc.ProjectVersion} saved and installed for its users");
                 }
             }
+            // a dialog during the shutdown fails the build as it would have during a build step
+            if (session.Close() is { } shutdown) throw shutdown;
             return Outcome.Ok(new { order = order.Select(u => u.Id), results });
         });
         return cmd;
@@ -165,17 +174,21 @@ internal static class WorkspaceCommands
                     "Libraries: " + string.Join(", ", w.Units.Where(u => u.Plc.IsLibrary).Select(u => u.Plc.Title)));
             var from = unit.Plc.ProjectVersion!;
             var to = Workspace.Bump(from, ctx.Get(bump));
-            Workspace.SetProjectVersion(unit.Plc.Path, to);
-            ctx.Log.Success($"{unit.Plc.Title}: {from} → {to}");
+            void WriteVersion()
+            {
+                Workspace.SetProjectVersion(unit.Plc.Path, to);
+                ctx.Log.Success($"{unit.Plc.Title}: {from} → {to}");
+            }
 
             string? file = null;
-            if (!ctx.Get(noSave))
+            if (ctx.Get(noSave)) WriteVersion();
+            else
             {
                 if (!OperatingSystem.IsWindows())
                     throw new IECodeException(ExitCodes.NotSupportedPlatform, "Saving the library needs Windows with TwinCAT XAE.", "Use --no-save to only change versions.");
                 if (unit.Solution is null) throw new IECodeException(ExitCodes.NotFound, $"{unit.Id} has no .sln to save from.");
                 var target = Path.Combine(Path.GetDirectoryName(unit.Solution.Path)!, "dist", $"{unit.Plc.Title}_{to}.library");
-                file = WithShell(ctx, unit.Solution.Path, shell => shell.SaveAsLibrary(unit.Plc.Name, target, install: true));
+                file = SaveReleased(ctx, unit.Solution.Path, unit.Plc.Name, target, WriteVersion);
                 ctx.Log.Success($"Saved and installed {file}");
             }
 
@@ -196,5 +209,25 @@ internal static class WorkspaceCommands
             return Outcome.Ok(new { library = unit.Plc.Title, from, to, file, changes });
         });
         return cmd;
+    }
+
+    /// <summary>
+    /// Starts the shell and has it select the TwinCAT version first, then writes the new version (<paramref name="writeVersion"/>)
+    /// and saves the library from the same shell: a version the Remote Manager rejects stops the release before the source changed.
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static string SaveReleased(Context ctx, string solution, string plcName, string target, Action writeVersion)
+    {
+        using var session = new ShellSession(ctx, saves: true);
+        session.Prepare(solution);
+        writeVersion();
+        var export = StageExport(session.Open(solution), plcName, target);
+        var version = session.Request;
+        if (session.Close() is { } shutdown)
+        {
+            export.Dispose();
+            throw shutdown;
+        }
+        return FinishExport(ctx, export, version);
     }
 }

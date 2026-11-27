@@ -5,13 +5,19 @@ using IECode.Core;
 
 namespace IECode.Automation;
 
-/// <summary>Outcome of building one target platform.</summary>
-public sealed record BuildResult(string Platform, bool Ok, int FailedProjects, int Errors, int Warnings, BuildSummary? Summary, double Seconds);
+/// <summary>
+/// Outcome of building one target platform. <see cref="StaticAnalysisOnly"/>: every error is a static analysis
+/// finding (SAxxxx); the exit code stays 10.
+/// </summary>
+public sealed record BuildResult(string Platform, bool Ok, int FailedProjects, int Errors, int Warnings, BuildSummary? Summary, double Seconds,
+    bool StaticAnalysisOnly = false);
 
 public sealed partial class XaeShell
 {
     /// <summary>Target platforms the TwinCAT projects support, e.g. "TwinCAT RT (x64)".</summary>
-    public IReadOnlyList<string> TargetPlatforms() =>
+    public IReadOnlyList<string> TargetPlatforms() => Watched(TargetPlatformsCore);
+
+    private IReadOnlyList<string> TargetPlatformsCore() =>
         TwinCatProjects(includePlcOnly: true)
             .SelectMany(p => ComCall.Items(ComCall.Retry(() => (object)p.SysManager.ConfigurationManager.TargetPlatforms)))
             .Select(x => (string)x.ToString())
@@ -19,7 +25,9 @@ public sealed partial class XaeShell
             .ToList();
 
     /// <summary>Sets the active target platform on every TwinCAT project that supports it.</summary>
-    public void SelectPlatform(string platform)
+    public void SelectPlatform(string platform) => Watched(() => SelectPlatformCore(platform));
+
+    private void SelectPlatformCore(string platform)
     {
         var applied = 0;
         foreach (var (_, sysMan, _) in TwinCatProjects())
@@ -37,14 +45,18 @@ public sealed partial class XaeShell
                 "Available: " + string.Join(", ", TargetPlatforms()));
     }
 
-    public void Clean()
+    public void Clean() => Watched(CleanCore);
+
+    private void CleanCore()
     {
         _log.Step("Cleaning…");
         ComCall.Retry(() => { Solution.SolutionBuild.Clean(true); });
     }
 
     /// <summary>Activates a solution configuration such as Debug or Release.</summary>
-    public void SelectConfiguration(string name)
+    public void SelectConfiguration(string name) => Watched(() => SelectConfigurationCore(name));
+
+    private void SelectConfigurationCore(string name)
     {
         var configs = ComCall.Items(ComCall.Retry(() => (object)Solution.SolutionBuild.SolutionConfigurations)).ToList();
         var match = configs.FirstOrDefault(c => string.Equals((string)c.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -55,15 +67,22 @@ public sealed partial class XaeShell
         ComCall.Retry(() => { m.Activate(); });
     }
 
-    /// <summary>Builds the solution for the current (or given) platform and collects the compiler messages.</summary>
-    public BuildResult Build(string? platform)
+    /// <summary>
+    /// Builds the solution for the current (or given) platform and collects the compiler messages. <paramref name="save"/>
+    /// false skips the save before the build and sets <see cref="DiscardChanges"/>; XAE may still save a project it
+    /// changed itself while building.
+    /// </summary>
+    public BuildResult Build(string? platform, bool save = true) => Watched(() => BuildCore(platform, save));
+
+    private BuildResult BuildCore(string? platform, bool save)
     {
         if (platform is not null) SelectPlatform(platform);
         var active = platform ?? TwinCatProjects()
             .Select(p => ComCall.Retry(() => (string)p.SysManager.ConfigurationManager.ActiveTargetPlatform))
             .FirstOrDefault() ?? "default";
 
-        SaveAll();
+        if (save) SaveAll();
+        else DiscardChanges = true;
         ClearErrorList();
         _log.Step($"Building {Path.GetFileName(SolutionPath)} · {active}");
         var sw = Stopwatch.StartNew();
@@ -74,6 +93,7 @@ public sealed partial class XaeShell
         ComCall.Retry(() => { b.Build(false); });
         while (ComCall.Retry(() => (int)b.BuildState) != BuildStateDone)
         {
+            ThrowIfDialogCancelled();
             if (sw.Elapsed > timeout)
                 throw new IECodeException(ExitCodes.Timeout, $"Build did not finish within {timeout.TotalMinutes:0} min.", "Raise the limit with --timeout <seconds>.");
             _log.Status(StatusText());
@@ -83,16 +103,23 @@ public sealed partial class XaeShell
 
         var failedProjects = ComCall.Retry(() => (int)b.LastBuildInfo);
         var output = ReadOutputPane("Build");
-        var diags = ReadErrorList() ?? BuildOutput.Parse(output);
-        foreach (var d in diags) _log.Add(d);
+        var diags = BuildTriage.Combine(ReadErrorList(), BuildOutput.Parse(output));
         var summary = BuildSummary.TryParse(output);
-        var errors = diags.Count(d => d.Severity == Severity.Error);
-        var ok = failedProjects == 0 && errors == 0 && (summary?.Failed ?? 0) == 0;
-        return new BuildResult(active, ok, failedProjects, errors, diags.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds);
+        var ok = BuildOutcome.Ok(failedProjects, diags.Raw, summary);
+        var triage = BuildTriage.Classify(diags.Shown);
+        _log.Report(triage, failed: !ok);
+        // counts as shown (without the generic last line); ok and the exit code come from the raw signals above
+        return new BuildResult(active, ok, failedProjects, triage.Errors,
+            triage.All.Count(d => d.Severity == Severity.Warning), summary, sw.Elapsed.TotalSeconds, triage.StaticAnalysisOnly);
     }
 
-    /// <summary>Runs "Check all objects" on every PLC project (faster than a full build, no output files).</summary>
-    public (int Errors, int Warnings) CheckAllObjects()
+    /// <summary>
+    /// Runs "Check all objects" on every PLC project (faster than a full build, no output files). Errors and warnings
+    /// are counted as shown; <c>Ok</c> comes from the raw diagnostics, so the generic last line alone still fails.
+    /// </summary>
+    public (int Errors, int Warnings, bool Ok) CheckAllObjects() => Watched(CheckAllObjectsCore);
+
+    private (int Errors, int Warnings, bool Ok) CheckAllObjectsCore()
     {
         ClearErrorList();
         foreach (var plc in PlcProjects())
@@ -106,9 +133,11 @@ public sealed partial class XaeShell
             }
         }
         WaitUntilIdle();
-        var diags = ReadErrorList() ?? BuildOutput.Parse(ReadOutputPane("Build"));
-        foreach (var d in diags) _log.Add(d);
-        return (diags.Count(d => d.Severity == Severity.Error), diags.Count(d => d.Severity == Severity.Warning));
+        var diags = BuildTriage.Combine(ReadErrorList(), BuildOutput.Parse(ReadOutputPane("Build")));
+        var ok = BuildOutcome.Ok(0, diags.Raw, null);
+        var triage = BuildTriage.Classify(diags.Shown);
+        _log.Report(triage, failed: !ok);
+        return (triage.Errors, triage.All.Count(d => d.Severity == Severity.Warning), ok);
     }
 
     // EnvDTE.Constants.vsWindowKindErrorList / vsWindowKindOutput

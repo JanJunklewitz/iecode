@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countLine, diagnosticLine, progressLine } from '../src/core/clilog';
+import { buildFailureText, compilerErrors, countLine, hasActionableDiagnostics, diagnosticLine, progressLine, ranBuild, rootCausesFirst, tcVersionHint } from '../src/core/clilog';
+import { CliDiagnostic } from '../src/core/diagnostics';
 
 test('progress markers become log levels', () => {
   assert.deepEqual(progressLine('● Opening solution'), { level: 'info', text: 'Opening solution' });
@@ -21,4 +22,80 @@ test('counts name only the kinds that occur', () => {
   assert.equal(countLine([]), '');
   assert.equal(countLine([{ severity: 'error', message: 'a' }, { severity: 'error', message: 'b' }, { severity: 'warning', message: 'c' }]), '2 errors, 1 warning');
   assert.equal(countLine([{ severity: 'info', message: 'a' }]), '1 message');
+});
+
+test('root causes come first, the rest keeps its order', () => {
+  const ds: CliDiagnostic[] = [
+    { severity: 'error', message: 'a' },
+    { severity: 'error', message: 'PLC1.Library Manager: library not installed', rootCause: true },
+    { severity: 'warning', message: 'b' },
+  ];
+  assert.deepEqual(rootCausesFirst(ds).map(d => d.message), ['PLC1.Library Manager: library not installed', 'a', 'b']);
+});
+
+test('build failure text names the root cause or static analysis', () => {
+  const root: CliDiagnostic = { severity: 'error', message: "Library 'X' is not installed", rootCause: true };
+  assert.equal(buildFailureText('PLC1', [root, { severity: 'error', message: 'e' }], undefined),
+    "PLC1 build failed: Library 'X' is not installed (and 1 more error(s))");
+  assert.equal(buildFailureText('PLC1', [{ severity: 'error', code: 'SA0027', message: 's' }], { builds: [{ staticAnalysisOnly: true }] }),
+    'PLC1 build failed only on static analysis (1 finding(s)).');
+  assert.equal(buildFailureText('PLC1', [{ severity: 'error', message: 'e' }, { severity: 'error', message: 'f' }], { builds: [{}] }),
+    'PLC1 build failed with 2 error(s).');
+});
+
+test('a run that stopped before building keeps the old problems', () => {
+  assert.equal(ranBuild({ data: { builds: [] } }), true);
+  assert.equal(ranBuild({ data: { solution: 'x.sln', errors: 0, warnings: 0 } }), true);
+  assert.equal(ranBuild({}), false);
+});
+
+test('version errors point to the TwinCAT version setting', () => {
+  assert.match(tcVersionHint(15) ?? '', /iecode\.tcVersion/);
+  assert.equal(tcVersionHint(2), undefined);
+  assert.equal(tcVersionHint(10), undefined);
+});
+
+test('a root cause that is a warning is named too (TwinCAT 4024)', () => {
+  const root: CliDiagnostic = { severity: 'warning', message: 'PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager', rootCause: true };
+  assert.equal(buildFailureText('PLC', [root, { severity: 'error', message: 'Unknown type' }], undefined),
+    'PLC build failed: PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager (and 1 error(s))');
+});
+
+test('only the generic line left counts as no compiler error', () => {
+  assert.equal(compilerErrors([{ severity: 'info', message: 'The operation could not be completed.' }]), 0);
+  assert.equal(compilerErrors([{ severity: 'error', message: 'e' }, { severity: 'warning', message: 'w' }]), 1);
+});
+
+test('diagnostics from a run that broke off mid-build replace the old problems', () =>
+  assert.equal(ranBuild({ diagnostics: [{ severity: 'error', message: 'e' }] }), true));
+
+test('no second version pointer when the CLI hint already names the setting', () => {
+  const cliHint = 'Pass --tc <version>, e.g. --tc 4024 (VS Code: setting iecode.tcVersion, command "IECode: Select TwinCAT Version…").';
+  assert.equal(tcVersionHint(2, 'The projects carry no TwinCAT version and 4024 and 4026 are installed; --tc auto would pick one.', cliHint), undefined);
+  assert.match(tcVersionHint(15, 'TwinCAT 3.1.4024 is not installed.', 'Installed: 3.1.4026.28') ?? '', /iecode\.tcVersion/);
+});
+
+test('exit 2 points to the version setting only when the error is about the version', () => {
+  assert.equal(tcVersionHint(2, 'Several .sln files found; pass one.'), undefined);
+  assert.match(tcVersionHint(2, 'Both TwinCAT 4024 and 4026 are installed; pass --tc.') ?? '', /iecode\.tcVersion/);
+});
+
+test('static analysis is named only when every failed platform failed on it', () => {
+  const sa: CliDiagnostic = { severity: 'error', code: 'SA0027', message: 's' };
+  const c: CliDiagnostic = { severity: 'error', code: 'C0077', message: 'c' };
+  assert.equal(buildFailureText('PLC1', [sa, c], { builds: [{ ok: false, staticAnalysisOnly: true }, { ok: false, staticAnalysisOnly: false }] }),
+    'PLC1 build failed with 2 error(s).');
+  // a platform that built fine does not count
+  assert.equal(buildFailureText('PLC1', [sa], { builds: [{ ok: false, staticAnalysisOnly: true }, { ok: true, staticAnalysisOnly: false }] }),
+    'PLC1 build failed only on static analysis (1 finding(s)).');
+});
+
+test('a failed check names its root cause too', () => {
+  const root: CliDiagnostic = { severity: 'warning', message: 'PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager', rootCause: true };
+  const generic: CliDiagnostic = { severity: 'info', message: 'The operation could not be completed.' };
+  assert.equal(buildFailureText('PLC', [root, generic], undefined, 'check'),
+    'PLC check failed: PLC.Library Manager: Library tc3_motorlib has not been added to the Library Manager');
+  assert.equal(hasActionableDiagnostics([root, generic]), true);
+  assert.equal(hasActionableDiagnostics([generic]), false);
+  assert.equal(hasActionableDiagnostics([{ severity: 'warning', message: 'w' }]), false);
 });

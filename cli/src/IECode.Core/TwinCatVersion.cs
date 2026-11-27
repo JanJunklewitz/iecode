@@ -70,5 +70,28 @@ public sealed partial record TwinCatVersion(int? Build, int? Revision)
         : fileName.EndsWith(".profile", StringComparison.OrdinalIgnoreCase) ? fileName[..^".profile".Length]
         : null;
 
+    [GeneratedRegex(@"Build_(?<line>\d{4})")]
+    private static partial Regex BuildFolder();
+
+    /// <summary>
+    /// The TwinCAT line (4024 / 4026) a RepTool belongs to: from its profile name ("…_Build_4026.28") or its install
+    /// folder ("…\Build_4026.28\Common"); null for the default profile of an old single-folder installation.
+    /// </summary>
+    public static int? LineOfRepTool(string exe, string profile) =>
+        BuildFolder().Match(profile) is { Success: true } p ? int.Parse(p.Groups["line"].Value)
+        : BuildFolder().Match(exe) is { Success: true } e ? int.Parse(e.Groups["line"].Value)
+        : null;
+
+    /// <summary>
+    /// The build a shell actually works with: the one the Remote Manager selected (<c>3.1.4024.62</c>) when it is known,
+    /// else the <paramref name="requested"/> version. The request can differ from it (a line only, or a build the Remote
+    /// Manager rejected), and RepTool must install into the same build XAE saved with.
+    /// </summary>
+    public static TwinCatVersion UsedBy(string? selected, TwinCatVersion requested)
+    {
+        if (selected is not null && Pattern().IsMatch(selected.Trim())) return Parse(selected);
+        return requested;
+    }
+
     public override string ToString() => IsAuto ? "auto" : Revision is null ? $"3.1.{Build}" : $"3.1.{Build}.{Revision}";
 }

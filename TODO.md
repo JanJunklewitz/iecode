@@ -103,25 +103,29 @@ Feedback from building, saving and re-pinning about 20 libraries and 12 PLC repo
 
 Top 3 named by the user of the run (2026-11-24): pre-flight check, root causes first, build without side effects.
 
+Plan: [CLI build workflow master plan](docs/superpowers/plans/2026-11-24-cli-build-workflow-master-plan.md) with sub-plans A (failure output, pre-flight), B (side-effect-free build), C (library repository), D (shell robustness). It covers every "Small" item and the first three "Medium" items below; the rest stays open.
+
+Status (2026-11-26): sub-plans A to D are implemented on `feature/cli-build-workflow-master` (stacked A, B, C, D, plus a second independent review per layer with its findings fixed). Not merged to `main` yet. Parts that need a real TwinCAT PC to verify are listed in [docs/open-tests.md](docs/open-tests.md), section "CLI build workflow".
+
 Small:
-- [ ] **Pre-flight reference check**: `lib restore --dry-run` already finds missing pinned versions, also fixed `PlaceholderResolution` entries (it would have found the missing versions of the run; nobody knew it). Run it before `build` and hint at it after a failed build, maybe a `lib check` alias; also report `*` references without any installed version.
-- [ ] **Root causes first**: mark library manager diagnostics (also in `--json`), print them in a "Root causes" block at the end of a failed build, count follow-up errors per `[library, version]`, `--max-errors N`.
-- [ ] **`build --no-save`** plus `changed files: N` at the end: `XaeShell.Build()` calls `SaveAll()` before every build, which writes the `.sln` configuration lines, `Target64Bit` and the visualization `DevId`. First check whether that is the only source (build once without `SaveAll()`, Q1).
-- [ ] **`--tc auto` must not change the line**: with no stamp `auto` prefers the 4026 shell; in the run three projects were saved by 4026 and could no longer be opened in 4024. Stop with exit 2 and ask for `--tc` when the line would change.
-- [ ] **Repository mutex**: one named mutex around every command that writes the library repository (`lib save --install`, `install`, `install-project`, `restore`, `uninstall`, `ws build`, `ws release`). A library install was lost; parallel installs or a bulk uninstall of 20 libraries in between are both possible causes (Q4).
-- [ ] **Static analysis only**: when every error is `SAxxxx`, say so and use its own exit code. No switch to turn it off (Q6).
-- [ ] **`lib save` default output `dist/`** like `save-all` (behaviour change, CHANGELOG).
-- [ ] **Generic last error**: do not count "The operation could not be completed" / "Der Vorgang konnte nicht abgeschlossen werden" as an error.
-- [ ] **`lib update` for several libraries**: repeatable `--lib name=version`, and `--vendor X --to V` for all of a vendor.
-- [ ] **`lib uninstall --vendor V --version X --all`**: names from the repository scan.
-- [ ] **Show the resolved `*` version** in `lib list` and `info`, and warn about a stray far-higher version (e.g. `10.0.0.0`).
-- [ ] **`lib installed`**: wildcards for `--lib`, `--vendor` filter.
-- [ ] **Exit codes in `--help`**; warn on long paths (over ~200 characters); `changed files: N` after a build in a git tree.
+- [x] **Pre-flight reference check**: `lib restore --dry-run` already finds missing pinned versions, also fixed `PlaceholderResolution` entries (it would have found the missing versions of the run; nobody knew it). Run it before `build` and hint at it after a failed build, maybe a `lib check` alias; also report `*` references without any installed version.
+- [x] **Root causes first**: mark library manager diagnostics (also in `--json`), print them in a "Root causes" block at the end of a failed build, count follow-up errors per `[library, version]`, `--max-errors N`.
+- [x] **`build --no-save`** plus `changed files: N` at the end: `XaeShell.Build()` calls `SaveAll()` before every build, which writes the `.sln` configuration lines, `Target64Bit` and the visualization `DevId`. First check whether that is the only source (build once without `SaveAll()`, Q1).
+- [x] **`--tc auto` must not change the line**: with no stamp `auto` prefers the 4026 shell; in the run three projects were saved by 4026 and could no longer be opened in 4024. Stop with exit 2 and ask for `--tc` when the line would change.
+- [x] **Repository mutex**: one named mutex around every command that writes the library repository (`lib save --install`, `install`, `install-project`, `restore`, `uninstall`, `ws build`, `ws release`). A library install was lost; parallel installs or a bulk uninstall of 20 libraries in between are both possible causes (Q4).
+- [x] **Static analysis only**: when every error is `SAxxxx`, say so and use its own exit code. No switch to turn it off (Q6).
+- [x] **`lib save` default output `dist/`** like `save-all` (behaviour change, CHANGELOG).
+- [x] **Generic last error**: do not count "The operation could not be completed" / "Der Vorgang konnte nicht abgeschlossen werden" as an error.
+- [x] **`lib update` for several libraries**: repeatable `--lib name=version`, and `--vendor X --to V` for all of a vendor.
+- [x] **`lib uninstall --vendor V --version X --all`**: names from the repository scan.
+- [x] **Show the resolved `*` version** in `lib list` and `info`, and warn about a stray far-higher version (e.g. `10.0.0.0`).
+- [x] **`lib installed`**: wildcards for `--lib`, `--vendor` filter.
+- [x] **Exit codes in `--help`**; warn on long paths (over ~200 characters); `changed files: N` after a build in a git tree.
 
 Medium:
-- [ ] **`build --isolate`**: build in a short temp copy so the working tree stays clean (also fixes long paths). Copy the folder as it is, including ignored files: `git archive HEAD` failed in the run because a git-ignored folder of generated files was needed (Q2).
-- [ ] **Modal dialog watcher during open / build / save**: reuse `DialogConfirmer`, fail with the dialog text instead of hanging.
-- [ ] **Orphaned shells**: record started shell PIDs, job object with kill-on-close, `iecode shells list | kill`.
+- [x] **`build --isolate`**: build in a short temp copy so the working tree stays clean (also fixes long paths). Copy the folder as it is, including ignored files: `git archive HEAD` failed in the run because a git-ignored folder of generated files was needed (Q2).
+- [x] **Modal dialog watcher during open / build / save**: reuse `DialogConfirmer`, fail with the dialog text instead of hanging.
+- [x] **Orphaned shells**: record started shell PIDs, job object with kill-on-close, `iecode shells list | kill`.
 - [ ] **Build without the test project**: `build --exclude-plc <name>` / `--no-tests` (test PLC projects in `*.Test` / `UnitTest` folders pin the library version that is being built, Q7). Open: whether the Automation Interface can build a subset.
 - [ ] **`--tc 4024,4026` matrix**, **`lib project-folder sync [--prune]`**, **`lib verify`** (only after the lost install is reproduced, Q4).
 

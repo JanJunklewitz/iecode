@@ -45,6 +45,14 @@ public class TwinCatVersionTests
     [InlineData("3.1.4024.x")]
     public void RejectsInvalid(string text) => Assert.Throws<IECodeException>(() => TwinCatVersion.Parse(text));
 
+    [Theory]
+    [InlineData("3.1.4024.62", "4024", "3.1.4024.62")]   // the Remote Manager fell back from 4024.66: RepTool must follow the shell
+    [InlineData("3.1.4026.28", "4026.30", "3.1.4026.28")]
+    [InlineData(null, "4024.66", "3.1.4024.66")]         // nothing selected (auto): the request stands
+    [InlineData("garbage", "4024", "3.1.4024")]          // unreadable: the request stands
+    public void TheBuildTheShellUsedWinsOverTheRequest(string? selected, string requested, string expected) =>
+        Assert.Equal(expected, TwinCatVersion.UsedBy(selected, TwinCatVersion.Parse(requested)).ToString());
+
     [Fact]
     public void PicksRepToolProfileForVersion()
     {
@@ -120,7 +128,7 @@ public class BuildSummaryTests
 public class BuildOutputTests
 {
     // Line formats of the TcXaeShell 15 (TwinCAT 3.1.4024) Build pane
-    private const string Output =
+    internal const string Output =
         "------ Build started: Project: PLC1, Configuration: Debug TwinCAT RT (x64) ------\r\n" +
         "------ Build started: Application: MachineX.PLC1 -------\r\n" +
         "typify code ...\r\n" +

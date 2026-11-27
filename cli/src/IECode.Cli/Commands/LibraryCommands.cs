@@ -7,18 +7,19 @@ using static IECode.Cli.Runner;
 
 namespace IECode.Cli.Commands;
 
-/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, restore, install, install-project, uninstall.</summary>
+/// <summary><c>iecode lib …</c>: save, save-all, list, info, update, outdated, installed, check, restore, install, install-project, uninstall.</summary>
 internal static class LibraryCommands
 {
     public static Command Create()
     {
         var lib = new Command("lib", "PLC libraries: save (one or all), list, update references, install");
-        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Restore(), Install(), InstallProject(), Uninstall() })
+        foreach (var c in new[] { Save(), SaveAll(), List(), Info(), Update(), Outdated(), Installed(), Check(), Restore(), Install(), InstallProject(), Uninstall() })
             lib.Subcommands.Add(c);
         return lib;
     }
 
-    internal static object ToJson(LibraryReference r) => new
+    /// <param name="resolvedVersion">For a <c>*</c> reference: the highest installed version (lib list); omitted when null.</param>
+    internal static object ToJson(LibraryReference r, string? resolvedVersion = null) => new
     {
         placeholder = r.Placeholder,
         kind = r.Kind,
@@ -28,6 +29,7 @@ internal static class LibraryCommands
         pinned = r.IsPinned,
         defaultResolution = r.Default.ToString(),
         resolution = r.PinnedResolution?.ToString(),
+        resolvedVersion,
     };
 
     private static Argument<string[]> PathsArg(string what) => new("paths")
@@ -51,9 +53,13 @@ internal static class LibraryCommands
         var plc = new Option<string?>("--plc") { Description = "PLC project to save when the solution has several" };
         var compiled = new Option<bool>("--compiled") { Description = "Save as .compiled-library (no source code)" };
         var install = new Option<bool>("--install") { Description = "Also install it in the local library repository" };
-        var outDir = new Option<string?>("--out", "-o") { Description = "Output folder (default: next to the solution)" };
+        var outDir = new Option<string?>("--out", "-o") { Description = "Output folder (default: dist next to the solution)" };
         var cmd = new Command("save", "Save a PLC project as .library or .compiled-library") { sln, plc, compiled, install, outDir };
-        Action(cmd, ctx => SaveLibrary(ctx, SolutionFile.Find(ctx.Get(sln)), ctx.Get(plc), ctx.Get(compiled), ctx.Get(install), ctx.Get(outDir)), windowsOnly: true);
+        Action(cmd, ctx =>
+        {
+            var solution = SolutionFile.Find(ctx.Get(sln));
+            return SaveLibrary(ctx, solution, ctx.Get(plc), ctx.Get(compiled), ctx.Get(install), ctx.Get(outDir) ?? LibraryExport.DistFolder(solution));
+        }, windowsOnly: true);
         return cmd;
     }
 
@@ -66,7 +72,10 @@ internal static class LibraryCommands
         var file = Path.Combine(Path.GetFullPath(outDir ?? Path.GetDirectoryName(solution)!), baseName + (compiled ? ".compiled-library" : ".library"));
         if (meta is { IsLibrary: false }) ctx.Log.Warn($"{meta.Name} has no library properties (Title, Company, Version); TwinCAT may refuse to save it.");
 
-        var written = WithShell(ctx, solution, shell => shell.SaveAsLibrary(plcName ?? meta?.Name, file, install));
+        var requested = ChooseVersion(ctx, sln, saves: true, quiet: true).Request;
+        // the build the shell ends up with can differ from the request; RepTool must install into the build XAE saved with
+        var (export, built) = WithShell(ctx, solution, saves: true, shell => (StageExport(shell, plcName ?? meta?.Name, file), TwinCatVersion.UsedBy(shell.SelectedVersion, requested)));
+        var written = FinishExport(ctx, export, install ? built : null);
         ctx.Log.Success($"{written}{(install ? "  (installed)" : "")}");
         return Outcome.Ok(new { file = written, compiled, installed = install, title = meta?.Title, version = meta?.ProjectVersion });
     }
@@ -101,36 +110,47 @@ internal static class LibraryCommands
 
             var results = new List<object>();
             var failed = 0;
-            using var shell = StartShell(ctx);
-            string? open = null;
+            IECodeException? stopped = null;
+            var notStarted = new List<string>();
+            using var session = new ShellSession(ctx, saves: true);
             var step = 0;
             foreach (var p in plan)
             {
+                if (stopped is not null) { notStarted.Add(p.Unit.Id); continue; }
                 step++;
                 try
                 {
-                    if (!string.Equals(open, p.Unit.Solution!.Path, StringComparison.OrdinalIgnoreCase))
-                    {
-                        shell.OpenSolution(p.Unit.Solution.Path);
-                        open = p.Unit.Solution.Path;
-                    }
-                    var written = shell.SaveAsLibrary(p.Unit.Plc.Name, p.File, ctx.Get(install));
+                    // for every item: the session reuses a healthy shell and replaces one that stopped on a dialog
+                    var shell = session.Open(p.Unit.Solution!.Path);
+                    var written = FinishExport(ctx, StageExport(shell, p.Unit.Plc.Name, p.File), ctx.Get(install) ? session.Request : null);
                     ctx.Log.Success($"[{step}/{plan.Count}] {p.Unit.Id}: {written}{(ctx.Get(install) ? "  (installed)" : "")}");
                     results.Add(new { unit = p.Unit.Id, file = written, ok = true });
                 }
-                catch (IECodeException e) when (!ctx.Get(failFast))
+                catch (IECodeException e)
                 {
                     failed++;
                     ctx.Log.Error($"[{step}/{plan.Count}] {p.Unit.Id}: {e.Message}");
                     results.Add(new { unit = p.Unit.Id, file = p.File, ok = false, error = e.Message });
+                    // a timeout (the repository lock or RepTool) would hit every following item too: stop instead of waiting N times,
+                    // but hand back what was done so the caller knows where to resume
+                    if (ctx.Get(failFast) || e.ExitCode == ExitCodes.Timeout) stopped = e;
                 }
             }
-            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = plan.Count - failed, failed, results };
+            // a dialog during the shutdown is one more failure of the run; the results stay
+            var shutdown = session.Close();
+            if (shutdown is not null) ctx.Log.Error($"Closing the shell: {shutdown.Message}");
+            var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = results.Count - failed, failed, stopped = stopped is not null, notStarted, shutdownError = shutdown?.Message, results };
+            if (stopped is not null)
+            {
+                ctx.Log.Warn($"Stopped after {results.Count} of {plan.Count} project(s); not started: {(notStarted.Count == 0 ? "none" : string.Join(", ", notStarted))}.");
+                return new Outcome(stopped.ExitCode, data);
+            }
             if (failed > 0)
             {
                 ctx.Log.Warn($"{failed} of {plan.Count} project(s) could not be saved; library projects need Title, Company and Version and must compile.");
                 return new Outcome(ExitCodes.LibraryFailed, data);
             }
+            if (shutdown is not null) return new Outcome(shutdown.ExitCode, data);
             ctx.Log.Success($"{plan.Count} project(s) saved");
             return Outcome.Ok(data);
         });
@@ -143,15 +163,21 @@ internal static class LibraryCommands
     {
         var paths = PathsArg("Projects to read");
         var csv = new Option<string?>("--csv") { Description = "Also write the list to a CSV file" };
-        var cmd = new Command("list", "List library references with the version that applies (reads the .plcproj, no TwinCAT needed)") { paths, csv };
+        var repo = new Option<string?>("--repository") { Description = "Library repository folder for the highest installed version of * references (default: TwinCAT's Managed Libraries)" };
+        var cmd = new Command("list", "List library references with the version that applies (reads the .plcproj, no TwinCAT needed)") { paths, csv, repo };
         Action(cmd, ctx =>
         {
             var projects = LoadProjects(ctx.Get(paths));
+            var installed = StarRepository(ctx, ctx.Get(repo));
+            string? Highest(LibraryReference r) => installed is null ? null : LibraryRepository.HighestFor(installed, r);
             foreach (var p in projects)
             {
                 ctx.Log.Info($"{p.Name}  ({p.Path})");
                 foreach (var r in p.References)
-                    ctx.Log.Info($"  {r.Effective.Name,-28} {r.Effective.Version,-12} {r.Effective.Vendor,-28} {(r.IsPinned ? "pinned" : "newest (*)")}");
+                {
+                    var how = r.IsPinned ? "pinned" : Highest(r) is { } h ? $"newest (*), highest installed: {h}" : "newest (*)";
+                    ctx.Log.Info($"  {r.Effective.Name,-28} {r.Effective.Version,-12} {r.Effective.Vendor,-28} {how}");
+                }
             }
             if (ctx.Get(csv) is { } file)
             {
@@ -164,9 +190,26 @@ internal static class LibraryCommands
             }
             var unpinned = projects.SelectMany(p => p.References).Count(r => !r.IsPinned);
             if (unpinned > 0) ctx.Log.Warn($"{unpinned} reference(s) resolve to the newest installed version (*); builds aren't reproducible.");
-            return Outcome.Ok(projects.Select(p => new { project = p.Name, path = p.Path, references = p.References.Select(ToJson) }));
+            return Outcome.Ok(projects.Select(p => new { project = p.Name, path = p.Path, references = p.References.Select(r => ToJson(r, Highest(r))) }));
         });
         return cmd;
+    }
+
+    /// <summary>
+    /// The one repository <c>*</c> references are shown against (as <c>lib outdated</c>): the explicit one, else TwinCAT's
+    /// default when it exists; null (no versions shown) when there is none or it cannot be read.
+    /// </summary>
+    private static IReadOnlyList<InstalledLibrary>? StarRepository(Context ctx, string? explicitPath)
+    {
+        if (explicitPath is not null) return LibraryRepository.Scan(explicitPath);
+        var path = LibraryRepository.DefaultPath(Environment.GetEnvironmentVariable("TWINCAT3DIR"));
+        if (path is null || !Directory.Exists(path)) return null;
+        try { return LibraryRepository.Scan(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            ctx.Log.Detail($"Installed versions not shown: {e.Message}");
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ info
@@ -190,44 +233,60 @@ internal static class LibraryCommands
     private static Command Update()
     {
         var paths = PathsArg("Projects to update");
-        var name = new Option<string>("--lib", "-l") { Description = "Library name, e.g. Tc3_MotorLib", Required = true };
-        var to = new Option<string?>("--to") { Description = "New version, or * for always newest (default: newest installed with --repository, else required)" };
-        var vendor = new Option<string?>("--vendor") { Description = "Only references from this vendor" };
-        var fromLib = new Option<string?>("--from-project") { Description = "Take the version from this library .plcproj (its ProjectVersion)" };
+        var names = new Option<string[]>("--lib", "-l") { Description = "Library name, e.g. Tc3_MotorLib, or name=version (repeatable)" };
+        var to = new Option<string?>("--to") { Description = "New version for the named libraries, latest, or * for always newest (default: newest installed)" };
+        var vendor = new Option<string?>("--vendor") { Description = "Only references from this vendor; without --lib: every library of this vendor, each to its newest installed version" };
+        var fromLib = new Option<string?>("--from-project") { Description = "Take the version from this library .plcproj (its ProjectVersion); needs exactly one --lib" };
         var repo = new Option<string?>("--repository") { Description = "Library repository folder for --to latest (default: TwinCAT's Managed Libraries)" };
         var dryRun = new Option<bool>("--dry-run") { Description = "Only show what would change" };
-        var cmd = new Command("update", "Set a library to a version in every .plcproj below the paths (text edit, keeps formatting)")
-            { paths, name, to, vendor, fromLib, repo, dryRun };
+        var cmd = new Command("update", "Set libraries to a version in every .plcproj below the paths (text edit, keeps formatting)")
+            { paths, names, to, vendor, fromLib, repo, dryRun };
         Action(cmd, ctx =>
         {
-            var lib = ctx.Get(name);
-            var version = ctx.Get(to);
+            var projects = LoadProjects(ctx.Get(paths));
+            var items = LibrarySelection.ParseUpdate(ctx.Get(names) ?? [], ctx.Get(to), ctx.Get(vendor), projects, fromProject: ctx.Get(fromLib) is not null);
+            string? fromVersion = null;
             if (ctx.Get(fromLib) is { } lp)
             {
                 var src = PlcProjectFile.Load(lp);
-                version = src.ProjectVersion ?? throw new IECodeException(ExitCodes.Usage, $"'{lp}' has no ProjectVersion.");
-                ctx.Log.Step($"{src.Title ?? src.Name} is at version {version}");
-            }
-            if (version is null or "latest")
-            {
-                var installed = LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)));
-                version = LibraryRepository.Newest(installed, lib, ctx.Get(vendor))?.Version
-                    ?? throw new IECodeException(ExitCodes.NotFound, $"{lib} is not installed in the library repository.", "Pass --to <version>.");
-                ctx.Log.Step($"Newest installed {lib}: {version}");
+                fromVersion = src.ProjectVersion ?? throw new IECodeException(ExitCodes.Usage, $"'{lp}' has no ProjectVersion.");
+                ctx.Log.Step($"{src.Title ?? src.Name} is at version {fromVersion}");
             }
 
-            var changes = new List<ReferenceChange>();
-            foreach (var p in LoadProjects(ctx.Get(paths)))
+            // every version is resolved before the first file is written
+            IReadOnlyList<InstalledLibrary>? installed = null;
+            var resolved = new List<UpdateItem>();
+            var notInstalled = new List<string>();
+            foreach (var item in items)
             {
-                var c = p.SetLibraryVersion(lib, version, ctx.Get(vendor), ctx.Get(dryRun));
-                foreach (var ch in c) ctx.Log.Info($"  {ch.Project,-24} {ch.Library} {ch.From} → {ch.To}");
-                changes.AddRange(c);
+                var version = item.Version ?? fromVersion ?? ctx.Get(to);
+                if (version is null or "latest")
+                {
+                    installed ??= LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)));
+                    version = LibraryRepository.Newest(installed, item.Library, ctx.Get(vendor))?.Version;
+                    if (version is null) { notInstalled.Add(item.Library); continue; }
+                    ctx.Log.Step($"Newest installed {item.Library}: {version}");
+                }
+                resolved.Add(item with { Version = version });
             }
+            // all of them at once, so one run shows every library to name or install
+            if (notInstalled.Count > 0)
+                throw new IECodeException(ExitCodes.NotFound, $"Not installed in the library repository: {string.Join(", ", notInstalled)}; nothing was changed.",
+                    "Pass --to <version>, or name the libraries with --lib <name>=<version>.");
+
+            var changes = LibrarySelection.ApplyUpdate(resolved, projects, ctx.Get(vendor), ctx.Get(dryRun));
+            foreach (var ch in changes) ctx.Log.Info($"  {ch.Project,-24} {ch.Library} {ch.From} → {ch.To}");
             var projectsChanged = changes.Select(c => c.Project).Distinct().Count();
-            if (changes.Count == 0) ctx.Log.Success($"Nothing to change: {lib} is already at {version} everywhere (or not referenced)");
+            var first = resolved[0];
+            var target = resolved.Count == 1 ? $"{first.Library} is already at {first.Version}" : "the libraries are already at these versions";
+            if (changes.Count == 0) ctx.Log.Success($"Nothing to change: {target} everywhere (or not referenced)");
             else if (ctx.Get(dryRun)) ctx.Log.Info($"{changes.Count} reference(s) in {projectsChanged} project(s) would change");
-            else ctx.Log.Success($"{changes.Count} reference(s) in {projectsChanged} project(s) updated to {version}");
-            return Outcome.Ok(new { library = lib, version, dryRun = ctx.Get(dryRun), changes });
+            else ctx.Log.Success($"{changes.Count} reference(s) in {projectsChanged} project(s) updated{(resolved.Count == 1 ? $" to {first.Version}" : "")}");
+            return Outcome.Ok(new
+            {
+                library = first.Library, version = first.Version, dryRun = ctx.Get(dryRun), changes,
+                items = resolved.Select(i => new { library = i.Library, version = i.Version }),
+            });
         });
         return cmd;
     }
@@ -263,17 +322,74 @@ internal static class LibraryCommands
 
     private static Command Installed()
     {
-        var filter = new Option<string?>("--lib", "-l") { Description = "Only this library" };
+        var filter = new Option<string?>("--lib", "-l") { Description = "Only libraries matching this name (* and ? as wildcards, e.g. Tc3_*)" };
+        var vendor = new Option<string?>("--vendor") { Description = "Only libraries of this vendor" };
         var repo = new Option<string?>("--repository") { Description = "Library repository folder (default: TwinCAT's Managed Libraries)" };
-        var cmd = new Command("installed", "List libraries installed in the local library repository") { filter, repo };
+        var cmd = new Command("installed", "List libraries installed in the local library repository") { filter, vendor, repo };
         Action(cmd, ctx =>
         {
-            var all = LibraryRepository.Scan(RepositoryPath(ctx.Get(repo)))
-                .Where(i => ctx.Get(filter) is not { } f || i.Name.Equals(f, StringComparison.OrdinalIgnoreCase))
+            var all = LibrarySelection.Select(LibraryRepository.Scan(RepositoryPath(ctx.Get(repo))), ctx.Get(filter), ctx.Get(vendor), null)
                 .OrderBy(i => i.Vendor).ThenBy(i => i.Name).ThenByDescending(i => i.Version, Comparer<string>.Create(LibraryRepository.Compare))
                 .ToList();
             foreach (var i in all) ctx.Log.Info($"  {i.Name,-30} {i.Version,-12} {i.Vendor}");
             return Outcome.Ok(all);
+        });
+        return cmd;
+    }
+
+    // ------------------------------------------------------------------ check
+
+    /// <summary>Every library repository TwinCAT may use on this PC (4024 and 4026 can differ).</summary>
+    internal static IReadOnlyList<string> DefaultRepositories() =>
+        LibraryRepository.Candidates(Environment.GetEnvironmentVariable("TWINCAT3DIR"),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+
+    internal static string Describe(ReferenceProblem p) => p.Kind == ReferenceProblemKind.NoVersionInstalled
+        ? $"{p.Name} * ({p.Vendor}): no version installed · used by {string.Join(", ", p.Projects)}"
+        : $"{p.Name} {p.Version} ({p.Vendor}) not installed · used by {string.Join(", ", p.Projects)}";
+
+    /// <summary>
+    /// The library check before a build: warns, never fails. Libraries the command installs itself
+    /// (the exports of <paramref name="stages"/>) count as installed for the stages after them.
+    /// </summary>
+    internal static void Preflight(Context ctx, IEnumerable<PlcProjectFile> projects) =>
+        Preflight(ctx, [new BuildStage([.. projects], [])]);
+
+    internal static void Preflight(Context ctx, IReadOnlyList<BuildStage> stages)
+    {
+        var roots = DefaultRepositories().Where(Directory.Exists).ToList();
+        if (roots.Count == 0) { ctx.Log.Warn("Library references not checked: no library repository found."); return; }
+        IReadOnlyList<ReferenceProblem> problems;
+        try { problems = Core.Projects.Preflight.Problems(stages, LibraryRepository.ScanAll(roots)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            ctx.Log.Warn($"Library references not checked: {e.Message}");
+            return;
+        }
+        foreach (var p in problems) ctx.Log.Warn(Describe(p));
+        if (problems.Count > 0) ctx.Log.Warn("The build will likely fail on these libraries; details: iecode lib check");
+    }
+
+    private static Command Check()
+    {
+        var paths = PathsArg("Projects to check");
+        var repos = new Option<string[]>("--repository") { Description = "Library repository folder (repeatable; default: every TwinCAT repository on this PC)" };
+        var cmd = new Command("check", "Find library references that cannot resolve before a build: missing pinned versions and * references with no version installed") { paths, repos };
+        Action(cmd, ctx =>
+        {
+            var projects = LoadProjects(ctx.Get(paths));
+            var explicitRoots = ctx.Get(repos) is { Length: > 0 } r ? r : null;
+            var roots = explicitRoots ?? DefaultRepositories();
+            var existing = roots.Where(Directory.Exists).ToList();
+            foreach (var root in roots) ctx.Log.Detail($"{(Directory.Exists(root) ? "Scanning" : "Not found")}: {root}");
+            if (existing.Count == 0)
+                throw new IECodeException(ExitCodes.NotFound, "No library repository found; references not checked.", "Pass the folder with --repository.");
+            // named folders must all be scanned; only the automatic candidates may be absent
+            var installed = explicitRoots is null ? LibraryRepository.ScanAll(existing) : LibraryRepository.ScanExplicit(explicitRoots);
+            var problems = Core.Projects.Restore.Check(projects, installed);
+            foreach (var p in problems) ctx.Log.Error(Describe(p));
+            if (problems.Count == 0) ctx.Log.Success($"All library references of {projects.Count} project(s) are installed (file check; XAE may still fail to resolve them)");
+            return new Outcome(problems.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { problems, repositories = existing });
         });
         return cmd;
     }
@@ -300,7 +416,7 @@ internal static class LibraryCommands
             if (ctx.Get(dryRun)) return new Outcome(unresolved.Count == 0 ? ExitCodes.Ok : ExitCodes.NotFound, new { missing });
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "Installing libraries needs Windows with TwinCAT (RepTool).", "Use --dry-run to check on any OS.");
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             foreach (var m in missing.Where(m => m.Source is not null))
             {
                 var code = tool.Install(m.Source!, overwrite: false, ctx.Log);
@@ -321,12 +437,12 @@ internal static class LibraryCommands
     private static Command Install()
     {
         var path = new Argument<string>("path") { Description = ".library / .compiled-library file, or a folder (installs all below it)" };
-        var overwrite = new Option<bool>("--overwrite") { Description = "Replace versions that are already installed" };
+        var overwrite = new Option<bool>("--overwrite") { Description = "Folders: replace versions that are already installed (a single file is always installed over an existing version)" };
         var profile = ProfileOption();
         var cmd = new Command("install", "Install libraries into the local library repository (RepTool)") { path, overwrite, profile };
         Action(cmd, ctx =>
         {
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             ctx.Log.Step($"RepTool profile: {tool.Profile}");
             var code = tool.Install(ctx.Get(path), ctx.Get(overwrite), ctx.Log);
             if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"RepTool failed with exit code {code}.", "Run with --verbose to see its output.");
@@ -370,7 +486,7 @@ internal static class LibraryCommands
             if (!OperatingSystem.IsWindows())
                 throw new IECodeException(ExitCodes.NotSupportedPlatform, "Installing libraries needs Windows with TwinCAT (RepTool).", "Use --dry-run to check on any OS.");
 
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
             ctx.Log.Step($"RepTool profile: {tool.Profile}");
             var done = 0;
             foreach (var l in plan)
@@ -389,20 +505,47 @@ internal static class LibraryCommands
 
     private static Command Uninstall()
     {
-        var names = new Argument<string[]>("libraries") { Description = "Library names", Arity = ArgumentArity.OneOrMore };
+        var names = new Argument<string[]>("libraries") { Description = "Library names (none with --all)", Arity = ArgumentArity.ZeroOrMore };
         var version = new Option<string>("--version") { Description = "Version to remove, or 'all'", DefaultValueFactory = _ => "all" };
         var vendor = new Option<string>("--vendor") { Description = "Vendor as shown in the library repository", Required = true };
+        var all = new Option<bool>("--all") { Description = "Every library of --vendor installed at --version (one version, not 'all'); names come from the library repository" };
+        var repo = new Option<string?>("--repository") { Description = "With --all: must be the repository RepTool's profile changes (shown in the output); only needed for an old installation without per-build RepTool folders" };
         var profile = ProfileOption();
-        var cmd = new Command("uninstall", "Remove libraries from the local library repository (RepTool)") { names, version, vendor, profile };
+        var cmd = new Command("uninstall", "Remove libraries from the local library repository (RepTool)") { names, version, vendor, all, repo, profile };
         Action(cmd, ctx =>
         {
-            var items = ctx.Get(names).Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})").ToList();
-            if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
-            var tool = RepTool.Find(ctx.Version, ctx.Get(profile));
+            var given = ctx.Get(names) ?? [];
+            string? repoPath = null;
+            List<string> items;
+            RepTool tool;
+            var twinCatDir = Environment.GetEnvironmentVariable("TWINCAT3DIR");
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            if (ctx.Get(all))
+            {
+                LibrarySelection.CheckUninstallAll(given, ctx.Get(vendor), ctx.Get(version));
+                // RepTool's profile decides which repository it deletes from: scan that one, not the one --repository names
+                tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
+                repoPath = LibrarySelection.UninstallRepository(tool.Line, tool.Profile, ctx.Get(repo), twinCatDir, programData, DefaultRepositories().Where(Directory.Exists).ToList());
+                ctx.Log.Step($"RepTool profile: {tool.Profile} · library repository: {repoPath}");
+                // the version as installed (1.3.1.0), not as typed (1.3.1), so RepTool finds it
+                items = [.. LibrarySelection.UninstallAll(LibraryRepository.Scan(repoPath), given, ctx.Get(vendor), ctx.Get(version))
+                    .Select(i => $"{i.Name},{i.Version}({ctx.Get(vendor)})")];
+            }
+            else
+            {
+                if (given.Length == 0)
+                    throw new IECodeException(ExitCodes.Usage, "No library named.", "Name the libraries, or use --all --vendor <vendor> --version <version>.");
+                if (ctx.Get(repo) is not null)
+                    throw new IECodeException(ExitCodes.Usage, "--repository only applies with --all.", "RepTool's profile (--tc, --profile) decides which repository changes.");
+                items = [.. given.Select(n => $"{n},{ctx.Get(version)}({ctx.Get(vendor)})")];
+                tool = RepToolFor(ctx, ctx.Version, ctx.Get(profile));
+                repoPath = tool.Line is { } line ? LibraryRepository.ForLine(line, twinCatDir, programData) : null;
+            }
+            if (!ctx.Log.Confirm($"Uninstall {string.Join("; ", items)}{(repoPath is null ? "" : $" from {repoPath}")} (RepTool profile {tool.Profile})?", ctx.Yes)) return new Outcome(ExitCodes.Cancelled, null);
             var code = tool.Uninstall(items, ctx.Log);
             if (code != 0) throw new IECodeException(ExitCodes.LibraryFailed, $"RepTool failed with exit code {code}.", "Run with --verbose to see its output.");
             ctx.Log.Success($"Uninstalled {items.Count} item(s)");
-            return Outcome.Ok(new { uninstalled = items });
+            return Outcome.Ok(new { uninstalled = items, repository = repoPath, profile = tool.Profile });
         }, windowsOnly: true);
         return cmd;
     }

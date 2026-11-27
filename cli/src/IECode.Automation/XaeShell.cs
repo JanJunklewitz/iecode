@@ -35,6 +35,8 @@ public sealed partial class XaeShell : IDisposable
     private readonly ShellOptions _options;
     private dynamic? _dte;
     private dynamic? _solution;
+    private int _processId;
+    private bool _openAttempted;
 
     public string ProgId { get; }
     public string? SolutionPath { get; private set; }
@@ -62,22 +64,244 @@ public sealed partial class XaeShell : IDisposable
         var sw = Stopwatch.StartNew();
         log.Step($"Starting {progId}{(options.Visible ? "" : " (hidden)")}…");
         object dte;
-        try
+        Process? candidate = null;
+        using (var gate = StartGate.Enter(log))
         {
-            dte = Activator.CreateInstance(Type.GetTypeFromProgID(progId)!)
-                ?? throw new IECodeException(ExitCodes.Failed, $"Creating {progId} returned nothing.");
-        }
-        catch (COMException e)
-        {
-            filter.Dispose();
-            throw new IECodeException(ExitCodes.Failed, $"Starting {progId} failed: {e.Message}", inner: e);
+            var before = gate is null ? null : ShellPids();
+            try
+            {
+                dte = Activator.CreateInstance(Type.GetTypeFromProgID(progId)!)
+                    ?? throw new IECodeException(ExitCodes.Failed, $"Creating {progId} returned nothing.");
+            }
+            catch (COMException e)
+            {
+                filter.Dispose();
+                throw new IECodeException(ExitCodes.Failed, $"Starting {progId} failed: {e.Message}", inner: e);
+            }
+            if (before is not null) candidate = Candidate(before, log);
         }
 
         var shell = new XaeShell(log, filter, options, progId, dte);
-        shell.Configure();
+        try
+        {
+            // a new process is only the shell's once the DTE object proves it: right then tie it to iecode, record it,
+            // and watch a dialog while configuring too
+            shell.Adopt(ref candidate, attempts: 3);
+            // a dialog while configuring fails Start with its text, not with the COM error of the cancelled call
+            shell.Watched(shell.Configure);
+            // the window may not have been readable before Configure
+            shell.Adopt(ref candidate, attempts: 1);
+            shell._processId = shell.ShellProcessId();
+        }
+        catch { shell.Dispose(); throw; }
+        finally { candidate?.Dispose(); }
+        if (shell._process is null) log.Warn("The started XAE shell could not be told apart from other shells: its dialogs are not watched and it is not ended with iecode in this run (details with -v).");
         log.Detail($"Shell ready after {sw.Elapsed.TotalSeconds:0.0} s");
         return shell;
     }
+
+    // ---------------------------------------------------------------- Shell process
+
+    private Process? _process;
+    private DialogWatch? _watch;
+    private bool _tied;
+    private ShellRegistry? _registry;
+    private ShellEntry? _entry;
+
+    /// <summary>
+    /// Makes the new process the owned shell when the DTE object proves it is the COM server behind it: the running object
+    /// table entry that holds this very object (or, failing that, the owner of the main window) names the new process, in
+    /// this session. A process that is merely new (another program started a shell between the snapshots, or the activation
+    /// reused a running server) is never tied to iecode, recorded, watched or killed. Stays undecided (no change) while
+    /// the server cannot be told, so it can be tried again; then the shell runs unwatched.
+    /// </summary>
+    private void Adopt(ref Process? candidate, int attempts)
+    {
+        if (candidate is null || _process is not null) return;
+        using var me = Process.GetCurrentProcess();
+        var server = ServerPid(attempts);
+        switch (ShellRegistry.Verify(candidate.Id, SessionOf(candidate), me.SessionId, server))
+        {
+            case ShellOwnership.Unknown:
+                _log.Detail($"Could not read which process the shell {candidate.Id} belongs to yet.");
+                return;
+            case ShellOwnership.Foreign:
+                _log.Detail($"The new process {candidate.Id} is not the COM server behind this shell (window of PID {server?.ToString() ?? "?"}); leaving it alone.");
+                candidate.Dispose();
+                candidate = null;
+                return;
+        }
+        _process = candidate;
+        candidate = null;
+        Register();
+        _watch = DialogWatch.Start(_process, _options.Visible || _options.ShowUi, _log);
+    }
+
+    /// <summary>The process serving the DTE object, from the running object table (the shell registers itself a moment after it starts), else from its main window.</summary>
+    private int? ServerPid(int attempts)
+    {
+        for (var i = 0; i < attempts; i++)
+        {
+            if (i > 0) Thread.Sleep(1000);
+            if (RunningObjects.ServerPidOf((object)Dte) is { } pid) return pid;
+            if (ShellProcessId() is var w and not 0) return w;
+        }
+        return null;
+    }
+
+    private static int SessionOf(Process p)
+    {
+        try { return p.SessionId; }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { return -1; }
+    }
+
+    /// <summary>Puts the owned shell into the kill-on-close job and records it for <c>iecode shells</c>; failures only log.</summary>
+    private void Register()
+    {
+        _tied = JobObject.TryKillOnClose(_process!, _log);
+        try
+        {
+            using var me = Process.GetCurrentProcess();
+            var registry = new ShellRegistry(ShellRegistry.DefaultFolder());
+            var entry = new ShellEntry(_process!.Id, _process.StartTime.ToUniversalTime(), me.Id, me.StartTime.ToUniversalTime(), ProgId, null);
+            registry.Add(entry);
+            (_registry, _entry) = (registry, entry);
+            _log.Detail($"Shell process {entry.Pid}{(_tied ? " (ends with iecode)" : "")}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _log.Detail($"Shell not recorded for 'iecode shells': {e.Message}");
+        }
+    }
+
+    private void Record(string? solution)
+    {
+        if (_registry is null || _entry is null) return;
+        try { _registry.Add(_entry = _entry with { Solution = solution }); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not updated: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// After Quit: waits up to 30 s for the shell process to end (it still writes its settings), then drops its record.
+    /// An entry is removed only once the exit is confirmed.
+    /// </summary>
+    private void AwaitExit(bool quitReturned)
+    {
+        if (_process is null) return;
+        try
+        {
+            // a shell that did not take Quit has no settings to write; do not hold a failed run for 30 s
+            if (_process.WaitForExit(TimeSpan.FromSeconds(quitReturned ? 30 : 5)))
+            {
+                try { if (_entry is not null) _registry?.Remove(_entry); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not removed: {e.Message}"); }
+            }
+            else if (_tied) _log.Detail($"Shell process {_process.Id} still runs 30 s after closing; it ends with iecode.");
+            else _log.Warn($"The XAE shell (PID {_process.Id}) still runs 30 s after closing. 'iecode shells kill' ends it.");
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _log.Detail($"Waiting for the shell to end failed: {e.Message}");
+        }
+    }
+
+    /// <summary>The shell process iecode started, when it could be told apart from other shells; null otherwise (no watch).</summary>
+    public int? ProcessId => _process?.Id;
+
+    /// <summary>Title of the dialog the watcher cancelled, if any.</summary>
+    public string? BlockingDialog => _watch?.Cancelled?.Title;
+
+    /// <summary>A dialog was cancelled (or the shell ended): every later call fails with it, so a session starts a new shell.</summary>
+    public bool DialogFailed => _watch?.Cancelled is not null;
+
+    private static int[] ShellPids() =>
+    [
+        .. DialogPolicy.ShellProcessNames.SelectMany(Process.GetProcessesByName).Select(p => { using (p) return p.Id; }),
+    ];
+
+    /// <summary>The one new shell process after CreateInstance, opened now so its handle stays valid; null when it is not exactly one. Only a candidate: <see cref="Adopt"/> proves it.</summary>
+    private static Process? Candidate(int[] before, Reporter log)
+    {
+        var after = ShellPids();
+        if (ShellRegistry.Started(before, after) is not { } pid)
+        {
+            log.Detail($"Could not tell which shell process was started ({after.Except(before).Count()} new); running without dialog watch.");
+            return null;
+        }
+        try
+        {
+            var p = Process.GetProcessById(pid);
+            _ = p.Handle;
+            return p;
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            log.Detail($"Shell process {pid} not accessible ({e.Message}); running without dialog watch.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The named mutex <c>Local\iecode-shell-start</c> around CreateInstance, so two iecode runs starting a shell at the
+    /// same time do not take each other's process. Null when it could not be had in time: then nothing is owned.
+    /// </summary>
+    private sealed class StartGate : IDisposable
+    {
+        private readonly Mutex _mutex;
+        private StartGate(Mutex m) => _mutex = m;
+
+        public static StartGate? Enter(Reporter log)
+        {
+            Mutex m;
+            try { m = new Mutex(false, @"Local\iecode-shell-start"); }
+            catch (Exception e) when (e is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
+            {
+                log.Detail($"Shell start lock not available ({e.Message}).");
+                return null;
+            }
+            try
+            {
+                if (m.WaitOne(TimeSpan.FromMinutes(2))) return new StartGate(m);
+            }
+            catch (AbandonedMutexException) { return new StartGate(m); }
+            log.Detail("Another iecode is still starting a shell; this one is not watched.");
+            m.Dispose();
+            return null;
+        }
+
+        public void Dispose()
+        {
+            _mutex.ReleaseMutex();
+            _mutex.Dispose();
+        }
+    }
+
+    /// <summary>Throws the dialog failure once the watcher cancelled a dialog of the shell.</summary>
+    internal void ThrowIfDialogCancelled()
+    {
+        if (_watch?.Failure is { } f) throw f;
+    }
+
+    /// <summary>
+    /// Runs a shell call that can block on a dialog. Once the watcher cancelled a dialog, any error of the call (the COM
+    /// error of the cancelled operation, a wrapped one, a timeout) becomes the dialog failure, and so does success.
+    /// </summary>
+    private T Watched<T>(Func<T> body)
+    {
+        // a shell that already stopped on a dialog fails every later call with it, before the call can touch anything
+        ThrowIfDialogCancelled();
+        T result;
+        try { result = body(); }
+        catch (Exception e) when (_watch?.Failure is { } f && !ReferenceEquals(e, f))
+        {
+            _log.Detail($"After the dialog: {e.Message}");
+            throw f;
+        }
+        ThrowIfDialogCancelled();
+        return result;
+    }
+
+    private void Watched(Action body) => Watched<object?>(() => { body(); return null; });
 
     /// <summary>Name of the Automation Interface settings object (DTE.GetObject), assembled from its parts.</summary>
     private static readonly string SettingsObject = string.Concat("Tc", "Automation", "Settings");
@@ -105,14 +329,18 @@ public sealed partial class XaeShell : IDisposable
     // ---------------------------------------------------------------- TwinCAT version (Remote Manager)
 
     /// <summary>Versions known to the TwinCAT Remote Manager, e.g. 3.1.4024.62, 3.1.4024.66.</summary>
-    public IReadOnlyList<string> InstalledVersions()
+    public IReadOnlyList<string> InstalledVersions() => Watched(InstalledVersionsCore);
+
+    private IReadOnlyList<string> InstalledVersionsCore()
     {
         var rm = RemoteManager();
         return ComCall.Items(ComCall.Retry(() => (object)rm.Versions)).Select(v => (string)v.ToString()).ToList();
     }
 
     /// <summary>Selects the TwinCAT version used for the following operations. Must run before opening the solution.</summary>
-    public void SelectVersion(TwinCatVersion request)
+    public void SelectVersion(TwinCatVersion request) => Watched(() => SelectVersionCore(request));
+
+    private void SelectVersionCore(TwinCatVersion request)
     {
         if (request.IsAuto) return;
         var installed = InstalledVersions();
@@ -139,13 +367,17 @@ public sealed partial class XaeShell : IDisposable
         ?? throw new IECodeException(ExitCodes.UserManagementFailed, "TwinCAT user management is not available in this shell.",
             "Needs TwinCAT 3 Security Management (TwinCAT 4024.x or newer).");
 
-    public string? ActiveUser()
+    public string? ActiveUser() => Watched(ActiveUserCore);
+
+    private string? ActiveUserCore()
     {
         try { var um = UserManagement(); return ComCall.Retry(() => (string?)um.ActiveUser); }
         catch (IECodeException) { return null; }
     }
 
-    public void SelectUserDb(string path)
+    public void SelectUserDb(string path) => Watched(() => SelectUserDbCore(path));
+
+    private void SelectUserDbCore(string path)
     {
         var full = Path.GetFullPath(path);
         if (!File.Exists(full)) throw new IECodeException(ExitCodes.NotFound, $"User database '{path}' not found.");
@@ -155,7 +387,9 @@ public sealed partial class XaeShell : IDisposable
         _log.Step($"User database: {Path.GetFileName(full)}");
     }
 
-    public void Login(string user, string password)
+    public void Login(string user, string password) => Watched(() => LoginCore(user, password));
+
+    private void LoginCore(string user, string password)
     {
         var um = UserManagement();
         try { ComCall.Retry(() => { um.LoginUser(user, password); }); }
@@ -169,19 +403,41 @@ public sealed partial class XaeShell : IDisposable
 
     // ---------------------------------------------------------------- Solution
 
-    public void OpenSolution(string path)
+    /// <summary>
+    /// Set by a build without saving: the open solution is closed without saving before another one is opened and before
+    /// the shell quits, so changes XAE made while loading are not written then.
+    /// </summary>
+    public bool DiscardChanges { get; set; }
+
+    private void CloseWithoutSaving()
+    {
+        // an Open that failed half-way can leave a solution loaded although SolutionPath was never set
+        if (!DiscardChanges || _solution is null || (SolutionPath is null && !_openAttempted)) return;
+        ComCall.Retry(() => { Solution.Close(false); });
+        _log.Detail($"Closed {(SolutionPath is null ? "the solution" : Path.GetFileName(SolutionPath))} without saving");
+        _openAttempted = false;
+        SolutionPath = null;
+    }
+
+    public void OpenSolution(string path) => Watched(() => OpenSolutionCore(path));
+
+    private void OpenSolutionCore(string path)
     {
         var full = Path.GetFullPath(path);
+        CloseWithoutSaving();
         _log.Step($"Opening {Path.GetFileName(full)}…");
         _solution = ComCall.Retry(() => (object)Dte.Solution);
+        _openAttempted = true;
         ComCall.Retry(() => { Solution.Open(full); });
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
         while (!ComCall.Retry(() => (bool)Solution.IsOpen))
         {
+            ThrowIfDialogCancelled();
             if (DateTime.UtcNow > deadline) throw new IECodeException(ExitCodes.Timeout, $"Opening '{full}' did not finish.");
             Thread.Sleep(250);
         }
         SolutionPath = full;
+        Record(full);
         WaitUntilIdle();
         _loadOutputPending = true;
     }
@@ -204,7 +460,9 @@ public sealed partial class XaeShell : IDisposable
     }
 
     /// <summary>Saves the solution and all TwinCAT projects (picks up pending changes before build/activate).</summary>
-    public void SaveAll()
+    public void SaveAll() => Watched(SaveAllCore);
+
+    private void SaveAllCore()
     {
         ComCall.Retry(() => { Solution.SaveAs((string)Solution.FullName); });
         foreach (var (project, _, file) in TwinCatProjects())
@@ -220,6 +478,7 @@ public sealed partial class XaeShell : IDisposable
         var deadline = DateTime.UtcNow + (max ?? TimeSpan.FromSeconds(60));
         while (DateTime.UtcNow < deadline)
         {
+            ThrowIfDialogCancelled();
             try
             {
                 var building = _solution is not null && ComCall.Retry(() => (int)Solution.SolutionBuild.BuildState) == BuildStateInProgress;
@@ -236,13 +495,45 @@ public sealed partial class XaeShell : IDisposable
         catch (Exception) { return ""; }
     }
 
-    public void Dispose()
+    /// <summary>Closes the shell without telling whether a dialog stopped the shutdown; for cleanup on an error path.</summary>
+    public void Dispose() => Close();
+
+    private IECodeException? _closed;
+
+    /// <summary>
+    /// Closes the shell. Returns the dialog failure when the watcher cancelled a dialog (or ended the shell) at any time,
+    /// also during the shutdown itself, so a command that otherwise succeeded can fail with it instead of reporting
+    /// success for a shell that was cancelled or killed while closing. Idempotent.
+    /// </summary>
+    public IECodeException? Close()
     {
-        if (_dte is null) return;
+        if (_dte is null) return _closed;
+        CloseCore();
+        return _closed = _watch?.Failure;
+    }
+
+    private void CloseCore()
+    {
+        var quitReturned = false;
         try
         {
-            _log.Detail("Closing shell…");
-            ComCall.Retry(() => { Dte.Quit(); }, attempts: 5);
+            // after a give-up the watcher has ended the shell (or tried to: then the COM calls would block on the dialog
+            // again, so the shell is ended here instead); there is nothing to quit either way
+            if (_watch is { GaveUp: true, ShellEnded: false }) TerminateWithoutSaving("a dialog stopped it and ending it failed before");
+            else if (_watch?.GaveUp != true)
+            {
+                _log.Detail("Closing shell…");
+                var discarded = true;
+                try { CloseWithoutSaving(); }
+                catch (Exception e)
+                {
+                    discarded = false;
+                    _log.Warn($"Closing the solution without saving failed: {e.Message}");
+                }
+                // Quit saves a dirty project (spike): after a failed discard it would write what the command promised not to
+                if (discarded) { ComCall.Retry(() => { Dte.Quit(); }, attempts: 5); quitReturned = true; }
+                else TerminateWithoutSaving("the solution could not be closed without saving");
+            }
         }
         catch (Exception e)
         {
@@ -254,7 +545,60 @@ public sealed partial class XaeShell : IDisposable
             ComCall.Release(_dte);
             _solution = null;
             _dte = null;
+            AwaitExit(quitReturned);
+            // after Quit, so a dialog while closing is still handled; before Runner writes the result
+            _watch?.Dispose();
+            _process?.Dispose();
             _filter.Dispose();
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    /// <summary>The process of the shell this object started (its main window's owner); 0 when it cannot be told.</summary>
+    private int ShellProcessId()
+    {
+        try
+        {
+            var hwnd = ComCall.Retry(() => (int)Dte.MainWindow.HWnd);
+            return GetWindowThreadProcessId(new IntPtr(hwnd), out var pid) != 0 ? (int)pid : 0;
+        }
+        catch (Exception) { return 0; }
+    }
+
+    /// <summary>Ends the shell process without a Quit, which would save; the shell is this object's own, started for one command.</summary>
+    private void TerminateWithoutSaving(string reason)
+    {
+        // the owned process is ended through its own handle; only a shell that was not proven ours is found by PID
+        if (_process is not null)
+        {
+            try
+            {
+                _process.Kill(entireProcessTree: true);
+                _log.Warn($"The shell was ended without saving because {reason}.");
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                _log.Warn($"The shell could not be ended ({e.Message}); close it yourself without saving.");
+            }
+            return;
+        }
+        if (_processId == 0) _processId = ShellProcessId();
+        if (_processId == 0)
+        {
+            _log.Warn("The shell was left running: it could not be closed without saving, and a normal exit would save the project. Close it yourself without saving.");
+            return;
+        }
+        try
+        {
+            using var p = Process.GetProcessById(_processId);
+            p.Kill(entireProcessTree: true);
+            _log.Warn($"The shell was ended without saving because {reason}.");
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _log.Warn($"The shell could not be ended ({e.Message}); close it yourself without saving.");
         }
     }
 

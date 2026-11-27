@@ -9,7 +9,38 @@ public sealed class Git
 
     private static readonly System.Text.Encoding Utf8 = new System.Text.UTF8Encoding(false);
 
+    private static readonly AsyncLocal<string?> ExecutableOverride = new();
+
+    /// <summary>The git executable; tests point it at a file that does not exist to simulate a machine without git.</summary>
+    internal static string? Executable { get => ExecutableOverride.Value; set => ExecutableOverride.Value = value; }
+
+    private static string Exe => Executable ?? "git";
+
     private Git(string root) => Root = root;
+
+    /// <summary>
+    /// <c>git status</c> entries below a folder (default: the whole repository), with repository-relative paths ('/').
+    /// A rename or copy gives its new path with <c>OrigPath</c> set. Untracked files are listed one by one.
+    /// </summary>
+    public IReadOnlyList<(string Code, string Path, string? OrigPath)> StatusEntries(string? folder = null)
+    {
+        // literal: "--" only ends option parsing, glob characters in a folder name would still match
+        var spec = folder is null ? "." : Rel(folder) is "" or "." ? "." : ":(literal)" + Rel(folder);
+        var output = Run(Root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", spec)
+            ?? throw new IECodeException(ExitCodes.Failed, $"git status failed in '{Root}'.");
+        var parts = output.Split('\0');
+        var entries = new List<(string, string, string?)>();
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length < 4) continue;
+            var code = parts[i][..2];
+            var path = parts[i][3..];
+            // -z: "XY new\0old\0" for renames and copies
+            string? orig = (code[0] is 'R' or 'C' || code[1] is 'R' or 'C') && i + 1 < parts.Length ? parts[++i] : null;
+            entries.Add((code, path, orig));
+        }
+        return entries;
+    }
 
     /// <summary>Opens the repository that contains a folder.</summary>
     public static Git Open(string folder)
@@ -46,7 +77,7 @@ public sealed class Git
         var result = new Dictionary<string, string>();
         if (paths.Count == 0) return result;
         // paths go to git as UTF-8 without BOM, not in the console code page
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = Root, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardInputEncoding = Utf8 };
+        var psi = new ProcessStartInfo(Exe) { WorkingDirectory = Root, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardInputEncoding = Utf8 };
         psi.ArgumentList.Add("cat-file");
         psi.ArgumentList.Add("--batch");
         using var p = Process.Start(psi)!;
@@ -96,14 +127,16 @@ public sealed class Git
 
     private static string? Run(string cwd, params string[] args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardOutputEncoding = Utf8 };
+        var psi = new ProcessStartInfo(Exe) { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardOutputEncoding = Utf8 };
         foreach (var a in args) psi.ArgumentList.Add(a);
         try
         {
             using var p = Process.Start(psi)!;
+            // read stderr at the same time: git blocks on a full stderr pipe (e.g. many line-ending warnings)
+            var stderr = p.StandardError.ReadToEndAsync();
             var stdout = p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
             p.WaitForExit();
+            _ = stderr.Result;
             return p.ExitCode == 0 ? stdout : null;
         }
         catch (System.ComponentModel.Win32Exception e)

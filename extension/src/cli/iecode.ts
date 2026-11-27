@@ -6,7 +6,7 @@ import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { CliDiagnostic } from '../core/diagnostics';
-import { LogLevel, countLine, diagnosticLine, progressLine } from '../core/clilog';
+import { LogLevel, countLine, diagnosticLine, progressLine, rootCausesFirst, tcVersionHint } from '../core/clilog';
 import { findOnPath } from '../core/claudeRegistration';
 
 export interface CliResult<T = unknown> {
@@ -35,7 +35,7 @@ function reveal(when: 'start' | 'problems') {
 
 /** The outcome of a run: compiler messages, counts, error and hint. */
 function logResult(res: CliResult) {
-  for (const d of res.diagnostics ?? []) log(d.severity, diagnosticLine(d));
+  for (const d of rootCausesFirst(res.diagnostics ?? [])) log(d.severity, (d.rootCause ? 'Root cause: ' : '') + diagnosticLine(d));
   const counts = countLine(res.diagnostics ?? []);
   const summary = `${res.ok ? '✔' : '✖'} ${res.command} · exit ${res.exitCode} · ${(res.durationMs / 1000).toFixed(1)} s${counts ? ' · ' + counts : ''}`;
   const warnings = (res.diagnostics ?? []).some(d => d.severity === 'warning');
@@ -110,7 +110,8 @@ export async function runCli<T = unknown>(args: string[], title: string, cwd?: s
 /** Shows the CLI's error with its hint; offers the output channel. */
 export async function reportFailure(res: CliResult, what: string) {
   const msg = res.error ?? `${what} failed (exit ${res.exitCode})`;
-  const pick = await vscode.window.showErrorMessage(`IECode: ${msg}${res.hint ? ' — ' + res.hint : ''}`, 'Show Output');
+  const hint = [res.hint, tcVersionHint(res.exitCode, res.error, res.hint)].filter(Boolean).join(' ');
+  const pick = await vscode.window.showErrorMessage(`IECode: ${msg}${hint ? ' — ' + hint : ''}`, 'Show Output');
   if (pick) output.show();
 }
 

@@ -13,7 +13,7 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | Command | What it does | Needs |
 |---|---|---|
 | `info [sln] [--installed]` | TwinCAT and PLC projects, saved TwinCAT version, library metadata; `--installed` lists installed TwinCAT versions | files (`--installed`: XAE) |
-| `build [sln] [-p <platform>]… [--clean] [-c <config>]` | Build one or more target platforms; compiler messages with file and line | XAE |
+| `build [sln] [-p <platform>]… [--clean] [-c <config>] [--no-save] [--isolate [--keep-isolated] [--isolate-dir <dir>] [--copy-tmc]]` | Build one or more target platforms; compiler messages with file and line. Prints how many files changed in `git status` (`-v` lists them, JSON `changedFiles`). `--no-save` skips the save before the build and closes the solution without saving (XAE may still save a project it changes while building). `--isolate` builds in a temporary copy of the repository (ignored files included; `.git`, `.vs`, `_CompileInfo`, `_Boot` left out), so the working tree stays as it is; diagnostics point at the original files. It stops when the solution references files outside the repository, by absolute path or with unresolved `$(...)` variables, or contains projects other than `.plcproj`, `.tsproj`, `.tspproj` (a copy is no sandbox: other project types could still write to the original through absolute output paths or build hooks). `--copy-tmc` copies the `.tmc` files the build changed back after a successful build (never over a file that changed in the repository meanwhile), `--keep-isolated` keeps the copy | XAE |
 | `check [sln]` | "Check all objects" on every PLC project | XAE |
 | `clean [sln]` | Clean the solution in XAE | XAE |
 | `clean [folder] --artifacts [--boot] [--dry-run]` | Delete generated `_CompileInfo` (and `_Boot`) folders | files |
@@ -21,20 +21,22 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `encrypt [sln] --protect "<tree path>,encrypted=true,signed=true,level=<name>"…` | Object protection with TwinCAT 3 Security Management (encryption, signing, protection level) | XAE |
 | `encrypt [sln] --compiled-library [--plc <name>] [--out <dir>]` | Ship a library without source | XAE |
 | `user status` | Active TwinCAT user (after `--userdb` / `--user` / `--credential`) | XAE |
-| `lib save [sln] [--compiled] [--install] [--plc <name>] [-o <dir>]` | Save a PLC project as `<Title>_<Version>.library` / `.compiled-library` | XAE |
-| `lib save-all [folder] [--compiled] [--install] [--libraries-only] [-o <dir>\|--dist <name>] [--fail-fast] [--dry-run]` | Save every PLC project of a workspace as `.library` / `.compiled-library` with one XAE shell, in build order (with `--install` libraries are installed before their users). Default output: `dist` next to each solution. Continues after a failure and exits with an error at the end unless `--fail-fast` | XAE (`--dry-run`: files) |
-| `lib list [paths…] [--csv <file>]` | Library references and the version that applies (pinned or `*`) | files |
+| `lib save [sln] [--compiled] [--install] [--plc <name>] [-o <dir>]` | Save a PLC project as `<Title>_<Version>.library` / `.compiled-library`. Default output: `dist` next to the solution. `--install` installs the saved file with RepTool, with the TwinCAT build the shell used | XAE |
+| `lib save-all [folder] [--compiled] [--install] [--libraries-only] [-o <dir>\|--dist <name>] [--fail-fast] [--dry-run]` | Save every PLC project of a workspace as `.library` / `.compiled-library` with one XAE shell, in build order (with `--install` libraries are installed before their users). Default output: `dist` next to each solution. Continues after a failure and exits with an error at the end unless `--fail-fast`. A repository timeout (exit 17) stops the batch even without `--fail-fast`; JSON `data` still lists `results`, `notStarted` and `stopped` so a caller can resume | XAE (`--dry-run`: files) |
+| `lib list [paths…] [--csv <file>] [--repository <dir>]` | Library references and the version that applies (pinned or `*`); for `*` also the highest installed version in the library repository (JSON `resolvedVersion`) | files |
 | `lib info [paths…]` | Title, company and version of library projects | files |
-| `lib update [paths…] --lib <name> (--to <ver>\|--to latest\|--from-project <plcproj>) [--vendor] [--dry-run]` | Set a library version in every `.plcproj` below the paths. Edits text in place: formatting, BOM and CRLF stay | files |
+| `lib update [paths…] --lib <name>[=<ver>]… [--to <ver>\|--to latest\|--from-project <plcproj>] [--vendor] [--dry-run]` | Set library versions in every `.plcproj` below the paths. `--lib` is repeatable; `name=version` pairs cannot be combined with `--to`. `--vendor` without `--lib` updates every library of that vendor, each to its newest installed version (`--to latest`) or to `*` (`--to *`). Checks every version and file before the first write. Edits text in place: formatting, BOM and CRLF stay. JSON keeps `library` / `version` (first item) and adds `items` | files |
 | `lib outdated [paths…] [--repository <dir>]` | Pinned references with a newer version in the library repository | files |
-| `lib installed [--lib <name>] [--repository <dir>]` | Libraries in the local library repository | files |
+| `lib installed [--lib <pattern>] [--vendor <vendor>] [--repository <dir>]` | Libraries in the local library repository; `--lib` takes `*` and `?` as wildcards (e.g. `Tc3_*`) | files |
+| `lib check [paths…] [--repository <dir>]…` | Find library references that cannot resolve, before a build: pinned versions that are not installed and `*` references with no version installed. Looks in every library repository of the PC (4024 and 4026 can differ) unless `--repository` is given. Exit 3 when something is missing; JSON `data.problems` | files |
 | `lib restore [paths…] -s <folder>… [--dry-run]` | Install the library versions pinned in the `.plcproj` files that are missing locally (CI, fresh PCs) | TwinCAT (`--dry-run`: files) |
-| `lib install <file\|folder> [--overwrite] [--profile]` | Install libraries (RepTool) | TwinCAT |
+| `lib install <file\|folder> [--overwrite] [--profile]` | Install libraries (RepTool). `--overwrite` applies to folders; a single file always replaces an installed version | TwinCAT |
 | `lib install-project [paths…] [--missing-only] [--dry-run]` | Install the libraries kept in each project's `_Libraries` folder, like XAE's *Install Project Libraries*; `--missing-only` = *(Unknown versions)* | TwinCAT (`--dry-run`: files) |
 | `lib uninstall <name>… --vendor <vendor> [--version all]` | Remove libraries (RepTool) | TwinCAT |
+| `lib uninstall --all --vendor <vendor> --version <ver> [--repository <dir>]` | Remove every library of a vendor installed at one version; the names come from the library repository RepTool's profile changes (4026: ProgramData, 4024: below the TwinCAT folder; printed and shown in the confirmation). `--repository` only applies with `--all` and is rejected when it is not that repository; choose the repository with `--tc` or `--profile`. RepTool gets the version as installed (`1.3.1` matches `1.3.1.0`). Exit 3 when nothing matches | TwinCAT |
 | `ws list [folder]` | Libraries, applications and standalone PLC projects in a workspace folder | files |
 | `ws graph [folder] [--format text\|mermaid]` | Library dependencies (workspace link or pinned) and build order | files |
-| `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run]` | Build in dependency order with one XAE shell; workspace libraries are saved + installed before their users | XAE (`--dry-run`: files) |
+| `ws build [folder] [--affected [--since <ref>\|--changed <file\|id>…]] [--dry-run] [--no-save]` | Build in dependency order with one XAE shell per TwinCAT line; workspace libraries are saved + installed before their users. `--no-save` as in `build` | XAE (`--dry-run`: files) |
 | `ws release <library> [--bump major\|minor\|patch\|<ver>] [--update-dependents] [--include-pinned] [--no-save]` | Bump the library version, save + install it, set the new version in the projects that use it | XAE (`--no-save`: files) |
 | `io links [tsproj\|sln\|folder] [--at <ref>] [--csv <file>] [--full] [--yaml]` | IO links (variable ↔ channel) of TwinCAT projects, from the `.tsproj` and the `.xti` files it references; working copy or any git commit. `--yaml` shows them as a hardware tree (device › box › terminal › channel) as YAML | files + git |
 | `io diff [path] --from <ref> [--to <ref>] [--csv <file>] [--fail-on-change]` | Compare IO links between two versions: added, removed, moved (other channel), changed (size / offsets). `--fail-on-change` exits with 18 for CI checks | files + git |
@@ -44,19 +46,21 @@ protect projects, talk to targets over ADS. Made for developer machines and CI.
 | `ads symbols [tmc\|plcproj\|sln\|folder] [--plc <name>] [--members] [--filter <text>] [--csv <file>] [--save <snapshot.json>] [--online --target <netid> --filter <text>]` | ADS interface of a PLC project (the symbols an HMI or other ADS client can access by name) from the build output `<PLC>.tmc`. No running PLC needed; warns if the sources are newer than the build | files (after `build`) |
 | `ads diff [path] --against <snapshot.json\|.tmc> [--members] [--csv <file>] [--fail-on-change]` | Compare the ADS interface of the current build with a snapshot: added, removed, changed (type / size). `--fail-on-change` exits with 19 for CI checks | files (after `build`) |
 | `mcp` | MCP stdio server for Claude Code: relays the ADS tools to the VS Code window that serves the working directory, until stdin closes (see [MCP bridge](#mcp-bridge-for-claude-code)) | VS Code with IECode |
+| `shells list` / `shells kill [--force]` | The XAE shells iecode started that still run (PID, solution, whether their iecode still runs) / end the ones a killed run left behind. Only recorded processes with the same PID and start time are touched; a shell whose iecode still runs is ended only with `--force`. `kill` asks first (`--yes` in scripts) | Windows |
 | `doctor` | Check TwinCAT, shells, RepTool and library repository on this machine | – |
 
 ### Global options
 
 | Option | |
 |---|---|
-| `--tc 4024 \| 4026 \| 4024.66 \| 3.1.4024.66 \| auto` | TwinCAT version. `auto` uses the version the project was saved with if it's installed, otherwise the shell's default. Selected through the TwinCAT Remote Manager |
+| `--tc 4024 \| 4026 \| 4024.66 \| 3.1.4024.66 \| auto` | TwinCAT version. `auto` uses the build the project was saved with, else the newest installed build of that line, and never moves a project to another line: a command that saves (`build` also with `--no-save`, because XAE may write a project while building; `activate`, `encrypt`, `lib save`, `lib save-all`, `ws build`, `ws release`) stops with exit 15 when that line is not installed, with exit 2 when the projects were saved with different lines, and with exit 2 when they carry no version while 4024 and 4026 are both installed; `check` and `clean` warn, go on and close the solution without saving. Installed builds come from the `Components\Plc\Build_*` folders. Selected through the TwinCAT Remote Manager |
 | `--prog-id` | DTE ProgID, e.g. `TcXaeShell.DTE.17.0`; default is picked from `--tc` |
 | `--userdb <file.tcudb>` | Select a user database before opening the project |
 | `--user <name>` | Log in to TwinCAT user management; password from `IECODE_PASSWORD` or a prompt |
 | `--credential <target>` | Log in with a generic credential from the Windows Credential Manager (asked and saved on first use) |
-| `--visible`, `--show-ui` | Show the XAE window / allow its message boxes (both off by default) |
-| `--timeout <s>` | Abort build or activation after N seconds (default 1800) |
+| `--visible`, `--show-ui` | Show the XAE window / allow its message boxes (both off by default). Without them, an unknown modal dialog of the hidden shell is cancelled after 10 s and the command fails with its title and text (exit 1); with them it is left for you to answer |
+| `--timeout <s>` | Abort build or activation after N seconds (default 1800). Also limits how long a library install waits for another one and how long one RepTool run may take (it is stopped after that). 1 to 2147483 |
+| `--max-errors <n>` | Print at most N errors (and N warnings) per build; `0` = all. Default 50 on a console, all when stderr is redirected to a file. Root causes are always printed, JSON always has every diagnostic |
 | `--json`, `-v/--verbose`, `--no-color`, `-y/--yes`, `--pause` | Output and interaction |
 
 Commands that change a remote target, delete files or protect a project ask first. In scripts and CI pass `--yes`;
@@ -173,11 +177,15 @@ version 2025-11-25), logs to stderr and ends when stdin closes. It has no ADS co
 
 ```json
 { "command": "build", "ok": false, "exitCode": 10, "durationMs": 18412, "twinCat": "3.1.4024.66",
-  "data": { "builds": [ { "platform": "TwinCAT RT (x64)", "ok": false, "errors": 1, "warnings": 0 } ] },
+  "data": { "builds": [ { "platform": "TwinCAT RT (x64)", "ok": false, "errors": 1, "warnings": 0, "staticAnalysisOnly": false } ] },
   "diagnostics": [ { "severity": "error", "code": "C0077", "message": "Unknown type: 'fSped'",
                      "file": "C:\\…\\FB_Motor.TcPOU", "project": "PLC1", "line": 2, "column": 13 } ],
   "messages": [ "…" ] }
 ```
+
+A diagnostic that causes the others (a library that is not installed or cannot be opened) has `"rootCause": true`;
+`build` and `check` print these first. `staticAnalysisOnly` is `true` when every error of a build is a static
+analysis finding (`SAxxxx`); the exit code stays 10.
 
 ## Exit codes
 
@@ -209,6 +217,9 @@ version 2025-11-25), logs to stderr and ends when stdin closes. It has no ADS co
   the TwinCAT Automation Interface with **COM late binding**. No Beckhoff or Microsoft interop assemblies are
   referenced or shipped; the components installed with TwinCAT are used. A COM message filter retries calls
   while the shell is busy, the shell runs hidden with silent mode, and it's always closed at the end.
+  The shell process iecode started is watched for modal dialogs (known ones are confirmed, others cancelled after
+  10 s, then closed, then the shell is ended), put into a kill-on-close job so it ends with iecode, and recorded in
+  `%LOCALAPPDATA%\iecode\shells` for `iecode shells`.
   RepTool is used for library install/uninstall, `Beckhoff.TwinCAT.Ads` (MIT) for ADS.
 - `IECode.Cli`: `iecode` command line (System.CommandLine).
 
