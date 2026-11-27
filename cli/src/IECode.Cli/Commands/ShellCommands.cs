@@ -36,13 +36,26 @@ internal static class ShellCommands
             var state = ShellRegistry.State(e, shellStart, ownerStart, ownerUnreadable, shellUnreadable);
             if (state == ShellState.Stale)
             {
-                registry.Remove(e);
-                log.Detail($"Removed the record of PID {e.Pid} (process gone)");
+                if (Forget(registry, e, log)) log.Detail($"Removed the record of PID {e.Pid} (process gone)");
                 continue;
             }
             rows.Add(new Row(e, state));
         }
         return rows;
+    }
+
+    /// <summary>
+    /// Removes a record; a record another iecode is reading or writing (or that access is denied to) stays for a later
+    /// run instead of failing the command.
+    /// </summary>
+    private static bool Forget(ShellRegistry registry, ShellEntry entry, Reporter log)
+    {
+        try { registry.Remove(entry); return true; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            log.Detail($"The record of PID {entry.Pid} was not removed: {e.Message}");
+            return false;
+        }
     }
 
     private static object Json(Row r) => new
@@ -108,12 +121,12 @@ internal static class ShellCommands
                 switch (End(r.Entry, ctx.Log))
                 {
                     case EndResult.Ended:
-                        registry.Remove(r.Entry);
+                        Forget(registry, r.Entry, ctx.Log);
                         killed.Add(r.Entry.Pid);
                         ctx.Log.Success($"Ended PID {r.Entry.Pid}");
                         break;
                     case EndResult.Gone:
-                        registry.Remove(r.Entry);
+                        Forget(registry, r.Entry, ctx.Log);
                         gone.Add(r.Entry.Pid);
                         ctx.Log.Info($"PID {r.Entry.Pid} had already ended");
                         break;
