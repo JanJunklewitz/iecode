@@ -169,11 +169,20 @@ public sealed partial class XaeShell
         SaveAll();
 
         // the shell's own watch confirms known dialogs of the shell; this one also confirms them in a TwinCAT helper
-        // process, verified by its executable (under the TwinCAT install folder) and session. A dialog with a known
-        // title in any other program, or in a shell iecode does not own, is left alone.
+        // process, verified by its executable (under the TwinCAT install folder) and session. Without an own watch (the
+        // shell could not be told apart at start) the process serving this DTE object is the one activating, so its
+        // known dialogs are confirmed here too. A dialog with a known title in any other program is left alone.
         var twinCatDir = RepTool.TwinCatDir;
         if (twinCatDir is null) _log.Detail("TWINCAT3DIR is not set: dialogs of TwinCAT helper processes are not confirmed.");
-        using var known = DialogWatch.Start(null, userCanAnswer: false, _log, isHelper: twinCatDir is null ? null : pid => HelperProcess.Verify(pid, twinCatDir));
+        var unwatchedShell = _watch is null ? ServerPid(attempts: 1) : null;
+        if (_watch is null && unwatchedShell is null) _log.Detail("The shell serving this activation could not be told: its dialogs are not confirmed.");
+        Func<int, bool>? confirmable = (unwatchedShell, twinCatDir) switch
+        {
+            (null, null) => null,
+            ({ } shellPid, null) => pid => pid == shellPid,
+            (var shellPid, { } dir) => pid => pid == shellPid || HelperProcess.Verify(pid, dir),
+        };
+        using var known = DialogWatch.Start(null, userCanAnswer: false, _log, isHelper: confirmable);
         _log.Step($"Activating configuration on {(target.IsLocal ? "local system" : target.ToString())}…");
         try
         {
