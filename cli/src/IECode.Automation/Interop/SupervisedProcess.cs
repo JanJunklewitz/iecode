@@ -56,8 +56,8 @@ internal sealed class SupervisedProcess : IDisposable
         {
             CreatePipe(out outRead, out outWrite);
             CreatePipe(out errRead, out errWrite);
-            nul = CreateFile("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, new SECURITY_ATTRIBUTES { Length = Marshal.SizeOf<SECURITY_ATTRIBUTES>(), InheritHandle = true },
-                OPEN_EXISTING, 0, IntPtr.Zero);
+            var inheritable = new SECURITY_ATTRIBUTES { Length = Marshal.SizeOf<SECURITY_ATTRIBUTES>(), InheritHandle = true };
+            nul = CreateFile("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, ref inheritable, OPEN_EXISTING, 0, IntPtr.Zero);
             if (nul == INVALID_HANDLE_VALUE) throw Win32("opening NUL");
 
             var startup = new STARTUPINFO
@@ -237,7 +237,7 @@ internal sealed class SupervisedProcess : IDisposable
     private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr CreateFile(string name, uint access, uint share, SECURITY_ATTRIBUTES attributes, uint disposition, uint flags, IntPtr template);
+    private static extern IntPtr CreateFile(string name, uint access, uint share, ref SECURITY_ATTRIBUTES attributes, uint disposition, uint flags, IntPtr template);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
