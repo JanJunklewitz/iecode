@@ -301,7 +301,7 @@ public sealed class LibrarySelectionTests : IDisposable
 
     [Fact]
     public void UninstallAcceptsAnExplicitRepositoryThatIsRepTools() =>
-        Assert.Equal(Repo4026, LibrarySelection.UninstallRepository(4026, "p", Repo4026.ToUpperInvariant() + @"\", TcDir, ProgData, [Repo4026, Repo4024]));
+        Assert.Equal(Repo4026, LibrarySelection.UninstallRepository(4026, "p", Repo4026.ToUpperInvariant() + Path.DirectorySeparatorChar, TcDir, ProgData, [Repo4026, Repo4024]));
 
     [Fact]
     public void UninstallWithoutAKnownLineFallsBackToTheOnlyRepository() =>
