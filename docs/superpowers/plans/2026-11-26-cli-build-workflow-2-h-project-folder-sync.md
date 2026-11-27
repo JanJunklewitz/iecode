@@ -29,7 +29,7 @@ Re-checked against `0515a61`: every file cited below is byte-identical to the ea
 
 1. `_Libraries` layout is `<vendor>/<library>/<version>/<file>` next to the .plcproj: `cli/src/IECode.Core/Projects/ProjectLibraries.cs:7-10`, `FolderOf` `:17-18`, `FolderName` `:14`.
 2. A project-folder version counts only when its folder name starts with a digit and holds a library file (`.library`, `.compiled-library*`): `ProjectLibraries.cs:30-32`, `IsLibraryFile` `:39-44`; pinned by `WorkspaceTests.cs:100,106` (`Tc3_Empty/1.0.0/readme.txt` skipped). This is "the round-1 rule". Fixtures mix case (`Acme/Tc3_MotorLib` and `acme/tc3_motorlib`): `WorkspaceTests.cs:98-99`.
-3. `LibraryRepository.Scan` does **not** apply that rule; it lists every digit-named version folder, `InstalledLibrary.Path` is the version folder: `LibraryRepository.cs:4,33-47`. Names are lower-case on disk in the repository: `:8`.
+3. `LibraryRepository.Scan` applies the same round-1 rule: it skips a version folder without a library file (`LibraryRepository.cs:51`, comment "an empty folder is what an interrupted install or removal leaves"), so a half-installed repository version never appears in `installed`. `InstalledLibrary.Path` is the version folder. Names are lower-case on disk in the repository: `:8`. (Corrected in review, R39: this premise said the opposite.)
 4. `*` resolution as in `lib list`: `LibraryRepository.HighestFor(installed, reference)` `LibraryRepository.cs:68-69` (via `Newest`, `:57-62`, numeric order `:72-78`); `lib list` uses it at `LibraryCommands.cs:171-172`.
 5. What applies: `LibraryReference.Effective => PinnedResolution ?? Default` `LibraryReference.cs:43`, `IsPinned` `:46`, `LibraryId.IsNewest` `:18`.
 6. Versions match by exact string, names and vendors case-insensitively: `Restore.cs:58-60,87-89`.
@@ -76,7 +76,7 @@ Re-checked against `0515a61`: every file cited below is byte-identical to the ea
 
 1. **Folder with different case than the repository** (`Example/Tc3_MotorLib/1.2.0.0` in `_Libraries`, `example/tc3_motorlib/1.2.0.0` in the repository) on Linux: same version, updated in place, no second folder (Task 1 test `ExistingFolderSpellingIsReused`).
 2. **A non-library folder at version depth** (`_Libraries/Example/Tc3_MotorLib/docs/`, or `1.0.0.0/` with only `readme.txt`): never pruned (Task 1 test `PruneSkipsFoldersWithoutLibraryFile`).
-3. **Repository version folder without library file** (RepTool killed mid-install): `missing` with reason, nothing written (Task 1 test `HalfInstalledRepositoryVersionIsMissing`).
+3. **Repository version folder without library file** (RepTool killed mid-install): `Scan` does not list it, so the version is `missing` (reason "not installed"), nothing is written. For `*`, `HighestFor` then silently resolves to the next older installed version; Task 1 pins that with a test (R39).
 4. **Read-only files in the target** (copied from a repository with read-only files, then updated): update and prune succeed (Task 2 test `ReadOnlyTargetFilesAreReplaced`, Windows only).
 5. **A version folder that is a junction/symlink**: not pruned, not followed (Task 2 test `LinkedVersionFolderIsNotPruned`).
 
@@ -116,7 +116,7 @@ Gate: same file set as the repository → keep "all files". Only the library fil
 [Fact] public void DifferentBytesOrExtraFileIsUpdate()         // one byte changed → Update; extra projectinfo2 → Update
 [Fact] public void ExistingFolderSpellingIsReused()            // _Libraries/Example/Tc3_MotorLib/1.2.0.0 → Target uses "Example/Tc3_MotorLib"
 [Fact] public void MissingInRepositoryIsMissing()              // MotorLib 1.2.0.0 absent → Missing, Reason "not in the library repository", HasMissing
-[Fact] public void HalfInstalledRepositoryVersionIsMissing()   // repo folder with projectinfo only → Missing, Reason "no library file in the repository folder"
+[Fact] public void HalfInstalledRepositoryVersionIsMissing()   // repo folder with projectinfo only is not in installed → Missing, Reason "not installed"
 [Fact] public void StarWithNothingInstalledIsMissing()         // AxisLib none → Missing, Version "*"
 [Fact] public void OtherVersionOfReferencedLibraryIsStaleOrPrune() // _Libraries/example/tc3_motorlib/1.1.0.0 → Stale (prune:false), Prune (prune:true)
 [Fact] public void UnreferencedLibraryIsKept()                 // _Libraries/example/tc3_other/1.0.0.0 → Kept with prune:true
