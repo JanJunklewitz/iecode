@@ -111,6 +111,7 @@ internal static class LibraryCommands
             var results = new List<object>();
             var failed = 0;
             IECodeException? stopped = null;
+            var reported = new List<Exception>();
             var notStarted = new List<string>();
             using var session = new ShellSession(ctx, saves: true);
             var step = 0;
@@ -129,6 +130,7 @@ internal static class LibraryCommands
                 catch (IECodeException e)
                 {
                     failed++;
+                    reported.Add(e);
                     ctx.Log.Error($"[{step}/{plan.Count}] {p.Unit.Id}: {e.Message}");
                     results.Add(new { unit = p.Unit.Id, file = p.File, ok = false, error = e.Message });
                     // a timeout (the repository lock or RepTool) would hit every following item too: stop instead of waiting N times,
@@ -136,14 +138,16 @@ internal static class LibraryCommands
                     if (ctx.Get(failFast) || e.ExitCode == ExitCodes.Timeout) stopped = e;
                 }
             }
-            // a dialog during the shutdown is one more failure of the run; the results stay
+            // a dialog during the shutdown is one more failure of the run; the results stay. The shell hands back its dialog
+            // failure at any later call, so one an item already failed with is not a second, shutdown failure.
             var shutdown = session.Close();
+            if (shutdown is not null && reported.Any(r => Chain(r).Any(x => ReferenceEquals(x, shutdown)))) shutdown = null;
             if (shutdown is not null) ctx.Log.Error($"Closing the shell: {shutdown.Message}");
             var data = new { compiled = ctx.Get(compiled), installed = ctx.Get(install), saved = results.Count - failed, failed, stopped = stopped is not null, notStarted, shutdownError = shutdown?.Message, results };
             if (stopped is not null)
             {
                 ctx.Log.Warn($"Stopped after {results.Count} of {plan.Count} project(s); not started: {(notStarted.Count == 0 ? "none" : string.Join(", ", notStarted))}.");
-                return new Outcome(stopped.ExitCode, data);
+                return new Outcome(stopped.ExitCode, data, stopped.Message, stopped.Hint);
             }
             if (failed > 0)
             {
@@ -155,6 +159,12 @@ internal static class LibraryCommands
             return Outcome.Ok(data);
         });
         return cmd;
+    }
+
+    /// <summary>The exception and the ones it wraps.</summary>
+    private static IEnumerable<Exception> Chain(Exception e)
+    {
+        for (Exception? x = e; x is not null; x = x.InnerException) yield return x;
     }
 
     // ------------------------------------------------------------------ list

@@ -11,8 +11,11 @@ namespace IECode.Cli;
 /// <summary>Runs a command body with uniform error handling, exit codes and JSON output.</summary>
 internal static class Runner
 {
-    /// <summary>Command result: exit code and the data object written to JSON.</summary>
-    public readonly record struct Outcome(int Code, object? Data)
+    /// <summary>
+    /// Command result: exit code and the data object written to JSON; a failed result that keeps its data can name the
+    /// error and hint the JSON document carries (already printed by the command).
+    /// </summary>
+    public readonly record struct Outcome(int Code, object? Data, string? Error = null, string? Hint = null)
     {
         public static Outcome Ok(object? data = null) => new(ExitCodes.Ok, data);
     }
@@ -35,7 +38,7 @@ internal static class Runner
                     "File-based commands (info, lib list/info/update/outdated/restore --dry-run, ws list/graph/release --no-save, io links/diff, ads symbols/diff, clean --artifacts) work on any OS.");
             var outcome = body(new Context(parse, log));
             code = outcome.Code;
-            log.Finish(name, code, outcome.Data);
+            log.Finish(name, code, outcome.Data, outcome.Error, outcome.Hint);
         }
         catch (IECodeException e)
         {
