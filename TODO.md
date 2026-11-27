@@ -107,6 +107,8 @@ Plan: [CLI build workflow master plan](docs/superpowers/plans/2026-11-24-cli-bui
 
 Status (2026-11-26): sub-plans A to D are implemented on `feature/cli-build-workflow-master` (stacked A, B, C, D, plus a second independent review per layer with its findings fixed). Not merged to `main` yet. Parts that need a real TwinCAT PC to verify are listed in [docs/open-tests.md](docs/open-tests.md), section "CLI build workflow".
 
+Round 2: [CLI build workflow master plan, round 2](docs/superpowers/plans/2026-11-26-cli-build-workflow-2-master-plan.md) with sub-plans E (`ws build --parallel`), F (`--tc` matrix), G (`build --exclude-plc` / `--no-tests`), H (`lib project-folder sync`), I (`lib verify`), J (`iecode test`). It covers the remaining "Medium" and "Large" items; each plan starts with a spike on a TwinCAT PC. Based on and re-checked against `feature/cli-build-workflow-master` (2026-11-26); not reviewed yet.
+
 Small:
 - [x] **Pre-flight reference check**: `lib restore --dry-run` already finds missing pinned versions, also fixed `PlaceholderResolution` entries (it would have found the missing versions of the run; nobody knew it). Run it before `build` and hint at it after a failed build, maybe a `lib check` alias; also report `*` references without any installed version.
 - [x] **Root causes first**: mark library manager diagnostics (also in `--json`), print them in a "Root causes" block at the end of a failed build, count follow-up errors per `[library, version]`, `--max-errors N`.
@@ -131,6 +133,12 @@ Medium:
 
 Large:
 - [ ] **`ws build --parallel N`** (needs isolation and the mutex) and **`iecode test`** for `Tc3_PlcTestFramework` over ADS.
+
+Follow-ups from the round-2 plan review (2026-11-27, see the "Review" section of the round-2 master plan):
+- [ ] **Ctrl+C handling in the CLI**: there is no `CancelKeyPress` handler, so Ctrl+C ends the process without cleanup (isolated copies stay for 24 h, shells are orphaned); a per-job watchdog for `ws build --parallel` and a copy-size warning belong with it.
+- [ ] **`ws build --parallel --copy-tmc`**: a parallel build does not write files back; a per-job `.tmc` copy is the first thing missing.
+- [ ] **`iecode test --stop-after`**: put the runtime back to config mode or stop after the test; round 2 leaves it in Run and says so.
+- [ ] **`lib project-folder sync`: newer half-installed version**: a `*` reference silently uses the next older version when the newest repository folder has no library file.
 
 Already there (documentation only): `lib save -o <dir>`, `ws release --bump --no-save` raises a `ProjectVersion`, `lib installed --lib`, global `--json`.
 
