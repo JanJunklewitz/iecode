@@ -33,17 +33,29 @@ public sealed class StagedExport : IDisposable
         return new StagedExport(full, folder);
     }
 
-    /// <summary>Moves the private file over the final name in one step (an existing file is replaced) and returns the final path.</summary>
+    /// <summary>
+    /// Moves the private file over the final name in one step (an existing file is replaced) and returns the final path.
+    /// When the move fails (the final file is locked, access is denied) the private file is the only copy, so it is kept:
+    /// <see cref="Dispose"/> leaves the folder, and the error names where the file is.
+    /// </summary>
     public string Publish()
     {
-        File.Move(Path, FinalFile, overwrite: true);
+        try { File.Move(Path, FinalFile, overwrite: true); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _kept = true;
+            throw new IECodeException(ExitCodes.LibraryFailed, $"The library could not be moved to '{FinalFile}': {e.Message} It was kept as '{Path}'.",
+                "Close the program that holds the file, then move it to its final name yourself.", e);
+        }
         return FinalFile;
     }
 
-    /// <summary>Removes the private folder, with whatever is left in it.</summary>
+    private bool _kept;
+
+    /// <summary>Removes the private folder, with whatever is left in it, unless a failed <see cref="Publish"/> kept it.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed || _kept) return;
         _disposed = true;
         try { Directory.Delete(_folder, recursive: true); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }

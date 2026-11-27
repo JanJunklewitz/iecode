@@ -167,7 +167,12 @@ internal static class Runner
                 try { InstallSaved(ctx, export.Path, version); }
                 catch (IECodeException e) { failed = e; }
             }
-            var published = export.Publish();
+            string published;
+            try { published = export.Publish(); }
+            catch (IECodeException moveFailed) when (failed is not null)
+            {
+                throw new IECodeException(failed.ExitCode, $"{failed.Message} {moveFailed.Message}", moveFailed.Hint, failed);
+            }
             if (failed is not null)
                 throw new IECodeException(failed.ExitCode, $"{failed.Message} The library was saved as '{published}' but is not installed.", failed.Hint ?? "Install it with: iecode lib install <file>.", failed);
             return published;

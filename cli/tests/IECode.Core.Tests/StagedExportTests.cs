@@ -49,6 +49,26 @@ public sealed class StagedExportTests : IDisposable
     }
 
     [Fact]
+    public void AFailedPublishKeepsTheOnlyCopyAndNamesIt()
+    {
+        Assert.SkipUnless(WindowsOnly.IsWindows, "only Windows refuses to replace a file that is open without sharing");
+        Directory.CreateDirectory(_dist);
+        File.WriteAllText(Final, "old");
+        string staged;
+        using (var e = StagedExport.Begin(Final))
+        {
+            staged = e.Path;
+            File.WriteAllText(staged, "new");
+            using var reader = new FileStream(Final, FileMode.Open, FileAccess.Read, FileShare.None);
+            var error = Assert.Throws<IECodeException>(e.Publish);
+            Assert.Equal(ExitCodes.LibraryFailed, error.ExitCode);
+            Assert.Contains(staged, error.Message);
+        }
+        Assert.Equal("new", File.ReadAllText(staged));   // Dispose left it
+        Assert.Equal("old", File.ReadAllText(Final));
+    }
+
+    [Fact]
     public void WithoutPublishTheFinalFileStaysAsItWasAndNothingIsLeft()
     {
         Directory.CreateDirectory(_dist);
