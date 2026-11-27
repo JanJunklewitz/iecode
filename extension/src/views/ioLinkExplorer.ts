@@ -131,7 +131,7 @@ td.r{text-align:right;white-space:nowrap}
   <select id="proj" title="System project"></select>
   <input id="q" placeholder="Filter (port, device, variable)">
   <span class="sp"></span>
-  <button class="s" id="saveAll" title="Save every IO-Link master still stored inline as its own .xti">Save All Devices as Independent Project Files</button>
+  <button class="s" id="saveAll" title="Save every IO-Link master still stored inline as its own .xti">Save All IO-Link Masters as Independent Project Files</button>
   <button class="s" id="ref" title="Reload">Refresh</button>
 </div>
 <div id="msg"></div>

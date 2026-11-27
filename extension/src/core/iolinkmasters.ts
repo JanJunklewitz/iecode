@@ -163,8 +163,24 @@ export interface Extraction {
   content: string;
 }
 
-/** Moves the inline box at `offset` of `parentFile` (an .xti) into its own .xti next to it, as TwinCAT does. */
-export function extractBox(parentSrc: string, parentFile: string, offset: number): Extraction {
+/** Class name TwinCAT writes on the root of an independent box file, by BoxType. */
+const BOX_CLASS: Record<string, string> = {
+  '9099': 'CFlbTermDef', // EtherCAT terminal or box
+  '9101': 'CEL60xxDef', // EL600x serial terminal
+  '9093': 'CFlbDeviceTermDef', // EtherCAT terminal that is a fieldbus master itself (EL6731 …)
+  '9051': 'CNvPubSubDef', // EtherCAT Automation Protocol publisher
+  '9052': 'CNvPubSubDef', // EtherCAT Automation Protocol subscriber
+};
+
+/** True if `extractBox` can move a box of this BoxType into its own file. */
+export const canExtractBoxType = (boxType: string | undefined) => boxType !== undefined && boxType in BOX_CLASS;
+
+/**
+ * Moves the inline box at `offset` of `parentFile` (an .xti) into its own .xti next to it, as TwinCAT does.
+ * With `prune` (the default) the parent drops the data types and images it no longer uses; turn it off to move
+ * several boxes of one file by their offsets, then call `pruneUnused` once.
+ */
+export function extractBox(parentSrc: string, parentFile: string, offset: number, prune = true): Extraction {
   const bom = parentSrc.startsWith('﻿') ? '﻿' : '';
   const src = bom ? parentSrc.slice(1) : parentSrc;
   const root = parseXml(src).children.find(c => !c.name.startsWith('?'));
@@ -172,25 +188,27 @@ export function extractBox(parentSrc: string, parentFile: string, offset: number
   const box = [...walk(root)].find(n => n.name === 'Box' && n.start === offset);
   if (!box) throw new Error(`No box at offset ${offset} of ${path.basename(parentFile)}; reload and try again.`);
   if (box.attrs.File !== undefined || box.parent === root) throw new Error('The box is already stored in its own file.');
-  if (box.attrs.BoxType !== '9099') throw new Error(`Only EtherCAT terminals and boxes can be saved as an independent file here (BoxType ${box.attrs.BoxType ?? '?'}).`);
+  if (!canExtractBoxType(box.attrs.BoxType)) throw new Error(`Only EtherCAT terminals and boxes can be saved as an independent file here (BoxType ${box.attrs.BoxType ?? '?'}).`);
   const doc: Doc = { src, root };
   const nameNode = child(box, 'Name');
   const name = text(doc, nameNode);
   if (!nameNode || !name || name === '__FILENAME__') throw new Error('The box has no name.');
 
-  // Folder: one per file and per inline box on the way (see iotree addFile).
+  // Folder: one per file and per inline box on the way (see iotree addFile); the file's own box (a child of the
+  // root, named __FILENAME__) is the file itself, not a folder.
   const inline: string[] = [];
-  for (let a = box.parent; a && a !== root; a = a.parent) if (a.name === 'Box') inline.unshift(text(doc, child(a, 'Name')));
+  for (let a = box.parent; a && a !== root; a = a.parent) if (a.name === 'Box' && a.parent !== root) inline.unshift(text(doc, child(a, 'Name')));
   const dir = path.join(path.dirname(parentFile), path.basename(parentFile, path.extname(parentFile)), ...inline.map(toFileName));
   const fileName = toFileName(name) + '.xti';
   const eol = src.includes('\r\n') ? '\r\n' : '\n';
 
-  // The box text, moved to depth 1, named __FILENAME__, without the PortABoxInfo that stays in the parent.
+  // The box text, moved to depth 1, named __FILENAME__, without the PortABoxInfo that stays in the parent. A name
+  // the file name cannot spell (a '/' becomes %_2F) stays written out, as TwinCAT does.
   const lineStart = src.lastIndexOf('\n', box.start - 1) + 1;
   const indent = /^[\t ]*/.exec(src.slice(lineStart, box.start))![0];
   const ec = child(box, 'EtherCAT');
   const portInfo = ec?.attrs.PortABoxInfo;
-  const cuts: { start: number; end: number; text: string }[] = [{ start: nameNode.innerStart, end: nameNode.innerEnd, text: '__FILENAME__' }];
+  const cuts: { start: number; end: number; text: string }[] = toFileName(name) === name ? [{ start: nameNode.innerStart, end: nameNode.innerEnd, text: '__FILENAME__' }] : [];
   if (ec && portInfo !== undefined) {
     const tag = src.slice(ec.start, ec.innerStart === ec.end ? ec.end : ec.innerStart);
     const m = /\s+PortABoxInfo="[^"]*"/.exec(tag)!;
@@ -215,26 +233,21 @@ export function extractBox(parentSrc: string, parentFile: string, offset: number
   });
   const imageLines = [...renumber].map(([from, to]) => '\t\t' + src.slice(images.get(from)!.start, images.get(from)!.end).replace(/^<ImageData Id="\d+"/, `<ImageData Id="${to}"`));
 
-  // Data types: the ones the box refers to by GUID, and the ones those refer to.
-  const types = new Map<string, XNode>();
-  for (const n of child(root, 'DataTypes')?.children ?? []) {
-    const g = n.name === 'DataType' ? child(n, 'Name')?.attrs.GUID : undefined;
-    if (g) types.set(g.toUpperCase(), n);
-  }
+  // Data types: the ones the box refers to by GUID and the ones those refer to, in order of first use with a
+  // type's own dependencies before it (TwinCAT's order).
+  const types = typesByGuid(root);
   const used: XNode[] = [];
-  const pending = [body];
-  while (pending.length) {
-    for (const m of pending.pop()!.matchAll(/GUID="(\{[^"]+\})"/g)) {
-      const t = types.get(m[1].toUpperCase());
-      if (!t || used.includes(t)) continue;
-      used.push(t);
-      pending.push(src.slice(t.start, t.end));
-    }
-  }
-  used.sort((a, b) => a.start - b.start);
+  const visit = (t: XNode) => {
+    if (used.includes(t)) return;
+    used.push(t); // placeholder against cycles, moved behind its dependencies below
+    for (const m of src.slice(t.start, t.end).matchAll(GUID_REF)) { const d = types.get(m[1].toUpperCase()); if (d && d !== t) visit(d); }
+    used.splice(used.indexOf(t), 1);
+    used.push(t);
+  };
+  for (const m of body.matchAll(GUID_REF)) { const t = types.get(m[1].toUpperCase()); if (t) visit(t); }
 
   const rootTag = src.slice(root.start, root.innerStart)
-    .replace(/\sClassName="[^"]*"/, ' ClassName="CFlbTermDef"').replace(/\sSubType="[^"]*"/, ` SubType="${box.attrs.BoxType}"`);
+    .replace(/\sClassName="[^"]*"/, ` ClassName="${BOX_CLASS[box.attrs.BoxType!]}"`).replace(/\sSubType="[^"]*"/, ` SubType="${box.attrs.BoxType}"`);
   const out = ['<?xml version="1.0"?>', rootTag];
   if (used.length) out.push('\t<DataTypes>', ...used.map(t => '\t\t' + src.slice(t.start, t.end)), '\t</DataTypes>');
   if (imageLines.length) out.push('\t<ImageDatas>', ...imageLines, '\t</ImageDatas>');
@@ -244,5 +257,74 @@ export function extractBox(parentSrc: string, parentFile: string, offset: number
   const stub = portInfo !== undefined
     ? `<Box File="${escapeAttr(fileName)}" Id="${escapeAttr(box.attrs.Id ?? '')}">${eol}${indent}\t<EtherCAT PortABoxInfo="${escapeAttr(portInfo)}"/>${eol}${indent}</Box>`
     : `<Box File="${escapeAttr(fileName)}" Id="${escapeAttr(box.attrs.Id ?? '')}"/>`;
-  return { parent: bom + src.slice(0, box.start) + stub + src.slice(box.end), file: path.join(dir, fileName), content };
+  const parent = src.slice(0, box.start) + stub + src.slice(box.end);
+  return { parent: bom + (prune ? pruneUnused(parent) : parent), file: path.join(dir, fileName), content };
+}
+
+const GUID_REF = /GUID="(\{[^"]+\})"/g;
+
+function typesByGuid(root: XNode): Map<string, XNode> {
+  const types = new Map<string, XNode>();
+  for (const n of child(root, 'DataTypes')?.children ?? []) {
+    const g = n.name === 'DataType' ? child(n, 'Name')?.attrs.GUID : undefined;
+    if (g) types.set(g.toUpperCase(), n);
+  }
+  return types;
+}
+
+/** Removes the elements at the given ranges with their whole lines (indent and line break). */
+function cutLines(src: string, ranges: { start: number; end: number }[]): string {
+  let out = src;
+  for (const r of [...ranges].sort((a, b) => b.start - a.start)) {
+    const from = out.lastIndexOf('\n', r.start - 1) + 1;
+    const nl = out.indexOf('\n', r.end);
+    const to = nl < 0 ? out.length : nl + 1;
+    out = /^[\t ]*$/.test(out.slice(from, r.start)) && /^[\t\r ]*$/.test(out.slice(r.end, nl < 0 ? out.length : nl)) ? out.slice(0, from) + out.slice(to) : out.slice(0, r.start) + out.slice(r.end);
+  }
+  return out;
+}
+
+/**
+ * Drops the data types and images of an item file that nothing outside <DataTypes> / <ImageDatas> uses any more
+ * (after a box moved out), as TwinCAT does when it saves. Images keep their ids.
+ */
+export function pruneUnused(text: string): string {
+  const bom = text.startsWith('﻿') ? '﻿' : '';
+  const src = bom ? text.slice(1) : text;
+  const root = parseXml(src).children.find(c => !c.name.startsWith('?'));
+  if (!root || root.name !== 'TcSmItem') return text;
+  const typesNode = child(root, 'DataTypes'), imagesNode = child(root, 'ImageDatas');
+  if (!typesNode && !imagesNode) return text;
+  const outside = (n: XNode | undefined) => (n ? [n] : []);
+  const blocks = [...outside(typesNode), ...outside(imagesNode)].sort((a, b) => a.start - b.start);
+  let rest = '';
+  let at = 0;
+  for (const b of blocks) { rest += src.slice(at, b.start); at = b.end; }
+  rest += src.slice(at);
+
+  const cuts: { start: number; end: number }[] = [];
+  if (typesNode) {
+    const types = typesByGuid(root);
+    const keep = new Set<XNode>();
+    const pending = [rest];
+    while (pending.length) {
+      for (const m of pending.pop()!.matchAll(GUID_REF)) {
+        const t = types.get(m[1].toUpperCase());
+        if (!t || keep.has(t)) continue;
+        keep.add(t);
+        pending.push(src.slice(t.start, t.end));
+      }
+    }
+    const drop = typesNode.children.filter(n => n.name === 'DataType' && child(n, 'Name')?.attrs.GUID && !keep.has(n));
+    if (drop.length && drop.length === typesNode.children.filter(n => n.name === 'DataType').length) cuts.push(typesNode);
+    else cuts.push(...drop);
+  }
+  if (imagesNode) {
+    const usedIds = new Set([...rest.matchAll(/<ImageId>(\d+)<\/ImageId>|\sImageId="(\d+)"/g)].map(m => m[1] ?? m[2]));
+    const all = imagesNode.children.filter(n => n.name === 'ImageData');
+    const drop = all.filter(n => n.attrs.Id && !usedIds.has(n.attrs.Id));
+    if (drop.length && drop.length === all.length) cuts.push(imagesNode);
+    else cuts.push(...drop);
+  }
+  return cuts.length ? bom + cutLines(src, cuts) : text;
 }

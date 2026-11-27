@@ -25,6 +25,7 @@ import { owningProject, registerIoYaml, showIoLinks } from './views/ioLinks';
 import { registerConfigDiff } from './views/configDiff';
 import { showAdsInterface } from './views/adsInterface';
 import { registerIoLinkView } from './views/ioLinkTree';
+import { registerIndependentFileCommands } from './views/independentFiles';
 import { isEncrypted } from './core/projects';
 import { registerVisuEditor } from './views/visuEditor';
 import { registerAiChat } from './commands/aiChat';
@@ -202,6 +203,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   registerObjectHistory(ctx);
   registerObjectStage(ctx);
   registerIoLinkView(ctx, state);
+  registerIndependentFileCommands(ctx, state);
   registerVisuEditor(ctx);
   registerAiChat(ctx);
   registerPlcArchiveEditor(ctx);

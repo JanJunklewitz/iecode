@@ -30,6 +30,13 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x �
 - **The XAE shell ends with iecode:** a shell started by iecode is ended when iecode ends, also when iecode is killed. **`iecode shells list`** shows the shells iecode started that still run, **`iecode shells kill`** ends the ones a killed run left behind (`--force` also those whose iecode still runs).
 - **Behaviour change:** `lib save` without `-o` writes to `dist` next to the solution, as `lib save-all`, instead of next to the solution. `encrypt --compiled-library` keeps its default.
 
+### Independent project files
+- **Save All Boxes as Independent Project Files** (right-click a system project in Projects or IO-Link, or the IO-Link view's `...` menu) moves every inline box of the IO devices into its own `.xti`, nested boxes included, laid out as TwinCAT XAE stores them: EtherCAT terminals and boxes, EL600x serial terminals, fieldbus master terminals (EL6731 …) and EtherCAT Automation Protocol publishers and subscribers. Unlike TwinCAT's bulk command it also moves disabled boxes. It runs on one system project. Devices still stored in the `.tsproj` are listed and left alone. A file in the way that nothing references is overwritten (listed in the confirmation); a referenced one stops the command.
+- **Delete Unreferenced Project Files** (same places) lists the `.xti` files under `_Config` that no item references any more (renamed or removed items, old copies) and the `.xti.bak` backups of TwinCAT, and moves them to the recycle bin after you confirm.
+- **Save All Devices as Independent Project Files** (IO-Link view title) now keeps its promise: it does Save All Boxes for every system project of the workspace, with one confirmation that lists each project.
+- The former save-all of the IO-Link view, which only ever moved IO-Link masters, is now called **Save All IO-Link Masters as Independent Project Files** and sits in the view's `...` menu.
+- Saving a box as independent file now writes it the way TwinCAT does: the data types in order of use, the box's name kept when the file name cannot spell it (a `/`), and the parent file drops the data types and images only the moved box used. A box inside a box file no longer lands in a `__FILENAME__` folder, and EL600x serial terminals, fieldbus master terminals (EL6731 …) and EtherCAT Automation Protocol publishers and subscribers can be saved too.
+
 ## 0.2.23
 
 0.2.22 was not published; its change is part of this release.
