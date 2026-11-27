@@ -85,7 +85,7 @@ internal static class Runner
     public static T WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)
     {
         var slnFile = SolutionFile.Load(solution);
-        using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request);
+        using var shell = StartShell(ctx, ChooseVersion(ctx, slnFile, saves).Request, saves);
         // a command that does not save must not save at Quit either, also when it fails early
         shell.DiscardChanges = !saves || discard;
         T result;
@@ -197,13 +197,13 @@ internal static class Runner
 
     /// <summary>Starts a shell with the given version, user database and login; the caller opens solutions and disposes it.</summary>
     [SupportedOSPlatform("windows")]
-    private static XaeShell StartShell(Context ctx, TwinCatVersion request)
+    private static XaeShell StartShell(Context ctx, TwinCatVersion request, bool saves)
     {
         var timeout = TimeoutSetting.FromSeconds(ctx.Get(Globals.Timeout));
         var shell = XaeShell.Start(new ShellOptions(request, ctx.Get(Globals.ProgId), ctx.Get(Globals.Visible), ctx.Get(Globals.ShowUi), timeout), ctx.Log);
         try
         {
-            if (!request.IsAuto) SelectVersion(ctx, shell, request);
+            if (!request.IsAuto) SelectVersion(ctx, shell, request, saves);
             if (ctx.Get(Globals.UserDb) is { } db) shell.SelectUserDb(db);
             if (Credentials(ctx) is ({ } user, { } password)) shell.Login(user, password);
             return shell;
@@ -213,16 +213,24 @@ internal static class Runner
 
     /// <summary>
     /// Selects the version in the Remote Manager. The install folders are only a hint: when --tc auto chose an exact
-    /// build the Remote Manager does not know, the newest build of the same line is used; never another line.
+    /// build the Remote Manager does not know, the newest build of the same line is used; never another line. When the
+    /// Remote Manager does not know the line either, a command that does not save goes on with the shell's default
+    /// version (as before), a command that saves fails rather than write the projects with another line.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    private static void SelectVersion(Context ctx, XaeShell shell, TwinCatVersion request)
+    private static void SelectVersion(Context ctx, XaeShell shell, TwinCatVersion request, bool saves)
     {
         try { shell.SelectVersion(request); }
-        catch (IECodeException e) when (ctx.Version.IsAuto && e.ExitCode == ExitCodes.VersionNotInstalled && request.Revision is not null)
+        catch (IECodeException e) when (ctx.Version.IsAuto && e.ExitCode == ExitCodes.VersionNotInstalled)
         {
-            ctx.Log.Warn($"{e.Message} Using the newest build of TwinCAT {request.Line}.");
-            shell.SelectVersion(new TwinCatVersion(request.Build, null));
+            if (request.Revision is not null)
+            {
+                ctx.Log.Warn($"{e.Message} Using the newest build of TwinCAT {request.Line}.");
+                try { shell.SelectVersion(new TwinCatVersion(request.Build, null)); return; }
+                catch (IECodeException line) when (line.ExitCode == ExitCodes.VersionNotInstalled) { e = line; }
+            }
+            if (saves) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(e);
+            ctx.Log.Warn($"{e.Message} Using the shell's default version; this command does not save.");
         }
     }
 
@@ -287,7 +295,7 @@ internal static class Runner
                     _shell = null;
                 }
                 _opened = null;
-                _shell = StartShell(ctx, request);
+                _shell = StartShell(ctx, request, saves);
                 _shell.DiscardChanges = !saves || discard;
                 _request = request;
             }
