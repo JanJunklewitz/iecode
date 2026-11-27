@@ -545,9 +545,27 @@
       },
       {
         "command": "iecode.ioLinkSaveAllIndependent",
+        "title": "Save All IO-Link Masters as Independent Project Files",
+        "category": "IECode",
+        "icon": "$(save-all)"
+      },
+      {
+        "command": "iecode.saveAllIndependent",
+        "title": "Save All Boxes as Independent Project Files",
+        "category": "IECode",
+        "icon": "$(save-all)"
+      },
+      {
+        "command": "iecode.saveAllIndependentEverywhere",
         "title": "Save All Devices as Independent Project Files",
         "category": "IECode",
         "icon": "$(save-all)"
+      },
+      {
+        "command": "iecode.deleteUnreferencedFiles",
+        "title": "Delete Unreferenced Project Files",
+        "category": "IECode",
+        "icon": "$(trash)"
       },
       {
         "command": "iecode.ioLinkReveal",
@@ -932,9 +950,24 @@
           "group": "navigation@0"
         },
         {
-          "command": "iecode.ioLinkSaveAllIndependent",
+          "command": "iecode.saveAllIndependentEverywhere",
           "when": "view == iecode.ioLink",
           "group": "navigation@1"
+        },
+        {
+          "command": "iecode.ioLinkSaveAllIndependent",
+          "when": "view == iecode.ioLink",
+          "group": "1_files@0"
+        },
+        {
+          "command": "iecode.saveAllIndependent",
+          "when": "view == iecode.ioLink",
+          "group": "1_files@1"
+        },
+        {
+          "command": "iecode.deleteUnreferencedFiles",
+          "when": "view == iecode.ioLink",
+          "group": "1_files@2"
         },
         {
           "command": "iecode.ioLinkRefresh",
@@ -1182,6 +1215,26 @@
           "command": "iecode.ioLinkSaveAllIndependent",
           "when": "view == iecode.ioLink && viewItem == iolink.project",
           "group": "1_save@1"
+        },
+        {
+          "command": "iecode.saveAllIndependent",
+          "when": "view == iecode.ioLink && viewItem == iolink.project",
+          "group": "1_save@2"
+        },
+        {
+          "command": "iecode.deleteUnreferencedFiles",
+          "when": "view == iecode.ioLink && viewItem == iolink.project",
+          "group": "1_save@3"
+        },
+        {
+          "command": "iecode.saveAllIndependent",
+          "when": "view == iecode.projects && viewItem == system",
+          "group": "1_files@1"
+        },
+        {
+          "command": "iecode.deleteUnreferencedFiles",
+          "when": "view == iecode.projects && viewItem == system",
+          "group": "1_files@2"
         },
         {
           "command": "iecode.ioLinkExplorer",
