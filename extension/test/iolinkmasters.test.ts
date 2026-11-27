@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
-import { extractBox, readIoLinkStructure } from '../src/core/iolinkmasters';
+import { extractBox, pruneUnused, readIoLinkStructure } from '../src/core/iolinkmasters';
 import { readProject, buildTree, treeToYaml } from '../src/core/iotree';
 
 const TSPROJ = `<?xml version="1.0"?>
@@ -157,3 +157,29 @@ async function readIoLinkStructureOf(device: string) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+test('pruneUnused keeps used types (and what they use) and image ids, drops the rest, keeps a BOM', () => {
+  const src = '﻿<?xml version="1.0"?>\r\n<TcSmItem>\r\n\t<DataTypes>\r\n'
+    + '\t\t<DataType><Name GUID="{A}">A</Name><SubItem><Type GUID="{B}">B</Type></SubItem></DataType>\r\n'
+    + '\t\t<DataType><Name GUID="{B}">B</Name></DataType>\r\n'
+    + '\t\t<DataType><Name GUID="{C}">C</Name></DataType>\r\n'
+    + '\t</DataTypes>\r\n\t<ImageDatas>\r\n\t\t<ImageData Id="1000">aa</ImageData>\r\n\t\t<ImageData Id="1001">bb</ImageData>\r\n\t</ImageDatas>\r\n'
+    + '\t<Box><ImageId>1001</ImageId><Type GUID="{A}">A</Type></Box>\r\n</TcSmItem>\r\n';
+  const out = pruneUnused(src);
+  assert.ok(out.startsWith('﻿'));
+  assert.ok(out.includes('<Name GUID="{A}">') && out.includes('<Name GUID="{B}">') && !out.includes('<Name GUID="{C}">'));
+  assert.ok(!out.includes('Id="1000"') && out.includes('<ImageData Id="1001">bb</ImageData>'));
+  assert.ok(!/[^\r]\n/.test(out));
+  assert.equal(pruneUnused(out), out);
+});
+
+test('a box inside a box file goes to the folder of that file; a name with / stays written out', () => {
+  const src = '<?xml version="1.0"?>\n<TcSmItem ClassName="CFlbTermDef" SubType="9099">\n\t<Box Id="1" BoxType="9099">\n\t\t<Name>__FILENAME__</Name>\n'
+    + '\t\t<Box Id="2" BoxType="9099">\n\t\t\t<Name>Junction</Name>\n\t\t\t<Box Id="3" BoxType="9101">\n\t\t\t\t<Name>Serial A/B</Name>\n\t\t\t</Box>\n\t\t</Box>\n\t</Box>\n</TcSmItem>\n';
+  const file = join('p', '_Config', 'IO', 'Device 1 (EtherCAT)', 'Coupler.xti');
+  const x = extractBox(src, file, src.indexOf('<Box Id="3"'));
+  assert.equal(x.file, join('p', '_Config', 'IO', 'Device 1 (EtherCAT)', 'Coupler', 'Junction', 'Serial A%_2FB.xti'));
+  assert.ok(x.content.includes('ClassName="CEL60xxDef" SubType="9101"'));
+  assert.ok(x.content.includes('<Name>Serial A/B</Name>'));
+  assert.ok(x.parent.includes('<Box File="Serial A%_2FB.xti" Id="3"/>'));
+});

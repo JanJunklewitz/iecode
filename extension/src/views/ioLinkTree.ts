@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { WorkspaceState } from '../state';
-import { extractBox, IoLinkEntry, IoLinkMaster, IoLinkPort, IoLinkStructure, readIoLinkStructure } from '../core/iolinkmasters';
+import { extractBox, pruneUnused, IoLinkEntry, IoLinkMaster, IoLinkPort, IoLinkStructure, readIoLinkStructure } from '../core/iolinkmasters';
 import { IoLinkSource, showIoLinkExplorer } from './ioLinkExplorer';
 
 type Project = { tsproj: string; name: string };
@@ -133,13 +133,13 @@ async function saveIndependent(masters: IoLinkMaster[]): Promise<string[]> {
     if (open?.isDirty) throw new Error(`${path.basename(file)} has unsaved changes. Save or revert it first.`);
     let text = await fs.readFile(file, 'utf8');
     for (const m of [...ms].sort((a, b) => b.offset - a.offset)) {
-      const x = extractBox(text, file, m.offset);
+      const x = extractBox(text, file, m.offset, false);
       if (created.some(c => c.file.toLowerCase() === x.file.toLowerCase()) || await fs.stat(x.file).then(() => true, () => false))
         throw new Error(`${path.basename(x.file)} already exists in ${path.dirname(x.file)}. Rename or remove it first.`);
       created.push({ file: x.file, text: x.content });
       text = x.parent;
     }
-    parents.push({ file, text });
+    parents.push({ file, text: pruneUnused(text) });
   }
   // The new files first: should a write fail, the parents still hold every box.
   for (const c of created) {

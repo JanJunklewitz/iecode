@@ -30,6 +30,9 @@ All notable changes to the IECode extension. Odd minor versions (0.1.x, 0.3.x â€
 - **The XAE shell ends with iecode:** a shell started by iecode is ended when iecode ends, also when iecode is killed. **`iecode shells list`** shows the shells iecode started that still run, **`iecode shells kill`** ends the ones a killed run left behind (`--force` also those whose iecode still runs).
 - **Behaviour change:** `lib save` without `-o` writes to `dist` next to the solution, as `lib save-all`, instead of next to the solution. `encrypt --compiled-library` keeps its default.
 
+### Independent project files
+- Saving a box as independent file now writes it the way TwinCAT does: the data types in order of use, the box's name kept when the file name cannot spell it (a `/`), and the parent file drops the data types and images only the moved box used. A box inside a box file no longer lands in a `__FILENAME__` folder, and EL600x serial terminals, fieldbus master terminals (EL6731 â€¦) and EtherCAT Automation Protocol publishers and subscribers can be saved too.
+
 ## 0.2.23
 
 0.2.22 was not published; its change is part of this release.
