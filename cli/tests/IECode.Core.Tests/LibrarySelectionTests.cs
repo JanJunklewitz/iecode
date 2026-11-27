@@ -275,8 +275,9 @@ public sealed class LibrarySelectionTests : IDisposable
 
     private const string TcDir = @"C:\TwinCAT\3.1";
     private const string ProgData = @"C:\ProgramData";
-    private static readonly string Repo4026 = @"C:\ProgramData\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries";
-    private static readonly string Repo4024 = @"C:\TwinCAT\3.1\Components\Plc\Managed Libraries";
+    // built with Path.Combine like the code under test, so the separator matches on the Linux CI runner too
+    private static readonly string Repo4026 = Path.Combine(ProgData, "Beckhoff", "TwinCAT", "PlcEngineering", "Managed Libraries");
+    private static readonly string Repo4024 = Path.Combine(TcDir, "Components", "Plc", "Managed Libraries");
 
     [Theory]
     [InlineData(4026, true)]
