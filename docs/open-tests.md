@@ -55,11 +55,12 @@ The 2026-11-20 simulation test ran an older build, which probably explains P1-6 
 Implemented and unit-tested; these parts need a real TwinCAT PC (ordered by risk). Step by step: [cli-build-workflow-test-checklist.md](cli-build-workflow-test-checklist.md).
 
 - [ ] **Shell ownership (D)**: with a real TcXaeShell the running object table entry (`!TcXaeShell.DTE.x:<pid>`) must prove the new process is the COM server. If it does not, the shell runs without watcher and job (worse than before). Check `iecode shells list` after a build and that the job ends the shell when iecode is killed.
-- [ ] **Activation dialog (D)**: the known "possible symbol type change" dialog is confirmed only in helper processes under the TwinCAT folder. Check that an activation that shows it does not hang. The 4026 German title is covered by a title test only; the dialog could not be provoked live.
+- [ ] **Activation dialog (D)**: the known "possible symbol type change" dialog is confirmed only in helper processes under the TwinCAT folder and, when iecode could not tell its shell apart at start, in the process serving the DTE object (#70 review fix). Check that an activation that shows it does not hang. The 4026 German title is covered by a title test only; the dialog could not be provoked live.
 - [ ] **Repository of a TwinCAT line (C)**: 4026 maps to the ProgramData repository, 4024 to `TWINCAT3DIR\Components\Plc\Managed Libraries`. Check on a PC with both lines, including `lib uninstall --all`.
 - [ ] **Staged export (C)**: XAE must save into the hidden `.iecode-<guid>` folder next to the target and RepTool must install from there. Also check RepTool started suspended inside its job and `SelectedVersion` after a Remote Manager fallback.
 - [ ] **Discard and release (B)**: `Solution.Close(false)` after a half-failed open, the process id from `Dte.MainWindow.HWnd` for the kill, `ws release` failing on a missing build before the version bump, and `changedFiles` in the JSON after a timeout.
 - [ ] **`CoCancelCall` (D)**: check that it cancels a DTE call blocked by a dialog.
+- [ ] **Review fixes of #70/#71**: `--tc auto` falls back to the shell's default version for commands that do not save; a failed publish keeps the staged library; `shells list/kill` survive a record they cannot remove; `lib save-all` reports a dialog failure once and keeps `error`/`hint` with `--fail-fast`. Steps are in the checklist.
 - [ ] **Error List (A)**: it was not readable on 4024.66 or 4026.28 ("Specified cast is not valid"), so the Error List merge is untested against a real shell.
 ## Other branches in flight
 
