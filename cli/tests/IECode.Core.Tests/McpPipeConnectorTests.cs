@@ -14,7 +14,11 @@ public sealed class McpPipeConnectorTests
     private static InstanceInfo Instance(string pipe) => new("a1", 1, "0.2.6", 1, 1, pipe, ["c:\\work"], "ws", Secret);
     private static string NewName() => "iecode-test-" + Guid.NewGuid().ToString("N");
 
-    /// <summary>A pipe server that plays the extension: hello, check the bridge proof, answer with <paramref name="secret"/>'s proof; or stay silent.</summary>
+    /// <summary>
+    /// A pipe server that plays the extension: hello, check the bridge proof, answer with <paramref name="secret"/>'s proof; or stay silent.
+    /// <paramref name="ct"/> is not handed to Task.Run: on a busy runner the task may not have started when a test cancels, and a task
+    /// cancelled before it starts never reaches the catch below, so awaiting it would throw.
+    /// </summary>
     private static (NamedPipeServerStream Server, Task Done) Serve(string name, string? secret, CancellationToken ct)
     {
         var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
@@ -35,7 +39,7 @@ public sealed class McpPipeConnectorTests
                 await Task.Delay(500, ct);
             }
             catch (Exception e) when (e is OperationCanceledException or IOException or ObjectDisposedException) { }
-        }, ct);
+        });
         return (server, done);
     }
 
