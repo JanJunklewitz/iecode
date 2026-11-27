@@ -1,6 +1,6 @@
 # CLI Build Workflow Master Plan, Round 2 (2026-11-26)
 
-> **Status: master plan, engineering review done 2026-11-27 (section "Review"; its R entries add to the M entries).** The sub-plans E to J are TDD plans. Run them with superpowers:subagent-driven-development or superpowers:executing-plans. Where a sub-plan and an M or R entry below differ, the M or R entry wins; the first task of each lane folds that plan's R entries into its sub-plan text. Plans live on `plan/cli-build-workflow-2`; implementation is based on `main` (round 1, plans A to D, [master plan](2026-11-24-cli-build-workflow-master-plan.md), merged as pull requests #70 to #73), see "Prerequisites". All six sub-plans were re-checked against `main` at `f817efe` on 2026-11-27.
+> **Status: master plan, engineering review done 2026-11-27 (section "Review"; its R entries add to the M entries).** The sub-plans E to J are TDD plans. Run them with superpowers:subagent-driven-development or superpowers:executing-plans. Where a sub-plan and an M or R entry below differ, the M or R entry wins; the R entries were folded into the sub-plan texts on 2026-11-27 (each sub-plan lists its rows under "Review changes"), so the sub-plans and this file should agree. Plans live on `plan/cli-build-workflow-2`; implementation is based on `main` (round 1, plans A to D, [master plan](2026-11-24-cli-build-workflow-master-plan.md), merged as pull requests #70 to #73), see "Prerequisites". All six sub-plans were re-checked against `main` at `f817efe` on 2026-11-27.
 
 **Goal:** Close the items round 1 left open in the TODO section "CLI: build and library workflow at scale": build many repositories in parallel, build for several TwinCAT lines in one call, build without the test PLC project, keep a tracked project library folder in step with the references, check that an installed library is really known to TwinCAT, and run PLC unit tests from the CLI.
 
@@ -22,14 +22,14 @@ Round 1's Global Constraints apply unchanged (public repository, fixtures `Tc3_M
 
 | Plan | Item (TODO.md) | Spike on a TwinCAT PC first | Tasks | Size `[estimated]` |
 |---|---|---|---|---|
-| [E](2026-11-26-cli-build-workflow-2-e-parallel-ws-build.md) | `ws build --parallel N` | U1 two STA shells in one process, U2 peak memory per shell, U3 does a running shell see a library installed after its start | 6 | 2.25 days + 75 min PC |
-| [F](2026-11-26-cli-build-workflow-2-f-tc-matrix.md) | `build` / `check --tc 4024,4026` | 4024 project in 4026 and back (hidden dialogs), missing line, two isolated builds in a row | 5 | 1.5 days + 1 h PC |
-| [G](2026-11-26-cli-build-workflow-2-g-build-subset.md) | `build --exclude-plc` / `--no-tests` | which COM path builds a subset (`BuildProject` per PLC or per `.tsproj`, `ShouldBuild`, `.sln` lines in the copy, none) | 5 | 2 days (1.5 h PC) |
-| [H](2026-11-26-cli-build-workflow-2-h-project-folder-sync.md) | `lib project-folder sync [--prune]` | file set of a version folder in a tracked `_Libraries` | 4 | 1 to 1.5 days |
-| [I](2026-11-26-cli-build-workflow-2-i-lib-verify.md) | `lib verify` | reproduce the lost install; does the repository index file `cache` decide what the library manager sees | 6 | 1.75 days |
-| [J](2026-11-26-cli-build-workflow-2-j-iecode-test.md) | `iecode test` | what the named test framework is, activation without save, TcUnit result symbols and ADS port on 4024 and 4026 | 8 | 3 days + 0.5 day PC |
+| [E](2026-11-26-cli-build-workflow-2-e-parallel-ws-build.md) | `ws build --parallel N` | U1 two STA shells in one process (and a blocked start), U2 peak memory per shell, U3 does a running shell see a library installed after its start, U4 a library edge across two TwinCAT lines | 7 | 2.75 days + 1.5 h spike + 0.5 day check on a PC |
+| [F](2026-11-26-cli-build-workflow-2-f-tc-matrix.md) | `build` / `check --tc 4024,4026` | 4024 project in 4026 and back (hidden dialogs), missing line, two isolated builds in a row | 7 | 2 days + 45 min spike + 0.5 day check on a PC |
+| [G](2026-11-26-cli-build-workflow-2-g-build-subset.md) | `build --exclude-plc` / `--no-tests` | which COM path builds a subset (`BuildProject` per PLC or per `.tsproj`, `ShouldBuild`, `.sln` lines in the copy, none) | 5 | 2.5 days + 1.5 h spike + 0.5 day check on a PC |
+| [H](2026-11-26-cli-build-workflow-2-h-project-folder-sync.md) | `lib project-folder sync [--prune]` | file set of a version folder in a tracked `_Libraries` | 5 | 1.5 to 2 days + 0.5 day check on a PC |
+| [I](2026-11-26-cli-build-workflow-2-i-lib-verify.md) | `lib verify` | reproduce the lost install; does the repository index file `cache` decide what the library manager sees | 6 | 2 days + 3.5 h spike + 0.5 day check on a PC |
+| [J](2026-11-26-cli-build-workflow-2-j-iecode-test.md) | `iecode test` | what the project test framework is, activation without save, TcUnit result symbols and ADS port on 4024 and 4026 | 10 | 3.5 days + 0.5 day spike + 0.5 day check on a PC |
 
-Total about 12 days of work plus one spike day on a TwinCAT PC `[estimated]`.
+Total about 15 days of work (an upper bound if every gate passes) plus about 4 days on a TwinCAT PC (two spike sessions, and the manual check after each merge) `[estimated]` (R4).
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ Lane 3 test:        J                       (new files; Errors.cs, XaeShell.Plc.
 
 Why this order:
 - **G before F:** both edit `ProjectCommands.Build` and `Check`. G is the smaller change (one optional parameter on `XaeShell.Build`). F then moves `BuildIsolated` out of its local function on top of it.
-- **F before E:** E touches `Runner`, `Reporter` and `WorkspaceCommands`, and its own plan asks for F first. E's follow-up `ws build --no-tests` needs G's `PlcSelection`.
+- **F before E:** E touches `Runner`, `Reporter` and `WorkspaceCommands` like F, so F first keeps the diffs small (E has no hard dependency on F). E's follow-up `ws build --no-tests` needs G's `PlcSelection`.
 - **H before I:** both add a line to the `lib` subcommand list. I also changes `Runner.InstallSaved` (M2) and checks after install and uninstall, so it should land on a quiet library command file.
 - **J alone:** almost everything in J is a new file. It shares only `TestProjects` with G (M3).
 
@@ -69,7 +69,7 @@ The user delegated the design decisions; each row is decided by the planner and 
 | M5 | F, all | `Diagnostic` gets the trailing optional field `Tc` (F). A later field goes after it. |
 | M6 | E | Done in round 1 (re-check 2026-11-26): `Isolation.Create` claims a free `<hash>-<pid>`, `-2`, `-3` … folder with a marker file (`Isolation.cs:177-199`, `:252-270`). E Task 3 only pins it with the test `TwoThreadsOfOneProcessGetTwoCopies`; `Isolation.cs` is no longer in E's Touches. |
 | M7 | E | Done in round 1 (re-check 2026-11-26, confirmed in the code): `ws build` installs every export of a solution's stage (`Workspace.BuildStages`, `WorkspaceCommands.cs:122`, `:145-150`); the `continue` at `:133` only skips a second build of the same solution. E's job is a `WorkspaceStage`, so E adds no second grouping rule. |
-| M8 | E | E depends on spike U1. If two STA threads in one process cannot each drive a shell, E stops after Task 4, which is still usable as Core plus scheduling. A child process per worker then needs its own plan; no fallback is improvised inside E. |
+| M8 | E | E depends on spike U1. If two STA threads in one process cannot each drive a shell, E stops after Task 4b, which is still usable as Core plus scheduling. A child process per worker then needs its own plan; no fallback is improvised inside E. |
 | M9 | I, J | Spike safety: before I's spike, copy the whole `Managed Libraries` folder aside and restore it afterwards, because S1 edits the `cache` index by hand and S3 uninstalls in bulk. J's spike activates a configuration on the local runtime: only on a PC with no machine and nothing in Run that matters. |
 | M10 | J | Symbol paths and names of the project-specific test framework found in spike S0 stay in a private file outside the repository. The repository only gets the generic symbol-map format (`iecode-test-adapter/1`) and the TcUnit adapter. |
 | M11 | I | If spike S1 shows that the `cache` index decides what the library manager sees, I Tasks 2 to 5 run as written. If nothing reproduces and `cache` has no effect (outcome O3), the lock from round 1 stays the fix. `lib verify` then shrinks to the shell-based check (Task 6) or is dropped; this is decided right after the spike, not during implementation. |
@@ -87,7 +87,7 @@ The user delegated the design decisions; each row is decided by the planner and 
 
 Engineering review of this master plan and the six sub-plans on 2026-11-27, against `main` at `f817efe` (worktree `iecode-plan2`). Evidence is a static read of the plans and the code; nothing was built or run, and no TwinCAT PC was available, so every claim about XAE, RepTool or ADS behaviour stays unverified until its spike. Reviewers: six read-only reviews (one per sub-plan, each checked against the code), an outside voice (native fallback, the Codex CLI is not installed), and a second opinion from the GitHub Copilot CLI. Findings marked `[S]` come from the per-plan review, `[O]` from the outside voice, `[C]` from Copilot.
 
-**Decisions.** The user delegated every decision ("you decide, take the slower but better option"). Each row below was decided by the reviewer; the answer reference is "delegated by the user, 2026-11-27". The rows are independent choices; accepting one does not accept another. The M and R entries win over sub-plan text (see the status line); the first task of each lane folds that plan's rows into its sub-plan.
+**Decisions.** The user delegated every decision ("you decide, take the slower but better option"). Each row below was decided by the reviewer; the answer reference is "delegated by the user, 2026-11-27". The rows are independent choices; accepting one does not accept another. The M and R entries win over sub-plan text (see the status line); the rows were folded into the sub-plans on 2026-11-27.
 
 **Scope Challenge.** Seven plans, about 30 new classes or files across them, so the complexity gate applies. Result: scope accepted as-is. Structure: the original arrangement (pure decisions in `IECode.Core`, wiring in `IECode.Cli` / `IECode.Automation`) stays; R11, R22 and R57 move more loop logic into Core so it can be tested, which is the same arrangement, not a smaller one. E and I stay in the round as conditional plans (M8, M11), not as committed deliverables (R4).
 
@@ -111,7 +111,7 @@ State of every row: approved by delegation, as described in the "Accept" or "Rej
 | R3 | G, J, E, I | A | I 7 `[O][S]` | Shared new files and call sites (`TestProjects.cs`, `WorkspaceCommands.cs`) are created by whichever lane lands first. | Accept: G Task 2 creates `TestProjects.cs` and its tests; J's `Select` goes into its own `TestProjectSelection.cs` and `TestProjectSelectionTests.cs` and J Task 2 starts after G Task 2 is merged; E's move of the `ws build` loop is its own pure-move commit first; whichever of E and I lands second adds the `expected` argument (M2). |
 | R4 | all | A | I 7 `[O]` | 12 days is the case where every gate passes; five plans need a second PC session after merge; PR counts exceed the stated ones. | Accept: the estimate is stated as an upper bound, each of E, F, G, I and J gets a manual PC check budgeted at about 0.5 day, E and I are conditional (M8, M11). Reject dropping E or I now: their gates already stop them after one cheap spike. |
 | R5 | J | Q | I 7 `[O]` | A framework library name sits five times in J and once each in `TODO.md` and `docs/research/cli-build-workflow.md` of a public repository; it is unknown whether it is public. | Accept for J (done: the name is replaced by "the project test framework" and `--lib <framework library>`); `TODO.md` and the research doc are left for the owner to decide because their history is already public. |
-| R6 | all | Q | I 7 `[O]` | "M entry wins" with no divergence list invites following stale text. | Accept: R entries are added to the rule (status line) and each lane's first task folds its rows into its sub-plan. |
+| R6 | all | Q | I 7 `[O]` | "M entry wins" with no divergence list invites following stale text. | Accept: R entries are added to the rule (status line) and the rows were folded into each sub-plan on 2026-11-27 (T1). |
 | R7 | E | A | C 9 `[S]` | The per-job reporter never reaches the shell: `ShellSession(Context ctx, ...)` captures `ctx` once (`Runner.cs:251`) and `XaeShell` keeps `private readonly Reporter _log` (`XaeShell.cs:33`), so from the second job on, diagnostics, `MapDiagnostic` and counters belong to the first job. | Accept: one child reporter per worker that is re-targeted per job (prefix, diagnostic mapper, counters reset in a `BeginJob`), passed to the session once; `XaeShell` is not changed. Core test for the re-targeting. |
 | R8 | E | A | C 8 `[S]` | `BuildSchedule.Next` returns null for "nothing ready yet" and for "nothing left"; a second worker would exit at the start. | Accept: `Next` returns `Ready(job)`, `Wait` or `Drained`; the runner waits on a pulse after each finished job. Core test with a thread-based fake. |
 | R9 | E | A | C 8 `[S]` | The default `--parallel 1` goes through line affinity and chain-length ordering and calls `ChooseVersion(saves: true)` for every solution up front, so it no longer behaves like today. | Accept: with one worker, pure build order; `lineOf` is computed lazily and never throws. Test `SingleWorkerFollowsBuildOrder`. |
@@ -229,13 +229,13 @@ GAPS: the PC-only column; no PC-only path is claimed as tested
 Lane 1: G, F, E (shared `ProjectCommands`, `Runner`). Lane 2: H, I (shared `LibraryCommands`, `Runner.FinishExport`). Lane 3: J (starts after G Task 2). Launch lanes 1 and 2 together after spike A; J after G Task 2 and spike B. Conflict flags: `WorkspaceCommands.cs` (E, I, R3), `Errors.cs` and `HelpText` (J only), `TestProjects.cs` (G, R3).
 
 ### Implementation tasks
-- [ ] **T1 (P1, human: ~1h / CC: ~10min)**: fold the rows of each plan into its sub-plan text before its first task (R6).
-- [ ] **T2 (P1, human: ~4h / CC: ~30min)**: plan E: R7, R8, R9, R11, R17, R18 into Tasks 2 to 5; spike U1 additions (R19).
-- [ ] **T3 (P1, human: ~3h / CC: ~25min)**: plan F: R20 to R23 into Tasks 3 to 5, split Task 4 (R22).
-- [ ] **T4 (P1, human: ~3h / CC: ~25min)**: plan G: R31 to R34 into the spike table and Tasks 2 to 4.
-- [ ] **T5 (P1, human: ~3h / CC: ~25min)**: plan H: R43 to R46, R51, R52 into Tasks 1 to 3.
-- [ ] **T6 (P1, human: ~3h / CC: ~25min)**: plan I: R53 to R57 into the spike gate and Tasks 3 to 5.
-- [ ] **T7 (P1, human: ~3h / CC: ~25min)**: plan J: R64, R65, R67, R70 into Tasks 4 to 8.
+- [x] **T1 (P1, human: ~1h / CC: ~10min)**: fold the rows of each plan into its sub-plan text before its first task (R6).
+- [x] **T2 (P1, human: ~4h / CC: ~30min)**: plan E: R7, R8, R9, R11, R17, R18 into Tasks 2 to 5; spike U1 additions (R19).
+- [x] **T3 (P1, human: ~3h / CC: ~25min)**: plan F: R20 to R23 into Tasks 3 to 5, split Task 4 (R22).
+- [x] **T4 (P1, human: ~3h / CC: ~25min)**: plan G: R31 to R34 into the spike table and Tasks 2 to 4.
+- [x] **T5 (P1, human: ~3h / CC: ~25min)**: plan H: R43 to R46, R51, R52 into Tasks 1 to 3.
+- [x] **T6 (P1, human: ~3h / CC: ~25min)**: plan I: R53 to R57 into the spike gate and Tasks 3 to 5.
+- [x] **T7 (P1, human: ~3h / CC: ~25min)**: plan J: R64, R65, R67, R70 into Tasks 4 to 8.
 - [ ] **T8 (P2, human: ~30min / CC: ~5min)**: add the TODO items from "Not in scope" to `TODO.md`.
 
 ### Outside voice
@@ -269,6 +269,6 @@ Native fallback (the Codex CLI is not installed): a Plan agent found 10 further 
 
 **OUTSIDE COVERAGE:** native Plan agent (in-host, not an outside provider) and the Copilot CLI, both completed; the Codex CLI is not installed, so no Codex coverage.
 **CROSS-MODEL:** the native reviews and Copilot agree on H's swap safety, I's lock and spike, and J's start window; Copilot alone found the cross-line edge (R17) and the close-before-delete order (R18).
-**VERDICT:** ENG REVIEW DONE, issues open as mapped work (73 rows accepted with plan changes); implementation waits for the lanes' first task (fold the rows) and the two spike sessions.
+**VERDICT:** ENG REVIEW DONE, issues open as mapped work (73 rows accepted with plan changes); implementation waits for the two spike sessions and the two spike sessions.
 
 NO UNRESOLVED DECISIONS
