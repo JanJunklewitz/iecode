@@ -126,7 +126,7 @@ public sealed partial class XaeShell : IDisposable
                 _log.Detail($"Could not read which process the shell {candidate.Id} belongs to yet.");
                 return;
             case ShellOwnership.Foreign:
-                _log.Detail($"The new process {candidate.Id} is not the COM server behind this shell (window of PID {server?.ToString() ?? "?"}); leaving it alone.");
+                _log.Detail($"The new process {candidate.Id} is not the COM server behind this shell (served by PID {server?.ToString() ?? "?"}); leaving it alone.");
                 candidate.Dispose();
                 candidate = null;
                 return;
@@ -191,13 +191,14 @@ public sealed partial class XaeShell : IDisposable
         try
         {
             // a shell that did not take Quit has no settings to write; do not hold a failed run for 30 s
-            if (_process.WaitForExit(TimeSpan.FromSeconds(quitReturned ? 30 : 5)))
+            var wait = quitReturned ? 30 : 5;
+            if (_process.WaitForExit(TimeSpan.FromSeconds(wait)))
             {
                 try { if (_entry is not null) _registry?.Remove(_entry); }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Detail($"Shell record not removed: {e.Message}"); }
             }
-            else if (_tied) _log.Detail($"Shell process {_process.Id} still runs 30 s after closing; it ends with iecode.");
-            else _log.Warn($"The XAE shell (PID {_process.Id}) still runs 30 s after closing. 'iecode shells kill' ends it.");
+            else if (_tied) _log.Detail($"Shell process {_process.Id} still runs {wait} s after closing; it ends with iecode.");
+            else _log.Warn($"The XAE shell (PID {_process.Id}) still runs {wait} s after closing. 'iecode shells kill' ends it.");
         }
         catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
