@@ -134,6 +134,12 @@ Medium:
 Large:
 - [ ] **`ws build --parallel N`** (needs isolation and the mutex) and **`iecode test`** for `Tc3_PlcTestFramework` over ADS.
 
+Follow-ups from the round-2 plan review (2026-11-27, see the "Review" section of the round-2 master plan):
+- [ ] **Ctrl+C handling in the CLI**: there is no `CancelKeyPress` handler, so Ctrl+C ends the process without cleanup (isolated copies stay for 24 h, shells are orphaned); a per-job watchdog for `ws build --parallel` and a copy-size warning belong with it.
+- [ ] **`ws build --parallel --copy-tmc`**: a parallel build does not write files back; a per-job `.tmc` copy is the first thing missing.
+- [ ] **`iecode test --stop-after`**: put the runtime back to config mode or stop after the test; round 2 leaves it in Run and says so.
+- [ ] **`lib project-folder sync`: newer half-installed version**: a `*` reference silently uses the next older version when the newest repository folder has no library file.
+
 Already there (documentation only): `lib save -o <dir>`, `ws release --bump --no-save` raises a `ProjectVersion`, `lib installed --lib`, global `--json`.
 
 ## Open
