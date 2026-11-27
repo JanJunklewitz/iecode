@@ -26,21 +26,21 @@
 ## Premises checked (branch `feature/cli-build-workflow-master`, tip `0515a61`)
 
 1. `--tc` is a global recursive `Option<string>`, default `"auto"`: `cli/src/IECode.Cli/Globals.cs:15-20`.
-2. The only reader is `Context.Version => TwinCatVersion.Parse(Parse.GetValue(Globals.Tc))`: `Globals.cs:46`; `Context` is a `sealed record`, so `with { … }` works: `Globals.cs:44`. Users of `ctx.Version`: `Runner.cs:125,222,253`, `ProjectCommands.cs:46,342`, `LibraryCommands.cs:419,445,489,527,541`, `DoctorCommand.cs:31`.
+2. The only reader is `Context.Version => TwinCatVersion.Parse(Parse.GetValue(Globals.Tc))`: `Globals.cs:46`; `Context` is a `sealed record`, so `with { … }` works: `Globals.cs:44`. Users of `ctx.Version`: `Runner.cs:128,232,269`, `ProjectCommands.cs:46,342`, `LibraryCommands.cs:429,455,499,537,551`, `DoctorCommand.cs:31`.
 3. `TwinCatVersion.Parse("4024,4026")` throws `IECodeException(Usage, "Invalid TwinCAT version …")` today (regex `^(?:3\.1\.)?\d{4}(?:\.\d+)?$`): `TwinCatVersion.cs:18-30`. So every command already rejects a list with exit 2; the plan only improves the message.
-4. An explicit version is never second-guessed: `TcLineGuard.Choose` returns it with no note: `TcLineGuard.cs:48`. The exact-build fallback in `Runner.SelectVersion` applies only to `auto`: `Runner.cs:222`.
-5. `TwinCatInstall.Builds(string?)` lists installed builds oldest first, empty when unknown: `TcLineGuard.cs:109-123`; `RepTool.TwinCatDir` is its input: `Runner.cs:125`.
+4. An explicit version is never second-guessed: `TcLineGuard.Choose` returns it with no note: `TcLineGuard.cs:48`. The exact-build fallback in `Runner.SelectVersion` applies only to `auto`: `Runner.cs:232`.
+5. `TwinCatInstall.Builds(string?)` lists installed builds oldest first, empty when unknown: `TcLineGuard.cs:109-123`; `RepTool.TwinCatDir` is its input: `Runner.cs:128`.
 6. `build --isolate`: `OutsideRoot` check, `Isolation.Create`, `MapDiagnostic = d => Isolation.MapBack(d, copy)`, `WithShell(ctx, copy.Solution, saves: false, …)`, `TryDelete(15 s)` in `finally`: `ProjectCommands.cs:126-166`. Without `--isolate`, build counts as saving (`saves: true`, with `beforeOpen` and `Reporter.PartialData` for the changed-files report): `ProjectCommands.cs:115-124`. `OutsideRoot` now also refuses projects of an unsupported type (only `.plcproj`, `.tsproj`, `.tspproj` are accepted in a copy): `ProjectCommands.cs:128-131`.
 7. The copy folder is `<hash>-<pid>` (`Isolation.cs:81-85`), but `Create` no longer deletes it: `Allocate` claims the first free `<hash>-<pid>`, `<hash>-<pid>-2`, … with a marker file (`Isolation.cs:177-199,252-270`). One process can therefore hold several copies at once; a kept copy of one entry does not block the next.
 8. `BuildOutcome.ExitCode(IEnumerable<bool>)` gives 0 or 10: `BuildTriage.cs:33`. Exit codes: `Usage = 2`, `BuildFailed = 10`, `VersionNotInstalled = 15`, `Cancelled = 130`: `Errors.cs:8-21`.
-9. `Reporter.TwinCatVersion` (JSON `twinCat`) is set by `XaeShell.SelectVersion` together with the new `XaeShell.SelectedVersion`: `XaeShell.cs:43,353-354`, `Reporter.cs:29,158`. `TwinCatVersion.UsedBy(string? selected, TwinCatVersion requested)` turns it into a version: `TwinCatVersion.cs:90`. `Reporter.PartialData` is written as `data` of an error result: `Reporter.cs:147,159`. `Reporter.MapDiagnostic` is applied to every recorded diagnostic, also root causes: `Reporter.cs:65-67,107,111`. `Reporter.Diagnostics` is the flat list: `Reporter.cs:30`.
+9. `Reporter.TwinCatVersion` (JSON `twinCat`) is set by `XaeShell.SelectVersion` together with the new `XaeShell.SelectedVersion`: `XaeShell.cs:43,354-355`, `Reporter.cs:29,158`. `TwinCatVersion.UsedBy(string? selected, TwinCatVersion requested)` turns it into a version: `TwinCatVersion.cs:90`. `Reporter.PartialData` is written as `data` of an error result: `Reporter.cs:147,159`. `Reporter.MapDiagnostic` is applied to every recorded diagnostic, also root causes: `Reporter.cs:65-67,107,111`. `Reporter.Diagnostics` is the flat list: `Reporter.cs:30`.
 10. `Diagnostic` is a positional record with trailing optional members; `RootCause` is the last: `Diagnostics.cs:8-16`. JSON omits nulls: `Reporter.cs:170`.
 11. `check` opens with `saves: false` and returns `{ solution, errors, warnings }`: `ProjectCommands.cs:205-218`.
 12. Extension: `globalArgs()` passes `--tc <value>` only when `iecode.tcVersion` is not `auto`: `extension/src/cli/iecode.ts:58-59`; the input box rejects a list (`/^(auto|(3\.1\.)?\d{4}(\.\d+)?)$/`): `extension/src/commands/engineering.ts:145`; it reads only `builds[]`: `engineering.ts:100`.
 13. **Unverified (TwinCAT PC):** opening a 4024-stamped project with an explicit `--tc 4026` in a hidden shell raises no modal upgrade dialog (or one `DialogWatch` cancels cleanly, `DialogPolicy.cs:82-86`), and the build then runs. Spike Task 1 (a).
 14. **Unverified:** opening a 4026-saved project with `--tc 4024` fails fast with a readable error (exit 1 or a dialog), not a hang. Spike Task 1 (b).
 15. **Unverified:** `--tc <line not installed>` with `Builds()` empty (old install layout) fails in `SelectVersion` with exit 15 within seconds. Spike Task 1 (c).
-16. **Unverified:** two isolated builds of different lines one after the other in one `iecode` process work (shell quit, copy delete within 15 s, second shell start). `ShellSession` already switches lines in code (`Runner.cs:235-290`), but not with copy deletion in between. Spike Task 1 (d).
+16. **Unverified:** two isolated builds of different lines one after the other in one `iecode` process work (shell quit, copy delete within 15 s, second shell start). `ShellSession` already switches lines in code (`Runner.cs:251-306`), but not with copy deletion in between. Spike Task 1 (d).
 
 ## Depends on (round-1 symbols, real signatures)
 
@@ -49,9 +49,9 @@
 - `public static IsolatedCopy Isolation.Create(string solution, string isolateDir, int? pid = null)`, `Isolation.OutsideRoot(string solution, string root)`, `Isolation.RootOf(string)`, `Isolation.CopyRootFor(string root, string isolateDir, int pid)`, `Isolation.MapBack(Diagnostic d, IsolatedCopy copy)`, `Isolation.DefaultDir`, `IsolatedCopy.TryDelete(TimeSpan)`
 - `public static int BuildOutcome.ExitCode(IEnumerable<bool> buildsOk)`
 - `Reporter.MapDiagnostic`, `Reporter.TwinCatVersion`, `Reporter.Diagnostics`, `Reporter.Info/Step/Warn`
-- `Runner.WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)` (`Runner.cs:85`)
+- `Runner.WithShell<T>(Context ctx, string solution, bool saves, Func<XaeShell, T> body, bool discard = false, Action? beforeOpen = null)` (`Runner.cs:88`)
 - `XaeShell.SelectedVersion` (`string?`, `XaeShell.cs:43`), `TwinCatVersion.UsedBy(string? selected, TwinCatVersion requested)` (`TwinCatVersion.cs:90`), `Reporter.PartialData` (`object?`, `Reporter.cs:147`)
-- `LibraryCommands.Preflight(Context ctx, IEnumerable<PlcProjectFile> projects)` (`LibraryCommands.cs:355`), `ProjectCommands.WarnLongPath(Context ctx, string folder, string root, string copyRoot, bool isolating)` (`ProjectCommands.cs:188`)
+- `LibraryCommands.Preflight(Context ctx, IEnumerable<PlcProjectFile> projects)` (`LibraryCommands.cs:365`), `ProjectCommands.WarnLongPath(Context ctx, string folder, string root, string copyRoot, bool isolating)` (`ProjectCommands.cs:188`)
 - `BuildResult(string Platform, bool Ok, int FailedProjects, int Errors, int Warnings, BuildSummary? Summary, double Seconds, bool StaticAnalysisOnly = false)`
 
 ## Touches
