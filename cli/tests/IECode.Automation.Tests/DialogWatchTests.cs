@@ -17,12 +17,17 @@ public class DialogWatchTests
 
     private static Reporter Log(StringWriter err) => new(json: false, verbose: true, stdout: new StringWriter(), stderr: err);
 
-    /// <summary>Starts a process that shows a modal box owned by a form and prints the answer.</summary>
+    /// <summary>
+    /// Starts a process that shows a modal box owned by a form and prints the answer. Returns once the process printed
+    /// 'ready' (just before the box opens): loading Windows Forms can take long on a busy CI runner, and that time must
+    /// not count against the watcher's deadline.
+    /// </summary>
     private static Process ShowBox(string title, string buttons)
     {
         var script =
             "Add-Type -AssemblyName System.Windows.Forms;" +
             "$f = New-Object System.Windows.Forms.Form; $f.Text = 'iecode test owner'; $f.Show();" +
+            "[Console]::Out.WriteLine('ready'); [Console]::Out.Flush();" +
             $"$r = [System.Windows.Forms.MessageBox]::Show($f, 'The path is too long.', '{title}', '{buttons}');" +
             "[Console]::Out.WriteLine($r)";
         var psi = new ProcessStartInfo("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script])
@@ -30,7 +35,15 @@ public class DialogWatchTests
             RedirectStandardOutput = true,
             UseShellExecute = false,
         };
-        return Process.Start(psi)!;
+        var p = Process.Start(psi)!;
+        var ready = p.StandardOutput.ReadLineAsync();
+        if (!ready.Wait(TimeSpan.FromSeconds(60)) || ready.Result != "ready")
+        {
+            var state = p.HasExited ? $"exited with {p.ExitCode}" : "still starting";
+            End(p);
+            Assert.Fail($"PowerShell did not show the test box within 60 s ({state}).");
+        }
+        return p;
     }
 
     private static bool Until(Func<bool> condition, TimeSpan max)
@@ -86,7 +99,7 @@ public class DialogWatchTests
         {
             var err = new StringWriter();
             using var watch = DialogWatch.Start(p, userCanAnswer: false, Log(err), Fast);
-            Assert.True(Until(() => watch.GaveUp, TimeSpan.FromSeconds(30)), "did not give up: " + err);
+            Assert.True(Until(() => watch.GaveUp, TimeSpan.FromSeconds(30)), $"did not give up (box process {(p.HasExited ? "exited" : "runs")}): " + err);
             Assert.True(p.WaitForExit(10000), "process still runs");
             Assert.StartsWith("XAE showed a dialog that did not close and the shell was ended", watch.Failure?.Message);
             Assert.True(watch.ShellEnded);
